@@ -172,9 +172,45 @@ test('credentialed image validates through the browser reader', async ({ page })
   await expect(panel).toContainText(/content credentials verified in this browser/i, { timeout: 30000 })
 })
 
-test('privacy: noindex header and no index page', async ({ request }) => {
-  const res = await request.get(GALLERY);
-  expect(res.headers()['x-robots-tag']).toContain('noindex');
-  const root = await request.get(`${BASE}/`);
-  expect([403, 404]).toContain(root.status());
-});
+test('admin root exposes scoped gallery settings and remains noindex', async ({ page, request }) => {
+  const root = await request.get(`${BASE}/`)
+  expect(root.status()).toBe(200)
+  expect(root.headers()['x-robots-tag']).toContain('noindex')
+  await page.goto(`${BASE}/`)
+  await expect(page.getByRole('heading', { name: /shape the album/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /gallery identity/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /save settings/i })).toBeVisible()
+})
+
+test.describe('admin responsive layout', () => {
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true })
+
+  test('fits the phone viewport and keeps the save action reachable', async ({ page }) => {
+    await page.goto(`${BASE}/`)
+    await expect(page.getByRole('heading', { name: /shape the album/i })).toBeVisible()
+    const geometry = await page.evaluate(() => ({
+      scrollable: document.documentElement.scrollHeight > window.innerHeight,
+      overflowX: document.documentElement.scrollWidth - window.innerWidth,
+    }))
+    expect(geometry.scrollable).toBe(true)
+    expect(geometry.overflowX).toBeLessThanOrEqual(1)
+    await page.getByRole('button', { name: /save settings/i }).scrollIntoViewIfNeeded()
+    await expect(page.getByRole('button', { name: /save settings/i })).toBeVisible()
+  })
+})
+
+test('saved admin settings apply to the gallery curtain', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  await page.getByLabel('title').fill('A locally shaped album')
+  await page.getByRole('button', { name: /save settings/i }).click()
+  await page.goto(GALLERY)
+  await expect(page.locator('[data-curtain-title]')).toHaveText('A locally shaped album')
+  await page.evaluate(() => localStorage.clear())
+})
+
+test('privacy: gallery remains noindex and unknown paths remain absent', async ({ request }) => {
+  const res = await request.get(GALLERY)
+  expect(res.headers()['x-robots-tag']).toContain('noindex')
+  const missing = await request.get(`${BASE}/not-a-gallery`)
+  expect([403, 404]).toContain(missing.status())
+})

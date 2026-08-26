@@ -4,3 +4,4 @@
 - [x] Diagnose the strip stage sizing and pointer-drag behavior on a wide viewport.
 - [x] Ensure strip-mode images render uncropped at full viewport height and preserve every pixel.
 - [ ] Refine desktop drag/pan behavior, verify across viewports, redeploy, and publish the fix.
+- [ ] Include the approved editor and gallery-settings work in the combined build, verification, and deployment.

@@ -12,7 +12,7 @@ bun run gallery
 bun run dev
 ```
 
-Open `http://localhost:5173/italy-2018`. The root path intentionally returns 404.
+Open `http://localhost:5173/italy-2018` to view the album, or open `http://localhost:5173/` for the gallery settings workbench. The root admin is noindex and does not expose a gallery index. In this bundled v1, edits are scoped to the gallery slug and stored in the current browser; use Export/Import to move a settings JSON between browsers or into a later deployment-backed store.
 
 ## Deploy to Cloudflare
 
@@ -26,7 +26,7 @@ The command rebuilds the gallery assets, runs the HonoX client and Worker builds
 
 ## Gallery manifest
 
-`build-gallery.mjs` writes both `public/images/italy-2018/manifest.json` and the server-importable `app/lib/gallery-manifest.ts`. The manifest shape is:
+`build-gallery.mjs` writes both `public/images/italy-2018/manifest.json` and `app/lib/gallery-manifest.ts`. The generated manifest remains the deployment default. The root admin edits a separate `GallerySettings` object in `app/lib/gallery-settings.ts`, preserving stable image IDs and the immutable photo bytes. The manifest shape is:
 
 ```ts
 type GalleryManifest = {
@@ -88,9 +88,12 @@ During viewing the stage contains only the quiet 44px Gallery controls dot. The 
 
 | Path | Responsibility |
 | --- | --- |
+| `app/routes/index.tsx` | Root noindex admin route for the current gallery |
 | `app/routes/[slug].tsx` | The one valid gallery route and server-rendered curtain |
 | `app/routes/_renderer.tsx` | Document shell, noindex metadata, stylesheet, and island client entry |
-| `app/islands/Viewer.tsx` | The only hydrated island: strip physics, modal, modes, C2PA trigger |
+| `app/islands/Admin.tsx` | Root settings island with edit, reset, import, and export actions |
+| `app/islands/Viewer.tsx` | The hydrated viewer island: strip physics, modal, modes, C2PA trigger |
+| `app/lib/gallery-settings.ts` | Per-gallery settings model, normalization, and browser-local persistence seam |
 | `app/lib/imagesource.ts` | ImageSource interface, bundled adapter, future R2 adapter |
 | `app/lib/gallery-manifest.ts` | Generated typed manifest used by the Worker route |
 | `build-gallery.mjs` | EXIF, dimensions, placeholders, variants, and integrity report |
@@ -105,4 +108,4 @@ Run the supplied suite against a reachable local server with:
 GALLERY_URL=http://localhost:5173 GALLERY_SLUG=italy-2018 bunx playwright test qa.spec.ts
 ```
 
-The required QA matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide, with reduced motion both enabled and disabled. The suite checks the one-visible-control rule, drag and hash navigation, the modal, curtain, arrows, CLS, accessibility, C2PA panel state, and noindex privacy behavior.
+The required QA matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide, with reduced motion both enabled and disabled. The suite checks the one-visible-control rule, drag and hash navigation, the modal, curtain, arrows, CLS, accessibility, C2PA panel state, root admin rendering, mobile admin layout, settings handoff, and noindex privacy behavior.

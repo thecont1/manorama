@@ -2,8 +2,10 @@ import { createRoute } from 'honox/factory'
 import Viewer from '../islands/Viewer'
 import manifest from '../lib/gallery-manifest'
 import { BundledSource } from '../lib/imagesource'
+import { defaultGallerySettings } from '../lib/gallery-settings'
 
 const source = new BundledSource(manifest)
+const settings = defaultGallerySettings(manifest)
 
 export default createRoute((c) => {
   const slug = c.req.param('slug')
@@ -22,14 +24,14 @@ export default createRoute((c) => {
         aria-label="Enter gallery"
       >
         <div class="curtain-content">
-          <p class="curtain-kicker">A single album</p>
-          <h1>{manifest.title}</h1>
-          <p class="curtain-caption">{manifest.caption}</p>
-          <p class="curtain-date">{manifest.date}</p>
-          <p class="curtain-prompt">Tap, click, or press Enter to enter</p>
+          <p class="curtain-kicker" data-curtain-kicker>{settings.curtainKicker}</p>
+          <h1 data-curtain-title>{settings.title}</h1>
+          <p class="curtain-caption" data-curtain-caption>{settings.caption}</p>
+          <p class="curtain-date" data-curtain-date>{settings.date}</p>
+          <p class="curtain-prompt" data-curtain-prompt>{settings.curtainPrompt}</p>
         </div>
       </section>
-      <Viewer slug={manifest.slug} images={source.list()} />
+      <Viewer slug={manifest.slug} images={source.list()} settings={settings} />
     </main>,
     { title: `${manifest.title} — manorama` },
   )
