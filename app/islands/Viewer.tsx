@@ -176,6 +176,18 @@ export default function Viewer({ slug, images }: Props) {
   }, [mode, images.length])
 
   useEffect(() => {
+    const frames = stageRef.current?.querySelectorAll<HTMLImageElement>('img[data-src]')
+    frames?.forEach((image) => {
+      const frame = image.closest<HTMLElement>('[data-index]')
+      const frameIndex = Number(frame?.dataset.index ?? 0) - 1
+      if (Math.abs(frameIndex - index) <= 2 && image.dataset.src) {
+        image.src = image.dataset.src
+        image.removeAttribute('data-src')
+      }
+    })
+  }, [index, mode])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
     const current = index
     for (let offset = -2; offset <= 2; offset += 1) {
@@ -393,7 +405,8 @@ export default function Viewer({ slug, images }: Props) {
               style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
             >
               <img
-                src={image.src}
+                src={Math.abs(imageIndex - index) <= 2 ? image.src : image.placeholder}
+                data-src={Math.abs(imageIndex - index) > 2 ? image.src : undefined}
                 alt={image.alt}
                 width={image.width}
                 height={image.height}

@@ -122,7 +122,7 @@ for (const [index, file] of files.entries()) {
 
 const manifest = { slug: SLUG, title: TITLE, caption: CAPTION, date: DATE, images }
 await writeFile(path.join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
-await writeFile(path.join(outDir, 'integrity-report.json'), JSON.stringify({ generatedAt: new Date().toISOString(), report }, null, 2) + '\n')
+await writeFile(path.join(outDir, 'integrity-report.json'), JSON.stringify({ report }, null, 2) + '\n')
 await writeFile('./app/lib/gallery-manifest.ts', `export default ${JSON.stringify(manifest, null, 2)} as const\n`)
 console.table(report)
 const failed = report.filter((row) => String(row.verified).startsWith('FAIL'))
