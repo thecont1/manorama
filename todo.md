@@ -11,3 +11,5 @@
 - [x] Simulate the live gallery in mobile portrait and landscape viewports, including browser-chrome height changes.
 - [x] Refine touch swipe momentum and release response for a more natural mobile strip interaction.
 - [x] Verify mobile orientation and gesture behavior across the acceptance matrix, then redeploy.
+- [x] Remove post-release strip momentum so desktop and mobile drags stop exactly at the released position.
+- [x] Verify exact-stop movement for pointer drag and true touch input, then redeploy.
