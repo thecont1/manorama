@@ -56,15 +56,42 @@ for (const vp of viewports) {
       await expect(page).toHaveURL(/#img-1/);
     });
 
-    test('drag pans the canvas', async ({ page }) => {
+    test('strip keeps source proportions and the complete image height', async ({ page }) => {
+      await dismissCurtain(page);
+      await page.locator('[data-track] img').first().evaluate((image: HTMLImageElement) => image.decode());
+      const geometry = await page.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>('[data-stage]')!.getBoundingClientRect();
+        return [...document.querySelectorAll<HTMLImageElement>('[data-track] img')]
+          .filter((image) => image.naturalWidth > 1 && image.naturalHeight > 1)
+          .slice(0, 3)
+          .map((image) => {
+            const rect = image.getBoundingClientRect();
+            return {
+              heightDelta: Math.abs(rect.height - stage.height),
+              renderedRatio: rect.width / rect.height,
+              sourceRatio: image.naturalWidth / image.naturalHeight,
+            };
+          });
+      });
+      expect(geometry).not.toHaveLength(0);
+      for (const image of geometry) {
+        expect(image.heightDelta).toBeLessThanOrEqual(1);
+        expect(Math.abs(image.renderedRatio - image.sourceRatio)).toBeLessThan(0.002);
+      }
+    });
+
+    test('drag pans the canvas one-to-one before gentle release momentum', async ({ page }) => {
       await dismissCurtain(page);
       const x0 = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
       await page.mouse.move(vp.width / 2, vp.height / 2);
       await page.mouse.down();
-      await page.mouse.move(vp.width / 2 - 200, vp.height / 2, { steps: 10 });
+      await page.mouse.move(vp.width / 2 - 160, vp.height / 2, { steps: 8 });
+      const xDuringDrag = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
+      expect(Math.abs((xDuringDrag - x0) + 160)).toBeLessThanOrEqual(3);
       await page.mouse.up();
-      const x1 = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
-      expect(x1).toBeLessThan(x0);
+      await page.waitForTimeout(120);
+      const xAfterRelease = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
+      expect(xAfterRelease).toBeLessThanOrEqual(xDuringDrag);
     });
 
     test('modal contains every control and dismisses three ways', async ({ page }) => {

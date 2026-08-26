@@ -1,3 +1,6 @@
 - [x] Rename the Cloudflare Worker to `manorama` in the deployment configuration.
 - [x] Deploy the renamed Worker and verify `https://manorama.thecontrarian.workers.dev/italy-2018`.
 - [x] Commit and push the hostname configuration change.
+- [x] Diagnose the strip stage sizing and pointer-drag behavior on a wide viewport.
+- [x] Ensure strip-mode images render uncropped at full viewport height and preserve every pixel.
+- [ ] Refine desktop drag/pan behavior, verify across viewports, redeploy, and publish the fix.

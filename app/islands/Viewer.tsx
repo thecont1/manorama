@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
+import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
+
+/**
+ * Strip invariant: each frame derives its width from the source aspect ratio at
+ * full stage height. The stage may clip the horizontal journey, never pixels
+ * above or below a photograph. Pointer movement writes the track transform 1:1.
+ */
 
 type Mode = 'strip' | 'vertical' | 'single'
 type Props = {
   slug: string
   images: readonly GalleryImage[]
+  settings: GallerySettings
 }
 
 type DragSample = { x: number; time: number }
@@ -18,13 +26,15 @@ const getHashIndex = (length: number) => {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
-export default function Viewer({ slug, images }: Props) {
-  const [mode, setMode] = useState<Mode>('strip')
-  const [index, setIndex] = useState(() => getHashIndex(images.length))
+export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
+  const [settings, setSettings] = useState<GallerySettings>(initialSettings)
+  const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
+  const [mode, setMode] = useState<Mode>(initialSettings.defaultMode)
+  const [index, setIndex] = useState(() => getHashIndex(sourceImages.length))
   const [x, setX] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
-  const [showArrows, setShowArrows] = useState(false)
-  const [showCaptions, setShowCaptions] = useState(false)
+  const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
+  const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -40,23 +50,59 @@ export default function Viewer({ slug, images }: Props) {
   const currentXRef = useRef(0)
 
   const currentImage = images[index] ?? images[0]
-  const hasMultiple = images.length > 1
 
-  const stripWidth = useMemo(() => {
-    if (typeof window === 'undefined') return 0
-    return images.reduce((total, image) => total + window.innerHeight * (image.width / image.height), 0)
-  }, [images])
+  useEffect(() => {
+    const loaded = loadStoredGallerySettings(slug, initialSettings)
+    setSettings(loaded)
+    setMode(loaded.defaultMode)
+    setShowArrows(loaded.defaultShowArrows)
+    setShowCaptions(loaded.defaultShowCaptions)
+    const curtain = document.querySelector<HTMLElement>('[data-curtain]')
+    const updateText = (selector: string, value: string) => {
+      const element = curtain?.querySelector<HTMLElement>(selector)
+      if (element) element.textContent = value
+    }
+    updateText('[data-curtain-kicker]', loaded.curtainKicker)
+    updateText('[data-curtain-title]', loaded.title)
+    updateText('[data-curtain-caption]', loaded.caption)
+    updateText('[data-curtain-date]', loaded.date)
+    updateText('[data-curtain-prompt]', loaded.curtainPrompt)
+  }, [slug, initialSettings])
+  const hasMultiple = images.length > 1
 
   const getBounds = () => {
     const viewport = stageRef.current?.clientWidth ?? window.innerWidth
-    return { min: 0, max: Math.max(0, stripWidth - viewport) }
+    const content = trackRef.current?.scrollWidth ?? 0
+    return { min: 0, max: Math.max(0, content - viewport) }
+  }
+
+  const reportStripPosition = (position: number) => {
+    const stage = stageRef.current
+    const track = trackRef.current
+    if (!stage || !track) return
+    const midpoint = -position + stage.clientWidth / 2
+    const frames = [...track.querySelectorAll<HTMLElement>('[data-index]')]
+    let nearest = 0
+    let nearestDistance = Number.POSITIVE_INFINITY
+    for (const frame of frames) {
+      const frameIndex = Number(frame.dataset.index ?? 1) - 1
+      const center = frame.offsetLeft + frame.offsetWidth / 2
+      const distance = Math.abs(center - midpoint)
+      if (distance < nearestDistance) {
+        nearest = frameIndex
+        nearestDistance = distance
+      }
+    }
+    setIndex((previous) => previous === nearest ? previous : nearest)
   }
 
   const renderX = (next: number) => {
     const bounds = getBounds()
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
+    trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
     setX(value)
+    reportStripPosition(value)
     return value
   }
 
@@ -70,9 +116,10 @@ export default function Viewer({ slug, images }: Props) {
   const settleTo = (target: number, instant = false) => {
     stopMomentum()
     const from = currentXRef.current
-    const destination = renderX(target)
+    const bounds = getBounds()
+    const destination = clamp(target, -bounds.max, 0)
     if (instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setX(destination)
+      renderX(destination)
       return
     }
     const started = performance.now()
@@ -89,9 +136,8 @@ export default function Viewer({ slug, images }: Props) {
   }
 
   const imageStart = (imageIndex: number) => {
-    if (!stageRef.current || imageIndex <= 0) return 0
-    const viewportHeight = stageRef.current.clientHeight || window.innerHeight
-    return images.slice(0, imageIndex).reduce((total, image) => total + viewportHeight * (image.width / image.height), 0)
+    if (imageIndex <= 0) return 0
+    return trackRef.current?.querySelector<HTMLElement>(`[data-index="${imageIndex + 1}"]`)?.offsetLeft ?? 0
   }
 
   const goTo = (nextIndex: number, instant = false) => {
@@ -148,10 +194,8 @@ export default function Viewer({ slug, images }: Props) {
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    const viewportHeight = stage.clientHeight || window.innerHeight
-    const target = mode === 'strip' ? -images.slice(0, index).reduce((sum, image) => sum + viewportHeight * (image.width / image.height), 0) : 0
-    currentXRef.current = target
-    setX(target)
+    const target = mode === 'strip' ? -imageStart(index) : 0
+    renderX(target)
     if (mode === 'vertical') requestAnimationFrame(() => document.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
   }, [mode])
 
@@ -230,7 +274,7 @@ export default function Viewer({ slug, images }: Props) {
     }
     stage.addEventListener('wheel', onWheel, { passive: false })
     return () => stage.removeEventListener('wheel', onWheel)
-  }, [mode, stripWidth, index])
+  }, [mode, index])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -312,7 +356,7 @@ export default function Viewer({ slug, images }: Props) {
       stage.removeEventListener('pointercancel', onPointerUp)
       stopMomentum()
     }
-  }, [mode, stripWidth])
+  }, [mode])
 
   useEffect(() => {
     if (!modalOpen) return
