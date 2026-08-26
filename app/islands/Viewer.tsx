@@ -6,7 +6,7 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
  * Strip invariant: each frame derives its width from the source aspect ratio at
  * full stage height. The stage may clip the horizontal journey, never pixels
  * above or below a photograph. Its height follows the visible browser viewport
- * after orientation or browser-chrome changes. Pointer movement writes the track transform 1:1.
+ * after orientation or browser-chrome changes. Pointer movement writes the track transform 1:1 and stops at release.
  */
 
 type Mode = 'strip' | 'vertical' | 'single'
@@ -15,8 +15,6 @@ type Props = {
   images: readonly GalleryImage[]
   settings: GallerySettings
 }
-
-type DragSample = { x: number; time: number }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
@@ -39,7 +37,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
-  const samplesRef = useRef<DragSample[]>([])
   const momentumRef = useRef<number | null>(null)
   const c2paRef = useRef<any>(null)
   const currentXRef = useRef(0)
@@ -346,7 +343,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       stopMomentum()
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
-      samplesRef.current = [{ x: event.clientX, time: performance.now() }]
       stage.setPointerCapture(event.pointerId)
       stage.classList.add('is-dragging')
     }
@@ -355,36 +351,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const dx = event.clientX - lastPointerRef.current.x
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       renderX(currentXRef.current + dx)
-      const now = performance.now()
-      samplesRef.current.push({ x: event.clientX, time: now })
-      samplesRef.current = samplesRef.current.filter((sample) => now - sample.time < 70)
     }
     const onPointerUp = (event: PointerEvent) => {
       if (!draggingRef.current) return
       draggingRef.current = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
-      const samples = samplesRef.current
-      const first = samples[0]
-      const last = samples[samples.length - 1]
-      const velocity = first && last ? (last.x - first.x) / Math.max(16, last.time - first.time) : 0
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        settleTo(currentXRef.current, true)
-        return
-      }
-      let velocityPx = clamp(velocity * 28, -56, 56)
-      let previousTime = performance.now()
-      const frame = (now: number) => {
-        const frameScale = clamp((now - previousTime) / (1000 / 60), 0.5, 3)
-        previousTime = now
-        velocityPx *= Math.pow(0.88, frameScale)
-        const next = renderX(currentXRef.current + velocityPx * frameScale)
-        const bounds = getBounds()
-        const atEdge = next === 0 || next === -bounds.max
-        if (Math.abs(velocityPx) > 0.2 && !atEdge) momentumRef.current = requestAnimationFrame(frame)
-        else momentumRef.current = null
-      }
-      momentumRef.current = requestAnimationFrame(frame)
     }
     stage.addEventListener('pointerdown', onPointerDown)
     stage.addEventListener('pointermove', onPointerMove)
