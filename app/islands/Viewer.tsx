@@ -6,7 +6,7 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
  * Strip invariant: each frame derives its width from the source aspect ratio at
  * full stage height. The stage may clip the horizontal journey, never pixels
  * above or below a photograph. Its height follows the visible browser viewport
- * after orientation or browser-chrome changes. Pointer movement writes the track transform 1:1 and stops at release.
+ * after orientation or browser-chrome changes. Pointer input is coalesced once per frame into one continuous canvas and stops at release.
  */
 
 type Mode = 'strip' | 'vertical' | 'single'
@@ -37,9 +37,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
+  const dragTargetXRef = useRef(0)
+  const dragFrameRef = useRef<number | null>(null)
   const momentumRef = useRef<number | null>(null)
   const c2paRef = useRef<any>(null)
   const currentXRef = useRef(0)
+  const indexRef = useRef(index)
+  const modeRef = useRef(mode)
   const reportedIndexRef = useRef(index)
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
@@ -47,6 +51,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const boundsDirtyRef = useRef(true)
 
   const currentImage = images[index] ?? images[0]
+
+  useEffect(() => { indexRef.current = index }, [index])
+  useEffect(() => { modeRef.current = mode }, [mode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
@@ -137,6 +144,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
     if (shouldReport) reportStripPosition()
     return value
+  }
+
+  const flushDragTarget = () => {
+    if (dragFrameRef.current !== null) {
+      cancelAnimationFrame(dragFrameRef.current)
+      dragFrameRef.current = null
+    }
+    renderX(dragTargetXRef.current)
+  }
+
+  const scheduleDragTarget = () => {
+    if (dragFrameRef.current !== null) return
+    dragFrameRef.current = requestAnimationFrame(() => {
+      dragFrameRef.current = null
+      renderX(dragTargetXRef.current)
+    })
   }
 
   const stopMomentum = () => {
@@ -259,7 +282,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
         stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
         boundsDirtyRef.current = true
-        if (mode === 'strip') settleTo(-imageStart(index), true)
+        if (modeRef.current === 'strip') settleTo(-imageStart(indexRef.current), true)
       })
     }
     const visualViewport = window.visualViewport
@@ -275,7 +298,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       visualViewport?.removeEventListener('scroll', onResize)
       if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
     }
-  }, [mode, index])
+  }, [])
 
   useEffect(() => () => {
     cancelPositionReport()
@@ -343,6 +366,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       stopMomentum()
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
+      dragTargetXRef.current = currentXRef.current
       stage.setPointerCapture(event.pointerId)
       stage.classList.add('is-dragging')
     }
@@ -350,10 +374,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (!draggingRef.current) return
       const dx = event.clientX - lastPointerRef.current.x
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
-      renderX(currentXRef.current + dx)
+      dragTargetXRef.current += dx
+      scheduleDragTarget()
     }
     const onPointerUp = (event: PointerEvent) => {
       if (!draggingRef.current) return
+      flushDragTarget()
       draggingRef.current = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
@@ -367,6 +393,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
+      if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
   }, [mode])

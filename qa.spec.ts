@@ -182,6 +182,25 @@ for (const vp of viewports) {
       expect(Math.abs(after - during)).toBeLessThanOrEqual(1);
     });
 
+    test('repeated touch drags cross image boundaries as one continuous canvas', async ({ page }) => {
+      test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
+      await dismissCurtain(page);
+      const client = await page.context().newCDPSession(page);
+      const positions: number[] = [];
+      for (let gesture = 0; gesture < 5; gesture += 1) {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 360, y: 400, id: 1 }] });
+        for (const x of [340, 320, 300, 280, 260, 240, 220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20]) {
+          await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 400, id: 1 }] });
+          await page.waitForTimeout(8);
+          positions.push(await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left));
+        }
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      }
+      const deltas = positions.slice(1).map((position, index) => position - positions[index]);
+      expect(Math.max(...deltas.map((delta) => Math.abs(delta)))).toBeLessThanOrEqual(50);
+      expect(positions.at(-1)).toBeLessThan(-1500);
+    });
+
     test('repeated wheel input stays responsive and keeps the decoded image window bounded', async ({ page }) => {
       await dismissCurtain(page);
       const result = await page.evaluate(async () => {
