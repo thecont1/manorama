@@ -139,7 +139,25 @@ for (const vp of viewports) {
       await page.mouse.up();
       await page.waitForTimeout(120);
       const xAfterRelease = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
-      expect(xAfterRelease).toBeLessThanOrEqual(xDuringDrag);
+      expect(xAfterRelease).toBeLessThanOrEqual(xDuringDrag - 40);
+    });
+
+    test('touch swipe moves directly and carries promptly after release', async ({ page }) => {
+      test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
+      await dismissCurtain(page);
+      const client = await page.context().newCDPSession(page);
+      const start = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 360, id: 1 }] });
+      for (const x of [290, 280, 270, 260, 250, 240, 230, 220]) {
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 360, id: 1 }] });
+        await page.waitForTimeout(12);
+      }
+      const during = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+      expect(Math.abs(during - start)).toBeGreaterThanOrEqual(75);
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(80);
+      const after = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+      expect(after).toBeLessThanOrEqual(during - 10);
     });
 
     test('repeated wheel input stays responsive and keeps the decoded image window bounded', async ({ page }) => {

@@ -357,7 +357,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       renderX(currentXRef.current + dx)
       const now = performance.now()
       samplesRef.current.push({ x: event.clientX, time: now })
-      samplesRef.current = samplesRef.current.filter((sample) => now - sample.time < 120)
+      samplesRef.current = samplesRef.current.filter((sample) => now - sample.time < 70)
     }
     const onPointerUp = (event: PointerEvent) => {
       if (!draggingRef.current) return
@@ -372,13 +372,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         settleTo(currentXRef.current, true)
         return
       }
-      let velocityPx = velocity * 16
-      const frame = () => {
-        velocityPx *= 0.95
-        const next = renderX(currentXRef.current + velocityPx)
+      let velocityPx = clamp(velocity * 28, -56, 56)
+      let previousTime = performance.now()
+      const frame = (now: number) => {
+        const frameScale = clamp((now - previousTime) / (1000 / 60), 0.5, 3)
+        previousTime = now
+        velocityPx *= Math.pow(0.88, frameScale)
+        const next = renderX(currentXRef.current + velocityPx * frameScale)
         const bounds = getBounds()
         const atEdge = next === 0 || next === -bounds.max
-        if (Math.abs(velocityPx) > 0.1 && !atEdge) momentumRef.current = requestAnimationFrame(frame)
+        if (Math.abs(velocityPx) > 0.2 && !atEdge) momentumRef.current = requestAnimationFrame(frame)
         else momentumRef.current = null
       }
       momentumRef.current = requestAnimationFrame(frame)
