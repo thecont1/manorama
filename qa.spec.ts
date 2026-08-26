@@ -57,6 +57,25 @@ for (const vp of viewports) {
       expect(visible).toEqual(['Gallery controls']); // design rules, Rule 1
     });
 
+    test('square logo placeholder is centred at the stage bottom and opens controls', async ({ page }) => {
+      await dismissCurtain(page);
+      const geometry = await page.getByRole('button', { name: /gallery controls/i }).evaluate((button) => {
+        const rect = button.getBoundingClientRect();
+        const stage = document.querySelector('[data-stage]')!.getBoundingClientRect();
+        return {
+          bottomGap: stage.bottom - rect.bottom,
+          centreDelta: Math.abs(rect.left + rect.width / 2 - (stage.left + stage.width / 2)),
+          height: rect.height,
+          width: rect.width,
+        };
+      });
+      expect(Math.abs(geometry.width - geometry.height)).toBeLessThanOrEqual(1);
+      expect(geometry.centreDelta).toBeLessThanOrEqual(1);
+      expect(geometry.bottomGap).toBeGreaterThanOrEqual(10);
+      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await expect(page.getByRole('dialog', { name: /gallery controls/i })).toBeVisible();
+    });
+
     test('keyboard navigation preserves a clean URL and refresh returns to the first image', async ({ page }) => {
       await page.goto(`${GALLERY}?source=gallery#img-2`);
       await expect(page).toHaveURL(GALLERY);

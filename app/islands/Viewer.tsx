@@ -495,7 +495,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         ) : null}
       </div>
 
-      <button ref={dotRef} class="control-dot" aria-label="Gallery controls" onClick={() => setModalOpen(true)} />
+      <button ref={dotRef} class="control-logo" aria-label="Gallery controls" onClick={() => setModalOpen(true)} />
 
       <div
         ref={modalRef}
