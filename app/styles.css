@@ -41,8 +41,9 @@ button { color: inherit; }
 .control-dot:hover, .control-dot:focus-visible { opacity: 1; background: rgba(245, 240, 232, .17); transform: scale(1.04); }
 .control-dot:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 4px; }
 
-.curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: #f3f0e8; cursor: pointer; transition: opacity 620ms cubic-bezier(.2, .8, .2, 1), transform 760ms cubic-bezier(.2, .8, .2, 1); }
-.curtain[hidden] { display: grid; visibility: hidden; opacity: 0; transform: rotateX(-10deg) translateY(-100%); pointer-events: none; }
+.curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: #f3f0e8; cursor: pointer; will-change: transform, opacity; transform: translate3d(0, 0, 0); transition: opacity 420ms cubic-bezier(.23, 1, .32, 1), transform 560ms cubic-bezier(.23, 1, .32, 1); }
+.curtain.is-lifting { opacity: 0; transform: translate3d(0, -108%, 0); pointer-events: none; }
+.curtain[hidden] { display: none; }
 .curtain-content { width: min(640px, 100%); transform: translateY(-2vh); }
 .curtain-kicker, .eyebrow, .curtain-date, .curtain-prompt { margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .08em; text-transform: lowercase; color: rgba(243, 240, 232, .62); }
 .curtain h1 { max-width: 12ch; margin: 24px 0 18px; font-size: clamp(42px, 7vw, 88px); font-weight: 500; letter-spacing: -.065em; line-height: .96; }

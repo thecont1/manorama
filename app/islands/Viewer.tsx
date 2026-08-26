@@ -171,11 +171,24 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
     if (!curtain) return
+    let finishTimer: number | undefined
     const dismiss = () => {
-      curtain.hidden = true
+      if (curtain.hidden || curtain.classList.contains('is-lifting')) return
       curtain.setAttribute('aria-hidden', 'true')
+      curtain.classList.add('is-lifting')
       document.body.classList.add('gallery-entered')
       dotRef.current?.focus({ preventScroll: true })
+      const finish = () => {
+        curtain.removeEventListener('transitionend', onLiftEnd)
+        if (finishTimer) window.clearTimeout(finishTimer)
+        curtain.classList.remove('is-lifting')
+        curtain.hidden = true
+      }
+      const onLiftEnd = (event: TransitionEvent) => {
+        if (event.target === curtain && event.propertyName === 'transform') finish()
+      }
+      curtain.addEventListener('transitionend', onLiftEnd)
+      finishTimer = window.setTimeout(finish, 620)
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -188,6 +201,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => {
       curtain.removeEventListener('click', dismiss)
       curtain.removeEventListener('keydown', onKey)
+      if (finishTimer) window.clearTimeout(finishTimer)
     }
   }, [])
 
@@ -419,6 +433,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const recallCurtain = () => {
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
     if (curtain) {
+      curtain.classList.remove('is-lifting')
       curtain.hidden = false
       curtain.removeAttribute('aria-hidden')
       document.body.classList.remove('gallery-entered')

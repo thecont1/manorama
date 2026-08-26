@@ -23,6 +23,16 @@ async function dismissCurtain(page: import('@playwright/test').Page) {
   await expect(page.locator('[data-curtain]')).toBeHidden();
 }
 
+test('curtain lifts upward before it hides', async ({ page }) => {
+  await page.goto(GALLERY);
+  const curtain = page.locator('[data-curtain]');
+  await curtain.click();
+  await expect(curtain).toHaveClass(/is-lifting/);
+  await page.waitForTimeout(150);
+  await expect(curtain).not.toHaveCSS('transform', 'none');
+  await expect(curtain).toBeHidden();
+});
+
 for (const vp of viewports) {
   test.describe(vp.name, () => {
     test.use({ viewport: { width: vp.width, height: vp.height }, hasTouch: vp.hasTouch });

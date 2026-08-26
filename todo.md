@@ -5,3 +5,4 @@
 - [x] Ensure strip-mode images render uncropped at full viewport height and preserve every pixel.
 - [x] Refine desktop drag/pan behavior, verify across viewports, redeploy, and publish the fix.
 - [x] Include the approved editor and gallery-settings work in the combined build, verification, and deployment.
+- [ ] Tune and verify the upward curtain lift for a swift but observable dismissal.
