@@ -8,3 +8,6 @@
 - [x] Tune and verify the upward curtain lift for a swift but observable dismissal.
 - [x] Profile repeated strip scrolling for retained work and event-loop pressure.
 - [x] Fix the scrolling hang, run a repeated-input stress test, and redeploy.
+- [x] Simulate the live gallery in mobile portrait and landscape viewports, including browser-chrome height changes.
+- [x] Refine touch swipe momentum and release response for a more natural mobile strip interaction.
+- [x] Verify mobile orientation and gesture behavior across the acceptance matrix, then redeploy.
