@@ -1,0 +1,198 @@
+export default {
+  "slug": "italy-2018",
+  "title": "Italy, seen slowly",
+  "caption": "A quiet sequence of streets, stone, and weather along an Italian journey.",
+  "date": "October 2018",
+  "images": [
+    {
+      "id": "italy-2018-0005",
+      "filename": "MS201810-Italy0005.jpg",
+      "src": "/images/italy-2018/italy-2018-0005-full.webp",
+      "width": 2048,
+      "height": 1365,
+      "alt": "Photograph from Italy, 2018 — frame 0005",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1365'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0005-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0005-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0100",
+      "filename": "MS201810-Italy0100.jpg",
+      "src": "/images/italy-2018/italy-2018-0100-2c3038b9.jpg",
+      "width": 1974,
+      "height": 1580,
+      "alt": "Photograph from Italy, 2018 — frame 0100",
+      "exif": {
+        "dateOriginal": "2018-10-07T09:37:08.000Z",
+        "camera": "FUJIFILM X-T2",
+        "lens": "XF16-55mmF2.8 R LM WR",
+        "aperture": "f/4",
+        "shutter": "0.000125",
+        "iso": 200,
+        "focalLength": "35.3 mm"
+      },
+      "c2pa": true,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1974' height='1580'/%3E"
+    },
+    {
+      "id": "italy-2018-0142",
+      "filename": "MS201810-Italy0142.jpg",
+      "src": "/images/italy-2018/italy-2018-0142-full.webp",
+      "width": 2048,
+      "height": 1365,
+      "alt": "Photograph from Italy, 2018 — frame 0142",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1365'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0142-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0142-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0145",
+      "filename": "MS201810-Italy0145.jpg",
+      "src": "/images/italy-2018/italy-2018-0145-full.webp",
+      "width": 2048,
+      "height": 1365,
+      "alt": "Photograph from Italy, 2018 — frame 0145",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1365'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0145-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0145-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0174",
+      "filename": "MS201810-Italy0174.jpg",
+      "src": "/images/italy-2018/italy-2018-0174-full.webp",
+      "width": 2048,
+      "height": 1536,
+      "alt": "Photograph from Italy, 2018 — frame 0174",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1536'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0174-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0174-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0285",
+      "filename": "MS201810-Italy0285.jpg",
+      "src": "/images/italy-2018/italy-2018-0285-full.webp",
+      "width": 2048,
+      "height": 1365,
+      "alt": "Photograph from Italy, 2018 — frame 0285",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1365'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0285-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0285-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0306",
+      "filename": "MS201810-Italy0306.jpg",
+      "src": "/images/italy-2018/italy-2018-0306-full.webp",
+      "width": 1365,
+      "height": 2048,
+      "alt": "Photograph from Italy, 2018 — frame 0306",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1365' height='2048'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0306-1200w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0424",
+      "filename": "MS201810-Italy0424.jpg",
+      "src": "/images/italy-2018/italy-2018-0424-full.webp",
+      "width": 2048,
+      "height": 1638,
+      "alt": "Photograph from Italy, 2018 — frame 0424",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1638'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0424-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0424-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    },
+    {
+      "id": "italy-2018-0470",
+      "filename": "MS201810-Italy0470.jpg",
+      "src": "/images/italy-2018/italy-2018-0470-full.webp",
+      "width": 2048,
+      "height": 1365,
+      "alt": "Photograph from Italy, 2018 — frame 0470",
+      "c2pa": false,
+      "placeholder": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2048' height='1365'/%3E",
+      "variants": [
+        {
+          "width": 1200,
+          "src": "/images/italy-2018/italy-2018-0470-1200w.webp",
+          "format": "webp"
+        },
+        {
+          "width": 2000,
+          "src": "/images/italy-2018/italy-2018-0470-2000w.webp",
+          "format": "webp"
+        }
+      ]
+    }
+  ]
+} as const

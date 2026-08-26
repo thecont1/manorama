@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-08-26T20:11:48.097Z",
+  "report": [
+    {
+      "id": "italy-2018-0005",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0100",
+      "c2pa": true,
+      "action": "copied byte-verbatim",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0142",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0145",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0174",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0285",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0306",
+      "c2pa": false,
+      "action": "1 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0424",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    },
+    {
+      "id": "italy-2018-0470",
+      "c2pa": false,
+      "action": "2 ICC-preserving variants",
+      "verified": "PASS"
+    }
+  ]
+}
