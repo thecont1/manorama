@@ -58,7 +58,7 @@ for (const vp of viewports) {
     });
 
     test('keyboard navigation preserves a clean URL and refresh returns to the first image', async ({ page }) => {
-      await page.goto(`${GALLERY}#img-2`);
+      await page.goto(`${GALLERY}?source=gallery#img-2`);
       await expect(page).toHaveURL(GALLERY);
       await page.locator('[data-curtain]').click();
       await page.keyboard.press('ArrowRight');

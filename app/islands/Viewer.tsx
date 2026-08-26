@@ -67,7 +67,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     const clearPositionHash = () => {
-      if (window.location.hash) history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+      if (window.location.hash || window.location.search) history.replaceState(null, '', window.location.pathname)
     }
     clearPositionHash()
     window.addEventListener('hashchange', clearPositionHash)
