@@ -5,7 +5,8 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
 /**
  * Strip invariant: each frame derives its width from the source aspect ratio at
  * full stage height. The stage may clip the horizontal journey, never pixels
- * above or below a photograph. Pointer movement writes the track transform 1:1.
+ * above or below a photograph. Its height follows the visible browser viewport
+ * after orientation or browser-chrome changes. Pointer movement writes the track transform 1:1.
  */
 
 type Mode = 'strip' | 'vertical' | 'single'
@@ -27,6 +28,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [modalOpen, setModalOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
+  const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
+  const [fullscreenActive, setFullscreenActive] = useState(false)
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -42,6 +45,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const currentXRef = useRef(0)
   const reportedIndexRef = useRef(index)
   const positionFrameRef = useRef<number | null>(null)
+  const viewportFrameRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
   const boundsDirtyRef = useRef(true)
 
@@ -72,6 +76,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     clearPositionHash()
     window.addEventListener('hashchange', clearPositionHash)
     return () => window.removeEventListener('hashchange', clearPositionHash)
+  }, [])
+
+  useEffect(() => {
+    const updateFullscreenState = () => {
+      setFullscreenAvailable(Boolean(document.fullscreenEnabled && stageRef.current?.requestFullscreen))
+      setFullscreenActive(Boolean(document.fullscreenElement))
+    }
+    updateFullscreenState()
+    document.addEventListener('fullscreenchange', updateFullscreenState)
+    return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
   }, [])
 
   const hasMultiple = images.length > 1
@@ -240,14 +254,29 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     const onResize = () => {
-      boundsDirtyRef.current = true
-      if (mode === 'strip') settleTo(-imageStart(index), true)
+      if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
+      viewportFrameRef.current = requestAnimationFrame(() => {
+        viewportFrameRef.current = null
+        const stage = stageRef.current
+        if (!stage) return
+        const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
+        stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
+        boundsDirtyRef.current = true
+        if (mode === 'strip') settleTo(-imageStart(index), true)
+      })
     }
+    const visualViewport = window.visualViewport
+    onResize()
     window.addEventListener('resize', onResize)
     window.addEventListener('orientationchange', onResize)
+    visualViewport?.addEventListener('resize', onResize)
+    visualViewport?.addEventListener('scroll', onResize)
     return () => {
       window.removeEventListener('resize', onResize)
       window.removeEventListener('orientationchange', onResize)
+      visualViewport?.removeEventListener('resize', onResize)
+      visualViewport?.removeEventListener('scroll', onResize)
+      if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
     }
   }, [mode, index])
 
@@ -436,6 +465,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     setModalOpen(false)
   }
 
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else await stageRef.current?.requestFullscreen()
+    } catch {
+      // Some mobile browsers intentionally do not allow element fullscreen.
+    }
+  }
+
   return (
     <>
       <div
@@ -515,6 +553,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <label class="toggle-row"><span>Show captions</span><input type="checkbox" aria-label="Show captions" checked={showCaptions} onChange={(event) => setShowCaptions((event.target as HTMLInputElement).checked)} /></label>
             {showCaptions ? <p class="quiet-copy">{currentImage?.caption || 'This album does not carry a separate caption for the current photograph.'}</p> : null}
             <label class="toggle-row"><span>Show navigation arrows</span><input type="checkbox" aria-label="Show navigation arrows" checked={showArrows} onChange={(event) => setShowArrows((event.target as HTMLInputElement).checked)} /></label>
+            {fullscreenAvailable ? <button class="text-button" onClick={toggleFullscreen}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
           </section>
 
           <section class="panel-section" aria-labelledby="position-heading">

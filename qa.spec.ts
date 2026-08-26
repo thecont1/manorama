@@ -100,6 +100,34 @@ for (const vp of viewports) {
       }
     });
 
+    test('portrait-to-landscape uses the visible mobile viewport without cropping image height', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await dismissCurtain(page);
+      await page.locator('[data-track] img').first().evaluate((image: HTMLImageElement) => image.decode());
+      await page.setViewportSize({ width: 812, height: 375 });
+      await expect.poll(() => page.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>('[data-stage]')!;
+        return stage.style.getPropertyValue('--viewer-stage-height');
+      })).toBe('375px');
+      const geometry = await page.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>('[data-stage]')!;
+        const image = document.querySelector<HTMLImageElement>('[data-track] img')!;
+        const stageRect = stage.getBoundingClientRect();
+        const imageRect = image.getBoundingClientRect();
+        return {
+          cssHeight: stage.style.getPropertyValue('--viewer-stage-height'),
+          imageHeight: imageRect.height,
+          innerHeight: window.innerHeight,
+          stageHeight: stageRect.height,
+          visualHeight: window.visualViewport?.height ?? window.innerHeight,
+        };
+      });
+      expect(geometry.cssHeight).toBe(`${Math.round(geometry.visualHeight)}px`);
+      expect(Math.abs(geometry.stageHeight - geometry.visualHeight)).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.imageHeight - geometry.stageHeight)).toBeLessThanOrEqual(1);
+      expect(geometry.stageHeight).toBeLessThanOrEqual(geometry.innerHeight + 1);
+    });
+
     test('drag pans the canvas one-to-one before gentle release momentum', async ({ page }) => {
       await dismissCurtain(page);
       const x0 = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
@@ -147,6 +175,13 @@ for (const vp of viewports) {
       await expect(modal).not.toBeVisible();
       // focus returns to the dot
       await expect(page.getByRole('button', { name: /gallery controls/i })).toBeFocused();
+    });
+
+    test('fullscreen is offered only where element fullscreen is supported', async ({ page }) => {
+      await dismissCurtain(page);
+      const supported = await page.evaluate(() => Boolean(document.fullscreenEnabled && document.querySelector<HTMLElement>('[data-stage]')?.requestFullscreen));
+      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await expect(page.getByRole('button', { name: /enter fullscreen/i })).toHaveCount(supported ? 1 : 0);
     });
 
     test('arrows hidden by default, toggled from modal', async ({ page }) => {
