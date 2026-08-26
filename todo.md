@@ -1,0 +1,3 @@
+- [x] Rename the Cloudflare Worker to `manorama` in the deployment configuration.
+- [x] Deploy the renamed Worker and verify `https://manorama.thecontrarian.workers.dev/italy-2018`.
+- [ ] Commit and push the hostname configuration change.
