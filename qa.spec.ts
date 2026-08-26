@@ -104,6 +104,27 @@ for (const vp of viewports) {
       expect(xAfterRelease).toBeLessThanOrEqual(xDuringDrag);
     });
 
+    test('repeated wheel input stays responsive and keeps the decoded image window bounded', async ({ page }) => {
+      await dismissCurtain(page);
+      const result = await page.evaluate(async () => {
+        const stage = document.querySelector<HTMLElement>('[data-stage]')!;
+        const started = performance.now();
+        for (let count = 0; count < 120; count += 1) {
+          stage.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 48 }));
+        }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        const activeImages = [...document.querySelectorAll<HTMLImageElement>('[data-track] img[data-active="true"]')].length;
+        return {
+          elapsed: performance.now() - started,
+          activeImages,
+          trackLeft: document.querySelector('[data-track]')!.getBoundingClientRect().left,
+        };
+      });
+      expect(result.elapsed).toBeLessThan(1000);
+      expect(result.trackLeft).toBeLessThan(0);
+      expect(result.activeImages).toBeLessThanOrEqual(5);
+    });
+
     test('modal contains every control and dismisses three ways', async ({ page }) => {
       await dismissCurtain(page);
       await page.getByRole('button', { name: /gallery controls/i }).click();

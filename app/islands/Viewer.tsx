@@ -31,7 +31,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const [mode, setMode] = useState<Mode>(initialSettings.defaultMode)
   const [index, setIndex] = useState(() => getHashIndex(sourceImages.length))
-  const [x, setX] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
@@ -48,6 +47,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const momentumRef = useRef<number | null>(null)
   const c2paRef = useRef<any>(null)
   const currentXRef = useRef(0)
+  const reportedIndexRef = useRef(index)
+  const positionFrameRef = useRef<number | null>(null)
+  const boundsRef = useRef({ min: 0, max: 0 })
+  const boundsDirtyRef = useRef(true)
 
   const currentImage = images[index] ?? images[0]
 
@@ -71,16 +74,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const hasMultiple = images.length > 1
 
   const getBounds = () => {
+    if (!boundsDirtyRef.current) return boundsRef.current
     const viewport = stageRef.current?.clientWidth ?? window.innerWidth
     const content = trackRef.current?.scrollWidth ?? 0
-    return { min: 0, max: Math.max(0, content - viewport) }
+    boundsRef.current = { min: 0, max: Math.max(0, content - viewport) }
+    boundsDirtyRef.current = false
+    return boundsRef.current
   }
 
-  const reportStripPosition = (position: number) => {
+  const reportStripPosition = () => {
+    if (positionFrameRef.current !== null) return
+    positionFrameRef.current = requestAnimationFrame(() => {
+      positionFrameRef.current = null
     const stage = stageRef.current
     const track = trackRef.current
     if (!stage || !track) return
-    const midpoint = -position + stage.clientWidth / 2
+      const midpoint = -currentXRef.current + stage.clientWidth / 2
     const frames = [...track.querySelectorAll<HTMLElement>('[data-index]')]
     let nearest = 0
     let nearestDistance = Number.POSITIVE_INFINITY
@@ -93,16 +102,26 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         nearestDistance = distance
       }
     }
-    setIndex((previous) => previous === nearest ? previous : nearest)
+      if (reportedIndexRef.current !== nearest) {
+        reportedIndexRef.current = nearest
+        setIndex(nearest)
+      }
+    })
   }
 
-  const renderX = (next: number) => {
+  const cancelPositionReport = () => {
+    if (positionFrameRef.current !== null) {
+      cancelAnimationFrame(positionFrameRef.current)
+      positionFrameRef.current = null
+    }
+  }
+
+  const renderX = (next: number, shouldReport = true) => {
     const bounds = getBounds()
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
-    setX(value)
-    reportStripPosition(value)
+    if (shouldReport) reportStripPosition()
     return value
   }
 
@@ -119,7 +138,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const bounds = getBounds()
     const destination = clamp(target, -bounds.max, 0)
     if (instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      renderX(destination)
+      renderX(destination, false)
       return
     }
     const started = performance.now()
@@ -128,7 +147,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const progress = Math.min(1, (now - started) / duration)
       const eased = 1 - Math.pow(1 - progress, 3)
       const next = from + (destination - from) * eased
-      renderX(next)
+      renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else momentumRef.current = null
     }
@@ -142,6 +161,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const goTo = (nextIndex: number, instant = false) => {
     const next = clamp(nextIndex, 0, images.length - 1)
+    cancelPositionReport()
+    reportedIndexRef.current = next
     setIndex(next)
     if (mode === 'strip') settleTo(-imageStart(next), instant)
     if (mode === 'vertical') {
@@ -208,17 +229,21 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
+    boundsDirtyRef.current = true
     const target = mode === 'strip' ? -imageStart(index) : 0
-    renderX(target)
+    renderX(target, false)
     if (mode === 'vertical') requestAnimationFrame(() => document.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
   }, [mode])
 
   useEffect(() => {
     const onResize = () => {
+      boundsDirtyRef.current = true
       if (mode === 'strip') settleTo(-imageStart(index), true)
     }
     const onHash = () => {
       const next = getHashIndex(images.length)
+      cancelPositionReport()
+      reportedIndexRef.current = next
       setIndex(next)
       if (mode === 'strip') settleTo(-imageStart(next), true)
     }
@@ -234,31 +259,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [mode, images.length])
 
   useEffect(() => {
-    const frames = stageRef.current?.querySelectorAll<HTMLImageElement>('img[data-src]')
-    frames?.forEach((image) => {
-      const frame = image.closest<HTMLElement>('[data-index]')
-      const frameIndex = Number(frame?.dataset.index ?? 0) - 1
-      if (Math.abs(frameIndex - index) <= 2 && image.dataset.src) {
-        image.src = image.dataset.src
-        image.removeAttribute('data-src')
-      }
-    })
-  }, [index, mode])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const current = index
-    for (let offset = -2; offset <= 2; offset += 1) {
-      const image = images[current + offset]
-      if (!image) continue
-      const preload = new Image()
-      preload.decoding = 'async'
-      preload.src = image.src
-      preload.decode?.().catch(() => undefined)
-    }
     const url = `#img-${index + 1}`
     if (window.location.hash !== url) history.replaceState(null, '', url)
-  }, [index, images])
+  }, [index])
+
+  useEffect(() => () => {
+    cancelPositionReport()
+  }, [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -454,9 +461,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
-          style={mode === 'strip' ? { transform: `translate3d(${x}px, 0, 0)` } : undefined}
         >
-          {images.map((image, imageIndex) => (
+          {images.map((image, imageIndex) => {
+            const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
+            return (
             <figure
               class={`viewer-frame ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''}`}
               data-image-id={image.id}
@@ -464,16 +472,19 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
             >
               <img
-                src={Math.abs(imageIndex - index) <= 2 ? image.src : image.placeholder}
-                data-src={Math.abs(imageIndex - index) > 2 ? image.src : undefined}
+                src={isActive ? image.src : image.placeholder}
+                data-full-src={image.src}
+                data-placeholder-src={image.placeholder}
+                data-active={isActive ? 'true' : 'false'}
                 alt={image.alt}
                 width={image.width}
                 height={image.height}
                 decoding="async"
-                loading={Math.abs(imageIndex - index) <= 2 ? 'eager' : 'lazy'}
+                loading={isActive ? 'eager' : 'lazy'}
               />
             </figure>
-          ))}
+            )
+          })}
         </div>
         {showArrows ? (
           <div class="stage-arrows" aria-label="Image navigation">
