@@ -17,20 +17,13 @@ type Props = {
 
 type DragSample = { x: number; time: number }
 
-const getHashIndex = (length: number) => {
-  if (typeof window === 'undefined') return 0
-  const match = window.location.hash.match(/^#img-(\d+)$/)
-  const value = match ? Number(match[1]) - 1 : 0
-  return Math.max(0, Math.min(length - 1, Number.isFinite(value) ? value : 0))
-}
-
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
 export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const [mode, setMode] = useState<Mode>(initialSettings.defaultMode)
-  const [index, setIndex] = useState(() => getHashIndex(sourceImages.length))
+  const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
@@ -71,6 +64,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     updateText('[data-curtain-date]', loaded.date)
     updateText('[data-curtain-prompt]', loaded.curtainPrompt)
   }, [slug, initialSettings])
+
+  useEffect(() => {
+    const clearPositionHash = () => {
+      if (window.location.hash) history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+    }
+    clearPositionHash()
+    window.addEventListener('hashchange', clearPositionHash)
+    return () => window.removeEventListener('hashchange', clearPositionHash)
+  }, [])
+
   const hasMultiple = images.length > 1
 
   const getBounds = () => {
@@ -240,28 +243,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       boundsDirtyRef.current = true
       if (mode === 'strip') settleTo(-imageStart(index), true)
     }
-    const onHash = () => {
-      const next = getHashIndex(images.length)
-      cancelPositionReport()
-      reportedIndexRef.current = next
-      setIndex(next)
-      if (mode === 'strip') settleTo(-imageStart(next), true)
-    }
     window.addEventListener('resize', onResize)
     window.addEventListener('orientationchange', onResize)
-    window.addEventListener('hashchange', onHash)
-    onHash()
     return () => {
       window.removeEventListener('resize', onResize)
       window.removeEventListener('orientationchange', onResize)
-      window.removeEventListener('hashchange', onHash)
     }
-  }, [mode, images.length])
-
-  useEffect(() => {
-    const url = `#img-${index + 1}`
-    if (window.location.hash !== url) history.replaceState(null, '', url)
-  }, [index])
+  }, [mode, index])
 
   useEffect(() => () => {
     cancelPositionReport()

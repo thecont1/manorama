@@ -57,13 +57,23 @@ for (const vp of viewports) {
       expect(visible).toEqual(['Gallery controls']); // design rules, Rule 1
     });
 
-    test('keyboard navigation and deep link', async ({ page }) => {
+    test('keyboard navigation preserves a clean URL and refresh returns to the first image', async ({ page }) => {
       await page.goto(`${GALLERY}#img-2`);
+      await expect(page).toHaveURL(GALLERY);
       await page.locator('[data-curtain]').click();
       await page.keyboard.press('ArrowRight');
-      await expect(page).toHaveURL(/#img-3/);
+      await expect(page).toHaveURL(GALLERY);
+      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await expect(page.locator('.position-value')).toHaveText('2 / 9');
+      await page.keyboard.press('Escape');
+      await page.reload();
+      await expect(page).toHaveURL(GALLERY);
+      await page.locator('[data-curtain]').click();
+      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await expect(page.locator('.position-value')).toHaveText('1 / 9');
+      await page.keyboard.press('Escape');
       await page.keyboard.press('Home');
-      await expect(page).toHaveURL(/#img-1/);
+      await expect(page).toHaveURL(GALLERY);
     });
 
     test('strip keeps source proportions and the complete image height', async ({ page }) => {
@@ -183,20 +193,22 @@ for (const vp of viewports) {
 }
 
 test('alternate modes switch instantly and preserve the current image', async ({ page }) => {
-  await page.goto(`${GALLERY}#img-2`)
-  await page.locator('[data-curtain]').click()
+  await dismissCurtain(page)
+  await page.keyboard.press('ArrowRight')
   await page.getByRole('button', { name: /gallery controls/i }).click()
+  await expect(page.locator('.position-value')).toHaveText('2 / 9')
   await page.locator('input[value="vertical"]').check()
   await expect(page.locator('[data-stage]')).toHaveClass(/mode-vertical/)
-  await expect(page).toHaveURL(/#img-2/)
+  await expect(page.locator('.position-value')).toHaveText('2 / 9')
   await page.locator('input[value="single"]').check()
   await expect(page.locator('[data-stage]')).toHaveClass(/mode-single/)
-  await expect(page).toHaveURL(/#img-2/)
+  await expect(page.locator('.position-value')).toHaveText('2 / 9')
+  await expect(page).toHaveURL(GALLERY)
 })
 
 test('credentialed image validates through the browser reader', async ({ page }) => {
-  await page.goto(`${GALLERY}#img-2`)
-  await page.locator('[data-curtain]').click()
+  await dismissCurtain(page)
+  await page.keyboard.press('ArrowRight')
   await page.getByRole('button', { name: /gallery controls/i }).click()
   const panel = page.locator('[data-c2pa-panel]')
   await panel.getByRole('button', { name: /verify in this browser/i }).click()
