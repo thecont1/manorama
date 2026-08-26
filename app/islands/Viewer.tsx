@@ -374,7 +374,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     if (!modalOpen) return
     previousFocusRef.current = document.activeElement as HTMLElement
-    requestAnimationFrame(() => modalRef.current?.querySelector<HTMLElement>('[data-close]')?.focus())
+    requestAnimationFrame(() => {
+      modalRef.current?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
+      modalRef.current?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
+    })
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); setModalOpen(false); return }
       if (event.key !== 'Tab' || !modalRef.current) return
@@ -421,6 +424,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     } catch {
       setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'unavailable' }))
     }
+  }
+
+  const openImageProvenance = () => {
+    setModalOpen(true)
+    if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
   }
 
   useEffect(() => {
@@ -495,14 +503,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         ) : null}
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Gallery controls" onClick={() => setModalOpen(true)} />
+      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance} />
 
       <div
         ref={modalRef}
         class="controls-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Gallery controls"
+        aria-label="Image information and Content Credentials"
         hidden={!modalOpen}
         onClick={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}
       >
@@ -510,9 +518,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>Gallery controls</h2>
+              <h2>Current photograph</h2>
             </div>
-            <button data-close class="quiet-button" aria-label="Close gallery controls" onClick={() => setModalOpen(false)}>Close</button>
+            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setModalOpen(false)}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="view-mode-heading">

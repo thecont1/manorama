@@ -2,7 +2,7 @@
 // Deps: npm i -D @playwright/test @axe-core/playwright
 // Env: GALLERY_URL (default http://localhost:8787), GALLERY_SLUG (default "gallery")
 // Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow],
-// dot button has aria-label "Gallery controls", modal has role="dialog".
+// Square button has aria-label "Image information and Content Credentials", modal has role="dialog".
 
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -10,6 +10,7 @@ import AxeBuilder from '@axe-core/playwright';
 const BASE = process.env.GALLERY_URL ?? 'http://localhost:8787';
 const SLUG = process.env.GALLERY_SLUG ?? 'gallery';
 const GALLERY = `${BASE}/${SLUG}`;
+const CONTROL_NAME = /image information and content credentials/i;
 
 const viewports = [
   { name: 'phone', width: 375, height: 812, hasTouch: true },
@@ -54,12 +55,12 @@ for (const vp of viewports) {
           })
           .map((el) => el.getAttribute('aria-label') ?? el.tagName);
       });
-      expect(visible).toEqual(['Gallery controls']); // design rules, Rule 1
+      expect(visible).toEqual(['Image information and Content Credentials']); // design rules, Rule 1
     });
 
-    test('square logo placeholder is centred at the stage bottom and opens controls', async ({ page }) => {
+    test('square logo placeholder is centred at the stage bottom and opens provenance details', async ({ page }) => {
       await dismissCurtain(page);
-      const geometry = await page.getByRole('button', { name: /gallery controls/i }).evaluate((button) => {
+      const geometry = await page.getByRole('button', { name: CONTROL_NAME }).evaluate((button) => {
         const rect = button.getBoundingClientRect();
         const stage = document.querySelector('[data-stage]')!.getBoundingClientRect();
         return {
@@ -72,8 +73,10 @@ for (const vp of viewports) {
       expect(Math.abs(geometry.width - geometry.height)).toBeLessThanOrEqual(1);
       expect(geometry.centreDelta).toBeLessThanOrEqual(1);
       expect(geometry.bottomGap).toBeGreaterThanOrEqual(10);
-      await page.getByRole('button', { name: /gallery controls/i }).click();
-      await expect(page.getByRole('dialog', { name: /gallery controls/i })).toBeVisible();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
+      const modal = page.getByRole('dialog', { name: CONTROL_NAME });
+      await expect(modal).toBeVisible();
+      await expect(modal.locator('[data-c2pa-panel]')).toBeInViewport();
     });
 
     test('keyboard navigation preserves a clean URL and refresh returns to the first image', async ({ page }) => {
@@ -82,13 +85,13 @@ for (const vp of viewports) {
       await page.locator('[data-curtain]').click();
       await page.keyboard.press('ArrowRight');
       await expect(page).toHaveURL(GALLERY);
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       await expect(page.locator('.position-value')).toHaveText('2 / 9');
       await page.keyboard.press('Escape');
       await page.reload();
       await expect(page).toHaveURL(GALLERY);
       await page.locator('[data-curtain]').click();
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       await expect(page.locator('.position-value')).toHaveText('1 / 9');
       await page.keyboard.press('Escape');
       await page.keyboard.press('Home');
@@ -202,7 +205,7 @@ for (const vp of viewports) {
 
     test('modal contains every control and dismisses three ways', async ({ page }) => {
       await dismissCurtain(page);
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       const modal = page.getByRole('dialog');
       await expect(modal).toBeVisible();
       for (const label of [/view/i, /caption/i, /info|exif/i, /credentials/i, /about/i, /shortcut/i]) {
@@ -210,21 +213,21 @@ for (const vp of viewports) {
       }
       await page.keyboard.press('Escape');
       await expect(modal).not.toBeVisible();
-      // focus returns to the dot
-      await expect(page.getByRole('button', { name: /gallery controls/i })).toBeFocused();
+      // focus returns to the square provenance control
+      await expect(page.getByRole('button', { name: CONTROL_NAME })).toBeFocused();
     });
 
     test('fullscreen is offered only where element fullscreen is supported', async ({ page }) => {
       await dismissCurtain(page);
       const supported = await page.evaluate(() => Boolean(document.fullscreenEnabled && document.querySelector<HTMLElement>('[data-stage]')?.requestFullscreen));
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       await expect(page.getByRole('button', { name: /enter fullscreen/i })).toHaveCount(supported ? 1 : 0);
     });
 
     test('arrows hidden by default, toggled from modal', async ({ page }) => {
       await dismissCurtain(page);
       await expect(page.locator('[data-nav-arrow]')).toHaveCount(0);
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       await page.getByLabel(/show navigation arrows/i).check();
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-nav-arrow]')).toHaveCount(2);
@@ -248,13 +251,13 @@ for (const vp of viewports) {
     test('accessibility: axe clean on stage and modal', async ({ page }) => {
       await dismissCurtain(page);
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     });
 
     test('c2pa: credentialed image validates, unsigned shows quiet state', async ({ page }) => {
       await dismissCurtain(page);
-      await page.getByRole('button', { name: /gallery controls/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
       const panel = page.getByRole('dialog').locator('[data-c2pa-panel]');
       await expect(panel).toBeVisible();
       await expect(panel).not.toContainText(/error/i);
@@ -267,7 +270,7 @@ for (const vp of viewports) {
 test('alternate modes switch instantly and preserve the current image', async ({ page }) => {
   await dismissCurtain(page)
   await page.keyboard.press('ArrowRight')
-  await page.getByRole('button', { name: /gallery controls/i }).click()
+  await page.getByRole('button', { name: CONTROL_NAME }).click()
   await expect(page.locator('.position-value')).toHaveText('2 / 9')
   await page.locator('input[value="vertical"]').check()
   await expect(page.locator('[data-stage]')).toHaveClass(/mode-vertical/)
@@ -281,7 +284,7 @@ test('alternate modes switch instantly and preserve the current image', async ({
 test('credentialed image validates through the browser reader', async ({ page }) => {
   await dismissCurtain(page)
   await page.keyboard.press('ArrowRight')
-  await page.getByRole('button', { name: /gallery controls/i }).click()
+  await page.getByRole('button', { name: CONTROL_NAME }).click()
   const panel = page.locator('[data-c2pa-panel]')
   await panel.getByRole('button', { name: /verify in this browser/i }).click()
   await expect(panel).toContainText(/content credentials verified in this browser/i, { timeout: 30000 })
