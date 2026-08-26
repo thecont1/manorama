@@ -7,4 +7,4 @@
 - [x] Include the approved editor and gallery-settings work in the combined build, verification, and deployment.
 - [x] Tune and verify the upward curtain lift for a swift but observable dismissal.
 - [x] Profile repeated strip scrolling for retained work and event-loop pressure.
-- [ ] Fix the scrolling hang, run a repeated-input stress test, and redeploy.
+- [x] Fix the scrolling hang, run a repeated-input stress test, and redeploy.
