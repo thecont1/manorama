@@ -13,3 +13,5 @@
 - [x] Verify mobile orientation and gesture behavior across the acceptance matrix, then redeploy.
 - [x] Remove post-release strip momentum so desktop and mobile drags stop exactly at the released position.
 - [x] Verify exact-stop movement for pointer drag and true touch input, then redeploy.
+- [x] Replace the stage dot with a bottom-centre square logo placeholder that opens Content Credentials and current-image information.
+- [x] Verify C2PA-focused square-control access and one-control compliance across viewports, then redeploy.
