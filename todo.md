@@ -21,3 +21,6 @@
 - [x] Hide navigation arrows in Vertical Scroll and make them navigate correctly in One at a Time mode.
 - [x] Add a smooth, bounded, brisk post-swipe glide only in Strip mode without image-boundary jumps.
 - [x] Verify arrows and gesture motion across all view modes and viewport classes, then redeploy.
+- [x] Let an upward swipe dismiss the opening curtain with the same gentle lift as a click.
+- [x] Lengthen the smooth, bounded mobile strip glide while preserving continuous motion and no snapping.
+- [x] Verify curtain and mobile glide behavior across the acceptance matrix, then redeploy.
