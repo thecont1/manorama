@@ -42,7 +42,7 @@ button { color: inherit; }
 .control-logo:hover, .control-logo:focus-visible { opacity: 1; border-color: rgba(245, 240, 232, .88); background: rgba(10, 10, 10, .64); transform: translateX(-50%) scale(1.04); }
 .control-logo:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 4px; }
 
-.curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: #f3f0e8; cursor: pointer; touch-action: none; will-change: transform, opacity; transform: translate3d(0, 0, 0); transition: opacity 420ms cubic-bezier(.23, 1, .32, 1), transform 560ms cubic-bezier(.23, 1, .32, 1); }
+.curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: #f3f0e8; cursor: pointer; touch-action: none; will-change: transform, opacity; transform: translate3d(0, 0, 0); transition: opacity 620ms cubic-bezier(.23, 1, .32, 1), transform 900ms cubic-bezier(.23, 1, .32, 1); }
 .curtain.is-lifting { opacity: 0; transform: translate3d(0, -108%, 0); pointer-events: none; }
 .curtain[hidden] { display: none; }
 .curtain-content { width: min(640px, 100%); transform: translateY(-2vh); }

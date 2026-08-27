@@ -34,6 +34,16 @@ test('curtain lifts upward before it hides', async ({ page }) => {
   await expect(curtain).toBeHidden();
 });
 
+test('curtain reveal remains visible through a calmer lift before it hides', async ({ page }) => {
+  await page.goto(GALLERY);
+  const curtain = page.locator('[data-curtain]');
+  await curtain.click();
+  await page.waitForTimeout(650);
+  await expect(curtain).toHaveClass(/is-lifting/);
+  await expect(curtain).not.toHaveAttribute('hidden');
+  await expect(curtain).toBeHidden();
+});
+
 test('curtain accepts an upward swipe before it lifts away', async ({ page }) => {
   await page.goto(GALLERY);
   const curtain = page.locator('[data-curtain]');
@@ -207,6 +217,30 @@ for (const vp of viewports) {
       expect(after - during).toBeGreaterThanOrEqual(-240);
     });
 
+    test('fast touch flicks glide substantially farther than slow drags', async ({ page }) => {
+      test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
+      const measure = async (pause: number) => {
+        await page.goto(GALLERY);
+        await page.locator('[data-curtain]').click();
+        const client = await page.context().newCDPSession(page);
+        await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 340, y: 360, id: 1 }] });
+        for (const x of [325, 310, 295, 280, 265, 250, 235, 220]) {
+          await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 360, id: 1 }] });
+          await page.waitForTimeout(pause);
+        }
+        const release = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await page.waitForTimeout(1000);
+        const settled = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+        return Math.abs(settled - release);
+      };
+      const slowGlide = await measure(55);
+      const fastGlide = await measure(8);
+      expect(slowGlide).toBeGreaterThan(55);
+      expect(fastGlide).toBeGreaterThan(240);
+      expect(fastGlide).toBeGreaterThan(slowGlide * 2.5);
+    });
+
     test('repeated touch drags cross image boundaries as one continuous canvas', async ({ page }) => {
       test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
       await dismissCurtain(page);
@@ -222,7 +256,7 @@ for (const vp of viewports) {
         await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       }
       const deltas = positions.slice(1).map((position, index) => position - positions[index]);
-      expect(Math.max(...deltas.map((delta) => Math.abs(delta)))).toBeLessThanOrEqual(65);
+      expect(Math.max(...deltas.map((delta) => Math.abs(delta)))).toBeLessThanOrEqual(100);
       expect(positions.at(-1)).toBeLessThan(-1500);
     });
 

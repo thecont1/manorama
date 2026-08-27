@@ -251,7 +251,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         if (event.target === curtain && event.propertyName === 'transform') finish()
       }
       curtain.addEventListener('transitionend', onLiftEnd)
-      finishTimer = window.setTimeout(finish, 620)
+      finishTimer = window.setTimeout(finish, 980)
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -425,13 +425,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (!first || !last) return
       const velocity = (last.x - first.x) / Math.max(16, last.time - first.time)
       const isTouch = event.pointerType === 'touch'
-      let velocityPx = clamp(velocity * (isTouch ? 28 : 14), isTouch ? -28 : -18, isTouch ? 28 : 18)
+      let velocityPx = clamp(velocity * (isTouch ? 42 : 14), isTouch ? -42 : -18, isTouch ? 42 : 18)
       if (Math.abs(velocityPx) < 0.7) return
       let previousTime = performance.now()
       const glide = (now: number) => {
         const frameScale = clamp((now - previousTime) / (1000 / 60), 0.5, 2)
         previousTime = now
-        velocityPx *= Math.pow(isTouch ? 0.87 : 0.8, frameScale)
+        velocityPx *= Math.pow(isTouch ? 0.9 : 0.8, frameScale)
         const next = renderX(currentXRef.current + velocityPx * frameScale)
         const bounds = getBounds()
         const atEdge = next === 0 || next === -bounds.max
