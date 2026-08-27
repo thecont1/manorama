@@ -18,3 +18,6 @@
 - [x] Reproduce and eliminate mobile image-boundary jumps during continuous horizontal swiping.
 - [x] Smooth mobile drag input into one continuous horizontal canvas while preserving exact final position.
 - [x] Verify no-jump swiping across mobile and desktop inputs, then redeploy.
+- [x] Hide navigation arrows in Vertical Scroll and make them navigate correctly in One at a Time mode.
+- [x] Add a smooth, bounded, brisk post-swipe glide only in Strip mode without image-boundary jumps.
+- [x] Verify arrows and gesture motion across all view modes and viewport classes, then redeploy.
