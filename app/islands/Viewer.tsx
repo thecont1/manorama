@@ -233,6 +233,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
     if (!curtain) return
     let finishTimer: number | undefined
+    let pointerStart: { x: number; y: number; id: number } | null = null
+    let ignoreClick = false
     const dismiss = () => {
       if (curtain.hidden || curtain.classList.contains('is-lifting')) return
       curtain.setAttribute('aria-hidden', 'true')
@@ -257,11 +259,37 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         dismiss()
       }
     }
-    curtain.addEventListener('click', dismiss)
+    const onPointerDown = (event: PointerEvent) => {
+      pointerStart = { x: event.clientX, y: event.clientY, id: event.pointerId }
+      curtain.setPointerCapture?.(event.pointerId)
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!pointerStart || pointerStart.id !== event.pointerId) return
+      curtain.releasePointerCapture?.(event.pointerId)
+      const horizontal = Math.abs(event.clientX - pointerStart.x)
+      const upward = pointerStart.y - event.clientY
+      ignoreClick = horizontal > 12 || Math.abs(upward) > 12
+      pointerStart = null
+      if (upward >= 48 && upward > horizontal * 1.25) dismiss()
+    }
+    const onPointerCancel = (event: PointerEvent) => {
+      if (pointerStart?.id === event.pointerId) pointerStart = null
+    }
+    const onClick = () => {
+      if (ignoreClick) { ignoreClick = false; return }
+      dismiss()
+    }
+    curtain.addEventListener('click', onClick)
     curtain.addEventListener('keydown', onKey)
+    curtain.addEventListener('pointerdown', onPointerDown)
+    curtain.addEventListener('pointerup', onPointerUp)
+    curtain.addEventListener('pointercancel', onPointerCancel)
     return () => {
-      curtain.removeEventListener('click', dismiss)
+      curtain.removeEventListener('click', onClick)
       curtain.removeEventListener('keydown', onKey)
+      curtain.removeEventListener('pointerdown', onPointerDown)
+      curtain.removeEventListener('pointerup', onPointerUp)
+      curtain.removeEventListener('pointercancel', onPointerCancel)
       if (finishTimer) window.clearTimeout(finishTimer)
     }
   }, [])
@@ -396,17 +424,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const last = samples.at(-1)
       if (!first || !last) return
       const velocity = (last.x - first.x) / Math.max(16, last.time - first.time)
-      let velocityPx = clamp(velocity * 14, -18, 18)
+      const isTouch = event.pointerType === 'touch'
+      let velocityPx = clamp(velocity * (isTouch ? 28 : 14), isTouch ? -28 : -18, isTouch ? 28 : 18)
       if (Math.abs(velocityPx) < 0.7) return
       let previousTime = performance.now()
       const glide = (now: number) => {
         const frameScale = clamp((now - previousTime) / (1000 / 60), 0.5, 2)
         previousTime = now
-        velocityPx *= Math.pow(0.8, frameScale)
+        velocityPx *= Math.pow(isTouch ? 0.87 : 0.8, frameScale)
         const next = renderX(currentXRef.current + velocityPx * frameScale)
         const bounds = getBounds()
         const atEdge = next === 0 || next === -bounds.max
-        if (Math.abs(velocityPx) > 0.25 && !atEdge) momentumRef.current = requestAnimationFrame(glide)
+        if (Math.abs(velocityPx) > (isTouch ? 0.18 : 0.25) && !atEdge) momentumRef.current = requestAnimationFrame(glide)
         else momentumRef.current = null
       }
       momentumRef.current = requestAnimationFrame(glide)

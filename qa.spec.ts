@@ -34,6 +34,17 @@ test('curtain lifts upward before it hides', async ({ page }) => {
   await expect(curtain).toBeHidden();
 });
 
+test('curtain accepts an upward swipe before it lifts away', async ({ page }) => {
+  await page.goto(GALLERY);
+  const curtain = page.locator('[data-curtain]');
+  await page.mouse.move(300, 520);
+  await page.mouse.down();
+  await page.mouse.move(300, 360, { steps: 4 });
+  await page.mouse.up();
+  await expect(curtain).toHaveClass(/is-lifting/);
+  await expect(curtain).toBeHidden();
+});
+
 for (const vp of viewports) {
   test.describe(vp.name, () => {
     test.use({ viewport: { width: vp.width, height: vp.height }, hasTouch: vp.hasTouch });
@@ -150,6 +161,18 @@ for (const vp of viewports) {
       expect(geometry.stageHeight).toBeLessThanOrEqual(geometry.innerHeight + 1);
     });
 
+    test('touch upward swipe lifts the opening curtain', async ({ page }) => {
+      test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
+      await page.goto(GALLERY);
+      const client = await page.context().newCDPSession(page);
+      const curtain = page.locator('[data-curtain]');
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 188, y: 600, id: 1 }] });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 188, y: 440, id: 1 }] });
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await expect(curtain).toHaveClass(/is-lifting/);
+      await expect(curtain).toBeHidden();
+    });
+
     test('drag pans the canvas one-to-one and glides briefly without snapping', async ({ page }) => {
       await dismissCurtain(page);
       const x0 = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
@@ -165,7 +188,7 @@ for (const vp of viewports) {
       expect(xAfterRelease - xDuringDrag).toBeGreaterThanOrEqual(-160);
     });
 
-    test('touch swipe moves directly and glides briefly without snapping', async ({ page }) => {
+    test('touch swipe moves directly and floats farther without snapping', async ({ page }) => {
       test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
       await dismissCurtain(page);
       const client = await page.context().newCDPSession(page);
@@ -181,7 +204,7 @@ for (const vp of viewports) {
       await page.waitForTimeout(80);
       const after = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
       expect(after).toBeLessThan(during);
-      expect(after - during).toBeGreaterThanOrEqual(-120);
+      expect(after - during).toBeGreaterThanOrEqual(-240);
     });
 
     test('repeated touch drags cross image boundaries as one continuous canvas', async ({ page }) => {
