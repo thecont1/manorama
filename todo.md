@@ -24,3 +24,6 @@
 - [x] Let an upward swipe dismiss the opening curtain with the same gentle lift as a click.
 - [x] Lengthen the smooth, bounded mobile strip glide while preserving continuous motion and no snapping.
 - [x] Verify curtain and mobile glide behavior across the acceptance matrix, then redeploy.
+- [x] Increase mobile strip glide by swipe velocity and verify fast flicks travel farther than slow drags.
+- [x] Slow the curtain lift while retaining its gentle upward reveal and reduced-motion support.
+- [x] Verify velocity response, no-snap continuity, and curtain timing across the gallery matrix, then redeploy.
