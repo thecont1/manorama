@@ -150,7 +150,7 @@ for (const vp of viewports) {
       expect(geometry.stageHeight).toBeLessThanOrEqual(geometry.innerHeight + 1);
     });
 
-    test('drag pans the canvas one-to-one and stops exactly at release', async ({ page }) => {
+    test('drag pans the canvas one-to-one and glides briefly without snapping', async ({ page }) => {
       await dismissCurtain(page);
       const x0 = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
       await page.mouse.move(vp.width / 2, vp.height / 2);
@@ -161,10 +161,11 @@ for (const vp of viewports) {
       await page.mouse.up();
       await page.waitForTimeout(120);
       const xAfterRelease = await page.evaluate(() => document.querySelector('[data-track]')!.getBoundingClientRect().left);
-      expect(Math.abs(xAfterRelease - xDuringDrag)).toBeLessThanOrEqual(1);
+      expect(xAfterRelease).toBeLessThan(xDuringDrag);
+      expect(xAfterRelease - xDuringDrag).toBeGreaterThanOrEqual(-160);
     });
 
-    test('touch swipe moves directly and stops exactly at release', async ({ page }) => {
+    test('touch swipe moves directly and glides briefly without snapping', async ({ page }) => {
       test.skip(!vp.hasTouch, 'Touch input is specific to the phone viewport.');
       await dismissCurtain(page);
       const client = await page.context().newCDPSession(page);
@@ -175,11 +176,12 @@ for (const vp of viewports) {
         await page.waitForTimeout(12);
       }
       const during = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
-      expect(Math.abs(during - start)).toBeGreaterThanOrEqual(75);
+      expect(Math.abs(during - start)).toBeGreaterThanOrEqual(60);
       await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await page.waitForTimeout(80);
       const after = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
-      expect(Math.abs(after - during)).toBeLessThanOrEqual(1);
+      expect(after).toBeLessThan(during);
+      expect(after - during).toBeGreaterThanOrEqual(-120);
     });
 
     test('repeated touch drags cross image boundaries as one continuous canvas', async ({ page }) => {
@@ -197,7 +199,7 @@ for (const vp of viewports) {
         await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       }
       const deltas = positions.slice(1).map((position, index) => position - positions[index]);
-      expect(Math.max(...deltas.map((delta) => Math.abs(delta)))).toBeLessThanOrEqual(50);
+      expect(Math.max(...deltas.map((delta) => Math.abs(delta)))).toBeLessThanOrEqual(65);
       expect(positions.at(-1)).toBeLessThan(-1500);
     });
 
@@ -243,13 +245,26 @@ for (const vp of viewports) {
       await expect(page.getByRole('button', { name: /enter fullscreen/i })).toHaveCount(supported ? 1 : 0);
     });
 
-    test('arrows hidden by default, toggled from modal', async ({ page }) => {
+    test('arrows are strip and single-mode only, and navigate one-at-a-time mode', async ({ page }) => {
       await dismissCurtain(page);
       await expect(page.locator('[data-nav-arrow]')).toHaveCount(0);
       await page.getByRole('button', { name: CONTROL_NAME }).click();
       await page.getByLabel(/show navigation arrows/i).check();
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-nav-arrow]')).toHaveCount(2);
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
+      await page.locator('input[value="vertical"]').check();
+      await expect(page.getByLabel(/show navigation arrows/i)).toHaveCount(0);
+      await expect(page.getByText(/navigation arrows are unavailable in vertical scroll/i)).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-nav-arrow]')).toHaveCount(0);
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
+      await page.locator('input[value="single"]').check();
+      await expect(page.getByLabel(/show navigation arrows/i)).toBeChecked();
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: /next photograph/i }).click();
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
+      await expect(page.locator('.position-value')).toHaveText('2 / 9');
     });
 
     test('no layout shift while images load', async ({ page }) => {

@@ -6,10 +6,11 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
  * Strip invariant: each frame derives its width from the source aspect ratio at
  * full stage height. The stage may clip the horizontal journey, never pixels
  * above or below a photograph. Its height follows the visible browser viewport
- * after orientation or browser-chrome changes. Pointer input is coalesced once per frame into one continuous canvas and stops at release.
+ * after orientation or browser-chrome changes. Pointer input is coalesced once per frame into one continuous canvas; Strip-only release glide is brief and never snaps to an image.
  */
 
 type Mode = 'strip' | 'vertical' | 'single'
+type DragSample = { x: number; time: number }
 type Props = {
   slug: string
   images: readonly GalleryImage[]
@@ -37,6 +38,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
+  const dragSamplesRef = useRef<DragSample[]>([])
   const dragTargetXRef = useRef(0)
   const dragFrameRef = useRef<number | null>(null)
   const momentumRef = useRef<number | null>(null)
@@ -93,6 +95,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [])
 
   const hasMultiple = images.length > 1
+  const arrowsVisible = showArrows && mode !== 'vertical'
 
   const getBounds = () => {
     if (!boundsDirtyRef.current) return boundsRef.current
@@ -367,6 +370,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current = currentXRef.current
+      dragSamplesRef.current = [{ x: event.clientX, time: performance.now() }]
       stage.setPointerCapture(event.pointerId)
       stage.classList.add('is-dragging')
     }
@@ -375,6 +379,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const dx = event.clientX - lastPointerRef.current.x
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current += dx
+      const now = performance.now()
+      dragSamplesRef.current.push({ x: event.clientX, time: now })
+      dragSamplesRef.current = dragSamplesRef.current.filter((sample) => now - sample.time < 100)
       scheduleDragTarget()
     }
     const onPointerUp = (event: PointerEvent) => {
@@ -383,6 +390,26 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       draggingRef.current = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
+      if (event.type === 'pointercancel' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      const samples = dragSamplesRef.current
+      const first = samples[0]
+      const last = samples.at(-1)
+      if (!first || !last) return
+      const velocity = (last.x - first.x) / Math.max(16, last.time - first.time)
+      let velocityPx = clamp(velocity * 14, -18, 18)
+      if (Math.abs(velocityPx) < 0.7) return
+      let previousTime = performance.now()
+      const glide = (now: number) => {
+        const frameScale = clamp((now - previousTime) / (1000 / 60), 0.5, 2)
+        previousTime = now
+        velocityPx *= Math.pow(0.8, frameScale)
+        const next = renderX(currentXRef.current + velocityPx * frameScale)
+        const bounds = getBounds()
+        const atEdge = next === 0 || next === -bounds.max
+        if (Math.abs(velocityPx) > 0.25 && !atEdge) momentumRef.current = requestAnimationFrame(glide)
+        else momentumRef.current = null
+      }
+      momentumRef.current = requestAnimationFrame(glide)
     }
     stage.addEventListener('pointerdown', onPointerDown)
     stage.addEventListener('pointermove', onPointerMove)
@@ -522,7 +549,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             )
           })}
         </div>
-        {showArrows ? (
+        {arrowsVisible ? (
           <div class="stage-arrows" aria-label="Image navigation">
             <button data-nav-arrow aria-label="Previous photograph" onClick={() => step(-1)} disabled={index === 0}>←</button>
             <button data-nav-arrow aria-label="Next photograph" onClick={() => step(1)} disabled={index === images.length - 1}>→</button>
@@ -562,7 +589,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <section class="panel-section compact-section" aria-label="Display options">
             <label class="toggle-row"><span>Show captions</span><input type="checkbox" aria-label="Show captions" checked={showCaptions} onChange={(event) => setShowCaptions((event.target as HTMLInputElement).checked)} /></label>
             {showCaptions ? <p class="quiet-copy">{currentImage?.caption || 'This album does not carry a separate caption for the current photograph.'}</p> : null}
-            <label class="toggle-row"><span>Show navigation arrows</span><input type="checkbox" aria-label="Show navigation arrows" checked={showArrows} onChange={(event) => setShowArrows((event.target as HTMLInputElement).checked)} /></label>
+            {mode === 'vertical' ? <p class="quiet-copy">Navigation arrows are unavailable in vertical scroll.</p> : <label class="toggle-row"><span>Show navigation arrows</span><input type="checkbox" aria-label="Show navigation arrows" checked={showArrows} onChange={(event) => setShowArrows((event.target as HTMLInputElement).checked)} /></label>}
             {fullscreenAvailable ? <button class="text-button" onClick={toggleFullscreen}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
           </section>
 
