@@ -7,7 +7,6 @@ type Props = {
   owner: string
   publicHost: string
 }
-type Scan = { sourceUrl: string; title: string; images: GalleryImage[] }
 type EditableField = 'title' | 'caption' | 'slug'
 type Editing = { slug: string; field: EditableField } | null
 type ReorderableGalleryImage = GallerySummary['images'][number]
@@ -43,7 +42,6 @@ const OpenIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 
 export default function Admin({ galleries: initialGalleries, owner, publicHost }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [dropboxUrl, setDropboxUrl] = useState('')
-  const [scan, setScan] = useState<Scan | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [draft, setDraft] = useState('')
@@ -57,15 +55,7 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
   const galleryPath = (slug: string) => `/${owner}/${slug}`
   const galleryAddress = (slug: string) => `${publicHost}${galleryPath(slug)}`
 
-  const reorderScan = (from: number, to: number) => {
-    if (!scan || from === to || to < 0 || to >= scan.images.length) return
-    const images = [...scan.images]
-    const [moved] = images.splice(from, 1)
-    if (moved) images.splice(to, 0, moved)
-    setScan({ ...scan, images })
-  }
-
-  const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
+   const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
     if (busy) return
     setBusy(true)
     setStatus('Saving order…')
@@ -164,51 +154,29 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
     if (panState.current?.pointerId === event.pointerId) panState.current = null
   }
 
-  const scanFolder = async (event: Event) => {
+  const addGallery = async (event: Event) => {
     event.preventDefault()
+    const url = dropboxUrl.trim()
+    if (!url) return
     setBusy(true)
-    setScan(null)
-    setStatus('Reading the Dropbox folder…')
+    setStatus("Manorama-fying…")
     try {
-      const response = await fetch('/api/galleries/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: dropboxUrl }),
+      const response = await fetch("/api/galleries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
       })
-      const payload = await response.json() as { scan?: Scan; error?: string }
-      if (!response.ok || !payload.scan) throw new Error(payload.error || 'That folder could not be scanned')
-      setScan(payload.scan)
-      setStatus(`${payload.scan.images.length} images ready to arrange`)
+      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      if (!response.ok || !payload.gallery) throw new Error(payload.error || "That gallery could not be added")
+      setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
+      setDropboxUrl("")
+      setStatus('Done! ' + payload.gallery.title + ' is at the top.')
     } catch (error) {
       setStatus(friendlyDropboxError(error))
     } finally {
       setBusy(false)
     }
   }
-
-  const addGallery = async () => {
-    if (!scan) return
-    setBusy(true)
-    setStatus('Adding gallery…')
-    try {
-      const response = await fetch('/api/galleries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: dropboxUrl, order: scan.images.map((image) => image.filename) }),
-      })
-      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That gallery could not be added')
-      setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
-      setScan(null)
-      setDropboxUrl('')
-      setStatus('Gallery added')
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'That gallery could not be added')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const beginEditing = (gallery: GallerySummary, field: EditableField) => {
     setEditing({ slug: gallery.slug, field })
     setDraft(gallery[field])
@@ -325,24 +293,10 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
 
       <section class="gallery-import" aria-labelledby="import-heading">
         <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2></div>
-        <form class="gallery-import-form" onSubmit={scanFolder}>
-          <label class="admin-field"><span>Public Dropbox folder URL</span><input type="url" value={dropboxUrl} placeholder="https://www.dropbox.com/scl/fo/..." onInput={(event) => { setDropboxUrl((event.target as HTMLInputElement).value); setScan(null) }} required /></label>
+        <form class="gallery-import-form" onSubmit={addGallery}>
+          <label class="admin-field"><span>Public Dropbox folder URL</span><input type="url" value={dropboxUrl} placeholder="https://www.dropbox.com/scl/fo/..." onInput={(event) => { setDropboxUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
-        {scan ? (
-          <div class="dropbox-scan" aria-live="polite">
-            <div class="dropbox-scan-heading"><div><p class="admin-eyebrow">{scan.title}</p><p>{scan.images.length} image files found. Drag to arrange; other file types were left out.</p></div><button type="button" class="admin-button admin-button--solid" onClick={addGallery} disabled={busy}>Add gallery</button></div>
-            <div class="dropbox-strip" aria-label="Scanned image previews">
-              {scan.images.map((image, index) => (
-                <figure class="dropbox-strip-item" key={image.id} draggable onDragStart={() => setDraggedIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => { if (draggedIndex !== null) reorderScan(draggedIndex, index); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)}>
-                  <img src={imagePreview(image)} alt="" loading="lazy" />
-                  <figcaption>{image.filename}</figcaption>
-                  <div class="dropbox-strip-actions"><button type="button" aria-label={`Move ${image.filename} earlier`} onClick={() => reorderScan(index, index - 1)} disabled={index === 0}>←</button><button type="button" aria-label={`Move ${image.filename} later`} onClick={() => reorderScan(index, index + 1)} disabled={index === scan.images.length - 1}>→</button></div>
-                </figure>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">

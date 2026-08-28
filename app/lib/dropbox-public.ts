@@ -6,6 +6,7 @@ const ALLOWED_HOSTS = new Set(['dropbox.com', 'www.dropbox.com'])
 type DropboxEnv = { DROPBOX_APP_KEY?: string; DROPBOX_APP_SECRET?: string }
 type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?: number; media_info?: { metadata?: { dimensions?: { width?: number; height?: number } } } }
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
+type SharedLinkMetadata = { name?: string }
 
 export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[] }
 
@@ -86,6 +87,17 @@ const collectEntries = async (sourceUrl: string, env: DropboxEnv) => {
   return entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name))
 }
 
+const sharedLinkName = async (sourceUrl: string, env: DropboxEnv) => {
+  try {
+    const metadata = await rpc<SharedLinkMetadata>("sharing/get_shared_link_metadata", { url: sourceUrl }, env)
+    return metadata.name?.trim() || ""
+  } catch {
+    return ""
+  }
+}
+
+const titleFromFolderName = (name: string) => name.replace(/[\-_]+|\s+/g, " ").replace(/\s+/g, " ").trim()
+
 const titleFromEntries = (entries: DropboxEntry[]) => {
   const filename = entries[0]?.name.replace(/\.[^.]+$/, '') || ''
   const match = filename.match(/^MS\d{6,8}-([A-Za-z][A-Za-z _-]*)\d*$/i)
@@ -97,7 +109,8 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv): Promise
   const sourceUrl = validateFolderUrl(input)
   const entries = await collectEntries(sourceUrl, env)
   if (!entries.length) throw new Error('No image files were found in that public Dropbox folder')
-  const title = titleFromEntries(entries)
+  const folderName = await sharedLinkName(sourceUrl, env)
+  const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   const images = await Promise.all(entries.map(async (entry, index) => {
     const dimensions = await thumbnailDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions)
     return {
