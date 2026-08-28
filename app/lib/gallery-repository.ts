@@ -111,9 +111,13 @@ export const listGalleries = async (env?: AirtableEnv): Promise<GalleryRecord[]>
 
 export const getGallery = async (slug: string, env?: AirtableEnv): Promise<GalleryRecord | null> => {
   if (airtableConfigured(env)) {
-    const record = await recordForSlug(slug, env)
-    const external = recordFromFields(record?.fields ?? {})
-    return external?.sourceUrl && external.images.length ? external : null
+    try {
+      const record = await recordForSlug(slug, env)
+      const external = recordFromFields(record?.fields ?? {})
+      if (external?.sourceUrl && external.images.length) return external
+    } catch {
+      // The bundled album remains a reliable public fallback while a remote record is unavailable.
+    }
   }
   if (slug === bundledGallery.slug) return runtimeGalleries.get(slug) ?? bundledGallery
   return runtimeGalleries.get(slug) ?? null
