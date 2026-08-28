@@ -32,3 +32,7 @@
 - [x] Verify portrait-pair geometry, input navigation, and image fidelity across both modes, then redeploy.
 - [x] Commit only the reviewed portrait-pair files on top of the user’s committed baseline and deploy them.
 - [x] Restore the bundled Italy gallery when its Airtable record is unavailable, then smoke-test both public gallery paths.
+- [x] Audit the remote branch and deployed manorama.xyz configuration after identifying stale Italy-specific work.
+- [x] Remove the stale bundled Italy fallback and related assumptions without overwriting the current site configuration.
+- [x] Verify the current manorama.xyz gallery routes, then deploy the corrected state.
+- [x] Verify the active Cloudflare deployment now reflects the deleted-Italy state and current manorama.xyz gallery list.
