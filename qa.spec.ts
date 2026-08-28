@@ -1,6 +1,6 @@
 // manorama acceptance spec — the gallery-qa skill, executable.
 // Deps: npm i -D @playwright/test @axe-core/playwright
-// Env: GALLERY_URL (default http://localhost:8787), GALLERY_SLUG (default "gallery")
+// Env: GALLERY_URL (default http://localhost:8787), GALLERY_OWNER, GALLERY_SLUG
 // Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow],
 // Square button has aria-label "Image information and Content Credentials", modal has role="dialog".
 
@@ -8,8 +8,9 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 const BASE = process.env.GALLERY_URL ?? 'http://localhost:8787';
-const SLUG = process.env.GALLERY_SLUG ?? 'gallery';
-const GALLERY = `${BASE}/${SLUG}`;
+const OWNER = process.env.GALLERY_OWNER ?? 'thecontrarian';
+const SLUG = process.env.GALLERY_SLUG ?? 'italy-2018';
+const GALLERY = `${BASE}/${OWNER}/${SLUG}`;
 const CONTROL_NAME = /image information and content credentials/i;
 
 const viewports = [
@@ -381,40 +382,115 @@ test('credentialed image validates through the browser reader', async ({ page })
   await expect(panel).toContainText(/content credentials verified in this browser/i, { timeout: 30000 })
 })
 
-test('admin root exposes scoped gallery settings and remains noindex', async ({ page, request }) => {
+test('admin root lists galleries without a selector and remains noindex', async ({ page, request }) => {
   const root = await request.get(`${BASE}/`)
   expect(root.status()).toBe(200)
   expect(root.headers()['x-robots-tag']).toContain('noindex')
   await page.goto(`${BASE}/`)
-  await expect(page.getByRole('heading', { name: /shape the album/i })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /gallery identity/i })).toBeVisible()
-  await expect(page.getByRole('button', { name: /save settings/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'manorama.xyz' })).toBeVisible()
+  await expect(page.getByText('Simply the wow-est way to share photos with anyone!')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /your galleries/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Manorama-fy it!' })).toBeVisible()
+  await expect(page.getByRole('combobox')).toHaveCount(0)
+  await expect(page.locator('.admin-gallery-card')).toHaveCount(1)
+  await expect(page.getByText('manorama / gallery workbench')).toHaveCount(0)
+  await expect(page.getByText('Bring a folder. Make a gallery.')).toHaveCount(0)
+  await expect(page.locator('.admin-section-index')).toHaveCount(0)
+  await expect(page.getByText('View gallery')).toHaveCount(0)
+  await expect(page.locator('.admin-gallery-card .admin-eyebrow')).toHaveCount(0)
+  const galleryLink = page.getByRole('link', { name: new RegExp(`${OWNER}/${SLUG}$`) })
+  await expect(galleryLink).toBeVisible()
+  await expect(galleryLink).toHaveAttribute('target', '_blank')
+  await expect(page.getByRole('button', { name: /copy .* link/i })).toBeVisible()
+  await expect(page.locator('.admin-gallery-strip-frame')).toHaveCount(1)
+  await expect(page.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '100px')
+  await expect(page.getByRole('button', { name: /copy .* link/i })).toBeVisible()
+})
+
+test('admin gallery order persists through the 100px reorder rail', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  const card = page.locator('.admin-gallery-card').first()
+  const items = card.locator('.admin-gallery-strip-item')
+  await expect(items).toHaveCount(9)
+  const firstId = await items.nth(0).getAttribute('data-image-id')
+  const secondId = await items.nth(1).getAttribute('data-image-id')
+  await items.nth(1).focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByRole('status')).toHaveText('Order saved')
+  await expect(card.locator('.admin-gallery-strip-item').nth(0)).toHaveAttribute('data-image-id', secondId!)
+  await expect(card.locator('.admin-gallery-strip-item').nth(1)).toHaveAttribute('data-image-id', firstId!)
+})
+
+test('admin gallery images reorder with a real pointer drag', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  const card = page.locator('.admin-gallery-card').first()
+  const items = card.locator('.admin-gallery-strip-item')
+  const firstId = await items.nth(0).getAttribute('data-image-id')
+  const secondId = await items.nth(1).getAttribute('data-image-id')
+  await items.nth(1).dragTo(items.nth(0))
+  await expect(page.getByRole('status')).toHaveText('Order saved')
+  await expect(card.locator('.admin-gallery-strip-item').nth(0)).toHaveAttribute('data-image-id', secondId!)
+  await expect(card.locator('.admin-gallery-strip-item').nth(1)).toHaveAttribute('data-image-id', firstId!)
+})
+
+test('admin gallery strip pans with wheel and touch-style pointer input', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  const frame = page.locator('.admin-gallery-strip-frame').first()
+  await frame.locator('.admin-gallery-strip-item').evaluateAll((elements) => elements.slice(0, 4).forEach((element) => { (element as HTMLElement).style.width = '500px' }))
+  const dimensions = await frame.evaluate((element) => ({ scrollWidth: (element as HTMLElement).scrollWidth, clientWidth: (element as HTMLElement).clientWidth }))
+  expect(dimensions.scrollWidth).toBeGreaterThan(dimensions.clientWidth)
+  await frame.evaluate((element) => { (element as HTMLElement).scrollLeft = 0 })
+  await frame.dispatchEvent('wheel', { deltaY: 180, deltaX: 0, bubbles: true })
+  await expect.poll(() => frame.evaluate((element) => (element as HTMLElement).scrollLeft)).toBeGreaterThan(0)
+  const touchPan = await frame.evaluate((element) => {
+    const frame = element as HTMLDivElement
+    frame.scrollLeft = 0
+    frame.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 12, pointerType: 'touch', clientX: 320, isPrimary: true }))
+    frame.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 13, pointerType: 'touch', clientX: 320, isPrimary: false }))
+    frame.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 13, pointerType: 'touch', clientX: 100, isPrimary: false }))
+    frame.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 13, pointerType: 'touch', clientX: 100, isPrimary: false }))
+    frame.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 12, pointerType: 'touch', clientX: 100, isPrimary: true }))
+    return frame.scrollLeft
+  })
+  expect(touchPan).toBeGreaterThan(0)
+})
+
+test('admin gallery title and caption edit inline and persist', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  const card = page.locator('.admin-gallery-card').first()
+  const titleButton = card.getByRole('button', { name: /edit gallery title/i })
+  await titleButton.click()
+  const titleInput = page.getByRole('textbox', { name: 'Edit gallery title' })
+  await titleInput.fill('Italy, seen slowly')
+  await titleInput.press('Enter')
+  await expect(page.getByRole('status')).toHaveText('Saved')
+  await expect(card.getByRole('button', { name: /edit gallery title/i })).toHaveText('Italy, seen slowly')
+  const captionButton = card.getByRole('button', { name: /edit gallery caption/i })
+  await captionButton.click()
+  const captionInput = page.getByRole('textbox', { name: 'Edit gallery caption' })
+  await captionInput.fill('A quiet sequence of streets, stone, and weather along an Italian journey.')
+  await captionInput.press('Control+Enter')
+  await expect(page.getByRole('status')).toHaveText('Saved')
+  await expect(card.getByRole('button', { name: /edit gallery caption/i })).toContainText('A quiet sequence')
 })
 
 test.describe('admin responsive layout', () => {
   test.use({ viewport: { width: 375, height: 812 }, hasTouch: true })
 
-  test('fits the phone viewport and keeps the save action reachable', async ({ page }) => {
+  test('fits the phone viewport without horizontal overflow', async ({ page }) => {
     await page.goto(`${BASE}/`)
-    await expect(page.getByRole('heading', { name: /shape the album/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'manorama.xyz' })).toBeVisible()
     const geometry = await page.evaluate(() => ({
       scrollable: document.documentElement.scrollHeight > window.innerHeight,
       overflowX: document.documentElement.scrollWidth - window.innerWidth,
     }))
     expect(geometry.scrollable).toBe(true)
     expect(geometry.overflowX).toBeLessThanOrEqual(1)
-    await page.getByRole('button', { name: /save settings/i }).scrollIntoViewIfNeeded()
-    await expect(page.getByRole('button', { name: /save settings/i })).toBeVisible()
+    await expect(page.getByRole('combobox')).toHaveCount(0)
+    await expect(page.locator('.admin-section-index')).toHaveCount(0)
+    await expect(page.locator('.admin-gallery-card')).toHaveCount(1)
+    await expect(page.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '100px')
   })
-})
-
-test('saved admin settings apply to the gallery curtain', async ({ page }) => {
-  await page.goto(`${BASE}/`)
-  await page.getByLabel('title').fill('A locally shaped album')
-  await page.getByRole('button', { name: /save settings/i }).click()
-  await page.goto(GALLERY)
-  await expect(page.locator('[data-curtain-title]')).toHaveText('A locally shaped album')
-  await page.evaluate(() => localStorage.clear())
 })
 
 test('privacy: gallery remains noindex and unknown paths remain absent', async ({ request }) => {

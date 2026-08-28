@@ -1,10 +1,71 @@
-# manorama — Italy, seen slowly
+# manorama
 
-manorama is a single-album, link-shared photography gallery. This instance contains the supplied nine-image Italy sequence and is served at the unguessable gallery path `/italy-2018`. There is no gallery index, account system, discovery page, or link to another album.
+Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. The current prototype has one owner namespace, `thecontrarian`, and accepts public Dropbox folder URLs without asking gallery providers to connect their Dropbox accounts.
+
+## Current workflow
+
+Open the noindex admin at `https://manorama.thecontrarian.workers.dev/`. Paste a public, download-enabled Dropbox folder URL and choose **Manorama-fy it!**. Manorama uses its server-side Dropbox app credentials to enumerate the shared folder, ignores non-image files, loads a low-resolution preview strip, and lets the owner arrange the images before adding the gallery.
+
+Added galleries are stored in Airtable as metadata and ordered image manifests. Original image bytes remain in Dropbox and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama’s reference only; it does not delete anything in Dropbox.
+
+The admin lists Dropbox-backed galleries newest first. Clicking a title or caption opens an inline editor. Beneath each title and caption is a full-viewport-width, 100px image rail containing the gallery thumbnails. Images can be dragged into a new position, moved with the keyboard when focused, and panned within the rail using horizontal trackpad/wheel input or touch-style pointer movement. Each gallery row exposes its public URL, a copy action, and a delete action. Gallery links open in a new tab.
+
+## Public URLs
+
+The canonical public URL shape is:
+
+```text
+https://manorama.xyz/thecontrarian/{gallery-slug}
+```
+
+While DNS propagation is in progress, the same path is available through the Worker fallback:
+
+```text
+https://manorama.thecontrarian.workers.dev/thecontrarian/{gallery-slug}
+```
+
+The previous single-segment path, such as `/kashmir`, redirects to the owner-scoped path when the gallery exists. The bundled Italy fixture remains available only for local development and is not listed or served in the Airtable-backed production environment.
+
+## Airtable setup
+
+Airtable is used as an internal metadata registry rather than as an image store. The Worker expects these server-side secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `AIRTABLE_PAT` | Personal Access Token with read/write access to the Manorama base/table |
+| `AIRTABLE_BASE_ID` | Airtable base identifier |
+| `AIRTABLE_GALLERIES_TABLE` | Table name, normally `Galleries` |
+
+The `Galleries` table uses these fields:
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `slug` | Single line text | Stable gallery URL segment |
+| `title` | Single line text | Opening curtain and admin title |
+| `caption` | Long text | Opening curtain and admin caption |
+| `date` | Single line text | Optional displayed gallery date |
+| `sourceUrl` | URL or text | Public Dropbox folder URL |
+| `createdAt` | Date/text | Recency ordering |
+| `imagesJson` | Long text | Ordered image metadata and transient source references |
+
+Only records with a non-empty `sourceUrl` and at least one parsed image are shown in the production admin. This keeps incomplete planning records out of the public list.
+
+## Dropbox setup
+
+The Worker expects these server-side secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `DROPBOX_APP_KEY` | Manorama’s Dropbox app key |
+| `DROPBOX_APP_SECRET` | Manorama’s Dropbox app secret |
+
+The Dropbox app must have the read scopes needed for public shared-link metadata and file content. End users do not authorize Dropbox. They only provide a public shared-folder URL with downloading enabled.
+
+Dropbox enumeration uses the official shared-link API path. The initial scan returns image metadata and thumbnail routes; the Worker uses cursors internally for the folder listing. The delivery routes proxy thumbnails and originals without persisting the image bytes in Manorama.
 
 ## Run locally
 
-The project uses Bun for the local workflow. Install dependencies, generate the image manifest and responsive assets, then start the HonoX development server:
+The project uses Bun:
 
 ```sh
 bun install
@@ -12,100 +73,75 @@ bun run gallery
 bun run dev
 ```
 
-Open `http://localhost:5173/italy-2018` to view the album, or open `http://localhost:5173/` for the gallery settings workbench. The root admin is noindex and does not expose a gallery index. In this bundled v1, edits are scoped to the gallery slug and stored in the current browser; use Export/Import to move a settings JSON between browsers or into a later deployment-backed store.
+Open `http://localhost:5173/` for the admin. The local bundled Italy fixture is available at `http://localhost:5173/thecontrarian/italy-2018`; it is a development fallback used by the viewer acceptance suite when Airtable is not configured.
 
 ## Deploy to Cloudflare
 
-The repository is prepared for a one-command Worker deployment to the owner’s Cloudflare account:
+The repository is one-command deployable to the Worker account:
 
 ```sh
 bun run deploy
 ```
 
-The command rebuilds the gallery assets, runs the HonoX client and Worker builds, and invokes `wrangler deploy`. Authenticate Wrangler once with `wrangler login` before the first deployment. The Worker name is `manorama-italy-2018`; no custom domain is hardcoded. `wrangler.toml` uses Cloudflare Workers Static Assets for the bundled `dist/` tree. An optional commented R2 binding documents the future storage switch.
+`wrangler.toml` configures the `manorama` Worker, Static Assets, `PUBLIC_HOST=manorama.xyz`, `OWNER_SLUG=thecontrarian`, and both the `workers.dev` fallback and the `manorama.xyz` custom domain.
 
-## Gallery manifest
+Cloudflare currently has a `manorama.xyz` zone and the custom domain attached to the Worker. The domain remains pending until the registrar publishes only the Cloudflare nameservers:
 
-`build-gallery.mjs` writes both `public/images/italy-2018/manifest.json` and `app/lib/gallery-manifest.ts`. The generated manifest remains the deployment default. The root admin edits a separate `GallerySettings` object in `app/lib/gallery-settings.ts`, preserving stable image IDs and the immutable photo bytes. The manifest shape is:
-
-```ts
-type GalleryManifest = {
-  slug: string
-  title: string
-  caption: string
-  date: string
-  images: Array<{
-    id: string
-    filename: string
-    src: string
-    width: number
-    height: number
-    alt: string
-    caption?: string
-    exif?: {
-      dateOriginal?: string
-      camera?: string
-      lens?: string
-      aperture?: string
-      shutter?: string
-      iso?: number
-      focalLength?: string
-      description?: string
-    }
-    c2pa: boolean
-    placeholder: string
-    variants?: Array<{ width: number; src: string; format: string }>
-  }>
-}
+```text
+oswald.ns.cloudflare.com
+zara.ns.cloudflare.com
 ```
 
-Stable image IDs are generated from the source frame number, for example `italy-2018-0100`. They are used by the URL hash (`#img-2`) and are the future join key for per-image comments. Comments are deliberately out of scope for v1; a later comments store and route can attach to these IDs without changing the viewer model or adding stage chrome.
+After delegation has propagated, verify:
 
-## ImageSource adapters
-
-The viewer consumes the `ImageSource` interface in `app/lib/imagesource.ts`:
-
-```ts
-interface ImageSource {
-  list(): readonly GalleryImage[]
-  url(id: string, variant?: number | 'original'): string
-}
+```sh
+dig +short NS manorama.xyz
+curl -I https://manorama.xyz/
+curl -I https://manorama.xyz/thecontrarian/kashmir
 ```
 
-`BundledSource` reads the checked-in deployment manifest and public files. `R2Source` is included as the future adapter shape and resolves the same manifest entries against a configured public base URL. Moving to Cloudflare R2 means selecting that adapter and enabling the `IMAGES` binding in `wrangler.toml`; the route and viewer remain unchanged. A Dropbox adapter would follow the same interface.
+The admin root and public galleries send `X-Robots-Tag: noindex, nofollow, noarchive`. The admin is intentionally not authenticated in this prototype and must be protected before inviting other users.
 
-## C2PA preservation and verification
+## ImageSource and gallery model
 
-The asset pipeline treats Content Credentials as part of the image bytes. The supplied `MS201810-Italy0100.jpg` carries a C2PA marker and is copied byte-for-byte into `public/images/italy-2018/`; it is never resized or transcoded. The browser panel lazy-loads `@contentauth/c2pa-web`, its separate Wasm binary, and `c2pa-wc` on the first verification request. The manifest store is read and validated locally from the same-origin served bytes, then passed to `cai-manifest-summary`.
+The viewer consumes the `ImageSource` interface in `app/lib/imagesource.ts`. `BundledSource` reads the generated local manifest and is retained as a development fallback. Dropbox-backed records use the same manifest shape and are delivered through the Worker’s transient Dropbox proxy routes, so the viewer does not need to know where the image originated.
 
-Unsigned WebP sources are copied as the full primary source and receive additional same-format ICC-preserving responsive WebP variants. No original is recompressed, upscaled, sharpened, or converted to a sole WebP/AVIF source. The pipeline writes `integrity-report.json` and exits non-zero on a failed credential byte or dimension check. Cloudflare Images is not enabled in v1; if it is introduced later, its **Preserve Content Credentials** option must remain enabled for credentialed variants.
+Each image has a stable ID, filename, dimensions, alt text, optional caption and EXIF data, C2PA state, placeholder, and responsive variants. The ordered image sequence is persisted in `imagesJson`; dragging or keyboard-moving an image changes only the gallery order, not the Dropbox files. The admin rail renders 100px thumbnails with preserved aspect ratios and does not alter the source images.
 
-## Viewer controls
+The asset pipeline treats Content Credentials and ICC profiles as part of the image bytes. Originals are never recompressed, cropped, stretched, upscaled, or converted into a sole alternate format. C2PA verification remains client-side and lazy-loaded.
 
-During viewing the stage contains only the quiet 44px Gallery controls dot. The full-screen modal is the single home for view mode, captions, image information, Content Credentials, current position, curtain recall, navigation arrows, and shortcut reference. Navigation arrows are absent by default and can be enabled from the modal. The opening curtain is server-rendered and recalls from the modal. The viewer supports strip, vertical-scroll, and one-at-a-time modes, preserves the current image while switching, responds to pointer/touch drag, wheel, keyboard, and hash deep-links, and honours `prefers-reduced-motion`.
+## Viewer contract
+
+During gallery viewing, the stage contains only the quiet Gallery controls dot. The full-screen modal is the single home for view modes, captions, image information, Content Credentials, curtain recall, current position, navigation arrows, and shortcuts. The viewer supports strip, vertical-scroll, and one-at-a-time modes, pointer and touch dragging, wheel input, keyboard navigation, deep links, and reduced-motion preferences.
 
 ## Project layout
 
 | Path | Responsibility |
 | --- | --- |
-| `app/routes/index.tsx` | Root noindex admin route for the current gallery |
-| `app/routes/[slug].tsx` | The one valid gallery route and server-rendered curtain |
-| `app/routes/_renderer.tsx` | Document shell, noindex metadata, stylesheet, and island client entry |
-| `app/islands/Admin.tsx` | Root settings island with edit, reset, import, and export actions |
-| `app/islands/Viewer.tsx` | The hydrated viewer island: strip physics, modal, modes, C2PA trigger |
-| `app/lib/gallery-settings.ts` | Per-gallery settings model, normalization, and browser-local persistence seam |
-| `app/lib/imagesource.ts` | ImageSource interface, bundled adapter, future R2 adapter |
-| `app/lib/gallery-manifest.ts` | Generated typed manifest used by the Worker route |
+| `app/routes/index.tsx` | Root noindex admin route |
+| `app/routes/[owner]/[slug].tsx` | Canonical owner-scoped gallery route |
+| `app/routes/[slug].tsx` | Legacy single-segment redirect into the owner namespace |
+| `app/islands/Admin.tsx` | Dropbox intake, image arrangement, gallery list, inline editing, copy, and delete |
+| `app/islands/Viewer.tsx` | Hydrated strip viewer, modal, modes, gestures, and C2PA trigger |
+| `app/lib/dropbox-public.ts` | Public shared-link scan, thumbnail, and original delivery helpers |
+| `app/lib/gallery-repository.ts` | Airtable-backed gallery persistence and local fallback |
+| `app/lib/gallery-registry.ts` | Earlier generated registry seam retained for compatibility |
+| `app/lib/gallery-settings.ts` | Per-gallery viewer settings and browser fallback |
+| `app/lib/imagesource.ts` | ImageSource interface and bundled adapter |
 | `build-gallery.mjs` | EXIF, dimensions, placeholders, variants, and integrity report |
-| `qa.spec.ts` | Playwright acceptance contract supplied with the project |
-| `wrangler.toml` | Cloudflare Worker and Static Assets configuration |
+| `qa.spec.ts` | Playwright acceptance contract |
+| `wrangler.toml` | Worker, environment variables, Static Assets, and custom domain route |
 
 ## Verification
 
-Run the supplied suite against a reachable local server with:
+Run the local acceptance suite against the local server:
 
 ```sh
-GALLERY_URL=http://localhost:5173 GALLERY_SLUG=italy-2018 bunx playwright test qa.spec.ts
+GALLERY_URL=http://localhost:5173 GALLERY_OWNER=thecontrarian GALLERY_SLUG=italy-2018 bunx playwright test qa.spec.ts
 ```
 
-The required QA matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide, with reduced motion both enabled and disabled. The suite checks the one-visible-control rule, drag and hash navigation, the modal, curtain, arrows, CLS, accessibility, C2PA panel state, root admin rendering, mobile admin layout, settings handoff, and noindex privacy behavior.
+The required matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide, with reduced motion enabled and disabled. It checks the one-visible-control rule, strip physics, gesture and keyboard navigation, curtain and modal behavior, alternate modes, CLS, accessibility, C2PA panel state, owner-scoped routing, admin branding, inline metadata editing, 100px admin image-rail ordering and panning, new-tab gallery links, copyable gallery URLs, and noindex privacy behavior.
+
+## Prototype limitations
+
+This prototype deliberately has no login or payment system. Anyone who can reach the root admin can currently attempt admin mutations, so the admin/API surface should be placed behind an access layer before the application becomes a public multi-tenant service. Airtable stores metadata and references only; the current Worker does not store user photographs.
