@@ -1,5 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600&display=swap');
 
+/* Playfair variable font (opsz, wdth, wght axes) */
+@font-face {
+  font-family: 'Playfair';
+  src: url('/fonts/Playfair-variable.ttf') format('truetype-variations');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Playfair';
+  src: url('/fonts/Playfair-Italic-variable.ttf') format('truetype-variations');
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
@@ -229,7 +245,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .admin-gallery-card-index { color: rgba(243, 240, 232, .3); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 .admin-gallery-card-body { min-width: 0; }
 .admin-gallery-title, .admin-gallery-caption { display: block; width: min(100%, 680px); margin: 10px 0 0; border: 1px solid transparent; border-radius: 0; background: transparent; color: #f3f0e8; text-align: left; cursor: text; }
-.admin-gallery-title { padding: 0; font-size: 24px; font-weight: 500; letter-spacing: -.04em; line-height: 1.15; }
+.admin-gallery-title { padding: 0; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 24px; font-weight: 400; font-variation-settings: "wdth" 100, "wght" 500; letter-spacing: -.04em; line-height: 1.15; }
 .admin-gallery-caption { padding: 0; color: rgba(243, 240, 232, .58); font-size: 12px; line-height: 1.6; }
 .admin-gallery-title:hover, .admin-gallery-caption:hover, .admin-gallery-title:focus-visible, .admin-gallery-caption:focus-visible { border-color: rgba(243, 240, 232, .25); outline: none; }
 .admin-gallery-title.is-empty, .admin-gallery-caption.is-empty { color: rgba(243, 240, 232, .35); font-style: italic; }
@@ -337,8 +353,9 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 /* Brand hierarchy and logo marks */
 .admin-header { position: relative; }
 .admin-header .admin-brand-title { max-width: none; margin: 0 0 18px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; white-space: nowrap; }
-.admin-intro { max-width: 58ch; margin: 0; font-size: clamp(15px, 1.7vw, 21px); font-weight: 400; font-style: italic; letter-spacing: -.02em; line-height: 1.55; }
-.admin-brand-mark { position: absolute; top: 20px; right: 0; width: clamp(74px, 9vw, 112px); height: clamp(74px, 9vw, 112px); object-fit: cover; opacity: .92; }
+.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; }
+.admin-intro em { font-style: italic; }
+.admin-brand-mark { position: absolute; top: 20px; right: 0; width: clamp(200px, 22vw, 320px); height: auto; opacity: .92; }
 .control-logo { width: 48px; height: 48px; padding: 0; border: 0; border-radius: 0; background: transparent; opacity: .11; overflow: hidden; }
 .control-logo::before { display: none; }
 .control-logo img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .9; }
@@ -346,7 +363,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .control-logo:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 4px; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
-  .admin-brand-mark { top: 8px; right: 0; width: 64px; height: 64px; }
+  .admin-brand-mark { top: 8px; right: 0; width: 180px; }
 }
 
 /* Public curtain brand treatment */
@@ -355,7 +372,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
 }
 .curtain h1 { max-width: 15ch; margin: 0 0 24px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; text-transform: lowercase; }
-.curtain-caption { max-width: 42ch; margin: 0; color: rgba(243, 240, 232, .82); font-size: clamp(15px, 1.7vw, 21px); font-weight: 400; font-style: italic; letter-spacing: -.02em; line-height: 1.55; text-transform: none; }
+.curtain-caption { max-width: 42ch; margin: 0; color: #f3f0e8; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; text-transform: none; }
 @media (max-width: 640px) {
   .curtain h1 { font-size: 96px; }
 }
@@ -378,9 +395,8 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   text-align: center;
 }
 .landing-brand-mark {
-  width: clamp(104px, 14vw, 168px);
-  height: clamp(104px, 14vw, 168px);
-  object-fit: cover;
+  width: clamp(280px, 36vw, 460px);
+  height: auto;
   margin-bottom: clamp(24px, 4vw, 42px);
 }
 .landing-brand-title {
@@ -394,17 +410,20 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 }
 .landing-brand-intro {
   margin: 22px 0 0;
-  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(15px, 1.7vw, 21px);
-  font-weight: 400;
-  font-style: italic;
+  font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif;
+  font-size: 24px;
+  font-weight: 300;
+  font-style: normal;
+  font-optical-sizing: auto;
+  font-variation-settings: "wdth" 85, "wght" 300;
   letter-spacing: -.02em;
-  line-height: 1.55;
+  line-height: 1.15;
   text-transform: none;
 }
+.landing-brand-intro em { font-style: italic; }
 @media (max-width: 520px) {
   .landing-page { padding: 24px; }
-  .landing-brand-mark { width: 104px; height: 104px; }
+  .landing-brand-mark { width: 260px; }
   .landing-brand-title { font-size: 96px; }
 }
 

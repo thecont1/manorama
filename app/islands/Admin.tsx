@@ -285,9 +285,9 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
       <header class="admin-header">
         <div>
           <h1 class="admin-brand-title">manorama</h1>
-          <p class="admin-intro">adj. a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+          <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         </div>
-        <img class="admin-brand-mark" src="/manorama-logo-upright.svg" alt="" aria-hidden="true" />
+        <img class="admin-brand-mark" src="/manorama-logo-upright-test.png" alt="" aria-hidden="true" />
         {status ? <div class="admin-header-meta"><span class="admin-status" role="status" aria-live="polite">{status}</span></div> : null}
       </header>
 
