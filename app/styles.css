@@ -386,26 +386,26 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .landing-brand-title {
   margin: 0;
   font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(54px, 8vw, 118px);
+  font-size: 116px;
   font-weight: 800;
-  letter-spacing: -.085em;
-  line-height: .84;
+  letter-spacing: -.038em;
+  line-height: 1.0;
   text-transform: lowercase;
 }
 .landing-brand-intro {
   margin: 22px 0 0;
   font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(15px, 1.7vw, 21px);
-  font-weight: 200;
+  font-weight: 400;
   font-style: italic;
   letter-spacing: -.02em;
-  line-height: 1.35;
+  line-height: 1.55;
   text-transform: none;
 }
 @media (max-width: 520px) {
   .landing-page { padding: 24px; }
   .landing-brand-mark { width: 104px; height: 104px; }
-  .landing-brand-title { font-size: clamp(50px, 17vw, 78px); }
+  .landing-brand-title { font-size: 96px; }
 }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
