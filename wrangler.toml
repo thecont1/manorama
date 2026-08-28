@@ -2,6 +2,11 @@ name = "manorama"
 main = "./dist/index.js"
 compatibility_date = "2026-08-26"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+PUBLIC_HOST = "manorama.xyz"
+OWNER_SLUG = "thecontrarian"
 
 [assets]
 directory = "./dist"
@@ -10,6 +15,10 @@ not_found_handling = "404-page"
 
 [observability]
 enabled = false
+
+[[routes]]
+pattern = "manorama.xyz"
+custom_domain = true
 
 # Optional future adapter binding. Enable when switching ImageSource to R2Source.
 # [[r2_buckets]]
