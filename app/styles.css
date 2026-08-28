@@ -322,7 +322,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .admin-gallery-count { font-size: 12px; font-weight: 400; letter-spacing: 0; }
 .admin-gallery-url { display: flex; align-items: baseline; gap: 0; font-size: 16px; }
 .admin-gallery-url-prefix { flex: 0 0 auto; color: rgba(243, 240, 232, .52); }
-.admin-gallery-slug { min-width: 0; width: auto; margin: 0; padding: 0; border: 1px solid transparent; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: text; }
+.admin-gallery-slug { min-width: 0; width: auto; margin: 0; padding: 3px 5px; border: 1px solid rgba(243, 240, 232, .32); border-radius: 3px; background: rgba(243, 240, 232, .035); color: inherit; font: inherit; text-align: left; cursor: text; }
 .admin-gallery-slug:hover, .admin-gallery-slug:focus-visible { border-color: rgba(243, 240, 232, .3); outline: none; }
 .admin-gallery-slug.is-editing { box-sizing: border-box; padding: 7px 8px; border-color: rgba(243, 240, 232, .65); background: rgba(243, 240, 232, .07); outline: none; }
 .admin-gallery-url .admin-gallery-slug.is-empty { color: inherit; font-style: normal; }
@@ -359,3 +359,54 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   .curtain h1 { font-size: clamp(48px, 16vw, 82px); }
   .curtain-caption { font-size: 18px; }
 }
+
+/* Minimal public landing page */
+.landing-page {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 32px;
+  background: #111312;
+  color: #f3f0e8;
+}
+.landing-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 720px;
+  text-align: center;
+}
+.landing-brand-mark {
+  width: clamp(104px, 14vw, 168px);
+  height: clamp(104px, 14vw, 168px);
+  object-fit: cover;
+  margin-bottom: clamp(24px, 4vw, 42px);
+}
+.landing-brand-title {
+  margin: 0;
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(54px, 8vw, 118px);
+  font-weight: 800;
+  letter-spacing: -.085em;
+  line-height: .84;
+  text-transform: lowercase;
+}
+.landing-brand-intro {
+  margin: 22px 0 0;
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(15px, 1.7vw, 21px);
+  font-weight: 200;
+  font-style: italic;
+  letter-spacing: -.02em;
+  line-height: 1.35;
+  text-transform: none;
+}
+@media (max-width: 520px) {
+  .landing-page { padding: 24px; }
+  .landing-brand-mark { width: 104px; height: 104px; }
+  .landing-brand-title { font-size: clamp(50px, 17vw, 78px); }
+}
+
+/* The gallery-list has its own list separator; avoid a second adjacent rule. */
+.gallery-list { border-top: 0; }
