@@ -113,6 +113,21 @@ app.delete('/api/galleries/:slug', async (c) => {
   }
 })
 
+app.post('/api/galleries/:slug/refresh', async (c) => {
+  try {
+    const gallery = await getGallery(c.req.param('slug'), envOf(c))
+    if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+    if (!gallery.sourceUrl) return c.json({ error: 'Only Dropbox-sourced galleries can be refreshed' }, 400)
+    const scan = await scanDropboxFolder(gallery.sourceUrl, envOf(c))
+    const byFilename = new Map(gallery.images.map((image) => [image.filename, image]))
+    const refreshed = scan.images.map((image) => byFilename.get(image.filename) ?? image)
+    const updated = await createGallery({ ...gallery, images: refreshed }, envOf(c))
+    return c.json({ gallery: toSummary(updated) })
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be refreshed' }, 422)
+  }
+})
+
 app.get('/api/dropbox/thumbnail', async (c) => {
   const sourceUrl = c.req.query('sourceUrl')
   const filename = c.req.query('filename')
