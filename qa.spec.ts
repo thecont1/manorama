@@ -25,6 +25,18 @@ async function dismissCurtain(page: import('@playwright/test').Page) {
   await expect(page.locator('[data-curtain]')).toBeHidden();
 }
 
+test('curtain uses larger brand type without entry labels', async ({ page }) => {
+  await page.goto(GALLERY)
+  await expect(page.locator('[data-curtain-title]')).toBeVisible()
+  await expect(page.locator('[data-curtain-caption]')).toBeVisible()
+  await expect(page.locator('.curtain-kicker')).toHaveCount(0)
+  await expect(page.locator('.curtain-prompt')).toHaveCount(0)
+  await expect(page.getByText('a single album')).toHaveCount(0)
+  await expect(page.getByText(/tap, click or press enter to enter/i)).toHaveCount(0)
+  await expect(page.locator('[data-curtain-title]')).toHaveCSS('font-family', /Bricolate Grotesque/i)
+  await expect(page.locator('[data-curtain-caption]')).toHaveCSS('font-family', /Bricolate Grotesque/i)
+})
+
 test('curtain lifts upward before it hides', async ({ page }) => {
   await page.goto(GALLERY);
   const curtain = page.locator('[data-curtain]');
@@ -388,23 +400,29 @@ test('admin root lists galleries without a selector and remains noindex', async 
   expect(root.headers()['x-robots-tag']).toContain('noindex')
   await page.goto(`${BASE}/`)
   await expect(page.getByRole('heading', { name: 'manorama.xyz' })).toBeVisible()
-  await expect(page.getByText('Simply the wow-est way to share photos with anyone!')).toBeVisible()
+  await expect(page.getByText('adj. a view that is delightful to the mind. Also, simply the wow-est way to share photos with anyone!')).toBeVisible()
+  await expect(page.getByText(/^Simply the wow-est way to share photos with anyone!$/)).toHaveCount(0)
   await expect(page.getByRole('heading', { name: /your galleries/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manorama-fy it!' })).toBeVisible()
   await expect(page.getByRole('combobox')).toHaveCount(0)
-  await expect(page.locator('.admin-gallery-card')).toHaveCount(1)
+  await expect(page.locator('.admin-gallery-card').first()).toBeVisible()
   await expect(page.getByText('manorama / gallery workbench')).toHaveCount(0)
   await expect(page.getByText('Bring a folder. Make a gallery.')).toHaveCount(0)
+  await expect(page.locator('.admin-gallery-card').first().locator('.admin-gallery-count')).toHaveText(/\(\d+ photos\)/)
+  await expect(page.locator('.admin-brand-title')).toHaveCSS('font-family', /Bricolate Grotesque/i)
+  await expect(page.locator('.admin-intro')).toHaveCSS('font-style', 'italic')
   await expect(page.locator('.admin-section-index')).toHaveCount(0)
   await expect(page.getByText('View gallery')).toHaveCount(0)
   await expect(page.locator('.admin-gallery-card .admin-eyebrow')).toHaveCount(0)
-  const galleryLink = page.getByRole('link', { name: new RegExp(`${OWNER}/${SLUG}$`) })
-  await expect(galleryLink).toBeVisible()
-  await expect(galleryLink).toHaveAttribute('target', '_blank')
-  await expect(page.getByRole('button', { name: /copy .* link/i })).toBeVisible()
-  await expect(page.locator('.admin-gallery-strip-frame')).toHaveCount(1)
-  await expect(page.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '100px')
-  await expect(page.getByRole('button', { name: /copy .* link/i })).toBeVisible()
+  await expect(page.getByText(new RegExp(`manorama\\.xyz/${OWNER}/${SLUG}$`))).toBeVisible()
+  const firstCard = page.locator('.admin-gallery-card').first()
+  await expect(firstCard.getByRole('link', { name: /open .* in a new tab/i })).toHaveAttribute('target', '_blank')
+  await expect(firstCard.getByRole('link', { name: /open .* in a new tab/i })).toHaveAttribute('rel', 'noreferrer')
+  await expect(firstCard.getByRole('button', { name: /copy .* link/i })).toBeVisible()
+  await expect(firstCard.locator('.admin-gallery-strip-frame')).toBeVisible()
+  await expect(firstCard.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '100px')
+  await expect(firstCard.getByRole('button', { name: /copy .* link/i })).toBeVisible()
+  await expect(firstCard.getByRole('button', { name: /edit gallery slug/i })).toBeVisible()
 })
 
 test('admin gallery order persists through the 100px reorder rail', async ({ page }) => {
@@ -474,6 +492,20 @@ test('admin gallery title and caption edit inline and persist', async ({ page })
   await expect(card.getByRole('button', { name: /edit gallery caption/i })).toContainText('A quiet sequence')
 })
 
+test('admin gallery slug edits inline and persists the public address', async ({ page }) => {
+  await page.goto(`${BASE}/`)
+  const card = page.locator('.admin-gallery-card').first()
+  await card.getByRole('button', { name: /edit gallery slug/i }).click()
+  const slugInput = page.getByRole('textbox', { name: 'Edit gallery slug' })
+  const nextSlug = `italy-reframed-${Date.now()}`
+  await slugInput.fill(nextSlug)
+  await slugInput.press('Enter')
+  await expect(page.getByRole('status')).toHaveText('Saved')
+  await expect(card.getByRole('button', { name: /edit gallery slug/i })).toHaveText(nextSlug)
+  await expect(page.getByText(`manorama.xyz/${OWNER}/${nextSlug}`)).toBeVisible()
+  await expect(card.getByRole('link', { name: /open .* in a new tab/i })).toHaveAttribute('href', `/${OWNER}/${nextSlug}`)
+})
+
 test.describe('admin responsive layout', () => {
   test.use({ viewport: { width: 375, height: 812 }, hasTouch: true })
 
@@ -488,8 +520,8 @@ test.describe('admin responsive layout', () => {
     expect(geometry.overflowX).toBeLessThanOrEqual(1)
     await expect(page.getByRole('combobox')).toHaveCount(0)
     await expect(page.locator('.admin-section-index')).toHaveCount(0)
-    await expect(page.locator('.admin-gallery-card')).toHaveCount(1)
-    await expect(page.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '100px')
+    await expect(page.locator('.admin-gallery-card').first()).toBeVisible()
+    await expect(page.locator('.admin-gallery-strip-frame').first()).toHaveCSS('height', '100px')
   })
 })
 
