@@ -1,6 +1,6 @@
 import { createApp } from 'honox/server'
 import { fetchDropboxFile, fetchDropboxThumbnail, scanDropboxFolder } from './lib/dropbox-public'
-import { createGallery, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder } from './lib/gallery-repository'
+import { createGallery, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug } from './lib/gallery-repository'
 
 const app = createApp()
 
@@ -84,16 +84,18 @@ app.post('/api/galleries', async (c) => {
 })
 
 app.patch('/api/galleries/:slug', async (c) => {
-  const payload = await c.req.json<{ title?: string; caption?: string; order?: string[] }>().catch(() => ({}))
+  const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; slug?: string }>().catch(() => ({}))
   const title = typeof payload.title === 'string' ? payload.title.trim().slice(0, 120) : undefined
   const caption = typeof payload.caption === 'string' ? payload.caption.trim().slice(0, 500) : undefined
   const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, 500) : undefined
+  const nextSlug = typeof payload.slug === 'string' ? payload.slug.trim().toLowerCase() : undefined
   if (title !== undefined && !title) return c.json({ error: 'A gallery title cannot be empty' }, 400)
-  if (title === undefined && caption === undefined && !order) return c.json({ error: 'Provide metadata or an image order to update' }, 400)
+  if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
+  if (title === undefined && caption === undefined && !order && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
   try {
-    let gallery = order ? await updateGalleryOrder(c.req.param('slug'), order, envOf(c)) : await getGallery(c.req.param('slug'), envOf(c))
+    let gallery = nextSlug !== undefined ? await updateGallerySlug(c.req.param('slug'), nextSlug, envOf(c)) : order ? await updateGalleryOrder(c.req.param('slug'), order, envOf(c)) : await getGallery(c.req.param('slug'), envOf(c))
     if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-    if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(c.req.param('slug'), { title, caption }, envOf(c))
+    if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(gallery.slug, { title, caption }, envOf(c))
     if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
     return c.json({ gallery: toSummary(gallery) })
   } catch (error) {

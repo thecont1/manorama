@@ -139,6 +139,24 @@ export const updateGalleryMetadata = async (slug: string, patch: { title?: strin
   return createGallery({ ...current, title: patch.title ?? current.title, caption: patch.caption ?? current.caption, createdAt: current.createdAt || new Date().toISOString() }, env)
 }
 
+export const updateGallerySlug = async (slug: string, nextSlug: string, env?: AirtableEnv) => {
+  const current = await getGallery(slug, env)
+  if (!current) return null
+  if (slug === nextSlug) return current
+  const conflicting = await getGallery(nextSlug, env)
+  if (conflicting) throw new Error('That gallery URL is already in use')
+  const nextGallery = { ...current, slug: nextSlug }
+  if (airtableConfigured(env)) {
+    const record = await recordForSlug(slug, env)
+    if (!record) return null
+    await airtableRequest(env, apiUrl(env, `/${record.id}`), { method: 'PATCH', body: JSON.stringify({ fields: fieldsFromRecord(nextGallery) }) })
+  } else {
+    runtimeGalleries.delete(slug)
+    runtimeGalleries.set(nextSlug, nextGallery)
+  }
+  return nextGallery
+}
+
 export const updateGalleryOrder = async (slug: string, order: string[], env?: AirtableEnv) => {
   const current = await getGallery(slug, env)
   if (!current) return null
