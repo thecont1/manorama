@@ -8,5 +8,5 @@ export default createRoute((c) => c.render(
       <p class="landing-brand-intro">adj. a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
     </div>
   </main>,
-  { title: 'manorama.xyz' },
+  { title: 'manorama' },
 ))

@@ -20,6 +20,6 @@ export default createRoute(async (c) => {
       owner={owner}
       publicHost={env.PUBLIC_HOST || new URL(c.req.url).host}
     />,
-    { title: 'manorama.xyz' },
+    { title: 'manorama' },
   )
 })
