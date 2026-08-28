@@ -36,3 +36,8 @@
 - [x] Remove the stale bundled Italy fallback and related assumptions without overwriting the current site configuration.
 - [x] Verify the current manorama.xyz gallery routes, then deploy the corrected state.
 - [x] Verify the active Cloudflare deployment now reflects the deleted-Italy state and current manorama.xyz gallery list.
+- [x] Pull and reconcile all remote changes before modifying the viewer.
+- [x] Remove the consecutive-portrait pairing exception from Strip and Vertical Scroll.
+- [x] Make Vertical Scroll fit landscapes to viewport width and portraits to visible viewport height, with unchanged native aspect ratios.
+- [x] Change navigation arrows to make continuous advances slightly shorter than the viewport width.
+- [x] Verify image fidelity, complementary viewing-mode geometry, and arrow movement; commit logical batches and deploy.
