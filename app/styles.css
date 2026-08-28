@@ -17,8 +17,7 @@ button, input { font: inherit; }
 button { color: inherit; }
 
 .gallery-shell, honox-island { display: contents; }
-/* Pairing invariant: Strip and Vertical mode place only consecutive portraits on a shared neutral canvas; no source pixels are cropped, stretched, or enlarged. */
-/* Strip invariant: the stage clips only the horizontal journey; its visible viewport height preserves every vertical source pixel. */
+/* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
 .viewer-stage { position: relative; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: #0a0a0a; outline: none; touch-action: none; cursor: grab; }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
@@ -26,19 +25,13 @@ button { color: inherit; }
 .viewer-track { display: flex; flex-wrap: nowrap; width: max-content; height: 100%; gap: 0; will-change: transform; }
 .viewer-track--vertical { display: block; width: 100%; height: auto; transform: none !important; }
 .viewer-track--single { width: 100%; transform: none !important; }
-.viewer-pair { display: contents; }
-.viewer-track > .viewer-pair--portraits { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); flex: 0 0 100vw; width: 100vw; height: 100%; background: #0a0a0a; }
-.viewer-track > .viewer-pair--portraits .viewer-frame { display: grid; place-items: center; min-width: 0; width: 100%; height: 100%; background: #0a0a0a; overflow: hidden; }
-.viewer-track > .viewer-pair--portraits .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
-.viewer-track--vertical > .viewer-pair--portraits { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; min-width: 0; height: auto; background: #0a0a0a; align-items: stretch; }
-.viewer-track--vertical > .viewer-pair--portraits .viewer-frame { display: grid; place-items: center; min-width: 0; width: 100%; height: auto; background: #0a0a0a; overflow: hidden; }
-.viewer-track--vertical > .viewer-pair--portraits .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
-.viewer-track--single > .viewer-pair, .viewer-track--single > .viewer-pair--portraits { display: contents; min-width: 0; }
 .viewer-frame { position: relative; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: #0a0a0a; overflow: visible; }
 .viewer-frame img { display: block; width: auto; height: 100%; max-width: none; max-height: none; object-fit: contain; user-select: none; -webkit-user-drag: none; opacity: 0; transition: opacity 260ms ease; background: transparent; }
 .viewer-frame img[src] { opacity: 1; }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: 100%; height: auto; max-width: 100%; object-fit: contain; }
+.viewer-track--vertical .viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: #0a0a0a; overflow: hidden; }
+.viewer-track--vertical .viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
 .viewer-track--single .viewer-frame { width: 100%; height: 100%; display: none; }
 .viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { display: flex; align-items: center; justify-content: center; }
 .viewer-track--single .viewer-frame img { width: 100%; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
@@ -266,14 +259,14 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   .admin-gallery-url { flex-basis: 100%; }
 }
 
-/* Gallery ordering strip: a 100px, full-bleed editorial rail */
-.admin-gallery-strip-frame { grid-column: 1 / -1; width: 100vw; height: 100px; margin-left: calc((100% - 100vw) / 2); overflow: hidden; border-top: 1px solid rgba(243, 240, 232, .1); border-bottom: 1px solid rgba(243, 240, 232, .1); background: #151817; cursor: grab; touch-action: pan-x; }
+/* Gallery ordering strip: a 150px, full-bleed editorial rail */
+.admin-gallery-strip-frame { grid-column: 1 / -1; width: 100vw; height: 150px; margin-left: calc((100% - 100vw) / 2); overflow: hidden; border-top: 1px solid rgba(243, 240, 232, .1); border-bottom: 1px solid rgba(243, 240, 232, .1); background: #151817; cursor: grab; touch-action: pan-x; }
 .admin-gallery-strip-frame:active { cursor: grabbing; }
-.admin-gallery-strip { display: flex; width: max-content; height: 100px; gap: 0; user-select: none; }
-.admin-gallery-strip-item { position: relative; flex: 0 0 auto; width: auto; height: 100px; margin: 0; outline: none; cursor: grab; }
+.admin-gallery-strip { display: flex; width: max-content; height: 150px; gap: 0; user-select: none; }
+.admin-gallery-strip-item { position: relative; flex: 0 0 auto; width: auto; height: 150px; margin: 0; outline: none; cursor: grab; }
 .admin-gallery-strip-item:active { cursor: grabbing; }
 .admin-gallery-strip-item:focus-visible { z-index: 1; box-shadow: inset 0 0 0 2px #f3f0e8; }
-.admin-gallery-strip-item img { display: block; width: auto; height: 100px; max-width: none; object-fit: contain; pointer-events: none; }
+.admin-gallery-strip-item img { display: block; width: auto; height: 150px; max-width: none; object-fit: contain; pointer-events: none; }
 .admin-gallery-strip-item::after { position: absolute; inset: 0; border-right: 1px solid rgba(17, 19, 18, .45); content: ''; pointer-events: none; }
 .admin-gallery-strip-frame + .gallery-card-actions { grid-column: 2 / -1; margin-top: 0; }
 @media (max-width: 720px) {
@@ -293,10 +286,10 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 /* Simplified gallery row refinements */
 .admin-gallery-card-body { grid-column: 1 / -1; }
 .admin-gallery-title-row { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-.admin-gallery-title-row .admin-gallery-title { min-width: 0; }
+.admin-gallery-title-row .admin-gallery-title { width: auto; max-width: calc(100% - 96px); min-width: 0; }
 .admin-gallery-count { flex: 0 0 auto; color: rgba(243, 240, 232, .62); font-size: 24px; font-weight: 500; letter-spacing: -.04em; line-height: 1.15; }
-.admin-gallery-strip-frame { display: flex; justify-content: center; }
-.admin-gallery-strip { min-width: 100%; justify-content: center; }
+.admin-gallery-strip-frame { display: block; }
+.admin-gallery-strip { min-width: 100%; margin: 0 auto; justify-content: center; }
 .admin-gallery-strip-frame + .gallery-card-actions { grid-column: 1 / -1; }
 .gallery-card-actions { width: 100%; justify-content: flex-start; }
 .admin-gallery-url { flex: 1 1 auto; text-align: left; color: rgba(243, 240, 232, .86); font-size: 14px; }

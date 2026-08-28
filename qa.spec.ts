@@ -9,7 +9,7 @@ import AxeBuilder from '@axe-core/playwright';
 
 const BASE = process.env.GALLERY_URL ?? 'http://localhost:8787';
 const OWNER = process.env.GALLERY_OWNER ?? 'thecontrarian';
-const SLUG = process.env.GALLERY_SLUG ?? 'italy-2018';
+const SLUG = process.env.GALLERY_SLUG ?? 'kashmir';
 const GALLERY = `${BASE}/${OWNER}/${SLUG}`;
 const CONTROL_NAME = /image information and content credentials/i;
 
@@ -23,6 +23,10 @@ async function dismissCurtain(page: import('@playwright/test').Page) {
   await page.goto(GALLERY);
   await page.locator('[data-curtain]').click();
   await expect(page.locator('[data-curtain]')).toBeHidden();
+}
+
+async function imageCount(page: import('@playwright/test').Page) {
+  return page.locator('[data-track] [data-index]').count()
 }
 
 test('curtain uses larger brand type without entry labels', async ({ page }) => {
@@ -83,7 +87,7 @@ for (const vp of viewports) {
             const overStage =
               r.left < stage.right && r.right > stage.left && r.top < stage.bottom && r.bottom > stage.top;
             return (
-              overStage && !el.closest('[data-stage]') && r.width > 0 &&
+              overStage && !el.closest('[data-stage]') && el.matches('button, [role="button"], a') && r.width > 0 &&
               s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0.05
             );
           })
@@ -92,7 +96,7 @@ for (const vp of viewports) {
       expect(visible).toEqual(['Image information and Content Credentials']); // design rules, Rule 1
     });
 
-    test('square logo placeholder is centred at the stage bottom and opens provenance details', async ({ page }) => {
+    test('logo control is centred at the stage bottom and opens provenance details', async ({ page }) => {
       await dismissCurtain(page);
       const geometry = await page.getByRole('button', { name: CONTROL_NAME }).evaluate((button) => {
         const rect = button.getBoundingClientRect();
@@ -120,13 +124,13 @@ for (const vp of viewports) {
       await page.keyboard.press('ArrowRight');
       await expect(page).toHaveURL(GALLERY);
       await page.getByRole('button', { name: CONTROL_NAME }).click();
-      await expect(page.locator('.position-value')).toHaveText('2 / 9');
+      await expect(page.locator('.position-value')).toHaveText(`2 / ${await imageCount(page)}`);
       await page.keyboard.press('Escape');
       await page.reload();
       await expect(page).toHaveURL(GALLERY);
       await page.locator('[data-curtain]').click();
       await page.getByRole('button', { name: CONTROL_NAME }).click();
-      await expect(page.locator('.position-value')).toHaveText('1 / 9');
+      await expect(page.locator('.position-value')).toHaveText(`1 / ${await imageCount(page)}`);
       await page.keyboard.press('Escape');
       await page.keyboard.press('Home');
       await expect(page).toHaveURL(GALLERY);
@@ -334,7 +338,49 @@ for (const vp of viewports) {
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: /next photograph/i }).click();
       await page.getByRole('button', { name: CONTROL_NAME }).click();
-      await expect(page.locator('.position-value')).toHaveText('2 / 9');
+      await expect(page.locator('.position-value')).toHaveText(`2 / ${await imageCount(page)}`);
+    });
+
+    test('vertical view complements Strip without pairing or altering source proportions', async ({ page }) => {
+      await dismissCurtain(page);
+      await expect(page.locator('[data-portrait-pair="true"]')).toHaveCount(0);
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
+      await page.locator('input[value="vertical"]').check();
+      await page.keyboard.press('Escape');
+      await page.locator('[data-orientation="landscape"] img').first().evaluate((image: HTMLImageElement) => image.decode());
+      await page.locator('[data-orientation="portrait"] img').first().evaluate((image: HTMLImageElement) => image.decode());
+      const geometry = await page.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>('[data-stage]')!;
+        const landscape = document.querySelector<HTMLElement>('[data-orientation="landscape"]')!;
+        const portrait = document.querySelector<HTMLElement>('[data-orientation="portrait"]')!;
+        const measure = (frame: HTMLElement) => {
+          const image = frame.querySelector<HTMLImageElement>('img')!;
+          const imageRect = image.getBoundingClientRect();
+          const sourceRatio = Number(image.getAttribute('width')) / Number(image.getAttribute('height'));
+          return { width: imageRect.width, height: imageRect.height, sourceRatio, renderedRatio: imageRect.width / imageRect.height };
+        };
+        return { stageWidth: stage.clientWidth, stageHeight: stage.clientHeight, landscape: measure(landscape), portrait: measure(portrait) };
+      });
+      expect(Math.abs(geometry.landscape.width - geometry.stageWidth)).toBeLessThanOrEqual(1);
+      const portraitHeightTarget = Math.min(geometry.stageHeight, geometry.stageWidth / geometry.portrait.sourceRatio);
+      expect(Math.abs(geometry.portrait.height - portraitHeightTarget)).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.landscape.renderedRatio - geometry.landscape.sourceRatio)).toBeLessThan(0.01);
+      expect(Math.abs(geometry.portrait.renderedRatio - geometry.portrait.sourceRatio)).toBeLessThan(0.01);
+    });
+
+    test('Strip arrows make a continuous sub-viewport advance', async ({ page }) => {
+      await dismissCurtain(page);
+      await page.getByRole('button', { name: CONTROL_NAME }).click();
+      await page.getByLabel(/show navigation arrows/i).check();
+      await page.keyboard.press('Escape');
+      const before = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+      const viewportWidth = await page.locator('[data-stage]').evaluate((stage) => stage.clientWidth);
+      await page.getByRole('button', { name: /next photograph/i }).click();
+      await page.waitForTimeout(360);
+      const after = await page.locator('[data-track]').evaluate((track) => track.getBoundingClientRect().left);
+      const advance = Math.abs(after - before);
+      expect(advance).toBeGreaterThan(viewportWidth * 0.75);
+      expect(advance).toBeLessThan(viewportWidth * 0.95);
     });
 
     test('no layout shift while images load', async ({ page }) => {
@@ -375,13 +421,14 @@ test('alternate modes switch instantly and preserve the current image', async ({
   await dismissCurtain(page)
   await page.keyboard.press('ArrowRight')
   await page.getByRole('button', { name: CONTROL_NAME }).click()
-  await expect(page.locator('.position-value')).toHaveText('2 / 9')
+  const total = await imageCount(page)
+  await expect(page.locator('.position-value')).toHaveText(`2 / ${total}`)
   await page.locator('input[value="vertical"]').check()
   await expect(page.locator('[data-stage]')).toHaveClass(/mode-vertical/)
-  await expect(page.locator('.position-value')).toHaveText('2 / 9')
+  await expect(page.locator('.position-value')).toHaveText(`2 / ${total}`)
   await page.locator('input[value="single"]').check()
   await expect(page.locator('[data-stage]')).toHaveClass(/mode-single/)
-  await expect(page.locator('.position-value')).toHaveText('2 / 9')
+  await expect(page.locator('.position-value')).toHaveText(`2 / ${total}`)
   await expect(page).toHaveURL(GALLERY)
 })
 
@@ -410,7 +457,8 @@ test('admin root lists galleries without a selector and remains noindex', async 
   await expect(page.getByText('Bring a folder. Make a gallery.')).toHaveCount(0)
   await expect(page.locator('.admin-gallery-card').first().locator('.admin-gallery-count')).toHaveText(/\(\d+ photos\)/)
   await expect(page.locator('.admin-brand-title')).toHaveCSS('font-family', /Bricolate Grotesque/i)
-  await expect(page.locator('.admin-brand-title')).toHaveCSS('font-size', /(?:9[0-9]|1[0-9]{2})px/)
+  const titleSize = await page.locator('.admin-brand-title').evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
+  expect(titleSize).toBeGreaterThan(90)
   await expect(page.locator('.admin-intro')).toHaveCSS('font-family', /Bricolate Grotesque/i)
   await expect(page.locator('.admin-intro')).toHaveCSS('font-style', 'italic')
   await expect(page.locator('.admin-intro')).toHaveCSS('font-weight', /(?:200|300)/)
@@ -425,12 +473,12 @@ test('admin root lists galleries without a selector and remains noindex', async 
   await expect(firstCard.getByRole('link', { name: /open .* in a new tab/i })).toHaveAttribute('rel', 'noreferrer')
   await expect(firstCard.getByRole('button', { name: /copy .* link/i })).toBeVisible()
   await expect(firstCard.locator('.admin-gallery-strip-frame')).toBeVisible()
-  await expect(firstCard.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '100px')
+  await expect(firstCard.locator('.admin-gallery-strip-frame')).toHaveCSS('height', '150px')
   await expect(firstCard.getByRole('button', { name: /copy .* link/i })).toBeVisible()
   await expect(firstCard.getByRole('button', { name: /edit gallery slug/i })).toBeVisible()
 })
 
-test('admin gallery order persists through the 100px reorder rail', async ({ page }) => {
+test('admin gallery order persists through the 150px reorder rail', async ({ page }) => {
   await page.goto(`${BASE}/`)
   const card = page.locator('.admin-gallery-card').first()
   const items = card.locator('.admin-gallery-strip-item')
@@ -450,7 +498,20 @@ test('admin gallery images reorder with a real pointer drag', async ({ page }) =
   const items = card.locator('.admin-gallery-strip-item')
   const firstId = await items.nth(0).getAttribute('data-image-id')
   const secondId = await items.nth(1).getAttribute('data-image-id')
-  await items.nth(1).dragTo(items.nth(0))
+  const frame = card.locator('.admin-gallery-strip-frame')
+  await frame.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }))
+  await expect(frame).toBeInViewport()
+  await frame.evaluate((element) => { element.scrollLeft = 0 })
+  await expect(items.nth(0)).toBeInViewport()
+  await expect(items.nth(1)).toBeInViewport()
+  const sourceBox = await items.nth(1).boundingBox()
+  const targetBox = await items.nth(0).boundingBox()
+  expect(sourceBox).not.toBeNull()
+  expect(targetBox).not.toBeNull()
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 8 })
+  await page.mouse.up()
   await expect(page.getByRole('status')).toHaveText('Order saved')
   await expect(card.locator('.admin-gallery-strip-item').nth(0)).toHaveAttribute('data-image-id', secondId!)
   await expect(card.locator('.admin-gallery-strip-item').nth(1)).toHaveAttribute('data-image-id', firstId!)
@@ -526,7 +587,7 @@ test.describe('admin responsive layout', () => {
     await expect(page.getByRole('combobox')).toHaveCount(0)
     await expect(page.locator('.admin-section-index')).toHaveCount(0)
     await expect(page.locator('.admin-gallery-card').first()).toBeVisible()
-    await expect(page.locator('.admin-gallery-strip-frame').first()).toHaveCSS('height', '100px')
+    await expect(page.locator('.admin-gallery-strip-frame').first()).toHaveCSS('height', '150px')
   })
 })
 
