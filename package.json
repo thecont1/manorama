@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "gallery": "node build-gallery.mjs ./images ./public/images italy-2018",
     "test": "playwright test qa.spec.ts",
-    "test:unit": "bun test test",
+    "test:unit": "bun test test/portrait-pairs.test.ts",
     "deploy": "bun run gallery && bun run build && wrangler deploy"
   },
   "dependencies": {
