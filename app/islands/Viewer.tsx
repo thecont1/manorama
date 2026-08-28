@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
+import { groupConsecutivePortraits } from '../lib/portrait-pairs'
 
 /**
  * Strip invariant: each frame derives its width from the source aspect ratio at
- * full stage height. The stage may clip the horizontal journey, never pixels
+ * full stage height. Consecutive portraits share a neutral paired canvas in
+ * Strip and Vertical modes; the stage may clip the horizontal journey, never pixels
  * above or below a photograph. Its height follows the visible browser viewport
  * after orientation or browser-chrome changes. Pointer input is coalesced once per frame into one continuous canvas; Strip-only release glide is brief and never snaps to an image.
  */
@@ -22,6 +24,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
+  const displayGroups = useMemo(() => groupConsecutivePortraits(images), [images])
   const [mode, setMode] = useState<Mode>(initialSettings.defaultMode)
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
@@ -554,29 +557,38 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
         >
-          {images.map((image, imageIndex) => {
-            const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
-            return (
-            <figure
-              class={`viewer-frame ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''}`}
-              data-image-id={image.id}
-              data-index={imageIndex + 1}
-              style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+          {displayGroups.map((group) => (
+            <div
+              key={group.items[0]?.image.id}
+              class={`viewer-pair ${group.kind === 'portrait-pair' ? 'viewer-pair--portraits' : ''}`}
+              data-portrait-pair={group.kind === 'portrait-pair' ? 'true' : undefined}
             >
-              <img
-                src={isActive ? image.src : image.placeholder}
-                data-full-src={image.src}
-                data-placeholder-src={image.placeholder}
-                data-active={isActive ? 'true' : 'false'}
-                alt={image.alt}
-                width={image.width}
-                height={image.height}
-                decoding="async"
-                loading={isActive ? 'eager' : 'lazy'}
-              />
-            </figure>
-            )
-          })}
+              {group.items.map(({ image, imageIndex }) => {
+                const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
+                return (
+                  <figure
+                    key={image.id}
+                    class={`viewer-frame ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''}`}
+                    data-image-id={image.id}
+                    data-index={imageIndex + 1}
+                    style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+                  >
+                    <img
+                      src={isActive ? image.src : image.placeholder}
+                      data-full-src={image.src}
+                      data-placeholder-src={image.placeholder}
+                      data-active={isActive ? 'true' : 'false'}
+                      alt={image.alt}
+                      width={image.width}
+                      height={image.height}
+                      decoding="async"
+                      loading={isActive ? 'eager' : 'lazy'}
+                    />
+                  </figure>
+                )
+              })}
+            </div>
+          ))}
         </div>
         {arrowsVisible ? (
           <div class="stage-arrows" aria-label="Image navigation">
@@ -610,7 +622,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <h3 id="view-mode-heading">View mode</h3>
             <div class="mode-options" role="radiogroup" aria-label="View mode">
               <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => setMode('strip')} /> <span>Strip</span><small>full-height, continuous</small></label>
-              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => setMode('vertical')} /> <span>Vertical scroll</span><small>force-fit to width</small></label>
+              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => setMode('vertical')} /> <span>Vertical scroll</span><small>pair consecutive portraits</small></label>
               <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => setMode('single')} /> <span>One at a time</span><small>advance per gesture</small></label>
             </div>
           </section>

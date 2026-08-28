@@ -27,3 +27,6 @@
 - [x] Increase mobile strip glide by swipe velocity and verify fast flicks travel farther than slow drags.
 - [x] Slow the curtain lift while retaining its gentle upward reveal and reduced-motion support.
 - [x] Verify velocity response, no-snap continuity, and curtain timing across the gallery matrix, then redeploy.
+- [ ] Pair consecutive portrait photographs side by side in Strip and Vertical Scroll modes without cropping, stretching, or upscaling either image.
+- [ ] Preserve neutral near-black blank canvas inside a portrait pair when one image is smaller than its paired slot in either mode.
+- [ ] Verify portrait-pair geometry, input navigation, and image fidelity across both modes, then redeploy.
