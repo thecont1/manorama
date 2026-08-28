@@ -36,11 +36,8 @@ export default createRoute(async (c) => {
         aria-label="Enter gallery"
       >
         <div class="curtain-content">
-          <p class="curtain-kicker" data-curtain-kicker>{settings.curtainKicker}</p>
           <h1 data-curtain-title>{settings.title}</h1>
           <p class="curtain-caption" data-curtain-caption>{settings.caption}</p>
-          <p class="curtain-date" data-curtain-date>{settings.date}</p>
-          <p class="curtain-prompt" data-curtain-prompt>{settings.curtainPrompt}</p>
         </div>
       </section>
       <Viewer slug={gallery.slug} images={source.list()} settings={settings} />

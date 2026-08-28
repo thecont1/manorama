@@ -309,3 +309,44 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   .admin-gallery-count { font-size: 22px; }
   .admin-gallery-url { flex-basis: auto; font-size: 13px; }
 }
+
+/* Bricolate Grotesque brand treatment and editable public address */
+@font-face {
+  font-family: 'Bricolate Grotesque';
+  src: url('/fonts/bricolage-grotesque-extrabold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+}
+.admin-brand-title,
+.admin-intro {
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  text-transform: lowercase;
+}
+.admin-brand-title { font-weight: 800; }
+.admin-intro { font-style: italic; font-size: 14px; letter-spacing: -.015em; }
+.admin-gallery-title { font-size: 32px; }
+.admin-gallery-count { font-size: 12px; font-weight: 400; letter-spacing: 0; }
+.admin-gallery-url { display: flex; align-items: baseline; gap: 0; font-size: 16px; }
+.admin-gallery-url-prefix { flex: 0 0 auto; color: rgba(243, 240, 232, .52); }
+.admin-gallery-slug { min-width: 0; width: auto; margin: 0; padding: 0; border: 1px solid transparent; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: text; }
+.admin-gallery-slug:hover, .admin-gallery-slug:focus-visible { border-color: rgba(243, 240, 232, .3); outline: none; }
+.admin-gallery-slug.is-editing { box-sizing: border-box; padding: 7px 8px; border-color: rgba(243, 240, 232, .65); background: rgba(243, 240, 232, .07); outline: none; }
+.admin-gallery-url .admin-gallery-slug.is-empty { color: inherit; font-style: normal; }
+@media (max-width: 720px) {
+  .admin-gallery-title { font-size: 27px; }
+  .admin-gallery-url { font-size: 14px; }
+}
+
+/* Public curtain brand treatment */
+.curtain h1,
+.curtain-caption {
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  text-transform: none;
+}
+.curtain h1 { max-width: 15ch; margin: 0 0 24px; font-size: clamp(54px, 9vw, 116px); font-weight: 800; letter-spacing: -.07em; line-height: .92; }
+.curtain-caption { max-width: 42ch; margin: 0; color: rgba(243, 240, 232, .82); font-size: clamp(18px, 2vw, 25px); font-weight: 800; letter-spacing: -.035em; line-height: 1.16; }
+@media (max-width: 640px) {
+  .curtain h1 { font-size: clamp(48px, 16vw, 82px); }
+  .curtain-caption { font-size: 18px; }
+}
