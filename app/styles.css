@@ -53,7 +53,7 @@ button { color: inherit; }
 .viewer-track--single .viewer-frame img { width: 100%; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* The client’s future square mark lives here; it remains the sole stage control and opens provenance plus current-image information. */
-.control-logo { position: fixed; z-index: 20; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: 44px; height: 44px; padding: 0; border: 1px solid rgba(245, 240, 232, .38); border-radius: 0; display: grid; place-items: center; background: rgba(10, 10, 10, .34); opacity: .46; cursor: pointer; transform: translateX(-50%); transition: opacity 180ms ease, background 180ms ease, border-color 180ms ease, transform 180ms ease; }
+.control-logo { position: fixed; z-index: 20; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 0; display: grid; place-items: center; background: transparent; opacity: .46; cursor: pointer; transform: translateX(-50%); transition: opacity 180ms ease, background 180ms ease, border-color 180ms ease, transform 180ms ease; }
 .control-logo::before { content: ''; width: 14px; height: 14px; border: 1px solid rgba(244, 240, 232, .88); background: rgba(244, 240, 232, .09); }
 .sr-only { position: fixed; left: -2px; top: -2px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
@@ -353,13 +353,13 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 /* Brand hierarchy and logo marks */
 .admin-header { position: relative; }
 .admin-header .admin-brand-title { max-width: none; margin: 0 0 18px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; white-space: nowrap; }
-.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; }
+.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; }
 .admin-intro em { font-style: italic; }
 .admin-brand-mark { position: absolute; top: 20px; right: 0; width: clamp(200px, 22vw, 320px); height: auto; opacity: .92; }
-.control-logo { width: 48px; height: 48px; padding: 0; border: 0; border-radius: 0; background: transparent; opacity: .11; overflow: hidden; }
+.control-logo { width: 144px; height: 80px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; opacity: .4; overflow: hidden; }
 .control-logo::before { display: none; }
-.control-logo img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .9; }
-.control-logo:hover, .control-logo:focus-visible { opacity: .48; border-color: transparent; background: transparent; transform: translateX(-50%) scale(1.03); }
+.control-logo img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: .9; }
+.control-logo:hover, .control-logo:focus-visible { opacity: .85; border: 1px solid rgba(243, 240, 232, .9); background: rgba(10, 10, 10, .7); transform: translateX(-50%) scale(1.03); }
 .control-logo:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 4px; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
@@ -371,10 +371,12 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .curtain-caption {
   font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
 }
+.curtain-logo { width: clamp(180px, 24vw, 200px); height: auto; margin: 0 0 56px -18px; }
 .curtain h1 { max-width: 15ch; margin: 0 0 24px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; text-transform: lowercase; }
-.curtain-caption { max-width: 42ch; margin: 0; color: #f3f0e8; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; text-transform: none; }
+.curtain-caption { max-width: 42ch; margin: 0; color: #f3f0e8; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: italic; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; text-transform: none; }
 @media (max-width: 640px) {
   .curtain h1 { font-size: 96px; }
+  .curtain-logo { width: 160px; }
 }
 
 /* Minimal public landing page */

@@ -70,7 +70,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (element) element.textContent = value
     }
     updateText('[data-curtain-kicker]', loaded.curtainKicker)
-    updateText('[data-curtain-title]', loaded.title)
+    updateText('[data-curtain-title]', loaded.title.replace(/\b\w/g, (c) => c.toUpperCase()))
     updateText('[data-curtain-caption]', loaded.caption)
     updateText('[data-curtain-date]', loaded.date)
     updateText('[data-curtain-prompt]', loaded.curtainPrompt)
@@ -600,7 +600,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         ) : null}
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance}><img src="/manorama-logo-upright.svg" alt="" aria-hidden="true" /></button>
+      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance}><img src="/manorama-logo-upright-test.png" alt="" aria-hidden="true" /></button>
 
       <div
         ref={modalRef}
