@@ -228,8 +228,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (mode !== 'strip') { step(direction); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
-    // Arrow movement stays inside the one continuous canvas rather than jumping to an image boundary.
-    settleTo(currentXRef.current - direction * viewportWidth * 0.88, false, true)
+    const currentFrame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`)
+    const imageWidth = currentFrame?.offsetWidth ?? viewportWidth
+    const advance = Math.min(viewportWidth, imageWidth)
+    settleTo(currentXRef.current - direction * advance, false, true)
   }
 
   useEffect(() => {
@@ -350,8 +352,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (modalOpen || !document.body.classList.contains('gallery-entered')) return
-      if (event.key === 'ArrowRight') { event.preventDefault(); step(1) }
-      if (event.key === 'ArrowLeft') { event.preventDefault(); step(-1) }
+      if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
+      if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
       if (event.key === 'End') { event.preventDefault(); goTo(images.length - 1, true) }
     }
