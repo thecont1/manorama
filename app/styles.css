@@ -434,11 +434,11 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 
 /* Ask Manu launcher — black circular orb with "ask" / "mnrm" stacked text. */
 .fl-launcher[data-vendo-launcher-bare] {
-  width: 56px !important;
-  height: 56px !important;
+  width: 75px !important;
+  height: 65px !important;
   padding: 0 !important;
-  background: #000000 !important;
-  border: 1px solid #333333 !important;
+  background: #1a1a1a !important;
+  border: 0.6px solid #777 !important;
   border-radius: 50% !important;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   position: relative;
@@ -456,14 +456,14 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 }
 /* "Ask" — slightly above centre. */
 .fl-launcher[data-vendo-launcher-bare]::before {
-  content: 'Ask';
+  content: 'ask';
   position: absolute;
-  top: 10px;
-  left: 50%;
+  top: 15px;
+  left: 75%;
   transform: translateX(-50%);
   color: #ffffff;
   font-family: 'Great Vibes', cursive;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 0;
@@ -472,12 +472,12 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .fl-launcher[data-vendo-launcher-bare]::after {
   content: 'Manu';
   position: absolute;
-  bottom: 8px;
-  left: 50%;
+  bottom: 10px;
+  left: 47%;
   transform: translateX(-50%);
   color: #ffffff;
   font-family: 'Great Vibes', cursive;
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 0;
