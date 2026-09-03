@@ -413,7 +413,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .landing-brand-intro {
   margin: 22px 0 0;
   font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif;
-  font-size: 24px;
+  font-size: 16px;
   font-weight: 300;
   font-style: normal;
   font-optical-sizing: auto;
