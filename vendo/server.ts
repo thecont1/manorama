@@ -13,14 +13,14 @@
  * (credential forwarding fails closed without it — vendo doctor checks).
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { jwt } from "@vendoai/vendo/auth/jwt";
+import type { HostAuthPreset } from "@vendoai/vendo/auth-presets";
 import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore } from "@vendoai/vendo/server";
+import { resolveManoramaSession, type AccessEnv, type AccessJwtVerifier } from "../app/lib/session";
 
-export interface VendoEnv {
+export interface VendoEnv extends AccessEnv {
   VENDO_API_KEY?: string;
   VENDO_CONSOLE_URL?: string;
   VENDO_BASE_URL?: string;
-  HOST_API_JWT_SECRET?: string;
 }
 
 let vendo: ReturnType<typeof createVendo> | null = null;
@@ -29,9 +29,30 @@ const processEnv = () => (globalThis as typeof globalThis & {
   process?: { env?: Record<string, string | undefined> };
 }).process?.env ?? {};
 
-export function createVendoAuth(env: VendoEnv = {}) {
+/**
+ * The SAME identity the Manorama management API enforces: a verified
+ * Cloudflare Access session. Anonymous, malformed, expired, or mis-signed
+ * requests resolve to a null principal and Vendo refuses them. The subject
+ * is the immutable `cf-access:<sub>` id — never an email. The verified email
+ * surfaces only through `auth.facts`.
+ */
+export function createVendoAuth(env: VendoEnv = {}, verifier?: AccessJwtVerifier): HostAuthPreset {
   const hostEnv = processEnv();
-  return jwt({ secret: () => env.HOST_API_JWT_SECRET ?? hostEnv.HOST_API_JWT_SECRET });
+  const sessionEnv: AccessEnv = {
+    CF_ACCESS_TEAM_DOMAIN: env.CF_ACCESS_TEAM_DOMAIN ?? hostEnv.CF_ACCESS_TEAM_DOMAIN,
+    CF_ACCESS_AUD: env.CF_ACCESS_AUD ?? hostEnv.CF_ACCESS_AUD,
+  };
+  const session = (request: Request) => resolveManoramaSession(request, sessionEnv, verifier);
+  return {
+    principal: async (request) => {
+      const resolved = await session(request);
+      return resolved === null ? null : { kind: "user", subject: resolved.id };
+    },
+    facts: async (request) => {
+      const resolved = await session(request);
+      return resolved?.email === undefined ? undefined : { email: resolved.email };
+    },
+  };
 }
 
 /** Lazy singleton: constructed on the first request, never at module
