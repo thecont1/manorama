@@ -8,15 +8,13 @@
  * forwarded to console.vendo.run/api/v1).
  */
 const {
-  createAnthropic,
-} = require('@ai-sdk/anthropic')
-const {
   cloudConnections,
   cloudSandbox,
   cloudTools,
   createVendo,
   guard,
   createStore,
+  vendoModel,
 } = require('@vendoai/vendo/server')
 
 let vendo = null
@@ -45,10 +43,7 @@ function getVendo(env) {
         : {
             store: createStore(),
             models: {
-              default: createAnthropic({
-                apiKey: cloud.apiKey,
-                baseURL: `${cloud.baseUrl}/api/v1`,
-              })('vendo'),
+              default: vendoModel('vendo'),
             },
             connections: cloudConnections(cloud),
             connectors: [cloudTools(cloud)],
