@@ -13,6 +13,9 @@ export default createRoute(async (c) => {
   const env = c.env as RuntimeEnv
   const owner = c.req.param('owner')
   if (owner !== (env.OWNER_SLUG || 'thecontrarian')) return c.notFound()
+  // Fail closed: the admin application renders only behind a verified
+  // Cloudflare Access session, even if mounted without the gate middleware.
+  if (!c.get('manoramaSession')) return c.json({ error: 'Authentication required' }, 401)
   const galleries = await listGalleries(c.env)
   return c.render(
     <Admin

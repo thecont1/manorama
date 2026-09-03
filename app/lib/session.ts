@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose'
+import type { MiddlewareHandler } from 'hono'
 
 /**
  * Manorama's single owner-identity resolver: Cloudflare Access.
@@ -94,3 +95,21 @@ export async function resolveManoramaSession(
     return null
   }
 }
+
+/** Hono env shape once the session gate below has run. */
+export type SessionEnv = { Variables: { manoramaSession: ManoramaSession } }
+
+/**
+ * The management-API gate: resolves the Access session and refuses the
+ * request with 401 JSON when there is none. On success the session is
+ * available to later handlers as `c.get('manoramaSession')`. One boundary
+ * for the whole route group — no per-handler auth checks.
+ */
+export const requireSession = (verifier?: AccessJwtVerifier): MiddlewareHandler<SessionEnv> =>
+  async (c, next) => {
+    const session = await resolveManoramaSession(c.req.raw, c.env as AccessEnv, verifier)
+    if (!session) return c.json({ error: 'Authentication required' }, 401)
+    c.set('manoramaSession', session)
+    await next()
+  }
+
