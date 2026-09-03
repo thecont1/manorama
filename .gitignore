@@ -10,3 +10,6 @@ playwright-report/
 
 # Vendo local PGlite store — runtime state, not source
 .vendo/data/
+
+# Playwright MCP ephemeral artifacts
+.playwright-mcp/
