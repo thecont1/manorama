@@ -15,6 +15,6 @@ export default jsxRenderer(({ children, title }, c) => (
         <Script src="/app/client.ts" async />
       </HasIslands>
     </head>
-    <body>{children}</body>
+    <body>{children}<div id="vendo-root" /></body>
   </html>
 ))

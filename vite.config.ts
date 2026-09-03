@@ -3,11 +3,11 @@ import adapter from '@hono/vite-dev-server/cloudflare'
 import honox from 'honox/vite'
 import { defineConfig } from 'vite'
 
-export default defineConfig({
+export default defineConfig(() => ({
   plugins: [
     honox({
       devServer: { adapter },
-      client: { input: ['/app/client.ts', '/app/styles.css'] },
+      client: { input: ['/app/client.ts', '/app/vendo-client.tsx', '/app/styles.css'] },
     }),
     build(),
   ],
@@ -15,4 +15,4 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
   },
-})
+}))
