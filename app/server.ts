@@ -52,7 +52,7 @@ const init = (app: ReturnType<typeof createApp>) => {
   })
 
   app.post('/api/galleries/scan', async (c) => {
-    const payload = await c.req.json<RequestBody>().catch(() => ({}))
+    const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
     try {
       const scan = await scanDropboxFolder(payload.url, envOf(c))
@@ -63,7 +63,7 @@ const init = (app: ReturnType<typeof createApp>) => {
   })
 
   app.post('/api/galleries', async (c) => {
-    const payload = await c.req.json<RequestBody>().catch(() => ({}))
+    const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
     try {
       const scan = await scanDropboxFolder(payload.url, envOf(c))
@@ -94,7 +94,7 @@ const init = (app: ReturnType<typeof createApp>) => {
   })
 
   app.patch('/api/galleries/:slug', async (c) => {
-    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; slug?: string }>().catch(() => ({}))
+    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; slug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; slug?: string } => ({}))
     const title = typeof payload.title === 'string' ? payload.title.trim().slice(0, 120) : undefined
     const caption = typeof payload.caption === 'string' ? payload.caption.trim().slice(0, 500) : undefined
     const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, 500) : undefined
