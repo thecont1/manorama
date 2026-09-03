@@ -9,9 +9,7 @@
     "preview": "bun --env-file=.env.local vite preview --host 0.0.0.0",
     "gallery": "node build-gallery.mjs ./images ./public/images italy-2018",
     "test": "playwright test qa.spec.ts",
-    "deploy": "bun run gallery && bun run build && wrangler deploy",
-    "predev": "vendo sync --no-ai",
-    "prebuild": "vendo sync --strict --no-ai"
+    "deploy": "bun run gallery && bun run build && wrangler deploy"
   },
   "dependencies": {
     "@contentauth/c2pa-web": "^0.14.3",

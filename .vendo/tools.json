@@ -1,4 +1,134 @@
 {
   "format": "vendo/tools@3",
-  "tools": []
+  "tools": [
+    {
+      "name": "list_galleries",
+      "description": "List all photo galleries on the site with their titles, captions, dates, and image counts.",
+      "inputSchema": { "type": "object", "properties": {} },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "read",
+      "binding": { "kind": "route", "method": "GET", "path": "/api/galleries", "argsIn": "query" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "scan_dropbox_folder",
+      "description": "Scan a public Dropbox folder URL to discover images for a new gallery. Returns the folder title and a list of image filenames.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "A public Dropbox folder URL" }
+        },
+        "required": ["url"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "read",
+      "binding": { "kind": "route", "method": "POST", "path": "/api/galleries/scan", "argsIn": "body" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "create_gallery",
+      "description": "Create a new gallery from a scanned Dropbox folder. Optionally specify an image order.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "A public Dropbox folder URL to create the gallery from" },
+          "order": { "type": "array", "items": { "type": "string" }, "description": "Optional list of image filenames in the desired display order" }
+        },
+        "required": ["url"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "write",
+      "binding": { "kind": "route", "method": "POST", "path": "/api/galleries", "argsIn": "body" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "update_gallery",
+      "description": "Update a gallery's title, caption, image order, or URL slug.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": { "type": "string", "description": "The current gallery URL slug" },
+          "title": { "type": "string", "description": "New title for the gallery" },
+          "caption": { "type": "string", "description": "New caption for the gallery" },
+          "order": { "type": "array", "items": { "type": "string" }, "description": "New image display order (list of filenames)" },
+          "newSlug": { "type": "string", "description": "A new URL slug for the gallery" }
+        },
+        "required": ["slug"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "write",
+      "binding": { "kind": "route", "method": "PATCH", "path": "/api/galleries/:slug", "argsIn": "body" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "delete_gallery",
+      "description": "Delete a gallery and all its images. This is irreversible.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": { "type": "string", "description": "The URL slug of the gallery to delete" }
+        },
+        "required": ["slug"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "destructive",
+      "binding": { "kind": "route", "method": "DELETE", "path": "/api/galleries/:slug", "argsIn": "query" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "refresh_gallery",
+      "description": "Re-scan a gallery's Dropbox source folder and update its images with any new or changed files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": { "type": "string", "description": "The URL slug of the gallery to refresh" }
+        },
+        "required": ["slug"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "write",
+      "binding": { "kind": "route", "method": "POST", "path": "/api/galleries/:slug/refresh", "argsIn": "body" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "get_dropbox_thumbnail",
+      "description": "Fetch a thumbnail image from a Dropbox folder by source URL and filename.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceUrl": { "type": "string", "description": "The Dropbox folder source URL" },
+          "filename": { "type": "string", "description": "The image filename" }
+        },
+        "required": ["sourceUrl", "filename"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "read",
+      "binding": { "kind": "route", "method": "GET", "path": "/api/dropbox/thumbnail", "argsIn": "query" },
+      "srcPath": "app/server.ts"
+    },
+    {
+      "name": "get_dropbox_file",
+      "description": "Fetch a full-resolution image from a Dropbox folder by source URL and filename.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceUrl": { "type": "string", "description": "The Dropbox folder source URL" },
+          "filename": { "type": "string", "description": "The image filename" }
+        },
+        "required": ["sourceUrl", "filename"]
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "risk": "read",
+      "binding": { "kind": "route", "method": "GET", "path": "/api/dropbox/file", "argsIn": "query" },
+      "srcPath": "app/server.ts"
+    }
+  ]
 }
