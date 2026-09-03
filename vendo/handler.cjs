@@ -19,6 +19,12 @@ const {
 
 let vendo = null
 
+/**
+ * Lazy singleton: constructed on the first request, never at module scope —
+ * Workers forbids I/O and timers there, and lazy is correct on every other
+ * runtime too. Configures a local PGlite store, and wires cloud
+ * connections/tools/sandbox/model when a VENDO_API_KEY is present.
+ */
 function getVendo(env) {
   if (vendo === null) {
     const processEnv = globalThis.process?.env ?? {}
@@ -54,6 +60,14 @@ function getVendo(env) {
   return vendo
 }
 
+/**
+ * Delegates the given Request to the singleton Vendo instance's handler
+ * and returns its Response.
+ *
+ * @param {Request} request - The incoming HTTP request
+ * @param {object} env - Environment variables (VENDO_API_KEY, VENDO_CONSOLE_URL)
+ * @returns {Promise<Response>} The response from the Vendo handler
+ */
 function handleVendoRequest(request, env) {
   return getVendo(env).handler(request)
 }

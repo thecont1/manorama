@@ -59,6 +59,14 @@ function getVendo(env: VendoEnv = {}) {
   return vendo;
 }
 
+/**
+ * Delegates the given Request to the singleton Vendo instance's handler
+ * and returns its Response.
+ *
+ * @param request - The incoming HTTP request
+ * @param env - Environment variables (VENDO_API_KEY, VENDO_CONSOLE_URL, VENDO_BASE_URL)
+ * @returns The response from the Vendo handler
+ */
 export function handleVendoRequest(request: Request, env: VendoEnv = {}): Promise<Response> {
   return getVendo(env).handler(request);
 }
