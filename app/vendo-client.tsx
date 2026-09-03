@@ -9,7 +9,7 @@ if (container) {
   root.render(
     React.createElement(React.StrictMode, null,
       React.createElement(VendoProvider, { baseUrl: '/api/vendo', theme } as any,
-        React.createElement(VendoOverlay, null),
+        React.createElement(VendoOverlay, { launcher: 'bottom-right' } as any),
       ),
     ),
   )
