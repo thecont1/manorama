@@ -1,0 +1,5 @@
+{
+  "format": "vendo/install@1",
+  "useCase": "embedded",
+  "modelKey": "VENDO_API_KEY"
+}

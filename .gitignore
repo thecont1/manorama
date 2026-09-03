@@ -7,3 +7,6 @@ playwright-report/
 .env
 .env.*
 !.env.example
+
+# Vendo local PGlite store — runtime state, not source
+.vendo/data/
