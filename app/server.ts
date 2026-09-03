@@ -15,6 +15,7 @@ type RuntimeEnv = {
   VENDO_CONSOLE_URL?: string
   VENDO_BASE_URL?: string
   VENDO_SERVICE_KEY?: string
+  HOST_API_JWT_SECRET?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv

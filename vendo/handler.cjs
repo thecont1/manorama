@@ -16,6 +16,7 @@ const {
   createStore,
   vendoModel,
 } = require('@vendoai/vendo/server')
+const { jwt } = require('@vendoai/vendo/auth/jwt')
 
 let vendo = null
 
@@ -25,6 +26,11 @@ let vendo = null
  * runtime too. Configures a local PGlite store, and wires cloud
  * connections/tools/sandbox/model when a VENDO_API_KEY is present.
  */
+function createVendoAuth(env = {}) {
+  const processEnv = globalThis.process?.env ?? {}
+  return jwt({ secret: () => env.HOST_API_JWT_SECRET ?? processEnv.HOST_API_JWT_SECRET })
+}
+
 function getVendo(env) {
   if (vendo === null) {
     const processEnv = globalThis.process?.env ?? {}
@@ -40,9 +46,7 @@ function getVendo(env) {
         : { apiKey, baseUrl: consoleUrl }
 
     vendo = createVendo({
-      auth: {
-        principal: async () => ({ kind: 'user', subject: 'demo-user' }),
-      },
+      auth: createVendoAuth(env),
       guard: guard({ policy: {} }),
       ...(cloud === undefined
         ? { store: createStore() }
@@ -72,4 +76,4 @@ function handleVendoRequest(request, env) {
   return getVendo(env).handler(request)
 }
 
-module.exports = { handleVendoRequest }
+module.exports = { createVendoAuth, handleVendoRequest }
