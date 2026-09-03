@@ -1,4 +1,5 @@
 import { createApp } from 'honox/server'
+import { createRequire } from 'node:module'
 import { fetchDropboxFile, fetchDropboxThumbnail, scanDropboxFolder } from './lib/dropbox-public'
 import { createGallery, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug } from './lib/gallery-repository'
 
@@ -12,6 +13,10 @@ type RuntimeEnv = {
   AIRTABLE_GALLERIES_TABLE?: string
   DROPBOX_APP_KEY?: string
   DROPBOX_APP_SECRET?: string
+  VENDO_API_KEY?: string
+  VENDO_CONSOLE_URL?: string
+  VENDO_BASE_URL?: string
+  VENDO_SERVICE_KEY?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
@@ -148,6 +153,18 @@ app.get('/api/dropbox/file', async (c) => {
   } catch {
     return c.json({ error: 'That Dropbox image is unavailable' }, 404)
   }
+})
+
+// Route Vendo API requests to the Vendo server.
+// Uses createRequire to load the CJS handler, bypassing Vite's ESM
+// module runner which can't handle CJS-heavy deps (@vercel/oidc, pg,
+// yaml, ajv, @modelcontextprotocol/sdk).
+const vendoRequire = createRequire(import.meta.url)
+const { handleVendoRequest } = vendoRequire('../vendo/handler.cjs')
+
+app.all('/api/vendo/*', async (c) => {
+  const response = await handleVendoRequest(c.req.raw, envOf(c))
+  return response
 })
 
 app.use('*', async (c, next) => {
