@@ -431,3 +431,54 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }
+
+/* Ask Manu launcher — black circular orb with "ask" / "mnrm" stacked text. */
+.fl-launcher[data-vendo-launcher-bare] {
+  width: 56px !important;
+  height: 56px !important;
+  padding: 0 !important;
+  background: #000000 !important;
+  border: 1px solid #333333 !important;
+  border-radius: 50% !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  position: relative;
+  display: grid !important;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.fl-launcher[data-vendo-launcher-bare]:hover {
+  transform: scale(1.05);
+}
+/* Hide the default blue blob. */
+.fl-launcher[data-vendo-launcher-bare] .fl-launcher-blob {
+  display: none !important;
+}
+/* "ask" — slightly above centre. */
+.fl-launcher[data-vendo-launcher-bare]::before {
+  content: 'ask';
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #ffffff;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+/* "mnrm" — slightly below centre. */
+.fl-launcher[data-vendo-launcher-bare]::after {
+  content: 'mnrm';
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #ffffff;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}

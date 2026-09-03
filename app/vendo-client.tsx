@@ -9,8 +9,18 @@ if (container) {
   root.render(
     React.createElement(React.StrictMode, null,
       React.createElement(VendoProvider, { baseUrl: '/api/vendo', theme } as any,
-        React.createElement(VendoOverlay, { launcher: { position: 'bottom-right', label: 'Ask Manu' } } as any),
+        React.createElement(VendoOverlay, { launcher: { position: 'bottom-right', label: null } } as any),
       ),
     ),
   )
+  // VendoOverlay defaults the aria-label to "AI agent" when label is null.
+  // Restore the accessible name to match the visible "Ask Manu" branding.
+  const fixLabel = () => {
+    const btn = document.querySelector<HTMLButtonElement>('[data-vendo-launcher]')
+    if (btn && btn.getAttribute('aria-label') !== 'Ask Manu') {
+      btn.setAttribute('aria-label', 'Ask Manu')
+    }
+  }
+  fixLabel()
+  new MutationObserver(fixLabel).observe(document.body, { childList: true, subtree: true })
 }
