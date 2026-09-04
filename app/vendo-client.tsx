@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { StrictMode } from 'react'
+import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { VendoOverlay, VendoProvider } from '@vendoai/vendo/react'
+import { VendoOverlay, VendoProvider, VendoSlot } from '@vendoai/vendo/react'
 import theme from '../.vendo/theme.json'
 
 // Mounted only by the authenticated owner administration page. Same-origin
@@ -14,6 +15,29 @@ if (container) {
     <StrictMode>
       <VendoProvider baseUrl="/api/vendo" theme={theme}>
         <VendoOverlay launcher={{ position: 'bottom-right', label: null }} />
+        {/* The pinned gallery-inventory generated view. Portal target lives
+            in the hono/jsx Admin island; React never owns that tree. With no
+            pin authored yet the slot renders its empty-state CTA (or nothing,
+            if the host hides it) — never breaks the admin page. */}
+        {(() => {
+          const slotHost = document.getElementById('vendo-slot-gallery-inventory')
+          return slotHost ? createPortal(
+            <VendoSlot
+              id="gallery-inventory"
+              label="Gallery inventory"
+              description="Admin dashboard area for dense gallery inventory and health views: gallery list with image counts and stale/failed refresh state."
+              emptyState={{
+                title: 'Gallery inventory builds itself',
+                subtitle: 'ask Manu for a gallery inventory — pin it here',
+                suggestions: [
+                  'Show a gallery inventory with image counts',
+                  'Which galleries are stale since their last refresh?',
+                ],
+              }}
+            />,
+            slotHost,
+          ) : null
+        })()}
       </VendoProvider>
     </StrictMode>,
   )

@@ -321,6 +321,16 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
         </form>
       </section>
 
+      {/* Pinned Vendo generated view — a dense inventory/health table authored
+          in the conversation and pinned here. The React VendoSlot mounts into
+          this placeholder from app/vendo-client.tsx (portal), keeping the
+          hono/jsx island free of React; with no pin saved the section is
+          simply absent below the heading. */}
+      <section class="gallery-inventory" aria-label="Gallery inventory (generated view)">
+        <div class="gallery-selector-heading"><h2 id="inventory-heading">Gallery inventory</h2></div>
+        <div id="vendo-slot-gallery-inventory" />
+      </section>
+
       <section class="gallery-list" aria-label="Published galleries">
         {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
