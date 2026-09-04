@@ -2,9 +2,9 @@ name: Verify
 
 on:
   push:
-    branches: [main, dev/vendo]
+    branches: [main]
   pull_request:
-    branches: [main, dev/vendo]
+    branches: [main]
 
 jobs:
   verify:
