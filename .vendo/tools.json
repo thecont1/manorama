@@ -2,133 +2,869 @@
   "format": "vendo/tools@3",
   "tools": [
     {
-      "name": "list_galleries",
-      "description": "List all photo galleries on the site with their titles, captions, dates, and image counts.",
-      "inputSchema": { "type": "object", "properties": {} },
-      "inputSchemaSource": "declared",
-      "outputSchemaSource": "unknown",
-      "risk": "read",
-      "binding": { "kind": "route", "method": "GET", "path": "/api/galleries", "argsIn": "query" },
-      "srcPath": "app/server.ts"
-    },
-    {
-      "name": "scan_dropbox_folder",
-      "description": "Scan a public Dropbox folder URL to discover images for a new gallery. Returns the folder title and a list of image filenames.",
+      "name": "host_create_gallery",
+      "description": "Create a gallery from a Dropbox folder. Scan a public Dropbox folder URL and create a gallery from its images, optionally in a given order.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "url": { "type": "string", "description": "A public Dropbox folder URL" }
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "order": {
+                "description": "Optional image filenames in the desired display order; unlisted images keep scan order after them",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "url": {
+                "description": "A public, download-enabled Dropbox folder URL to create the gallery from",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object"
+          }
         },
-        "required": ["url"]
+        "required": [
+          "body"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "gallery": {
+            "properties": {
+              "caption": {
+                "type": "string"
+              },
+              "createdAt": {
+                "description": "ISO 8601 timestamp used for recency ordering",
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "imageCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "images": {
+                "items": {
+                  "properties": {
+                    "alt": {
+                      "type": "string"
+                    },
+                    "c2pa": {
+                      "description": "Whether the image carries Content Credentials",
+                      "type": "boolean"
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "height": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "src": {
+                      "type": "string"
+                    },
+                    "variants": {
+                      "items": {
+                        "properties": {
+                          "format": {
+                            "type": "string"
+                          },
+                          "src": {
+                            "description": "Same-origin URL serving this variant",
+                            "type": "string"
+                          },
+                          "width": {
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "src",
+                          "format"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "width": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "filename",
+                    "src",
+                    "width",
+                    "height",
+                    "alt",
+                    "c2pa",
+                    "placeholder"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "slug": {
+                "description": "Stable URL segment identifying the gallery",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "sourceUrl": {
+                "description": "Public Dropbox folder URL backing this gallery",
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug",
+              "title",
+              "caption",
+              "imageCount",
+              "images"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "gallery"
+        ],
+        "type": "object"
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "create_gallery",
+        "baseUrl": "https://manorama.xyz",
+        "method": "POST",
+        "path": "/api/galleries"
       },
       "inputSchemaSource": "declared",
-      "outputSchemaSource": "unknown",
-      "risk": "read",
-      "binding": { "kind": "route", "method": "POST", "path": "/api/galleries/scan", "argsIn": "body" },
-      "srcPath": "app/server.ts"
+      "outputSchemaSource": "declared",
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
     },
     {
-      "name": "create_gallery",
-      "description": "Create a new gallery from a scanned Dropbox folder. Optionally specify an image order.",
+      "name": "host_delete_gallery",
+      "description": "Delete a gallery. Delete a gallery and its Manorama references. This is irreversible; Dropbox files are never touched.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "url": { "type": "string", "description": "A public Dropbox folder URL to create the gallery from" },
-          "order": { "type": "array", "items": { "type": "string" }, "description": "Optional list of image filenames in the desired display order" }
+          "slug": {
+            "type": "string",
+            "description": "Current gallery URL slug — the resource identity"
+          }
         },
-        "required": ["url"]
+        "required": [
+          "slug"
+        ]
       },
-      "inputSchemaSource": "declared",
-      "outputSchemaSource": "unknown",
-      "risk": "write",
-      "binding": { "kind": "route", "method": "POST", "path": "/api/galleries", "argsIn": "body" },
-      "srcPath": "app/server.ts"
-    },
-    {
-      "name": "update_gallery",
-      "description": "Update a gallery's title, caption, image order, or URL slug.",
-      "inputSchema": {
-        "type": "object",
+      "outputSchema": {
+        "additionalProperties": false,
         "properties": {
-          "slug": { "type": "string", "description": "The current gallery URL slug" },
-          "title": { "type": "string", "description": "New title for the gallery" },
-          "caption": { "type": "string", "description": "New caption for the gallery" },
-          "order": { "type": "array", "items": { "type": "string" }, "description": "New image display order (list of filenames)" },
-          "newSlug": { "type": "string", "description": "A new URL slug for the gallery" }
+          "ok": {
+            "type": "boolean"
+          }
         },
-        "required": ["slug"]
+        "required": [
+          "ok"
+        ],
+        "type": "object"
       },
-      "inputSchemaSource": "declared",
-      "outputSchemaSource": "unknown",
-      "risk": "write",
-      "binding": { "kind": "route", "method": "PATCH", "path": "/api/galleries/:slug", "argsIn": "body" },
-      "srcPath": "app/server.ts"
-    },
-    {
-      "name": "delete_gallery",
-      "description": "Delete a gallery and all its images. This is irreversible.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "slug": { "type": "string", "description": "The URL slug of the gallery to delete" }
-        },
-        "required": ["slug"]
-      },
-      "inputSchemaSource": "declared",
-      "outputSchemaSource": "unknown",
       "risk": "destructive",
-      "binding": { "kind": "route", "method": "DELETE", "path": "/api/galleries/:slug", "argsIn": "query" },
-      "srcPath": "app/server.ts"
+      "binding": {
+        "kind": "openapi",
+        "operationId": "delete_gallery",
+        "baseUrl": "https://manorama.xyz",
+        "method": "DELETE",
+        "path": "/api/galleries/{slug}"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "declared",
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
     },
     {
-      "name": "refresh_gallery",
-      "description": "Re-scan a gallery's Dropbox source folder and update its images with any new or changed files.",
+      "name": "host_get_dropbox_file",
+      "description": "Fetch a Dropbox original. Fetch a full-resolution image from a Dropbox folder by source URL and filename.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "slug": { "type": "string", "description": "The URL slug of the gallery to refresh" }
+          "sourceUrl": {
+            "type": "string",
+            "description": "The Dropbox folder source URL"
+          },
+          "filename": {
+            "type": "string",
+            "description": "The image filename"
+          }
         },
-        "required": ["slug"]
+        "required": [
+          "sourceUrl",
+          "filename"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_dropbox_file",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/dropbox/file"
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "risk": "write",
-      "binding": { "kind": "route", "method": "POST", "path": "/api/galleries/:slug/refresh", "argsIn": "body" },
-      "srcPath": "app/server.ts"
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
     },
     {
-      "name": "get_dropbox_thumbnail",
-      "description": "Fetch a thumbnail image from a Dropbox folder by source URL and filename.",
+      "name": "host_get_dropbox_thumbnail",
+      "description": "Fetch a Dropbox thumbnail. Fetch a thumbnail image from a Dropbox folder by source URL and filename.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "sourceUrl": { "type": "string", "description": "The Dropbox folder source URL" },
-          "filename": { "type": "string", "description": "The image filename" }
+          "sourceUrl": {
+            "type": "string",
+            "description": "The Dropbox folder source URL"
+          },
+          "filename": {
+            "type": "string",
+            "description": "The image filename"
+          }
         },
-        "required": ["sourceUrl", "filename"]
+        "required": [
+          "sourceUrl",
+          "filename"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_dropbox_thumbnail",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/dropbox/thumbnail"
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "risk": "read",
-      "binding": { "kind": "route", "method": "GET", "path": "/api/dropbox/thumbnail", "argsIn": "query" },
-      "srcPath": "app/server.ts"
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
     },
     {
-      "name": "get_dropbox_file",
-      "description": "Fetch a full-resolution image from a Dropbox folder by source URL and filename.",
+      "name": "host_list_galleries",
+      "description": "List galleries. List all photo galleries with titles, captions, dates, and image counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "galleries": {
+            "items": {
+              "properties": {
+                "caption": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "description": "ISO 8601 timestamp used for recency ordering",
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "imageCount": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "images": {
+                  "items": {
+                    "properties": {
+                      "alt": {
+                        "type": "string"
+                      },
+                      "c2pa": {
+                        "description": "Whether the image carries Content Credentials",
+                        "type": "boolean"
+                      },
+                      "caption": {
+                        "type": "string"
+                      },
+                      "filename": {
+                        "type": "string"
+                      },
+                      "height": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "placeholder": {
+                        "type": "string"
+                      },
+                      "src": {
+                        "type": "string"
+                      },
+                      "variants": {
+                        "items": {
+                          "properties": {
+                            "format": {
+                              "type": "string"
+                            },
+                            "src": {
+                              "description": "Same-origin URL serving this variant",
+                              "type": "string"
+                            },
+                            "width": {
+                              "minimum": 1,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "width",
+                            "src",
+                            "format"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "width": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "filename",
+                      "src",
+                      "width",
+                      "height",
+                      "alt",
+                      "c2pa",
+                      "placeholder"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "slug": {
+                  "description": "Stable URL segment identifying the gallery",
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "sourceUrl": {
+                  "description": "Public Dropbox folder URL backing this gallery",
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "slug",
+                "title",
+                "caption",
+                "imageCount",
+                "images"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "galleries"
+        ],
+        "type": "object"
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "list_galleries",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/galleries"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "declared",
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+    },
+    {
+      "name": "host_refresh_gallery",
+      "description": "Refresh a gallery from Dropbox. Re-scan a gallery's Dropbox source folder and update its images with any new or changed files.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "sourceUrl": { "type": "string", "description": "The Dropbox folder source URL" },
-          "filename": { "type": "string", "description": "The image filename" }
+          "slug": {
+            "type": "string",
+            "description": "Gallery URL slug to re-scan"
+          }
         },
-        "required": ["sourceUrl", "filename"]
+        "required": [
+          "slug"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "gallery": {
+            "properties": {
+              "caption": {
+                "type": "string"
+              },
+              "createdAt": {
+                "description": "ISO 8601 timestamp used for recency ordering",
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "imageCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "images": {
+                "items": {
+                  "properties": {
+                    "alt": {
+                      "type": "string"
+                    },
+                    "c2pa": {
+                      "description": "Whether the image carries Content Credentials",
+                      "type": "boolean"
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "height": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "src": {
+                      "type": "string"
+                    },
+                    "variants": {
+                      "items": {
+                        "properties": {
+                          "format": {
+                            "type": "string"
+                          },
+                          "src": {
+                            "description": "Same-origin URL serving this variant",
+                            "type": "string"
+                          },
+                          "width": {
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "src",
+                          "format"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "width": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "filename",
+                    "src",
+                    "width",
+                    "height",
+                    "alt",
+                    "c2pa",
+                    "placeholder"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "slug": {
+                "description": "Stable URL segment identifying the gallery",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "sourceUrl": {
+                "description": "Public Dropbox folder URL backing this gallery",
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug",
+              "title",
+              "caption",
+              "imageCount",
+              "images"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "gallery"
+        ],
+        "type": "object"
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "refresh_gallery",
+        "baseUrl": "https://manorama.xyz",
+        "method": "POST",
+        "path": "/api/galleries/{slug}/refresh"
       },
       "inputSchemaSource": "declared",
-      "outputSchemaSource": "unknown",
-      "risk": "read",
-      "binding": { "kind": "route", "method": "GET", "path": "/api/dropbox/file", "argsIn": "query" },
-      "srcPath": "app/server.ts"
+      "outputSchemaSource": "declared",
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+    },
+    {
+      "name": "host_scan_dropbox_folder",
+      "description": "Scan a Dropbox folder. Scan a public Dropbox folder URL to discover images for a new gallery. Returns the folder title and image metadata.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "description": "A public, download-enabled Dropbox folder URL",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "scan": {
+            "properties": {
+              "images": {
+                "items": {
+                  "properties": {
+                    "alt": {
+                      "type": "string"
+                    },
+                    "c2pa": {
+                      "description": "Whether the image carries Content Credentials",
+                      "type": "boolean"
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "height": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "src": {
+                      "type": "string"
+                    },
+                    "variants": {
+                      "items": {
+                        "properties": {
+                          "format": {
+                            "type": "string"
+                          },
+                          "src": {
+                            "description": "Same-origin URL serving this variant",
+                            "type": "string"
+                          },
+                          "width": {
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "src",
+                          "format"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "width": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "filename",
+                    "src",
+                    "width",
+                    "height",
+                    "alt",
+                    "c2pa",
+                    "placeholder"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "sourceUrl": {
+                "description": "Normalized public Dropbox folder URL",
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sourceUrl",
+              "title",
+              "images"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "scan"
+        ],
+        "type": "object"
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "scan_dropbox_folder",
+        "baseUrl": "https://manorama.xyz",
+        "method": "POST",
+        "path": "/api/galleries/scan"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "declared",
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+    },
+    {
+      "name": "host_update_gallery",
+      "description": "Update a gallery. Update a gallery's title, caption, image order, or URL slug (rename via newSlug).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Current gallery URL slug — the resource identity"
+          },
+          "body": {
+            "additionalProperties": false,
+            "description": "The path slug identifies the gallery; a rename is requested through newSlug only. A body-level replacement slug is not part of the contract.",
+            "minProperties": 1,
+            "properties": {
+              "caption": {
+                "maxLength": 500,
+                "type": "string"
+              },
+              "newSlug": {
+                "description": "New URL slug for the gallery; changing it changes public URLs and bookmarks",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "order": {
+                "description": "New image display order (filenames)",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "title": {
+                "description": "New gallery title; cannot be empty when present",
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "slug",
+          "body"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "gallery": {
+            "properties": {
+              "caption": {
+                "type": "string"
+              },
+              "createdAt": {
+                "description": "ISO 8601 timestamp used for recency ordering",
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "imageCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "images": {
+                "items": {
+                  "properties": {
+                    "alt": {
+                      "type": "string"
+                    },
+                    "c2pa": {
+                      "description": "Whether the image carries Content Credentials",
+                      "type": "boolean"
+                    },
+                    "caption": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "height": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "src": {
+                      "type": "string"
+                    },
+                    "variants": {
+                      "items": {
+                        "properties": {
+                          "format": {
+                            "type": "string"
+                          },
+                          "src": {
+                            "description": "Same-origin URL serving this variant",
+                            "type": "string"
+                          },
+                          "width": {
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "src",
+                          "format"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "width": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "filename",
+                    "src",
+                    "width",
+                    "height",
+                    "alt",
+                    "c2pa",
+                    "placeholder"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "slug": {
+                "description": "Stable URL segment identifying the gallery",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "sourceUrl": {
+                "description": "Public Dropbox folder URL backing this gallery",
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug",
+              "title",
+              "caption",
+              "imageCount",
+              "images"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "gallery"
+        ],
+        "type": "object"
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "update_gallery",
+        "baseUrl": "https://manorama.xyz",
+        "method": "PATCH",
+        "path": "/api/galleries/{slug}"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "declared",
+      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
     }
   ]
 }

@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=.env.local vite --host 0.0.0.0",
+    "predev": "vendo sync --no-ai",
     "build": "vite build --mode client && vite build",
+    "prebuild": "vendo sync --strict --no-ai",
     "preview": "bun --env-file=.env.local vite preview --host 0.0.0.0",
     "gallery": "node build-gallery.mjs ./images ./public/images italy-2018",
     "test": "playwright test",
+    "vendo:sync": "vendo sync --no-ai",
+    "vendo:check": "vendo sync --strict --no-ai && git diff --exit-code -- .vendo/tools.json",
     "deploy": "bun run gallery && bun run build && wrangler deploy"
   },
   "dependencies": {
