@@ -62,10 +62,18 @@ describe('OpenAPI contract: static spec', () => {
     expect(Object.keys((resolved as { properties: Record<string, unknown> }).properties)).toContain('newSlug')
   })
 
-  test('operationIds match the Vendo tool names', () => {
-    const tools = JSON.parse(readFileSync(`${repoRoot}/.vendo/tools.json`, 'utf8')) as { tools: { name: string }[] }
-    const toolNames = tools.tools.map((tool) => tool.name).sort()
-    expect(operationIds().sort()).toEqual(toolNames)
+  test('operationIds match the Vendo tool bindings', () => {
+    // The generated catalog prefixes tool names with host_ but preserves the
+    // contract's operationId in each binding — that is the alignment that matters.
+    const tools = JSON.parse(readFileSync(`${repoRoot}/.vendo/tools.json`, 'utf8')) as { tools: { name: string; binding: { operationId?: string } }[] }
+    const boundOperationIds = tools.tools
+      .map((tool) => tool.binding?.operationId ?? tool.name.replace(/^host_/, ''))
+      .sort()
+    expect(operationIds().sort()).toEqual(boundOperationIds)
+    // And every tool name is the prefixed operationId.
+    for (const tool of tools.tools) {
+      expect(tool.name).toBe(`host_${tool.binding?.operationId}`)
+    }
   })
 })
 
