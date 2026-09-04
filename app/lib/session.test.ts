@@ -8,12 +8,14 @@ const issuer = `https://${env.CF_ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`
 let verifier: AccessJwtVerifier
 let otherVerifier: AccessJwtVerifier
 let privateKey: CryptoKey
+let publicKey: CryptoKey
 let foreignKey: CryptoKey
 
 beforeAll(async () => {
-  const own = await generateKeyPair('RS256')
-  const foreign = await generateKeyPair('RS256')
+  const own = await generateKeyPair('RS256', { extractable: true })
+  const foreign = await generateKeyPair('RS256', { extractable: true })
   privateKey = own.privateKey
+  publicKey = own.publicKey
   foreignKey = foreign.privateKey
   verifier = (token, checks) => jwtVerify(token, own.publicKey, {
     issuer: checks.issuer,
@@ -228,5 +230,31 @@ describe('resolveManoramaSession', () => {
     expect(other).not.toBe(first)
     resetAccessJwksCache()
     expect(cachedJwksClient(issuer)).not.toBe(first)
+  })
+
+  test('a dev inline JWKS verifies through the same path without a network', async () => {
+    const { resolveManoramaSession, exportPublicJwk } = await import('./session')
+    const jwks = JSON.stringify({ keys: [await exportPublicJwk(publicKey)] })
+    const devEnv = { ...env, CF_ACCESS_JWKS: jwks }
+    const sub = 'dev-owner-1'
+    const assertion = await token({ sub, email: 'mahesh@manorama.xyz' })
+    expect(await resolveManoramaSession(
+      request('https://manorama.xyz/api/galleries', { headers: { 'Cf-Access-Jwt-Assertion': assertion } }),
+      devEnv,
+    )).toEqual({ id: `cf-access:${sub}`, email: 'mahesh@manorama.xyz' })
+    const wrongIssuer = await token({ sub, iss: 'https://attacker.example.com' })
+    expect(await resolveManoramaSession(
+      request('https://manorama.xyz/api/galleries', { headers: { 'Cf-Access-Jwt-Assertion': wrongIssuer } }),
+      devEnv,
+    )).toBeNull()
+  })
+
+  test('a malformed inline JWKS fails closed', async () => {
+    const { resolveManoramaSession } = await import('./session')
+    const assertion = await token({ sub: 'dev-owner-2' })
+    expect(await resolveManoramaSession(
+      request('https://manorama.xyz/api/galleries', { headers: { 'Cf-Access-Jwt-Assertion': assertion } }),
+      { ...env, CF_ACCESS_JWKS: 'not-json' },
+    )).toBeNull()
   })
 })

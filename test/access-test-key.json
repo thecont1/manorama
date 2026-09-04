@@ -1,0 +1,17 @@
+{
+  "note": "DEV/TEST ONLY. Signs Cloudflare Access-shaped JWTs accepted only when a server is explicitly configured with test/access-test-jwks.json via CF_ACCESS_JWKS. Never valid in production.",
+  "team": "manorama-dev",
+  "audience": "manorama-dev-audience",
+  "alg": "RS256",
+  "privateJwk": {
+    "d": "UKG6FNs0DPPKGPsfJWC-zfN47_unmwIPQDf37unsgmo97Rbc1P5nmpaS4V5Oyqu3LD5zbV76AXevEeJGyu9pXcKDeavLnbV5MwwmW7xOkCQAm4XGIWYBQojCkoLST9DPkVYd9Uxj43cTffefmcpYChsfMhqkXT2mRF0k9z70m0zSVzMJNFLsR9fKlhPOJFPMrSlRxq-xddPIKYHENAQezG4mREIkvkLOFRtn386_psJZTcBTT8adEp638_bSoHUt9Cs0aJ_sE8Smubio4qm1xrh-eiQPCHf_uy4kzP2RvwFlkSMfyogozR7p72zVJmjodua5-AbKMflX4tvIWCoWrQ",
+    "dp": "fy2P749B68mCGaGp5wlxHXtA0DJbQCH7-z6POQVaohGZr4IwmIgtv7Tn3kMrvaLz-x_h8oZwPsfa2ByoPIY48cWUSnJbRhxVOJ7I9kAmQxGkrUQ_NOY1CbuQxlzad9gg2fKO9Txh3nASP6B6niOLabnD0R_LIOqqCZ0P0iSrOHU",
+    "dq": "cNFgZiBkgAWU-SbMaLcrJ25N1yVhBJvHmdHhP-n_JDjpo5ZlFXtmoGUh28b9XWxv4nK9Ah8CArngx6T39MpvY2KOcoTIAxUbbGtR30d-VHpPMy_ikiC7lUjtoqG60l8fbBN3Iy6jhnQV5yAjKCJcKMXykvtHp6_cBl7ztonZ1j0",
+    "e": "AQAB",
+    "kty": "RSA",
+    "n": "0FIOOb_k9HKyWCqW-NauEIstp-7CNUCbXB4OP7CCWjNCzsOIXgzabBPbFSuDdCtvQmgtSpRL4GN5AR5g_JsogZSpz4proHB0bVnUEXIebpq_u-xBpokL7d_4CkSAx-9SW4_exWTYwW8ZEGVMtXRaxb7JyGGN8tR7sDTQpaFDse3fQ-G8ikoZAaY_LHFR_2hO-pPxHXxcUxw0SyyFKDio7w7CeSXPWw_7iDYIejOdT6XYv0dZNnNbD6EROoLa0kwqVA0n4jU_B1nXdSPCxtb9-bx2S4tW9bz-TqvRAnKDBBylG9_x0rup9h5Nfml0_GWdmlSCLpc7KxY3bWCjJeW69w",
+    "p": "9YhyfJua6HOUF2Bj-VQWb1-_aVEYjvbBT2Za8ixmreBDlEchlGfBrVYS_365vES6tdZCSrkWKnGV6FD3jCcTUizH_3JivEKhdAgoGQu5Ip1ASidmWGVPgDknCJ_iO1rwdx6MqRKuSaYU5wdFkQHOekzQKgSG2GvVf7L3zdafhiM",
+    "q": "2TOAPZzTkL6iFX3N9Ls5uR_MTRAG7wR9wI3ybodA-ErEJjvSZU17oBlJCXHE0Wj0yzgqVLlsLZo-_J8Y7ZnFEbmbu1k3wydfb-aZNXzIOK2Y4JSlMSPkdew-U0aHeOOb8X4OvqdwMG2W0IY9gN9bPODDWvzPAyHggaxQcuR8Yx0",
+    "qi": "yNM3eDIJn_Jz9BMfi6v0VDbj5uHet3-WHzNs0MY_HwMYe_4s_w8Xd2H_A7imfl9ecrrYpXrx62lP8PrqL24fmPHlM1pLD5JBX5o05FLfhyng64BgPal9WI406hidV8cWdWaace_VgKJjk0-8Uaq5_fsOuuof6x0N4maDOU2Emtg"
+  }
+}

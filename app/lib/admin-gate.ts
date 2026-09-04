@@ -1,7 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
-import { requireSession, type AccessEnv, type AccessJwtVerifier } from './session'
-
-type OwnerEnv = AccessEnv & { OWNER_SLUG?: string }
+import { accessEnvOf, requireSession, type AccessJwtVerifier } from './session'
 
 /**
  * Guards the owner administration page (`/[owner]`) with the same Access
@@ -12,7 +10,7 @@ type OwnerEnv = AccessEnv & { OWNER_SLUG?: string }
 export const ownerAdminGate = (verifier?: AccessJwtVerifier): MiddlewareHandler =>
   async (c, next) => {
     const owner = c.req.param('owner')
-    const expected = (c.env as OwnerEnv).OWNER_SLUG || 'thecontrarian'
+    const expected = accessEnvOf(c).OWNER_SLUG || 'thecontrarian'
     if (owner === expected) return requireSession(verifier)(c, next)
     await next()
   }

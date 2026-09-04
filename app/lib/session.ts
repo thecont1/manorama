@@ -1,4 +1,6 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { createLocalJWKSet, createRemoteJWKSet, jwtVerify } from 'jose'
+import { exportJWK as joseExportJWK } from 'jose/key/export'
+import type { JSONWebKeySet } from 'jose'
 import type { MiddlewareHandler } from 'hono'
 
 /**
@@ -21,6 +23,14 @@ export type ManoramaSession = {
 export type AccessEnv = {
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
+  /** The owner slug that the admin gate locks behind Access auth. Falls back
+   *  to 'thecontrarian' when unset. */
+  OWNER_SLUG?: string
+  /** Dev/test-only: an inline JWKS document verified instead of the team's
+   *  remote certs endpoint — local development and Playwright fixtures have
+   *  no Cloudflare Access in front of them. Every check (issuer, audience,
+   *  signature, expiry, sub) is identical; production never sets this. */
+  CF_ACCESS_JWKS?: string
 }
 
 /** Verifies an Access JWT against expected issuer/audience and returns its
@@ -33,7 +43,9 @@ export type AccessJwtVerifier = (
 export const accessIssuer = (teamDomain: string) => `https://${teamDomain}.cloudflareaccess.com`
 export const accessJwksUrl = (issuer: string) => `${issuer.replace(/\/+$/, '')}/cdn-cgi/access/certs`
 
-const jwksClients = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+type KeySource = ReturnType<typeof createRemoteJWKSet> | ReturnType<typeof createLocalJWKSet>
+
+const jwksClients = new Map<string, KeySource>()
 
 /** The remote JWKS client for one Access team, cached per issuer. Only this
  *  crypto helper is cached — never a request, session, or user. */
@@ -46,12 +58,36 @@ export const cachedJwksClient = (issuer: string) => {
   return client
 }
 
+/** Test seam: export a CryptoKey's public JWK (for building inline dev/test
+ *  JWKS documents). Production code never calls this. */
+export const exportPublicJwk = (key: CryptoKey) => joseExportJWK(key)
+
 /** Test seam: drop the JWKS cache. Production code never calls this. */
 export const resetAccessJwksCache = () => jwksClients.clear()
 
-const defaultVerifier: AccessJwtVerifier = (token, { issuer, audience }) =>
-  jwtVerify(token, cachedJwksClient(issuer), { issuer, audience })
+const verifierWith = (keys: KeySource): AccessJwtVerifier => (token, { issuer, audience }) =>
+  jwtVerify(token, keys, { issuer, audience })
     .then(({ payload }) => payload as { sub?: unknown; email?: unknown })
+
+const remoteVerifier = (issuer: string) => verifierWith(cachedJwksClient(issuer))
+
+/** The verifier for one environment: the inline dev JWKS when configured,
+ *  the team's remote JWKS otherwise. Null when the inline document is
+ *  malformed — fail closed. */
+const verifierForEnv = (env: AccessEnv, issuer: string): AccessJwtVerifier | null => {
+  const inline = env.CF_ACCESS_JWKS?.trim()
+  if (!inline) return remoteVerifier(issuer)
+  let client = jwksClients.get(inline)
+  if (client === undefined) {
+    try {
+      client = createLocalJWKSet(JSON.parse(inline) as JSONWebKeySet)
+    } catch {
+      return null
+    }
+    jwksClients.set(inline, client)
+  }
+  return verifierWith(client)
+}
 
 const cookieValue = (request: Request, name: string) => {
   const cookie = request.headers.get('Cookie')
@@ -77,7 +113,7 @@ export const accessAssertion = (request: Request) =>
 export async function resolveManoramaSession(
   request: Request,
   env: AccessEnv,
-  verifier: AccessJwtVerifier = defaultVerifier,
+  verifier?: AccessJwtVerifier,
 ): Promise<ManoramaSession | null> {
   const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim()
   const audience = env.CF_ACCESS_AUD?.trim()
@@ -85,8 +121,10 @@ export async function resolveManoramaSession(
   const token = accessAssertion(request)
   if (!token) return null
   const issuer = accessIssuer(teamDomain)
+  const effectiveVerifier = verifier ?? verifierForEnv(env, issuer)
+  if (effectiveVerifier === null) return null
   try {
-    const claims = await verifier(token, { issuer, audience })
+    const claims = await effectiveVerifier(token, { issuer, audience })
     if (typeof claims.sub !== 'string' || claims.sub.length === 0) return null
     const session: ManoramaSession = { id: `cf-access:${claims.sub}` }
     if (typeof claims.email === 'string' && claims.email.length > 0) session.email = claims.email
@@ -99,6 +137,19 @@ export async function resolveManoramaSession(
 /** Hono env shape once the session gate below has run. */
 export type SessionEnv = { Variables: { manoramaSession: ManoramaSession } }
 
+/** process.env when the runtime has one (Node/vite dev); never carries
+ *  anything on Workers, where c.env bindings are authoritative. */
+const processEnv = () => (globalThis as typeof globalThis & {
+  process?: { env?: Record<string, string | undefined> };
+}).process?.env ?? {}
+
+/** The Access configuration for a request: platform env wins, process env is
+ *  the dev-server fallback. */
+export const accessEnvOf = (c: { env: unknown }): AccessEnv => ({
+  ...processEnv(),
+  ...((c.env ?? {}) as AccessEnv),
+})
+
 /**
  * The management-API gate: resolves the Access session and refuses the
  * request with 401 JSON when there is none. On success the session is
@@ -107,7 +158,7 @@ export type SessionEnv = { Variables: { manoramaSession: ManoramaSession } }
  */
 export const requireSession = (verifier?: AccessJwtVerifier): MiddlewareHandler<SessionEnv> =>
   async (c, next) => {
-    const session = await resolveManoramaSession(c.req.raw, c.env as AccessEnv, verifier)
+    const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c), verifier)
     if (!session) return c.json({ error: 'Authentication required' }, 401)
     c.set('manoramaSession', session)
     await next()

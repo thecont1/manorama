@@ -49,8 +49,12 @@ const authed = (init: RequestInit = {}): RequestInit => ({
 /** Mounts a honox route module's default export (a handler or handler array,
  *  exactly the two shapes honox's server accepts). */
 const mountRoute = (app: Hono, path: string, route: unknown) => {
-  if (Array.isArray(route)) app.get(path, ...(route as Handler[]))
-  else app.get(path, route as Handler)
+  // hono's app.get overloads are fixed-arity per handler count, so a spread
+  // of an unknown-length array can't satisfy them. Bind and cast to a
+  // variadic signature so the runtime registers the route as-is.
+  const get = app.get.bind(app) as (p: string, ...h: Handler[]) => void
+  if (Array.isArray(route)) get(path, ...(route as Handler[]))
+  else get(path, route as Handler)
 }
 
 describe('gallery management API authentication', () => {
@@ -134,12 +138,14 @@ describe('owner admin page authentication', () => {
     expect(await response.json()).toEqual({ error: 'Authentication required' })
   })
 
-  test('a valid owner session renders the admin application', async () => {
+  test('a valid owner session renders the admin application with the Vendo surface', async () => {
     const response = await page().request('/thecontrarian', authed(), env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('Add from Dropbox')
+    expect(html).toContain('id="vendo-root"')
+    expect(html.indexOf('/app/vendo-client.tsx')).toBeGreaterThan(html.indexOf('id="vendo-root"'))
   })
 
   test('a non-owner single-segment path is not locked by the admin gate', async () => {
@@ -158,7 +164,7 @@ describe('owner admin page authentication', () => {
 })
 
 describe('public gallery pages stay public', () => {
-  test('the viewer page renders without a session', async () => {
+  test('the viewer page renders without a session and without the Vendo surface', async () => {
     const app = new Hono()
     app.use(honoxContext)
     app.use(renderer)
@@ -166,6 +172,9 @@ describe('public gallery pages stay public', () => {
     const response = await app.request('/thecontrarian/italy-2018', undefined, env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
-    expect(await response.text()).toContain('curtain')
+    const html = await response.text()
+    expect(html).toContain('curtain')
+    expect(html).not.toContain('vendo-root')
+    expect(html).not.toContain('vendo-client')
   })
 })
