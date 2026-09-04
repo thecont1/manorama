@@ -13,8 +13,7 @@
  * (credential forwarding fails closed without it — vendo doctor checks).
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
-import type { HostAuthPreset } from "@vendoai/vendo/auth-presets";
-import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore } from "@vendoai/vendo/server";
+import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore, type HostAuthPreset } from "@vendoai/vendo/server";
 import { resolveManoramaSession, type AccessEnv, type AccessJwtVerifier } from "../app/lib/session";
 
 export interface VendoEnv extends AccessEnv {

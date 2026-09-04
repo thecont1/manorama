@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { generateKeyPair, SignJWT, jwtVerify } from 'jose'
 import { createManoramaApi } from './api'
+import { createGallery } from './lib/gallery-repository'
 import type { AccessEnv, AccessJwtVerifier } from './lib/session'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +15,7 @@ const accessEnv: AccessEnv = {
 const env = { ...accessEnv }
 const issuer = `https://${accessEnv.CF_ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`
 
+let api: ReturnType<typeof createManoramaApi>
 let assertion: string
 
 beforeAll(async () => {
@@ -28,44 +30,48 @@ beforeAll(async () => {
     .setIssuedAt()
     .setExpirationTime('2m')
     .sign(privateKey)
-  // Keep a reference so the closure is exercised at least once per run.
-  await verifier(assertion, { issuer, audience: accessEnv.CF_ACCESS_AUD! })
+  api = createManoramaApi({ sessionVerifier: verifier })
+
+  // Seed a runtime gallery (no Airtable env -> in-memory store) with a slug
+  // distinct from the bundled italy-2018 fixture, which always resolves.
+  await createGallery({
+    slug: 'test-gallery',
+    title: 'Test Gallery',
+    caption: '',
+    date: '',
+    createdAt: '2026-09-04T00:00:00.000Z',
+    images: [],
+  })
 })
 
-const request = (path: string, init: RequestInit = {}) =>
-  createManoramaApi().request(path, {
-    ...init,
-    headers: { ...(init.headers ?? {}), 'Cf-Access-Jwt-Assertion': assertion },
-  }, env)
-
 const patch = (slug: string, body: object) =>
-  request(`/api/galleries/${slug}`, {
+  api.request(`/api/galleries/${slug}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': assertion },
     body: JSON.stringify(body),
-  })
+  }, env)
 
 describe('slug rename contract', () => {
   test('renames via body newSlug, not body slug', async () => {
-    const response = await patch('italy-2018', { newSlug: 'italy-renamed' })
+    const response = await patch('test-gallery', { newSlug: 'test-renamed' })
     expect(response.status).toBe(200)
     const payload = await response.json() as { gallery?: { slug: string } }
-    expect(payload.gallery?.slug).toBe('italy-renamed')
+    expect(payload.gallery?.slug).toBe('test-renamed')
   })
 
   test('the URL slug stays the resource identity: the old slug is gone', async () => {
-    const response = await patch('italy-2018', { title: 'Stale' })
+    const response = await patch('test-gallery', { title: 'Stale' })
     expect(response.status).toBe(404)
   })
 
   test('a body-level replacement slug is no longer accepted', async () => {
-    const response = await patch('italy-renamed', { slug: 'something-else' })
+    const response = await patch('test-renamed', { slug: 'something-else' })
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'Provide a gallery URL, metadata, or an image order to update' })
   })
 
   test('an invalid newSlug is rejected with the URL guidance', async () => {
-    const response = await patch('italy-renamed', { newSlug: 'Not A Valid Slug' })
+    const response = await patch('test-renamed', { newSlug: 'Not A Valid Slug' })
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' })
   })
@@ -73,26 +79,26 @@ describe('slug rename contract', () => {
   test('renaming onto an existing slug reports a collision', async () => {
     // The bundled italy-2018 fixture always resolves, so it is a guaranteed
     // collision target in the local runtime store.
-    const response = await patch('italy-renamed', { newSlug: 'italy-2018' })
+    const response = await patch('test-renamed', { newSlug: 'italy-2018' })
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual({ error: 'That gallery URL is already in use' })
   })
 
   test('a no-op rename returns the unchanged gallery', async () => {
-    const response = await patch('italy-renamed', { newSlug: 'italy-renamed' })
+    const response = await patch('test-renamed', { newSlug: 'test-renamed' })
     expect(response.status).toBe(200)
     const payload = await response.json() as { gallery?: { slug: string } }
-    expect(payload.gallery?.slug).toBe('italy-renamed')
+    expect(payload.gallery?.slug).toBe('test-renamed')
   })
 
   test('metadata combines with newSlug and lands on the renamed gallery', async () => {
-    const response = await patch('italy-renamed', { newSlug: 'italy-final', title: 'Final Title' })
+    const response = await patch('test-renamed', { newSlug: 'test-final', title: 'Final Title' })
     expect(response.status).toBe(200)
     const payload = await response.json() as { gallery?: { slug: string; title: string } }
-    expect(payload.gallery?.slug).toBe('italy-final')
+    expect(payload.gallery?.slug).toBe('test-final')
     expect(payload.gallery?.title).toBe('Final Title')
     // Metadata was NOT applied to the pre-rename identity.
-    expect((await patch('italy-renamed', { caption: 'x' })).status).toBe(404)
+    expect((await patch('test-renamed', { caption: 'x' })).status).toBe(404)
   })
 
   test('a missing gallery reports 404 for rename attempts', async () => {

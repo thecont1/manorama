@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["app", "vite.config.ts", "build-gallery.mjs"]
+  "include": ["app", "vendo", "vite.config.ts", "build-gallery.mjs"]
 }

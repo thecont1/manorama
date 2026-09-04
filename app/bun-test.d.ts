@@ -19,6 +19,7 @@ declare module 'bun:test' {
     toContain(expected: unknown): void
     toBeGreaterThan(expected: number): void
     toMatch(expected: unknown): void
+    toBeUndefined(): void
     readonly not: Matchers<T>
   }
 }

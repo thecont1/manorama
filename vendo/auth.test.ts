@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { generateKeyPair, SignJWT, jwtVerify } from 'jose'
-import { requireSession, type AccessEnv, type AccessJwtVerifier } from '../app/lib/session'
+import { requireSession, type AccessEnv, type AccessJwtVerifier, type SessionEnv } from '../app/lib/session'
 import { createVendoAuth } from './server'
 
 const accessEnv: AccessEnv = {
@@ -82,7 +82,7 @@ describe('Vendo principals resolve from the Manorama Access session', () => {
   })
 
   test('the API middleware and Vendo resolve byte-for-byte identical subjects', async () => {
-    const app = new Hono()
+    const app = new Hono<SessionEnv>()
     app.use(requireSession(verifier))
     app.get('/whoami', (c) => c.json({ id: c.get('manoramaSession').id }))
     const assertion = await signedToken({ sub: 'shared-subject', email: 'mahesh@manorama.xyz' })

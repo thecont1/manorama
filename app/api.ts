@@ -109,11 +109,13 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
   })
 
   api.patch('/api/galleries/:slug', async (c) => {
-    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; slug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; slug?: string } => ({}))
+    // Body `slug` is intentionally not read: the URL slug is the resource
+    // identity; a rename arrives only as `newSlug`.
+    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; newSlug?: string } => ({}))
     const title = typeof payload.title === 'string' ? payload.title.trim().slice(0, 120) : undefined
     const caption = typeof payload.caption === 'string' ? payload.caption.trim().slice(0, 500) : undefined
     const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, 500) : undefined
-    const nextSlug = typeof payload.slug === 'string' ? payload.slug.trim().toLowerCase() : undefined
+    const nextSlug = typeof payload.newSlug === 'string' ? payload.newSlug.trim().toLowerCase() : undefined
     if (title !== undefined && !title) return c.json({ error: 'A gallery title cannot be empty' }, 400)
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
     if (title === undefined && caption === undefined && !order && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
