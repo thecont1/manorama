@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // Focused Vendo surface spec — Task 1.4 acceptance.
 //
 // The public gallery must stay free of the agent surface (no launcher, no
