@@ -208,7 +208,8 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
       const response = await fetch(`/api/galleries/${encodeURIComponent(editing.slug)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [editing.field]: value }),
+        // The URL slug is the resource identity; a rename is `newSlug`.
+        body: JSON.stringify(editing.field === 'slug' ? { newSlug: value } : { [editing.field]: value }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That change could not be saved')

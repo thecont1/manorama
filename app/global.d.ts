@@ -10,6 +10,12 @@ declare module 'hono' {
   }
 }
 
+declare module 'hono' {
+  interface ContextVariableMap {
+    manoramaSession: import('./lib/session').ManoramaSession
+  }
+}
+
 declare module '*?url' {
   const src: string
   export default src

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600&family=Great+Vibes&display=swap');
 
 /* Playfair variable font (opsz, wdth, wght axes) */
 @font-face {
@@ -413,7 +413,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .landing-brand-intro {
   margin: 22px 0 0;
   font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif;
-  font-size: 24px;
+  font-size: 16px;
   font-weight: 300;
   font-style: normal;
   font-optical-sizing: auto;
@@ -431,3 +431,54 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }
+
+/* Ask Manu launcher — black circular orb with "ask" / "mnrm" stacked text. */
+.fl-launcher[data-vendo-launcher-bare] {
+  width: 75px !important;
+  height: 65px !important;
+  padding: 0 !important;
+  background: #1a1a1a !important;
+  border: 0.6px solid #777 !important;
+  border-radius: 50% !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  position: relative;
+  display: grid !important;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.fl-launcher[data-vendo-launcher-bare]:hover {
+  transform: scale(1.05);
+}
+/* Hide the default blue blob. */
+.fl-launcher[data-vendo-launcher-bare] .fl-launcher-blob {
+  display: none !important;
+}
+/* "Ask" — slightly above centre. */
+.fl-launcher[data-vendo-launcher-bare]::before {
+  content: 'ask';
+  position: absolute;
+  top: 15px;
+  left: 75%;
+  transform: translateX(-50%);
+  color: #ffffff;
+  font-family: 'Great Vibes', cursive;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+}
+/* "Manu" — slightly below centre. */
+.fl-launcher[data-vendo-launcher-bare]::after {
+  content: 'Manu';
+  position: absolute;
+  bottom: 10px;
+  left: 47%;
+  transform: translateX(-50%);
+  color: #ffffff;
+  font-family: 'Great Vibes', cursive;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+}

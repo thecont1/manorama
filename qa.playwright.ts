@@ -3,9 +3,47 @@
 // Env: GALLERY_URL (default http://localhost:8787), GALLERY_OWNER, GALLERY_SLUG
 // Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow],
 // Square button has aria-label "Image information and Content Credentials", modal has role="dialog".
+//
+// The admin surface requires a Cloudflare Access session. Every context and
+// request here carries a dev-signed Access assertion (test/access-test-key.json),
+// accepted only by a server explicitly configured with the matching inline
+// JWKS (CF_ACCESS_JWKS from test/access-test-jwks.json — the dev server's
+// .env.local). Public pages ignore the header; a server without the fixture
+// (production behind real Access) refuses the admin tests loudly.
 
-import { test, expect } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { readFileSync } from "node:fs";
+import { importJWK, SignJWT } from "jose";
+
+const accessFixture = JSON.parse(
+  readFileSync(new URL("./test/access-test-key.json", import.meta.url), "utf8"),
+) as { team: string; audience: string; privateJwk: Record<string, string> };
+
+const devAssertion = async (): Promise<string> => {
+  const key = await importJWK(accessFixture.privateJwk, "RS256");
+  return new SignJWT({ sub: "mahesh-dev", email: "mahesh@manorama.xyz" })
+    .setProtectedHeader({ alg: "RS256" })
+    .setIssuer(`https://${accessFixture.team}.cloudflareaccess.com`)
+    .setAudience(accessFixture.audience)
+    .setIssuedAt()
+    .setExpirationTime("2h")
+    .sign(key);
+};
+
+const test = base.extend({
+  context: async ({ context }, use) => {
+    await context.setExtraHTTPHeaders({ "Cf-Access-Jwt-Assertion": await devAssertion() });
+    await use(context);
+  },
+  request: async ({ playwright }, use) => {
+    const request = await playwright.request.newContext({
+      extraHTTPHeaders: { "Cf-Access-Jwt-Assertion": await devAssertion() },
+    });
+    await use(request);
+    await request.dispose();
+  },
+});
 
 const BASE = process.env.GALLERY_URL ?? "http://localhost:8787";
 const OWNER = process.env.GALLERY_OWNER ?? "thecontrarian";

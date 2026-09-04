@@ -2,7 +2,7 @@ import { jsxRenderer } from 'hono/jsx-renderer'
 import { HasIslands } from 'honox/server'
 import { Link, Script } from 'honox/server'
 
-export default jsxRenderer(({ children, title }, c) => (
+export default jsxRenderer(({ children, title }) => (
   <html lang="en">
     <head>
       <meta charSet="utf-8" />

@@ -35,7 +35,23 @@ export const bundledGallery: GalleryRecord = {
 }
 
 const runtimeGalleries = new Map<string, GalleryRecord>()
-const airtableConfigured = (env?: AirtableEnv) => Boolean(env?.AIRTABLE_PAT && env?.AIRTABLE_BASE_ID)
+
+// Per-slug update serialization: a promise chain that ensures concurrent
+// updates to the same gallery execute sequentially rather than interleaving
+// their read-modify-write steps. Without this, two overlapping PATCH requests
+// can both read the same stale state and the older write silently overwrites
+// the newer one.
+const updateLocks = new Map<string, Promise<unknown>>()
+const withUpdateLock = <T>(slug: string, fn: () => Promise<T>): Promise<T> => {
+  const previous = updateLocks.get(slug)
+  const run = (previous ?? Promise.resolve()).catch(() => {}).then(fn)
+  const tail = run.catch(() => {})
+  updateLocks.set(slug, tail)
+  tail.finally(() => { if (updateLocks.get(slug) === tail) updateLocks.delete(slug) })
+  return run
+}
+
+const airtableConfigured = (env?: AirtableEnv): env is AirtableEnv => Boolean(env?.AIRTABLE_PAT && env?.AIRTABLE_BASE_ID)
 const tableName = (env: AirtableEnv) => encodeURIComponent(env.AIRTABLE_GALLERIES_TABLE || 'Galleries')
 const apiUrl = (env: AirtableEnv, suffix = '') => `https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${tableName(env)}${suffix}`
 
@@ -101,7 +117,7 @@ export const listGalleries = async (env?: AirtableEnv): Promise<GalleryRecord[]>
     const response = await airtableRequest<AirtableListResponse>(env, apiUrl(env, '?pageSize=100'))
     const external = response.records
       .map((record) => recordFromFields(record.fields))
-      .filter((item): item is GalleryRecord => Boolean(item?.sourceUrl) && item.images.length > 0)
+      .filter((item): item is GalleryRecord => Boolean(item?.sourceUrl) && (item?.images?.length ?? 0) > 0)
     return sortRecent(external)
   }
   const merged = new Map<string, GalleryRecord>([[bundledGallery.slug, bundledGallery]])
@@ -133,39 +149,42 @@ export const createGallery = async (gallery: GalleryRecord, env?: AirtableEnv): 
   return gallery
 }
 
-export const updateGalleryMetadata = async (slug: string, patch: { title?: string; caption?: string }, env?: AirtableEnv) => {
-  const current = await getGallery(slug, env)
-  if (!current) return null
-  return createGallery({ ...current, title: patch.title ?? current.title, caption: patch.caption ?? current.caption, createdAt: current.createdAt || new Date().toISOString() }, env)
-}
+export const updateGalleryMetadata = async (slug: string, patch: { title?: string; caption?: string }, env?: AirtableEnv) =>
+  withUpdateLock(slug, async () => {
+    const current = await getGallery(slug, env)
+    if (!current) return null
+    return createGallery({ ...current, title: patch.title ?? current.title, caption: patch.caption ?? current.caption, createdAt: current.createdAt || new Date().toISOString() }, env)
+  })
 
-export const updateGallerySlug = async (slug: string, nextSlug: string, env?: AirtableEnv) => {
-  const current = await getGallery(slug, env)
-  if (!current) return null
-  if (slug === nextSlug) return current
-  const conflicting = await getGallery(nextSlug, env)
-  if (conflicting) throw new Error('That gallery URL is already in use')
-  const nextGallery = { ...current, slug: nextSlug }
-  if (airtableConfigured(env)) {
-    const record = await recordForSlug(slug, env)
-    if (!record) return null
-    await airtableRequest(env, apiUrl(env, `/${record.id}`), { method: 'PATCH', body: JSON.stringify({ fields: fieldsFromRecord(nextGallery) }) })
-  } else {
-    runtimeGalleries.delete(slug)
-    runtimeGalleries.set(nextSlug, nextGallery)
-  }
-  return nextGallery
-}
+export const updateGallerySlug = async (slug: string, nextSlug: string, env?: AirtableEnv) =>
+  withUpdateLock(slug, async () => {
+    const current = await getGallery(slug, env)
+    if (!current) return null
+    if (slug === nextSlug) return current
+    const conflicting = await getGallery(nextSlug, env)
+    if (conflicting) throw new Error('That gallery URL is already in use')
+    const nextGallery = { ...current, slug: nextSlug }
+    if (airtableConfigured(env)) {
+      const record = await recordForSlug(slug, env)
+      if (!record) return null
+      await airtableRequest(env, apiUrl(env, `/${record.id}`), { method: 'PATCH', body: JSON.stringify({ fields: fieldsFromRecord(nextGallery) }) })
+    } else {
+      runtimeGalleries.delete(slug)
+      runtimeGalleries.set(nextSlug, nextGallery)
+    }
+    return nextGallery
+  })
 
-export const updateGalleryOrder = async (slug: string, order: string[], env?: AirtableEnv) => {
-  const current = await getGallery(slug, env)
-  if (!current) return null
-  const byFilename = new Map(current.images.map((image) => [image.filename, image]))
-  const reordered = order.map((filename) => byFilename.get(filename)).filter((image): image is GalleryImage => Boolean(image))
-  const seen = new Set(reordered.map((image) => image.filename))
-  current.images.forEach((image) => { if (!seen.has(image.filename)) reordered.push(image) })
-  return createGallery({ ...current, images: reordered }, env)
-}
+export const updateGalleryOrder = async (slug: string, order: string[], env?: AirtableEnv) =>
+  withUpdateLock(slug, async () => {
+    const current = await getGallery(slug, env)
+    if (!current) return null
+    const byFilename = new Map(current.images.map((image) => [image.filename, image]))
+    const reordered = order.map((filename) => byFilename.get(filename)).filter((image): image is GalleryImage => Boolean(image))
+    const seen = new Set(reordered.map((image) => image.filename))
+    current.images.forEach((image) => { if (!seen.has(image.filename)) reordered.push(image) })
+    return createGallery({ ...current, images: reordered }, env)
+  })
 
 const previewImages = (images: readonly GalleryImage[]) => images.map(({ id, filename, src, width, height, alt, placeholder, variants }) => ({ id, filename, src, width, height, alt, placeholder, variants }))
 

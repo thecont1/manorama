@@ -1,0 +1,29 @@
+{
+  "format": "vendo/overrides@3",
+  "tools": {
+    "host_create_gallery": {
+      "risk": "write"
+    },
+    "host_get_dropbox_file": {
+      "risk": "read"
+    },
+    "host_get_dropbox_thumbnail": {
+      "risk": "read"
+    },
+    "host_list_galleries": {
+      "risk": "read"
+    },
+    "host_refresh_gallery": {
+      "risk": "write"
+    },
+    "host_scan_dropbox_folder": {
+      "risk": "read"
+    },
+    "host_update_gallery": {
+      "risk": "write"
+    }
+  },
+  "remix": {
+    "ignoreSlots": []
+  }
+}
