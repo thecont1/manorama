@@ -76,9 +76,13 @@ test("anonymous admin request is refused and renders no surface", async ({ page,
 test("authenticated admin page shows the Ask Manu launcher and opens the panel", async ({ page }) => {
   await page.context().setExtraHTTPHeaders({ "Cf-Access-Jwt-Assertion": await devAssertion() });
   const response = await page.goto(`${BASE}/${OWNER}`);
-  if ((response?.status() ?? 0) !== 200) {
-    test.skip(true, "server did not accept the dev Access fixture (expected outside the fixture-configured dev server)");
+  // Only skip when the server is explicitly running without the dev Access
+  // fixture (e.g. production behind real Cloudflare Access). Without this
+  // flag, a non-200 response is an authentication regression, not a skip.
+  if (process.env.SKIP_ACCESS_FIXTURE_TESTS === "1") {
+    test.skip(true, "server running without dev Access fixture (SKIP_ACCESS_FIXTURE_TESTS=1)");
   }
+  expect(response?.status() ?? 0).toBe(200);
 
   const launcher = page.locator("button[data-vendo-launcher]");
   await expect(launcher).toBeVisible();

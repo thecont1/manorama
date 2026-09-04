@@ -82,11 +82,13 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
     if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
     try {
       const scan = await scanDropboxFolder(payload.url, envOf(c))
-      const existing = (await listGalleries(envOf(c))).find((item) => item.sourceUrl === scan.sourceUrl || item.slug === slugify(scan.title))
-      const baseSlug = existing?.slug || slugify(scan.title)
+      const galleries = await listGalleries(envOf(c))
+      const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
+      if (sourceUrlMatch) return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
+      const baseSlug = slugify(scan.title)
       let slug = baseSlug
       let suffix = 2
-      while (!existing && await listGalleries(envOf(c)).then((items) => items.some((item) => item.slug === slug))) {
+      while (galleries.some((item) => item.slug === slug)) {
         slug = `${baseSlug}-${suffix}`
         suffix += 1
       }
@@ -120,7 +122,9 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
     if (title === undefined && caption === undefined && !order && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
     try {
-      let gallery = nextSlug !== undefined ? await updateGallerySlug(c.req.param('slug'), nextSlug, envOf(c)) : order ? await updateGalleryOrder(c.req.param('slug'), order, envOf(c)) : await getGallery(c.req.param('slug'), envOf(c))
+      let gallery = nextSlug !== undefined ? await updateGallerySlug(c.req.param('slug'), nextSlug, envOf(c)) : await getGallery(c.req.param('slug'), envOf(c))
+      if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      if (order) gallery = await updateGalleryOrder(gallery.slug, order, envOf(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(gallery.slug, { title, caption }, envOf(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)

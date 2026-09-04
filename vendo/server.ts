@@ -58,6 +58,7 @@ export function createVendoAuth(env: VendoEnv = {}, verifier?: AccessJwtVerifier
   const sessionEnv: AccessEnv = {
     CF_ACCESS_TEAM_DOMAIN: env.CF_ACCESS_TEAM_DOMAIN ?? hostEnv.CF_ACCESS_TEAM_DOMAIN,
     CF_ACCESS_AUD: env.CF_ACCESS_AUD ?? hostEnv.CF_ACCESS_AUD,
+    CF_ACCESS_JWKS: env.CF_ACCESS_JWKS ?? hostEnv.CF_ACCESS_JWKS,
   };
   const session = (request: Request) => resolveManoramaSession(request, sessionEnv, verifier);
   return {
