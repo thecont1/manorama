@@ -1,27 +1,52 @@
 {
   "format": "vendo/policy@1",
-  "directions": [],
+  "directions": [
+    "Reads run automatically. Every write, rename, refresh, and delete shows its exact arguments and asks before running.",
+    "Never present an approval request as routine; deletions are irreversible and renames change public URLs.",
+    "Ungraded tools always ask \u2014 a tool nobody has graded needs a person."
+  ],
   "rules": [
+    {
+      "match": {
+        "venue": "mcp"
+      },
+      "action": "ask",
+      "note": "External MCP clients confirm every call"
+    },
+    {
+      "match": {
+        "venue": "automation"
+      },
+      "action": "ask",
+      "note": "Automations confirm every call"
+    },
     {
       "match": {
         "risk": "destructive"
       },
       "action": "ask",
-      "note": "Review irreversible actions"
+      "note": "Deletion is irreversible in Manorama; always ask"
     },
     {
       "match": {
-        "tool": "vendo_knowledge_*",
-        "venue": "mcp"
+        "risk": "ungraded"
       },
       "action": "ask",
-      "note": "Knowledge access from an MCP client"
+      "note": "A tool nobody has graded needs a person"
+    },
+    {
+      "match": {
+        "risk": "write"
+      },
+      "action": "ask",
+      "note": "Metadata writes, creates, and refreshes show arguments first"
     },
     {
       "match": {
         "risk": "read"
       },
-      "action": "run"
+      "action": "run",
+      "note": "Reads run for authenticated users"
     }
   ]
 }
