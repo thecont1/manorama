@@ -1,0 +1,729 @@
+{
+  "components": {
+    "responses": {
+      "BadRequest": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Malformed or invalid request"
+      },
+      "NotFound": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "The referenced gallery or image was not found"
+      },
+      "Unauthorized": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "No verified Cloudflare Access session"
+      },
+      "Unavailable": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "A backing store is temporarily unavailable"
+      },
+      "Unprocessable": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "The request was understood but the operation failed (bad Dropbox link, slug collision, ...)"
+      }
+    },
+    "schemas": {
+      "CreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Optional image filenames in the desired display order; unlisted images keep scan order after them",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "url": {
+            "description": "A public, download-enabled Dropbox folder URL to create the gallery from",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "DeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "Error": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "description": "Human-readable failure reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Gallery": {
+        "properties": {
+          "caption": {
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "ISO 8601 timestamp used for recency ordering",
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "imageCount": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            },
+            "type": "array"
+          },
+          "slug": {
+            "description": "Stable URL segment identifying the gallery",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "sourceUrl": {
+            "description": "Public Dropbox folder URL backing this gallery",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "caption",
+          "imageCount",
+          "images"
+        ],
+        "type": "object"
+      },
+      "GalleryList": {
+        "additionalProperties": false,
+        "properties": {
+          "galleries": {
+            "items": {
+              "$ref": "#/components/schemas/Gallery"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "galleries"
+        ],
+        "type": "object"
+      },
+      "GalleryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "gallery": {
+            "$ref": "#/components/schemas/Gallery"
+          }
+        },
+        "required": [
+          "gallery"
+        ],
+        "type": "object"
+      },
+      "GalleryScan": {
+        "properties": {
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/Image"
+            },
+            "type": "array"
+          },
+          "sourceUrl": {
+            "description": "Normalized public Dropbox folder URL",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceUrl",
+          "title",
+          "images"
+        ],
+        "type": "object"
+      },
+      "Image": {
+        "properties": {
+          "alt": {
+            "type": "string"
+          },
+          "c2pa": {
+            "description": "Whether the image carries Content Credentials",
+            "type": "boolean"
+          },
+          "caption": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "height": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "src": {
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/ImageVariant"
+            },
+            "type": "array"
+          },
+          "width": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "src",
+          "width",
+          "height",
+          "alt",
+          "c2pa",
+          "placeholder"
+        ],
+        "type": "object"
+      },
+      "ImageVariant": {
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "src": {
+            "description": "Same-origin URL serving this variant",
+            "type": "string"
+          },
+          "width": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "src",
+          "format"
+        ],
+        "type": "object"
+      },
+      "ScanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "A public, download-enabled Dropbox folder URL",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      },
+      "ScanResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "scan": {
+            "$ref": "#/components/schemas/GalleryScan"
+          }
+        },
+        "required": [
+          "scan"
+        ],
+        "type": "object"
+      },
+      "UpdateRequest": {
+        "additionalProperties": false,
+        "description": "The path slug identifies the gallery; a rename is requested through newSlug only. A body-level replacement slug is not part of the contract.",
+        "minProperties": 1,
+        "properties": {
+          "caption": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "newSlug": {
+            "description": "New URL slug for the gallery; changing it changes public URLs and bookmarks",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "order": {
+            "description": "New image display order (filenames)",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "title": {
+            "description": "New gallery title; cannot be empty when present",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "cloudflareAccess": {
+        "description": "A verified Cloudflare Access JWT, sent as the Cf-Access-Jwt-Assertion header or CF_Authorization cookie. The server verifies issuer, audience, signature, expiry, and the immutable sub claim before authorizing management operations.",
+        "in": "header",
+        "name": "Cf-Access-Jwt-Assertion",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "Gallery management and Dropbox image APIs for Manorama, the photography-first publishing application. Management operations require a verified Cloudflare Access session; the Dropbox image proxy is public because public gallery pages load images through it.",
+    "title": "Manorama Gallery Management API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/dropbox/file": {
+      "get": {
+        "description": "Fetch a full-resolution image from a Dropbox folder by source URL and filename.",
+        "operationId": "get_dropbox_file",
+        "parameters": [
+          {
+            "description": "The Dropbox folder source URL",
+            "in": "query",
+            "name": "sourceUrl",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The image filename",
+            "in": "query",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original image bytes, never recompressed"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [],
+        "summary": "Fetch a Dropbox original",
+        "tags": [
+          "dropbox"
+        ]
+      }
+    },
+    "/api/dropbox/thumbnail": {
+      "get": {
+        "description": "Fetch a thumbnail image from a Dropbox folder by source URL and filename.",
+        "operationId": "get_dropbox_thumbnail",
+        "parameters": [
+          {
+            "description": "The Dropbox folder source URL",
+            "in": "query",
+            "name": "sourceUrl",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The image filename",
+            "in": "query",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The thumbnail image bytes"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "security": [],
+        "summary": "Fetch a Dropbox thumbnail",
+        "tags": [
+          "dropbox"
+        ]
+      }
+    },
+    "/api/galleries": {
+      "get": {
+        "description": "List all photo galleries with titles, captions, dates, and image counts.",
+        "operationId": "list_galleries",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryList"
+                }
+              }
+            },
+            "description": "The gallery list, newest first"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "List galleries",
+        "tags": [
+          "galleries"
+        ]
+      },
+      "post": {
+        "description": "Scan a public Dropbox folder URL and create a gallery from its images, optionally in a given order.",
+        "operationId": "create_gallery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryResponse"
+                }
+              }
+            },
+            "description": "The created gallery"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Create a gallery from a Dropbox folder",
+        "tags": [
+          "galleries"
+        ]
+      }
+    },
+    "/api/galleries/scan": {
+      "post": {
+        "description": "Scan a public Dropbox folder URL to discover images for a new gallery. Returns the folder title and image metadata.",
+        "operationId": "scan_dropbox_folder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            },
+            "description": "The scan result"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Scan a Dropbox folder",
+        "tags": [
+          "galleries"
+        ]
+      }
+    },
+    "/api/galleries/{slug}": {
+      "delete": {
+        "description": "Delete a gallery and its Manorama references. This is irreversible; Dropbox files are never touched.",
+        "operationId": "delete_gallery",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
+              }
+            },
+            "description": "Deletion confirmation"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Delete a gallery",
+        "tags": [
+          "galleries"
+        ]
+      },
+      "parameters": [
+        {
+          "description": "Current gallery URL slug — the resource identity",
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "patch": {
+        "description": "Update a gallery's title, caption, image order, or URL slug (rename via newSlug).",
+        "operationId": "update_gallery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryResponse"
+                }
+              }
+            },
+            "description": "The updated gallery (under its post-rename slug when newSlug was applied)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Update a gallery",
+        "tags": [
+          "galleries"
+        ]
+      }
+    },
+    "/api/galleries/{slug}/refresh": {
+      "parameters": [
+        {
+          "description": "Gallery URL slug to re-scan",
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "description": "Re-scan a gallery's Dropbox source folder and update its images with any new or changed files.",
+        "operationId": "refresh_gallery",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryResponse"
+                }
+              }
+            },
+            "description": "The refreshed gallery"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Refresh a gallery from Dropbox",
+        "tags": [
+          "galleries"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "cloudflareAccess": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://manorama.xyz"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Gallery lifecycle operations",
+      "name": "galleries"
+    },
+    {
+      "description": "Public Dropbox image proxy",
+      "name": "dropbox"
+    }
+  ]
+}
