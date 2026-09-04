@@ -18,6 +18,18 @@ const {
 } = require('@vendoai/vendo/server')
 const { jwt } = require('@vendoai/vendo/auth/jwt')
 
+// Load the policy at module scope so the rules are bundled into the runtime
+// regardless of filesystem access — Vendo's default file loader uses
+// node:fs/promises, which is unavailable on Cloudflare Workers and silently
+// returns no rules, leaving destructive operations unguarded.
+const policyFile = require('../.vendo/policy.json')
+
+// Load the tool catalog at module scope so the declarations are bundled into
+// the runtime — Vendo's default reader uses node:fs, which is unavailable on
+// Cloudflare Workers and silently returns no tools, leaving the assistant
+// unable to call any host route (scan, create, update, delete, etc.).
+const toolsFile = require('../.vendo/tools.json')
+
 let vendo = null
 
 /**
@@ -47,7 +59,8 @@ function getVendo(env) {
 
     vendo = createVendo({
       auth: createVendoAuth(env),
-      guard: guard({ policy: {} }),
+      guard: guard({ policy: { rules: policyFile.rules, directions: policyFile.directions } }),
+      tools: toolsFile.tools,
       ...(cloud === undefined
         ? { store: createStore() }
         : {

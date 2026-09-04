@@ -13,8 +13,26 @@
  * (credential forwarding fails closed without it — vendo doctor checks).
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { readFileSync } from "node:fs";
 import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore, type HostAuthPreset } from "@vendoai/vendo/server";
 import { resolveManoramaSession, type AccessEnv, type AccessJwtVerifier } from "../app/lib/session";
+
+// Load the policy at module scope so the rules are bundled into the runtime
+// regardless of filesystem access — Vendo's default file loader uses
+// node:fs/promises, which is unavailable on Cloudflare Workers and silently
+// returns no rules, leaving destructive operations unguarded.
+const policyFile = JSON.parse(readFileSync(new URL("../.vendo/policy.json", import.meta.url), "utf8")) as {
+  rules?: import("@vendoai/guard").PolicyRule[];
+  directions?: string[];
+};
+
+// Load the tool catalog at module scope so the declarations are bundled into
+// the runtime — Vendo's default reader uses node:fs, which is unavailable on
+// Cloudflare Workers and silently returns no tools, leaving the assistant
+// unable to call any host route (scan, create, update, delete, etc.).
+const toolsFile = JSON.parse(readFileSync(new URL("../.vendo/tools.json", import.meta.url), "utf8")) as {
+  tools?: import("@vendoai/actions").ExtractedTool[];
+};
 
 export interface VendoEnv extends AccessEnv {
   VENDO_API_KEY?: string;
@@ -68,7 +86,8 @@ function getVendo(env: VendoEnv = {}) {
       // Verify Manorama's trusted bearer session. Anonymous, malformed, expired,
       // or incorrectly signed sessions resolve to null and Vendo refuses them.
       auth: createVendoAuth(env),
-      guard: guard({ policy: {} }), // .vendo/policy.json: destructive asks, reads run
+      guard: guard({ policy: { rules: policyFile.rules, directions: policyFile.directions } }),
+      tools: toolsFile.tools,
       // With a Vendo Cloud key the infrastructure seams wire the Cloud
       // adapters EXPLICITLY (composition decides; blocks never read the
       // environment). Without one, pass your own adapters here — models,
