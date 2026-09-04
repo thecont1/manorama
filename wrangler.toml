@@ -7,6 +7,11 @@ workers_dev = true
 [vars]
 PUBLIC_HOST = "manorama.xyz"
 OWNER_SLUG = "thecontrarian"
+# Production public origin — Vendo derives its OAuth/MCP resource URLs
+# and audience binding from this behind the reverse proxy.
+VENDO_BASE_URL = "https://manorama.xyz"
+# VENDO_API_KEY and Cloudflare Access verification keys are SECRETS:
+# `bunx wrangler secret put VENDO_API_KEY` — never in this file.
 
 [assets]
 directory = "./dist"
@@ -14,7 +19,9 @@ binding = "ASSETS"
 not_found_handling = "404-page"
 
 [observability]
-enabled = false
+enabled = true
+# Sample 100% initially; drop to 0.1 once the deployment is stable.
+head_sampling_rate = 1
 
 [[routes]]
 pattern = "manorama.xyz"

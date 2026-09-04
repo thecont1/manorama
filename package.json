@@ -11,8 +11,10 @@
     "preview": "bun --env-file=.env.local vite preview --host 0.0.0.0",
     "gallery": "node build-gallery.mjs ./images ./public/images italy-2018",
     "test": "playwright test",
-    "vendo:sync": "vendo sync --no-ai",
-    "vendo:check": "vendo sync --strict --no-ai && git diff --exit-code -- .vendo/tools.json",
+    "vendo:sync": "vendo sync --no-ai && bun scripts/gen-vendo-profile.ts",
+    "vendo:profile": "bun scripts/gen-vendo-profile.ts",
+    "vendo:check": "vendo sync --strict --no-ai && bun scripts/gen-vendo-profile.ts && git diff --exit-code -- .vendo/tools.json vendo/profile.generated.ts",
+    "types": "wrangler types",
     "deploy": "bun run gallery && bun run build && wrangler deploy"
   },
   "dependencies": {

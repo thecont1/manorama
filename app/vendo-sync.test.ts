@@ -79,8 +79,12 @@ describe('deterministic Vendo sync', () => {
 
   test('package.json exposes vendo:sync and vendo:check scripts', () => {
     const pkg = JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as { scripts: Record<string, string> }
-    expect(pkg.scripts['vendo:sync']).toBe('vendo sync --no-ai')
+    // sync regenerates BOTH the machine layer and the bundled profile module.
+    expect(pkg.scripts['vendo:sync']).toContain('vendo sync --no-ai')
+    expect(pkg.scripts['vendo:sync']).toContain('gen-vendo-profile')
     expect(pkg.scripts['vendo:check']).toContain('strict')
     expect(pkg.scripts['vendo:check']).toContain('--exit-code')
+    // Drift gate must cover the generated profile too.
+    expect(pkg.scripts['vendo:check']).toContain('profile.generated.ts')
   })
 })

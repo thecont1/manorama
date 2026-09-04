@@ -3,40 +3,32 @@
  *
  * Cloudflare Workers have no filesystem at request time, and Vendo's default
  * readers fail soft — a missing or unreadable file silently yields no rules,
- * no tools, no brief. This module imports each profile piece as a build-time
- * asset so the Worker bundle carries the profile verbatim, then asserts its
- * integrity loudly: a profile that arrives broken throws at import time
- * instead of composing an unguarded assistant.
+ * no tools, no brief. The profile pieces live in `profile.generated.ts` as
+ * pure data literals (flattened from `.vendo/` by scripts/gen-vendo-profile.ts
+ * after every `vendo sync`), so every bundler inlines them into the Worker.
+ * This module then asserts the profile's integrity loudly: a profile that
+ * arrives broken throws at import time instead of composing an unguarded
+ * assistant.
  */
-import { readFileSync } from "node:fs";
 import type { ExtractedTool, OverridesFile } from "@vendoai/actions";
 import type { PolicyFile, PolicyRule } from "@vendoai/guard";
 import type { VendoTheme } from "@vendoai/apps/contract";
 import type { CatalogFile } from "@vendoai/vendo/server";
-
-const read = (path: string): string => readFileSync(new URL(path, import.meta.url), "utf8");
-
-/** `.vendo/tools.json` — the machine layer `vendo sync` regenerates wholesale. */
-const toolsFile = JSON.parse(read("../.vendo/tools.json")) as {
-  tools?: ExtractedTool[];
-};
-/** `.vendo/overrides.json` — the only human-edited layer (risk grades, etc.). */
-const overridesFile = JSON.parse(read("../.vendo/overrides.json")) as OverridesFile;
-/** `.vendo/policy.json` — the authoritative guard policy document. */
-const policyFile = JSON.parse(read("../.vendo/policy.json")) as PolicyFile;
-/** `.vendo/theme.json` — the Manorama brand surface. */
-const themeFile = JSON.parse(read("../.vendo/theme.json")) as VendoTheme;
-/** `.vendo/catalog.json` — the named tool groups the console lists. */
-const catalogFile = JSON.parse(read("../.vendo/catalog.json")) as CatalogFile;
-/** `.vendo/brief.md` — the operator brief. */
-const brief = read("../.vendo/brief.md");
+import {
+  BRIEF,
+  CATALOG_FILE,
+  OVERRIDES_FILE,
+  POLICY_FILE,
+  THEME_FILE,
+  TOOLS_FILE,
+} from "./profile.generated";
 
 /**
  * Apply the human-authored overrides (risk grades, titles, semantics) on top
  * of the generated tool descriptors, so the composed registry sees ONE list.
  */
-const tools: ExtractedTool[] = (toolsFile.tools ?? []).map((tool) => {
-  const override = overridesFile.tools?.[tool.name];
+const tools: ExtractedTool[] = (TOOLS_FILE.tools ?? []).map((tool) => {
+  const override = OVERRIDES_FILE.tools?.[tool.name];
   return override === undefined ? tool : { ...tool, ...override };
 });
 
@@ -79,14 +71,14 @@ export function assertProfileIntegrity(profile: {
   }
 }
 
-assertProfileIntegrity({ tools, policy: policyFile });
+assertProfileIntegrity({ tools, policy: POLICY_FILE });
 
 /** The single compose-time profile object `createVendo({ profile })` consumes. */
 export const vendoProfile = {
   tools,
-  overrides: overridesFile,
-  theme: themeFile,
-  brief,
-  catalog: catalogFile,
-  policy: policyFile,
+  overrides: OVERRIDES_FILE,
+  theme: THEME_FILE,
+  brief: BRIEF,
+  catalog: CATALOG_FILE,
+  policy: POLICY_FILE,
 } as const;
