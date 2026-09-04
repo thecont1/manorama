@@ -19,6 +19,12 @@ jobs:
       - name: Unit tests
         run: bun test
 
+      - name: Sync Vendo knowledge (docs changed only)
+        if: hashFiles('docs/**') != ''
+        env:
+          VENDO_API_KEY: ${{ secrets.VENDO_API_KEY }}
+        run: bunx vendo knowledge sync
+
       - name: Generated Vendo tools are in sync with the OpenAPI contract
         run: bun run vendo:check
 

@@ -1,0 +1,11 @@
+{
+  "format": "vendo/knowledge@1",
+  "sources": [
+    {
+      "name": "manorama-ops",
+      "glob": "docs/**/*.md",
+      "kind": "docs",
+      "visibility": "internal"
+    }
+  ]
+}
