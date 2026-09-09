@@ -97,9 +97,20 @@ export const upsertUser = async (
       return rowToUser(updated as Record<string, unknown>)!
     }
     const ownerSlug = await deriveOwnerSlug(displayName, env)
-    await env.DB.prepare(
-      'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
-    ).bind(account.dropboxAccountId, ownerSlug, displayName, email ?? null).run()
+    try {
+      await env.DB.prepare(
+        'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
+      ).bind(account.dropboxAccountId, ownerSlug, displayName, email ?? null).run()
+    } catch (error) {
+      // A concurrent new-user sign-in may have claimed the same owner_slug
+      // between deriveOwnerSlug and the INSERT. Retry with a fresh slug
+      // once; a second failure is a real error.
+      if (!String(error).includes('UNIQUE')) throw error
+      const retrySlug = await deriveOwnerSlug(displayName, env)
+      await env.DB.prepare(
+        'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
+      ).bind(account.dropboxAccountId, retrySlug, displayName, email ?? null).run()
+    }
     const created = await env.DB
       .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
       .bind(account.dropboxAccountId)
@@ -169,9 +180,15 @@ export const updateOwnerSlug = async (
   if (taken && slug !== current.ownerSlug) throw new OwnerSlugError('That URL is already in use')
   if (slug === current.ownerSlug) return current
   if (d1Configured(env)) {
-    await env.DB.prepare(
-      `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
-    ).bind(slug, dropboxAccountId).run()
+    try {
+      await env.DB.prepare(
+        `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
+      ).bind(slug, dropboxAccountId).run()
+    } catch (error) {
+      // UNIQUE constraint failure on owner_slug — another user holds it.
+      if (String(error).includes('UNIQUE')) throw new OwnerSlugError('That URL is already in use')
+      throw error
+    }
   } else {
     ownerSlugIndex.delete(current.ownerSlug)
     current.ownerSlug = slug
