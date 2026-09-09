@@ -99,30 +99,44 @@ const main = async () => {
   }
 
   // The owner must exist: galleries reference the users table.
-  const users = await fetch(D1_QUERY_URL(accountId), {
+  const usersResponse = await fetch(D1_QUERY_URL(accountId), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql: 'SELECT owner_slug FROM users WHERE dropbox_account_id = ?', params: [ownerId] }),
-  }).then((r) => r.json() as Promise<{ success?: boolean; result?: { results?: { owner_slug?: string }[] } }>)
-  if (!users.success || !users.result?.results?.length) {
+  })
+  if (!usersResponse.ok) {
+    console.error(`D1 users query failed (${usersResponse.status})`)
+    process.exit(1)
+  }
+  const users = await usersResponse.json() as { success?: boolean; result?: { success?: boolean; results?: { owner_slug?: string }[] }[] }
+  if (!users.success || !users.result?.[0]?.success || !users.result?.[0]?.results?.length) {
     console.error(`no user exists yet for ${ownerId} — sign in once at the landing page, then re-run`)
     process.exit(1)
   }
-  const ownerSlug = users.result.results[0]!.owner_slug
+  const ownerSlug = users.result![0]!.results![0]!.owner_slug
   console.log(`migrating galleries to ${ownerSlug} (${ownerId})`)
 
-  // 1. The Airtable galleries.
+  // 1. The Airtable galleries — follow the offset to fetch every page.
   const airtableToken = required('AIRTABLE_PAT')
   const baseId = required('AIRTABLE_BASE_ID')
   const table = encodeURIComponent(process.env.AIRTABLE_GALLERIES_TABLE || 'Galleries')
-  const airtableResponse = await fetch(`https://api.airtable.com/v0/${baseId}/${table}?pageSize=100`, {
-    headers: { Authorization: `Bearer ${airtableToken}` },
-  })
-  if (!airtableResponse.ok) throw new Error(`Airtable list failed (${airtableResponse.status})`)
-  const airtable = await airtableResponse.json() as { records: AirtableRecord[] }
-  const airtableGalleries = airtable.records
+  const airtableRecords: AirtableRecord[] = []
+  let offset: string | undefined
+  do {
+    const airtableUrl = new URL(`https://api.airtable.com/v0/${baseId}/${table}`)
+    airtableUrl.searchParams.set('pageSize', '100')
+    if (offset) airtableUrl.searchParams.set('offset', offset)
+    const airtableResponse = await fetch(airtableUrl, {
+      headers: { Authorization: `Bearer ${airtableToken}` },
+    })
+    if (!airtableResponse.ok) throw new Error(`Airtable list failed (${airtableResponse.status})`)
+    const page = await airtableResponse.json() as { records: AirtableRecord[]; offset?: string }
+    airtableRecords.push(...page.records)
+    offset = page.offset
+  } while (offset)
+  const airtableGalleries = airtableRecords
     .map((record) => recordFromFields(record.fields))
-    .filter((gallery): gallery is GalleryRecord => Boolean(gallery?.sourceUrl) && (gallery?.images?.length ?? 0) > 0)
+    .filter((gallery): gallery is GalleryRecord => (gallery?.images?.length ?? 0) > 0)
 
   // 2. The bundled italy-2018 fixture, when Airtable does not carry it.
   const bundled: GalleryRecord = {
