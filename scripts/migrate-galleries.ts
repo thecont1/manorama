@@ -105,7 +105,7 @@ const main = async () => {
     body: JSON.stringify({ sql: 'SELECT owner_slug FROM users WHERE dropbox_account_id = ?', params: [ownerId] }),
   }).then((r) => r.json() as Promise<{ success?: boolean; result?: { results?: { owner_slug?: string }[] } }>)
   if (!users.success || !users.result?.results?.length) {
-    console.error(`no user exists yet for ${ownerId} — sign in once at /login, then re-run`)
+    console.error(`no user exists yet for ${ownerId} — sign in once at the landing page, then re-run`)
     process.exit(1)
   }
   const ownerSlug = users.result.results[0]!.owner_slug

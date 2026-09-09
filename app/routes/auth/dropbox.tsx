@@ -14,6 +14,6 @@ export default createRoute((c) => {
     })
     return c.redirect(dropboxAuthorizeUrl(callbackUrl(c.req.raw), state, (c.env ?? {}) as DropboxOauthEnv))
   } catch {
-    return c.redirect('/login?error=1')
+    return c.redirect('/?error=1')
   }
 })

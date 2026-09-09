@@ -11,12 +11,12 @@ export default createRoute(async (c) => {
   const oauthError = url.searchParams.get('error')
   const expectedState = getCookie(c, OAUTH_STATE_COOKIE)
   if (oauthError || !code || !state || !expectedState || state !== expectedState) {
-    return c.redirect('/login?error=1')
+    return c.redirect('/?error=1')
   }
   try {
     deleteCookie(c, OAUTH_STATE_COOKIE, { path: '/' })
     const secret = accessEnvOf(c).HOST_API_JWT_SECRET
-    if (!secret) return c.redirect('/login?error=1')
+    if (!secret) return c.redirect('/?error=1')
     const account = await fetchDropboxAccount(code, callbackUrl(c.req.raw), (c.env ?? {}) as Parameters<typeof fetchDropboxAccount>[2])
     const user = await upsertUser(account, c.env as Parameters<typeof upsertUser>[1])
     const token = await createSessionToken(user.dropboxAccountId, secret)
@@ -29,6 +29,6 @@ export default createRoute(async (c) => {
     })
     return c.redirect(`/${user.ownerSlug}`)
   } catch {
-    return c.redirect('/login?error=1')
+    return c.redirect('/?error=1')
   }
 })

@@ -22,8 +22,9 @@ Dropbox account claims.
 
 ## The sign-in flow
 
-1. `GET /login` — one quiet "Continue with Dropbox" button. An existing
-   session skips straight to the dashboard.
+1. `GET /` — the landing page carries the one quiet "Continue with
+   Dropbox" button and doubles as the sign-in door: an existing session
+   skips straight to the dashboard.
 2. `GET /auth/dropbox` — sets a short-lived CSRF state cookie and
    redirects to Dropbox's OAuth2 authorize endpoint. The redirect URI is
    derived from the request origin (register both
@@ -43,7 +44,7 @@ token carries only the Dropbox account ID; the owner slug, name, and
 tier are loaded from D1 on every request, so profile changes apply
 immediately. Missing secret, missing cookie, invalid/expired token, or
 a deleted account all fail closed to `null` → `401` JSON for API
-routes, a `/login` redirect for the dashboard.
+routes, a `/` redirect for the dashboard.
 
 ## Storage (D1)
 
@@ -68,7 +69,7 @@ via a per-owner count, returning a polite `403`.
 ## Intentionally public surfaces
 
 - Public gallery pages `/<owner_slug>/<slug>`
-- `/login` and the OAuth redirect endpoints
+- `/` and the OAuth redirect endpoints
 - `/api/dropbox/thumbnail` and `/api/dropbox/file` (public gallery pages
   load Dropbox-sourced images through this proxy; the underlying folders
   are public share links)

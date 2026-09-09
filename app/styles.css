@@ -483,24 +483,9 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   letter-spacing: 0;
 }
 
-/* Sign-in: the one door into manorama. A single, quiet Dropbox button. */
-.login-page {
-  min-height: 100svh;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  padding: 32px;
-  background: #111312;
-  color: #f3f0e8;
-}
-.login-brand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: 720px;
-  text-align: center;
-}
-.login-dropbox {
+/* Sign-in: the one door into manorama, on the landing page. A single,
+   quiet Dropbox button. */
+.landing-signin {
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -513,13 +498,13 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   text-decoration: none;
   transition: border-color 160ms ease, color 160ms ease;
 }
-.login-dropbox:hover, .login-dropbox:focus-visible {
+.landing-signin:hover, .landing-signin:focus-visible {
   border-color: rgba(243, 240, 232, .78);
   color: #fff;
   outline: none;
 }
-.login-dropbox svg { width: 17px; height: 17px; }
-.login-note {
+.landing-signin svg { width: 17px; height: 17px; }
+.landing-note {
   margin: 18px 0 0;
   color: rgba(243, 240, 232, .46);
   font-size: 12px;

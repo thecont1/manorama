@@ -7,6 +7,7 @@ import type { HonoSessionEnv } from './lib/dropbox-session'
 import renderer from './routes/_renderer'
 import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
+import indexPage from './routes/index'
 import { resetUserStore } from './lib/user-repository'
 import { resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
@@ -125,10 +126,10 @@ describe('owner dashboard authentication', () => {
     expect(response.status).toBe(404)
   })
 
-  test('an anonymous request is redirected to the login page', async () => {
+  test('an anonymous request is redirected to the landing page', async () => {
     const response = await page().request('/test-owner', undefined, env)
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('/login')
+    expect(response.headers.get('location')).toBe('/')
   })
 
   test('a valid owner session renders the dashboard with the Vendo surface', async () => {
@@ -155,7 +156,40 @@ describe('owner dashboard authentication', () => {
     mountRoute(app, '/:owner', ownerPage)
     const response = await app.request('/test-owner', { headers: { Cookie: 'manorama_session=garbage' } }, env)
     expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('/login')
+    expect(response.headers.get('location')).toBe('/')
+  })
+})
+
+describe('the landing page is the sign-in door', () => {
+  const page = () => {
+    const app = new Hono()
+    app.use(honoxContext)
+    app.use(renderer)
+    mountRoute(app, '/', indexPage)
+    return app
+  }
+
+  test('anonymous visitors get the landing page with the Dropbox button', async () => {
+    const response = await page().request('/', undefined, env)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    const html = await response.text()
+    expect(html).toContain('Continue with Dropbox')
+    expect(html).toContain('href="/auth/dropbox"')
+  })
+
+  test('a failed sign-in shows the quiet retry note', async () => {
+    const response = await page().request('/?error=1', undefined, env)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('Sign-in didn')
+    expect(html).toContain('try again')
+  })
+
+  test('a signed-in editor is redirected to their dashboard', async () => {
+    const response = await page().request('/', authed(), env)
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/test-owner')
   })
 })
 

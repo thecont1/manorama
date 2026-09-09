@@ -22,7 +22,7 @@ export default createRoute(async (c) => {
   // this URL. Anyone else — anonymous or a different owner — is turned
   // away before any gallery data is read.
   const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
-  if (!session) return c.redirect('/login')
+  if (!session) return c.redirect('/')
   if (session.id !== `dropbox:${user.dropboxAccountId}`) return c.notFound()
 
   const galleries = await listGalleries(user.dropboxAccountId, c.env as GalleryEnv)
