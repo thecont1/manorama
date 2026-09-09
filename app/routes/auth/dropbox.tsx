@@ -1,6 +1,7 @@
 import { createRoute } from 'honox/factory'
 import { setCookie } from 'hono/cookie'
 import { callbackUrl, dropboxAuthorizeUrl, newState, OAUTH_STATE_COOKIE, type DropboxOauthEnv } from '../../lib/dropbox-oauth'
+import { accessEnvOf } from '../../lib/dropbox-session'
 
 export default createRoute((c) => {
   try {
@@ -12,7 +13,7 @@ export default createRoute((c) => {
       path: '/',
       maxAge: 600,
     })
-    return c.redirect(dropboxAuthorizeUrl(callbackUrl(c.req.raw), state, (c.env ?? {}) as DropboxOauthEnv))
+    return c.redirect(dropboxAuthorizeUrl(callbackUrl(c.req.raw), state, accessEnvOf(c) as DropboxOauthEnv))
   } catch {
     return c.redirect('/?error=1')
   }

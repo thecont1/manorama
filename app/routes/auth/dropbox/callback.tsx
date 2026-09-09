@@ -17,8 +17,8 @@ export default createRoute(async (c) => {
     deleteCookie(c, OAUTH_STATE_COOKIE, { path: '/' })
     const secret = accessEnvOf(c).HOST_API_JWT_SECRET
     if (!secret) return c.redirect('/?error=1')
-    const account = await fetchDropboxAccount(code, callbackUrl(c.req.raw), (c.env ?? {}) as Parameters<typeof fetchDropboxAccount>[2])
-    const user = await upsertUser(account, c.env as Parameters<typeof upsertUser>[1])
+    const account = await fetchDropboxAccount(code, callbackUrl(c.req.raw), accessEnvOf(c) as Parameters<typeof fetchDropboxAccount>[2])
+    const user = await upsertUser(account, accessEnvOf(c) as Parameters<typeof upsertUser>[1])
     const token = await createSessionToken(user.dropboxAccountId, secret)
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
