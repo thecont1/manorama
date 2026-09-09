@@ -399,7 +399,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .landing-brand-mark {
   width: clamp(280px, 36vw, 460px);
   height: auto;
-  margin-bottom: clamp(24px, 4vw, 42px);
+  margin-bottom: clamp(32px, 5vw, 56px);
 }
 .landing-brand-title {
   margin: 0;
@@ -411,7 +411,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   text-transform: lowercase;
 }
 .landing-brand-intro {
-  margin: 22px 0 0;
+  margin: 10px 0 0;
   font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif;
   font-size: 16px;
   font-weight: 300;
@@ -489,7 +489,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  margin-top: clamp(28px, 5vw, 48px);
+  margin-top: clamp(64px, 10vw, 112px);
   padding: 13px 26px;
   border: 1px solid rgba(243, 240, 232, .22);
   color: rgba(243, 240, 232, .82);
