@@ -9,6 +9,10 @@ import { getUserByDropboxId, type UserRepositoryEnv } from './user-repository'
  * everything user-visible (owner slug, tier) is loaded fresh from the
  * user repository on every request, so a slug or tier change applies
  * immediately without re-issuing cookies.
+ *
+ * The signing secret must be at least 32 bytes in UTF-8 — generate it
+ * with a CSPRNG (e.g. `openssl rand -hex 32`). Shorter values are rejected
+ * to prevent weak-key JWT signing.
  */
 
 export const SESSION_COOKIE = 'manorama_session'
@@ -36,7 +40,19 @@ export type HonoSessionEnv = {
   Bindings: SessionEnv
 }
 
-const sessionKey = (secret: string) => new TextEncoder().encode(secret)
+const MIN_SECRET_BYTES = 32
+
+/** Encodes the signing secret, rejecting values whose UTF-8 encoding is
+ *  shorter than 32 bytes. Both signing and verification use this gate so
+ *  a weak secret fails consistently rather than silently. */
+const sessionKey = (secret: string) => {
+  const trimmed = secret.trim()
+  const bytes = new TextEncoder().encode(trimmed)
+  if (bytes.length < MIN_SECRET_BYTES) {
+    throw new Error(`HOST_API_JWT_SECRET must be at least ${MIN_SECRET_BYTES} bytes`)
+  }
+  return bytes
+}
 
 /** Signs a session token for a Dropbox account ID. */
 export const createSessionToken = (dropboxAccountId: string, secret: string) =>

@@ -50,7 +50,12 @@ export const dropboxAuthorizeUrl = (redirectUri: string, state: string, env: Dro
 
 /** Exchanges the authorization code for the user's Dropbox account
  * (short-lived access token + account details). We keep no Dropbox
- * tokens — identity only. */
+ * tokens — identity only. Both Dropbox requests share a bounded timeout
+ * so a hung connection cannot stall sign-in indefinitely. */
+const DROPBOX_REQUEST_TIMEOUT_MS = 10_000
+
+const withTimeout = () => AbortSignal.timeout(DROPBOX_REQUEST_TIMEOUT_MS)
+
 export const fetchDropboxAccount = async (
   code: string,
   redirectUri: string,
@@ -67,6 +72,7 @@ export const fetchDropboxAccount = async (
       client_secret: env.DROPBOX_APP_SECRET!,
       redirect_uri: redirectUri,
     }),
+    signal: withTimeout(),
   })
   if (!tokenResponse.ok) throw new Error('Dropbox sign-in could not be completed')
   const token = await tokenResponse.json() as { access_token?: string }
@@ -75,6 +81,7 @@ export const fetchDropboxAccount = async (
   const accountResponse = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token.access_token}` },
+    signal: withTimeout(),
   })
   if (!accountResponse.ok) throw new Error('Dropbox sign-in could not be completed')
   const account = await accountResponse.json() as {

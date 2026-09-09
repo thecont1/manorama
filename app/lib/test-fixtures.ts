@@ -7,7 +7,8 @@ import { upsertUser, type UserRecord } from './user-repository'
  * the same verification path production uses, minus any network.
  */
 
-export const TEST_SESSION_SECRET = 'manorama-test-session-secret'
+/** Must be at least 32 bytes to satisfy sessionKey's minimum length. */
+export const TEST_SESSION_SECRET = 'manorama-test-session-secret-min32'
 
 export const TEST_OWNER = {
   dropboxAccountId: 'dbid:AAATESTowner1',

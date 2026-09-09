@@ -29,7 +29,7 @@ describe('session token issuance and resolution', () => {
 
   test('a token signed by a different secret resolves to null', async () => {
     await seedTestUser()
-    const token = await createSessionToken(TEST_OWNER.dropboxAccountId, 'a-different-secret')
+    const token = await createSessionToken(TEST_OWNER.dropboxAccountId, 'a-different-secret-that-is-long-enough')
     expect(await resolveManoramaSession(requestWith(`${SESSION_COOKIE}=${token}`), { HOST_API_JWT_SECRET: TEST_SESSION_SECRET })).toBeNull()
   })
 

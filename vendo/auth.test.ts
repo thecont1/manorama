@@ -14,7 +14,7 @@ beforeAll(async () => {
   resetUserStore()
   await seedTestUser()
   cookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)}`
-  forgedCookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, 'a-different-secret')}`
+  forgedCookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, 'a-different-secret-that-is-long-enough')}`
 })
 
 const request = (headers?: Record<string, string>) =>
