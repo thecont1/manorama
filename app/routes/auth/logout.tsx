@@ -6,8 +6,6 @@ const signOut = (c: Parameters<typeof deleteCookie>[0]) => {
   return c.redirect('/')
 }
 
-// honox registers a default export as GET only, and method exports as
-// handler arrays; the dashboard's sign-out form posts, so both verbs
-// point at the same handler.
-export const GET = [signOut]
+// The dashboard's sign-out form posts here; method exports are handler
+// arrays in honox.
 export const POST = [signOut]
