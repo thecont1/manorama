@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { fetchDropboxFile, fetchDropboxThumbnail, scanDropboxFolder } from './lib/dropbox-public'
-import { createGallery, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug } from './lib/gallery-repository'
-import { requireSession, type AccessJwtVerifier } from './lib/session'
+import { createGallery, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
+import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
+import { OwnerSlugError, updateOwnerSlug } from './lib/user-repository'
 
 type RequestBody = { url?: string; order?: string[] }
 
@@ -16,11 +17,10 @@ export type RuntimeEnv = {
   VENDO_BASE_URL?: string
   VENDO_SERVICE_KEY?: string
   HOST_API_JWT_SECRET?: string
-  CF_ACCESS_TEAM_DOMAIN?: string
-  CF_ACCESS_AUD?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
+const dbEnv = (c: { env: unknown }) => c.env as GalleryEnv
 
 const slugify = (value: string) => value
   .normalize('NFKD')
@@ -30,6 +30,10 @@ const slugify = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
 
+/** Everyone is on the free tier today; the check is one seam. */
+const FREE_GALLERY_LIMIT = 3
+const limitMessage = `You're using all ${FREE_GALLERY_LIMIT} of your galleries. Remove one to add another — or write to us about keeping more.`
+
 const streamResponse = (response: Response, cacheControl: string) => {
   const headers = new Headers()
   headers.set('Content-Type', response.headers.get('Content-Type') || 'application/octet-stream')
@@ -38,28 +42,25 @@ const streamResponse = (response: Response, cacheControl: string) => {
   return new Response(response.body, { status: 200, headers })
 }
 
-export type ManoramaApiOptions = {
-  /** Unit tests inject a local JOSE verifier; production verifies against
-   *  the Access team JWKS. */
-  sessionVerifier?: AccessJwtVerifier
-}
-
 /**
- * The gallery management API as one route group. Every /api/galleries
- * operation is gated by the Cloudflare Access session at the group boundary;
- * the Dropbox image proxy stays public because public gallery pages load
- * their images through it.
+ * The gallery management API as one route group. Every /api/galleries and
+ * /api/account operation is gated by the Dropbox session at the group
+ * boundary; each handler scopes its reads and writes to the signed-in
+ * owner. The Dropbox image proxy stays public because public gallery
+ * pages load their images through it.
  */
-export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
-  const api = new Hono()
-  const sessionGate = requireSession(options.sessionVerifier)
+export const createManoramaApi = () => {
+  const api = new Hono<HonoSessionEnv>()
 
-  api.use('/api/galleries', sessionGate)
-  api.use('/api/galleries/*', sessionGate)
+  api.use('/api/galleries', requireSession())
+  api.use('/api/galleries/*', requireSession())
+  api.use('/api/account', requireSession())
+  api.use('/api/account/*', requireSession())
 
   api.get('/api/galleries', async (c) => {
+    const session = c.get('manoramaSession')
     try {
-      const galleries = await listGalleries(envOf(c))
+      const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
       return c.json({ galleries: galleries.map(toSummary) })
     } catch {
       return c.json({ error: 'The gallery list is temporarily unavailable' }, 503)
@@ -78,11 +79,15 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
   })
 
   api.post('/api/galleries', async (c) => {
+    const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
     try {
+      if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= FREE_GALLERY_LIMIT) {
+        return c.json({ error: limitMessage }, 403)
+      }
       const scan = await scanDropboxFolder(payload.url, envOf(c))
-      const galleries = await listGalleries(envOf(c))
+      const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       if (sourceUrlMatch) return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
       const baseSlug = slugify(scan.title)
@@ -95,7 +100,7 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
       const orderedImages = payload.order?.length
         ? payload.order.flatMap((filename) => scan.images.filter((image) => image.filename === filename)).concat(scan.images.filter((image) => !payload.order?.includes(image.filename)))
         : scan.images
-      const gallery = await createGallery({
+      const gallery = await createGallery(session.dropboxAccountId, {
         slug,
         title: scan.title,
         caption: '',
@@ -103,7 +108,7 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
         sourceUrl: scan.sourceUrl,
         createdAt: new Date().toISOString(),
         images: orderedImages,
-      }, envOf(c))
+      }, dbEnv(c))
       return c.json({ gallery: toSummary(gallery) }, 201)
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be added' }, 422)
@@ -111,6 +116,7 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
   })
 
   api.patch('/api/galleries/:slug', async (c) => {
+    const session = c.get('manoramaSession')
     // Body `slug` is intentionally not read: the URL slug is the resource
     // identity; a rename arrives only as `newSlug`.
     const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; newSlug?: string } => ({}))
@@ -122,11 +128,11 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
     if (title === undefined && caption === undefined && !order && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
     try {
-      let gallery = nextSlug !== undefined ? await updateGallerySlug(c.req.param('slug'), nextSlug, envOf(c)) : await getGallery(c.req.param('slug'), envOf(c))
+      let gallery = nextSlug !== undefined ? await updateGallerySlug(session.dropboxAccountId, c.req.param('slug'), nextSlug, dbEnv(c)) : await getGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-      if (order) gallery = await updateGalleryOrder(gallery.slug, order, envOf(c))
+      if (order) gallery = await updateGalleryOrder(session.dropboxAccountId, gallery.slug, order, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-      if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(gallery.slug, { title, caption }, envOf(c))
+      if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(session.dropboxAccountId, gallery.slug, { title, caption }, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(gallery) })
     } catch (error) {
@@ -135,8 +141,9 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
   })
 
   api.delete('/api/galleries/:slug', async (c) => {
+    const session = c.get('manoramaSession')
     try {
-      const deleted = await deleteGallery(c.req.param('slug'), envOf(c))
+      const deleted = await deleteGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
       if (!deleted) return c.json({ error: 'That gallery cannot be deleted' }, 404)
       return c.json({ ok: true })
     } catch {
@@ -145,17 +152,33 @@ export const createManoramaApi = (options: ManoramaApiOptions = {}) => {
   })
 
   api.post('/api/galleries/:slug/refresh', async (c) => {
+    const session = c.get('manoramaSession')
     try {
-      const gallery = await getGallery(c.req.param('slug'), envOf(c))
+      const gallery = await getGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (!gallery.sourceUrl) return c.json({ error: 'Only Dropbox-sourced galleries can be refreshed' }, 400)
       const scan = await scanDropboxFolder(gallery.sourceUrl, envOf(c))
       const byFilename = new Map(gallery.images.map((image) => [image.filename, image]))
       const refreshed = scan.images.map((image) => byFilename.get(image.filename) ?? image)
-      const updated = await createGallery({ ...gallery, images: refreshed }, envOf(c))
+      const updated = await createGallery(session.dropboxAccountId, { ...gallery, images: refreshed }, dbEnv(c))
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be refreshed' }, 422)
+    }
+  })
+
+  /** Changes the signed-in owner's URL segment. Galleries follow the
+   * account, so every public gallery address updates with it. */
+  api.patch('/api/account', async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ ownerSlug?: string }>().catch((): { ownerSlug?: string } => ({}))
+    if (typeof payload.ownerSlug !== 'string') return c.json({ error: 'Provide a new URL' }, 400)
+    try {
+      const user = await updateOwnerSlug(session.dropboxAccountId, payload.ownerSlug, dbEnv(c))
+      return c.json({ ownerSlug: user.ownerSlug })
+    } catch (error) {
+      if (error instanceof OwnerSlugError) return c.json({ error: error.message }, 422)
+      return c.json({ error: 'That URL could not be changed' }, 503)
     }
   })
 

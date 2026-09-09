@@ -1,15 +1,17 @@
 import { createApp } from 'honox/server'
-import { createManoramaApi, type RuntimeEnv } from './api'
-import { ownerAdminGate } from './lib/admin-gate'
+import { createManoramaApi } from './api'
 import { handleVendoRequest } from '../vendo/server'
+import type { HonoSessionEnv, SessionEnv } from './lib/dropbox-session'
+import type { RuntimeEnv } from './api'
+
+type AppEnv = HonoSessionEnv & { Bindings: SessionEnv & RuntimeEnv }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
 
-const init = (app: ReturnType<typeof createApp>) => {
-  // Management APIs behind the Cloudflare Access session, at one boundary.
+const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
+  // Management APIs behind the Dropbox session, at one boundary. The
+  // owner dashboard (/[owner]) gates itself inside the route handler.
   app.route('/', createManoramaApi())
-  // The owner administration page behind the same session gate.
-  app.use('/:owner', ownerAdminGate())
 
   // Route Vendo API requests to the EDGE ESM handler — the same module in
   // the Vite dev server and in the Cloudflare Workers bundle. The old

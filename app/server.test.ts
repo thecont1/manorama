@@ -2,13 +2,14 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import type { Context, Handler, Next } from 'hono'
 import { contextStorage } from 'honox/server/context-storage'
-import { generateKeyPair, SignJWT, jwtVerify } from 'jose'
-import type { AccessEnv, AccessJwtVerifier } from './lib/session'
 import { createManoramaApi } from './api'
-import { ownerAdminGate } from './lib/admin-gate'
+import type { HonoSessionEnv } from './lib/dropbox-session'
 import renderer from './routes/_renderer'
 import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
+import { resetUserStore } from './lib/user-repository'
+import { resetGalleryStore } from './lib/gallery-repository'
+import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 
 /** honox's createApp runs every request inside this context store; route
  *  modules (HasIslands) rely on it. Replicated here for plain-Hono tests. */
@@ -16,34 +17,20 @@ const honoxContext = async (c: Context, next: Next) => {
   await contextStorage.run(c, () => next())
 }
 
-const accessEnv: AccessEnv = {
-  CF_ACCESS_TEAM_DOMAIN: 'manorama-team',
-  CF_ACCESS_AUD: 'manorama-test-audience',
-}
-const env = { OWNER_SLUG: 'thecontrarian', ...accessEnv }
-const issuer = `https://${accessEnv.CF_ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`
+const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
 
-let verifier: AccessJwtVerifier
-let assertion: string
+let cookie: string
 
 beforeAll(async () => {
-  const { publicKey, privateKey } = await generateKeyPair('RS256')
-  verifier = (token, checks) => jwtVerify(token, publicKey, {
-    issuer: checks.issuer,
-    audience: checks.audience,
-  }).then(({ payload }) => payload as { sub?: unknown; email?: unknown })
-  assertion = await new SignJWT({ sub: 'owner-1', email: 'mahesh@manorama.xyz' })
-    .setProtectedHeader({ alg: 'RS256' })
-    .setIssuer(issuer)
-    .setAudience(accessEnv.CF_ACCESS_AUD!)
-    .setIssuedAt()
-    .setExpirationTime('2m')
-    .sign(privateKey)
+  resetUserStore()
+  resetGalleryStore()
+  await seedTestUser()
+  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
 })
 
 const authed = (init: RequestInit = {}): RequestInit => ({
   ...init,
-  headers: { ...(init.headers ?? {}), 'Cf-Access-Jwt-Assertion': assertion },
+  headers: { ...(init.headers ?? {}), Cookie: cookie },
 })
 
 /** Mounts a honox route module's default export (a handler or handler array,
@@ -58,8 +45,8 @@ const mountRoute = (app: Hono, path: string, route: unknown) => {
 }
 
 describe('gallery management API authentication', () => {
-  const api = () => createManoramaApi({ sessionVerifier: verifier })
-  const request = (app: Hono, path: string, init: RequestInit = {}) => app.request(path, init, env)
+  const api = () => createManoramaApi()
+  const request = (app: Hono<HonoSessionEnv>, path: string, init: RequestInit = {}) => app.request(path, init, env)
 
   const managementEndpoints: readonly (readonly [method: string, path: string, init?: RequestInit])[] = [
     ['GET', '/api/galleries'],
@@ -68,6 +55,7 @@ describe('gallery management API authentication', () => {
     ['PATCH', '/api/galleries/italy-2018', { method: 'PATCH', body: '{}' }],
     ['DELETE', '/api/galleries/italy-2018', { method: 'DELETE' }],
     ['POST', '/api/galleries/italy-2018/refresh', { method: 'POST' }],
+    ['PATCH', '/api/account', { method: 'PATCH', body: '{}' }],
   ]
 
   for (const [method, path, init] of managementEndpoints) {
@@ -81,31 +69,33 @@ describe('gallery management API authentication', () => {
     test(`an invalid session ${method} ${path} returns 401`, async () => {
       const response = await request(api(), path, {
         ...init,
-        headers: { 'Cf-Access-Jwt-Assertion': 'not-a-jwt' },
+        headers: { Cookie: 'manorama_session=not-a-jwt' },
       })
       expect(response.status).toBe(401)
     })
   }
 
-  test('a valid owner session reaches the gallery list handler', async () => {
+  test('a valid session reaches the gallery list handler', async () => {
     const response = await request(api(), '/api/galleries', authed())
     expect(response.status).toBe(200)
     const payload = await response.json() as { galleries?: { slug: string }[] }
+    // The bundled italy-2018 fixture resolves for every owner in the
+    // in-memory fallback.
     expect(payload.galleries?.some((gallery) => gallery.slug === 'italy-2018')).toBe(true)
   })
 
-  test('a valid owner session reaches the scan validation handler', async () => {
+  test('a valid session reaches the scan validation handler', async () => {
     const response = await request(api(), '/api/galleries/scan', authed({ method: 'POST', body: '{}' }))
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder URL' })
   })
 
-  test('a valid owner session reaches the update validation handler', async () => {
+  test('a valid session reaches the update validation handler', async () => {
     const response = await request(api(), '/api/galleries/italy-2018', authed({ method: 'PATCH', body: '{}' }))
     expect(response.status).toBe(400)
   })
 
-  test('a valid owner session reaches the delete handler for a missing gallery', async () => {
+  test('a valid session reaches the delete handler for a missing gallery', async () => {
     const response = await request(api(), '/api/galleries/never-created', authed({ method: 'DELETE' }))
     expect(response.status).toBe(404)
   })
@@ -121,45 +111,51 @@ describe('gallery management API authentication', () => {
   })
 })
 
-describe('owner admin page authentication', () => {
+describe('owner dashboard authentication', () => {
   const page = () => {
     const app = new Hono()
     app.use(honoxContext)
-    app.use('/:owner', ownerAdminGate(verifier))
     app.use(renderer)
     mountRoute(app, '/:owner', ownerPage)
     return app
   }
 
-  test('anonymous request does not render the admin application', async () => {
-    const response = await page().request('/thecontrarian', undefined, env)
-    expect(response.status).toBe(401)
-    expect(response.headers.get('content-type')).toContain('application/json')
-    expect(await response.json()).toEqual({ error: 'Authentication required' })
+  test('an unknown owner slug is a 404, no session required', async () => {
+    const response = await page().request('/nobody-here', undefined, env)
+    expect(response.status).toBe(404)
   })
 
-  test('a valid owner session renders the admin application with the Vendo surface', async () => {
-    const response = await page().request('/thecontrarian', authed(), env)
+  test('an anonymous request is redirected to the login page', async () => {
+    const response = await page().request('/test-owner', undefined, env)
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/login')
+  })
+
+  test('a valid owner session renders the dashboard with the Vendo surface', async () => {
+    const response = await page().request('/test-owner', authed(), env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('Add from Dropbox')
+    expect(html).toContain('Sign out')
     expect(html).toContain('id="vendo-root"')
     expect(html.indexOf('/app/vendo-client.tsx')).toBeGreaterThan(html.indexOf('id="vendo-root"'))
   })
 
-  test('a non-owner single-segment path is not locked by the admin gate', async () => {
-    const response = await page().request('/some-other-page', undefined, env)
+  test('a signed-in owner cannot open another owner\'s dashboard', async () => {
+    await seedTestUser({ dropboxAccountId: 'dbid:AAATOTHERuser', displayName: 'Other Owner' })
+    const response = await page().request('/other-owner', authed(), env)
     expect(response.status).toBe(404)
   })
 
-  test('the page itself fails closed when no session was resolved', async () => {
+  test('the page itself fails closed when no session can be verified', async () => {
     const app = new Hono()
     app.use(honoxContext)
     app.use(renderer)
     mountRoute(app, '/:owner', ownerPage)
-    const response = await app.request('/thecontrarian', undefined, env)
-    expect(response.status).toBe(401)
+    const response = await app.request('/test-owner', { headers: { Cookie: 'manorama_session=garbage' } }, env)
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('/login')
   })
 })
 
@@ -169,12 +165,21 @@ describe('public gallery pages stay public', () => {
     app.use(honoxContext)
     app.use(renderer)
     mountRoute(app, '/:owner/:slug', viewerPage)
-    const response = await app.request('/thecontrarian/italy-2018', undefined, env)
+    const response = await app.request('/test-owner/italy-2018', undefined, env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('curtain')
     expect(html).not.toContain('vendo-root')
     expect(html).not.toContain('vendo-client')
+  })
+
+  test('a gallery under an unknown owner is a 404', async () => {
+    const app = new Hono()
+    app.use(honoxContext)
+    app.use(renderer)
+    mountRoute(app, '/:owner/:slug', viewerPage)
+    const response = await app.request('/nobody-here/italy-2018', undefined, env)
+    expect(response.status).toBe(404)
   })
 })

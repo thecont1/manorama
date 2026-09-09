@@ -1,96 +1,74 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { generateKeyPair, SignJWT, jwtVerify } from 'jose'
-import { requireSession, type AccessEnv, type AccessJwtVerifier, type SessionEnv } from '../app/lib/session'
+import { createSessionToken, requireSession, SESSION_COOKIE, type HonoSessionEnv } from '../app/lib/dropbox-session'
+import { resetUserStore } from '../app/lib/user-repository'
+import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from '../app/lib/test-fixtures'
 import { createVendoAuth } from './server'
 
-const accessEnv: AccessEnv = {
-  CF_ACCESS_TEAM_DOMAIN: 'manorama-team',
-  CF_ACCESS_AUD: 'manorama-test-audience',
-}
-const issuer = `https://${accessEnv.CF_ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`
+const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
 
-let verifier: AccessJwtVerifier
-let keyPair: { publicKey: CryptoKey; privateKey: CryptoKey }
+let cookie: string
+let forgedCookie: string
 
 beforeAll(async () => {
-  keyPair = await generateKeyPair('RS256')
-  verifier = (token, checks) => jwtVerify(token, keyPair.publicKey, {
-    issuer: checks.issuer,
-    audience: checks.audience,
-  }).then(({ payload }) => payload as { sub?: unknown; email?: unknown })
+  resetUserStore()
+  await seedTestUser()
+  cookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)}`
+  forgedCookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, 'a-different-secret')}`
 })
 
-const signedToken = (claims: Record<string, unknown>) =>
-  new SignJWT({ iss: issuer, aud: accessEnv.CF_ACCESS_AUD, ...claims })
-    .setProtectedHeader({ alg: 'RS256' })
-    .setIssuedAt()
-    .setExpirationTime('2m')
-    .sign(keyPair.privateKey)
+const request = (headers?: Record<string, string>) =>
+  new Request('https://manorama.xyz/api/vendo/threads', { headers })
 
-const request = (init?: RequestInit) => new Request('https://manorama.xyz/api/vendo/threads', init)
-
-describe('Vendo principals resolve from the Manorama Access session', () => {
+describe('Vendo principals resolve from the Manorama Dropbox session', () => {
   test('anonymous requests produce a null principal', async () => {
-    const auth = createVendoAuth(accessEnv, verifier)
+    const auth = createVendoAuth(env)
     expect(await auth.principal(request())).toBeNull()
   })
 
-  test('invalid Access assertions produce a null principal', async () => {
-    const auth = createVendoAuth(accessEnv, verifier)
-    expect(await auth.principal(request({ headers: { 'Cf-Access-Jwt-Assertion': 'not-a-jwt' } }))).toBeNull()
-    const foreign = await generateKeyPair('RS256')
-    const forged = await new SignJWT({ sub: 'attacker', iss: issuer, aud: accessEnv.CF_ACCESS_AUD })
-      .setProtectedHeader({ alg: 'RS256' })
-      .setIssuedAt()
-      .setExpirationTime('2m')
-      .sign(foreign.privateKey)
-    expect(await auth.principal(request({ headers: { 'Cf-Access-Jwt-Assertion': forged } }))).toBeNull()
+  test('invalid session cookies produce a null principal', async () => {
+    const auth = createVendoAuth(env)
+    expect(await auth.principal(request({ Cookie: 'manorama_session=not-a-jwt' }))).toBeNull()
+    // Signed by a different secret: verification must fail closed.
+    expect(await auth.principal(request({ Cookie: forgedCookie }))).toBeNull()
   })
 
-  test('missing Access configuration fails closed', async () => {
-    const auth = createVendoAuth({}, verifier)
-    const assertion = await signedToken({ sub: 'owner-1' })
-    expect(await auth.principal(request({ headers: { 'Cf-Access-Jwt-Assertion': assertion } }))).toBeNull()
+  test('missing session configuration fails closed', async () => {
+    const auth = createVendoAuth({})
+    expect(await auth.principal(request({ Cookie: cookie }))).toBeNull()
   })
 
-  test('a valid Access request produces the cf-access principal', async () => {
-    const auth = createVendoAuth(accessEnv, verifier)
-    const assertion = await signedToken({ sub: '85d2ac0a-4fbb-4a52-8b53-55b1a3d4e5f6', email: 'mahesh@manorama.xyz' })
-    expect(await auth.principal(request({ headers: { 'Cf-Access-Jwt-Assertion': assertion } })))
-      .toEqual({ kind: 'user', subject: 'cf-access:85d2ac0a-4fbb-4a52-8b53-55b1a3d4e5f6' })
+  test('an unknown account fails closed even with a valid token', async () => {
+    const stranger = `${SESSION_COOKIE}=${await createSessionToken('dbid:AAADELETEDuser', TEST_SESSION_SECRET)}`
+    const auth = createVendoAuth(env)
+    expect(await auth.principal(request({ Cookie: stranger }))).toBeNull()
   })
 
-  test('email changes never change the principal subject', async () => {
-    const auth = createVendoAuth(accessEnv, verifier)
-    const first = await signedToken({ sub: 'same-sub', email: 'mahesh@manorama.xyz' })
-    const second = await signedToken({ sub: 'same-sub', email: 'mahesh+alias@manorama.xyz' })
-    const firstPrincipal = await auth.principal(request({ headers: { 'Cf-Access-Jwt-Assertion': first } }))
-    const secondPrincipal = await auth.principal(request({ headers: { 'Cf-Access-Jwt-Assertion': second } }))
-    expect(firstPrincipal).toEqual(secondPrincipal)
-    expect(JSON.stringify(firstPrincipal)).not.toContain('manorama.xyz')
+  test('a valid session produces the dropbox principal', async () => {
+    const auth = createVendoAuth(env)
+    expect(await auth.principal(request({ Cookie: cookie })))
+      .toEqual({ kind: 'user', subject: `dropbox:${TEST_OWNER.dropboxAccountId}` })
   })
 
   test('the verified email is exposed only through facts, never the subject', async () => {
-    const auth = createVendoAuth(accessEnv, verifier)
-    const withEmail = await signedToken({ sub: 'owner-2', email: 'mahesh@manorama.xyz' })
-    const withoutEmail = await signedToken({ sub: 'owner-3' })
-    expect(await auth.facts?.(request({ headers: { 'Cf-Access-Jwt-Assertion': withEmail } })))
-      .toEqual({ email: 'mahesh@manorama.xyz' })
-    expect(await auth.facts?.(request({ headers: { 'Cf-Access-Jwt-Assertion': withoutEmail } }))).toBeUndefined()
+    const auth = createVendoAuth(env)
+    expect(await auth.facts?.(request({ Cookie: cookie })))
+      .toEqual({ email: TEST_OWNER.email })
+    const noEmail = await seedTestUser({ dropboxAccountId: 'dbid:AAANOEMAILuser', displayName: 'No Email', email: undefined })
+    expect(noEmail.email).toBeUndefined()
+    const noEmailCookie = `${SESSION_COOKIE}=${await createSessionToken('dbid:AAANOEMAILuser', TEST_SESSION_SECRET)}`
+    expect(await auth.facts?.(request({ Cookie: noEmailCookie }))).toBeUndefined()
     expect(await auth.facts?.(request())).toBeUndefined()
   })
 
   test('the API middleware and Vendo resolve byte-for-byte identical subjects', async () => {
-    const app = new Hono<SessionEnv>()
-    app.use(requireSession(verifier))
+    const app = new Hono<HonoSessionEnv>()
+    app.use(requireSession())
     app.get('/whoami', (c) => c.json({ id: c.get('manoramaSession').id }))
-    const assertion = await signedToken({ sub: 'shared-subject', email: 'mahesh@manorama.xyz' })
-    const init = { headers: { 'Cf-Access-Jwt-Assertion': assertion } }
-    const response = await app.request('/whoami', init, accessEnv)
+    const response = await app.request('/whoami', { headers: { Cookie: cookie } }, env)
     expect(response.status).toBe(200)
     const { id } = await response.json() as { id: string }
-    const auth = createVendoAuth(accessEnv, verifier)
-    expect((await auth.principal(request(init)))?.subject).toBe(id)
+    const auth = createVendoAuth(env)
+    expect((await auth.principal(request({ Cookie: cookie })))?.subject).toBe(id)
   })
 })

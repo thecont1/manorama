@@ -6,12 +6,18 @@ workers_dev = true
 
 [vars]
 PUBLIC_HOST = "manorama.xyz"
-OWNER_SLUG = "thecontrarian"
 # Production public origin — Vendo derives its OAuth/MCP resource URLs
 # and audience binding from this behind the reverse proxy.
 VENDO_BASE_URL = "https://manorama.xyz"
-# VENDO_API_KEY and Cloudflare Access verification keys are SECRETS:
+# VENDO_API_KEY and the session signing key are SECRETS:
 # `bunx wrangler secret put VENDO_API_KEY` — never in this file.
+# HOST_API_JWT_SECRET signs the Dropbox session cookie.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "manorama"
+database_id = "23a75dd6-1d27-4f61-afc0-79b83c30cee7"
+migrations_dir = "migrations"
 
 [assets]
 directory = "./dist"

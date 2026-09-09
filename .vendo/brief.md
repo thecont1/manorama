@@ -2,11 +2,11 @@
 
 ## Product
 
-Manorama is Mahesh's photo-gallery management and publishing application. It turns public Dropbox folder links into hosted photo galleries at `https://manorama.xyz`, with an authenticated admin surface at `/thecontrarian` (Cloudflare Access-protected) and public gallery pages at `/{owner}/{slug}`.
+Manorama is a photo-gallery management and publishing application. It turns public Dropbox folder links into hosted photo galleries at `https://manorama.xyz`. Editors sign in with Dropbox and manage their galleries from their dashboard at `/{owner_slug}`; anyone with a link can view a published gallery at `/{owner_slug}/{slug}` without signing in.
 
 ## Users
 
-One primary user: Mahesh, the owner-operator. Visitors browse public galleries without signing in. You serve the owner in the authenticated admin surface.
+Gallery editors sign in with their Dropbox account; each editor owns up to 3 galleries on the free tier. Visitors browse public galleries without signing in. You serve the signed-in editor on their own dashboard.
 
 ## Jobs to help with
 

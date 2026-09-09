@@ -14,7 +14,7 @@
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore, type HostAuthPreset } from "@vendoai/vendo/server";
-import { resolveManoramaSession, type AccessEnv, type AccessJwtVerifier } from "../app/lib/session";
+import { resolveManoramaSession, type SessionEnv } from "../app/lib/dropbox-session";
 import { vendoProfile } from "./profile";
 
 // The profile is BUNDLED at build time (vendo/profile.ts) — Cloudflare
@@ -22,7 +22,7 @@ import { vendoProfile } from "./profile";
 // fail soft (no rules, no tools, no brief) rather than erroring. Importing
 // the pieces here makes the Worker bundle carry them verbatim.
 
-export interface VendoEnv extends AccessEnv {
+export interface VendoEnv extends SessionEnv {
   VENDO_API_KEY?: string;
   VENDO_CONSOLE_URL?: string;
   VENDO_BASE_URL?: string;
@@ -36,19 +36,18 @@ const processEnv = () => (globalThis as typeof globalThis & {
 
 /**
  * The SAME identity the Manorama management API enforces: a verified
- * Cloudflare Access session. Anonymous, malformed, expired, or mis-signed
- * requests resolve to a null principal and Vendo refuses them. The subject
- * is the immutable `cf-access:<sub>` id — never an email. The verified email
- * surfaces only through `auth.facts`.
+ * Dropbox session. Anonymous, malformed, expired, or mis-signed
+ * requests resolve to a null principal and Vendo refuses them. The
+ * subject is the immutable `dropbox:<account id>` — never an email. The
+ * verified email surfaces only through `auth.facts`.
  */
-export function createVendoAuth(env: VendoEnv = {}, verifier?: AccessJwtVerifier): HostAuthPreset {
+export function createVendoAuth(env: VendoEnv = {}): HostAuthPreset {
   const hostEnv = processEnv();
-  const sessionEnv: AccessEnv = {
-    CF_ACCESS_TEAM_DOMAIN: env.CF_ACCESS_TEAM_DOMAIN ?? hostEnv.CF_ACCESS_TEAM_DOMAIN,
-    CF_ACCESS_AUD: env.CF_ACCESS_AUD ?? hostEnv.CF_ACCESS_AUD,
-    CF_ACCESS_JWKS: env.CF_ACCESS_JWKS ?? hostEnv.CF_ACCESS_JWKS,
+  const sessionEnv: SessionEnv = {
+    HOST_API_JWT_SECRET: env.HOST_API_JWT_SECRET ?? hostEnv.HOST_API_JWT_SECRET,
+    DB: env.DB,
   };
-  const session = (request: Request) => resolveManoramaSession(request, sessionEnv, verifier);
+  const session = (request: Request) => resolveManoramaSession(request, sessionEnv);
   return {
     principal: async (request) => {
       const resolved = await session(request);
@@ -72,8 +71,9 @@ function getVendo(env: VendoEnv = {}) {
     const consoleUrl = (env.VENDO_CONSOLE_URL ?? hostEnv.VENDO_CONSOLE_URL ?? "https://console.vendo.run").replace(/\/+$/, "");
     const cloud = apiKey === undefined || apiKey === "" ? undefined : { apiKey, baseUrl: consoleUrl };
     vendo = createVendo({
-      // Verify Manorama's trusted bearer session. Anonymous, malformed, expired,
-      // or mis-signed sessions resolve to null and Vendo refuses them.
+      // Verify Manorama's trusted bearer session. Anonymous, malformed,
+      // expired, or mis-signed sessions resolve to null and Vendo refuses
+      // them.
       auth: createVendoAuth(env),
       // The .vendo/policy.json document is authoritative — the profile feeds
       // the guard inline (replacing the file leg), and the explicit guard()

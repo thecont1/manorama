@@ -1,40 +1,28 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { generateKeyPair, SignJWT, jwtVerify } from 'jose'
 import { createManoramaApi } from './api'
-import { createGallery } from './lib/gallery-repository'
-import type { AccessEnv, AccessJwtVerifier } from './lib/session'
+import { createGallery, resetGalleryStore } from './lib/gallery-repository'
+import { resetUserStore } from './lib/user-repository'
+import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
-const accessEnv: AccessEnv = {
-  CF_ACCESS_TEAM_DOMAIN: 'manorama-team',
-  CF_ACCESS_AUD: 'manorama-test-audience',
-}
-const env = { ...accessEnv }
-const issuer = `https://${accessEnv.CF_ACCESS_TEAM_DOMAIN}.cloudflareaccess.com`
+const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
 
 let api: ReturnType<typeof createManoramaApi>
-let assertion: string
+let cookie: string
 
 beforeAll(async () => {
-  const { publicKey, privateKey } = await generateKeyPair('RS256')
-  const verifier: AccessJwtVerifier = (token, checks) =>
-    jwtVerify(token, publicKey, { issuer: checks.issuer, audience: checks.audience })
-      .then(({ payload }) => payload as { sub?: unknown; email?: unknown })
-  assertion = await new SignJWT({ sub: 'owner-1', email: 'mahesh@manorama.xyz' })
-    .setProtectedHeader({ alg: 'RS256' })
-    .setIssuer(issuer)
-    .setAudience(accessEnv.CF_ACCESS_AUD!)
-    .setIssuedAt()
-    .setExpirationTime('2m')
-    .sign(privateKey)
-  api = createManoramaApi({ sessionVerifier: verifier })
+  resetUserStore()
+  resetGalleryStore()
+  await seedTestUser()
+  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
+  api = createManoramaApi()
 
-  // Seed a runtime gallery (no Airtable env -> in-memory store) with a slug
+  // Seed a runtime gallery (no DB binding -> in-memory store) with a slug
   // distinct from the bundled italy-2018 fixture, which always resolves.
-  await createGallery({
+  await createGallery(TEST_OWNER.dropboxAccountId, {
     slug: 'test-gallery',
     title: 'Test Gallery',
     caption: '',
@@ -47,7 +35,7 @@ beforeAll(async () => {
 const patch = (slug: string, body: object) =>
   api.request(`/api/galleries/${slug}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': assertion },
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify(body),
   }, env)
 
@@ -110,5 +98,60 @@ describe('slug rename contract', () => {
   test('the Admin island sends newSlug when editing the slug', () => {
     const admin = readFileSync(`${repoRoot}/app/islands/Admin.tsx`, 'utf8')
     expect(admin).toContain('newSlug')
+  })
+})
+
+describe('owner URL changes', () => {
+  test('rejects an invalid URL with friendly guidance', async () => {
+    const response = await api.request('/api/account', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ownerSlug: 'Not Valid!' }),
+    }, env)
+    expect(response.status).toBe(422)
+    const payload = await response.json() as { error?: string }
+    expect(payload.error).toContain('lowercase letters')
+  })
+
+  test('changes the owner URL and galleries follow the account', async () => {
+    const response = await api.request('/api/account', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ownerSlug: 'renamed-owner' }),
+    }, env)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ownerSlug: 'renamed-owner' })
+    // The seeded gallery is still reachable under the new owner URL.
+    const list = await api.request('/api/galleries', { headers: { Cookie: cookie } }, env)
+    const payload = await list.json() as { galleries?: { slug: string }[] }
+    expect(payload.galleries?.some((gallery) => gallery.slug === 'test-final')).toBe(true)
+  })
+
+  test('rejects a URL already taken by another owner', async () => {
+    await seedTestUser({ dropboxAccountId: 'dbid:AAATOTHERuser', displayName: 'Taken Name' })
+    const response = await api.request('/api/account', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ownerSlug: 'taken-name' }),
+    }, env)
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'That URL is already in use' })
+  })
+})
+
+describe('the free-tier gallery limit', () => {
+  test('a fourth gallery is politely refused', async () => {
+    // test-final (from the rename suite) plus these two fills the free
+    // allowance; the next create is the fourth.
+    await createGallery(TEST_OWNER.dropboxAccountId, { slug: 'filler-two', title: 'Filler Two', caption: '', date: '', images: [] })
+    await createGallery(TEST_OWNER.dropboxAccountId, { slug: 'filler-three', title: 'Filler Three', caption: '', date: '', images: [] })
+    const response = await api.request('/api/galleries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/fourth' }),
+    }, env)
+    expect(response.status).toBe(403)
+    const payload = await response.json() as { error?: string }
+    expect(payload.error).toContain('all 3')
   })
 })
