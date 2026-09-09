@@ -215,7 +215,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         body: JSON.stringify({ url }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || "That gallery could not be added")
+      if (!response.ok || !payload.gallery) {
+        if (response.status === 403) { setStatus(payload.error || "That gallery could not be added"); return }
+        throw new Error(payload.error || "That gallery could not be added")
+      }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
       setDropboxUrl("")
       setStatus('Done! ' + payload.gallery.title + ' is at the top.')
