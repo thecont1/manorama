@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { fetchDropboxFile, fetchDropboxThumbnail, scanDropboxFolder } from './lib/dropbox-public'
-import { createGallery, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug } from './lib/user-repository'
 
@@ -83,6 +83,8 @@ export const createManoramaApi = () => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
     try {
+      // Best-effort fast reject at the limit; the atomic check below is
+      // the real guard against concurrent requests.
       if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= FREE_GALLERY_LIMIT) {
         return c.json({ error: limitMessage }, 403)
       }
@@ -90,6 +92,9 @@ export const createManoramaApi = () => {
       const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       if (sourceUrlMatch) return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
+      const orderedImages = payload.order?.length
+        ? payload.order.flatMap((filename) => scan.images.filter((image) => image.filename === filename)).concat(scan.images.filter((image) => !payload.order?.includes(image.filename)))
+        : scan.images
       const baseSlug = slugify(scan.title)
       let slug = baseSlug
       let suffix = 2
@@ -97,19 +102,25 @@ export const createManoramaApi = () => {
         slug = `${baseSlug}-${suffix}`
         suffix += 1
       }
-      const orderedImages = payload.order?.length
-        ? payload.order.flatMap((filename) => scan.images.filter((image) => image.filename === filename)).concat(scan.images.filter((image) => !payload.order?.includes(image.filename)))
-        : scan.images
-      const gallery = await createGallery(session.dropboxAccountId, {
-        slug,
-        title: scan.title,
-        caption: '',
-        date: '',
-        sourceUrl: scan.sourceUrl,
-        createdAt: new Date().toISOString(),
-        images: orderedImages,
-      }, dbEnv(c))
-      return c.json({ gallery: toSummary(gallery) }, 201)
+      // Atomic limit check + insert: concurrent requests cannot both
+      // pass the count and exceed the limit. Retry on slug conflict
+      // (a concurrent create may have grabbed the same slug).
+      for (let attempt = 0; ; attempt++) {
+        const result = await createGalleryWithinLimit(session.dropboxAccountId, {
+          slug,
+          title: scan.title,
+          caption: '',
+          date: '',
+          sourceUrl: scan.sourceUrl,
+          createdAt: new Date().toISOString(),
+          images: orderedImages,
+        }, FREE_GALLERY_LIMIT, dbEnv(c))
+        if (result.ok) return c.json({ gallery: toSummary(result.gallery) }, 201)
+        if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
+        if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
+        slug = `${baseSlug}-${suffix}`
+        suffix += 1
+      }
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be added' }, 422)
     }
@@ -160,7 +171,8 @@ export const createManoramaApi = () => {
       const scan = await scanDropboxFolder(gallery.sourceUrl, envOf(c))
       const byFilename = new Map(gallery.images.map((image) => [image.filename, image]))
       const refreshed = scan.images.map((image) => byFilename.get(image.filename) ?? image)
-      const updated = await createGallery(session.dropboxAccountId, { ...gallery, images: refreshed }, dbEnv(c))
+      const updated = await updateGalleryRecord(session.dropboxAccountId, { ...gallery, images: refreshed }, dbEnv(c))
+      if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be refreshed' }, 422)
