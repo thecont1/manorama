@@ -125,6 +125,24 @@ cai-manifest-summary { display: block; margin-top: 16px; }
   .viewer-frame img { transition: none; }
 }
 
+/* Privacy policy page: readable long-form text on the same dark surface. */
+body:has(.policy-page) { overflow: auto; background: #111312; color: #f3f0e8; }
+.policy-page { min-height: 100svh; display: grid; place-items: start center; padding: clamp(32px, 6vw, 80px) 24px 64px; box-sizing: border-box; }
+.policy-document { max-width: 680px; }
+.policy-document h1 { margin: 0 0 4px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(28px, 5vw, 40px); font-weight: 800; letter-spacing: -.03em; }
+.policy-updated { margin: 0 0 32px; font-size: 13px; opacity: .5; }
+.policy-document h2 { margin: 36px 0 12px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 18px; font-weight: 700; }
+.policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 16px; font-weight: 300; line-height: 1.6; opacity: .85; }
+.policy-document ul { margin: 0 0 16px; padding-left: 20px; }
+.policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 16px; font-weight: 300; line-height: 1.6; opacity: .85; }
+.policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 14px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; }
+.policy-participants { margin: 0 0 16px; padding-left: 20px; }
+.policy-participants li { margin: 0 0 10px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 16px; font-weight: 300; line-height: 1.6; opacity: .85; }
+.policy-table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 15px; }
+.policy-table th { text-align: left; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(255,255,255,.12); opacity: .6; }
+.policy-table td { padding: 10px 12px 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-weight: 300; line-height: 1.5; opacity: .85; vertical-align: top; }
+.policy-table td:first-child { white-space: nowrap; font-weight: 400; opacity: 1; }
+
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; background: #111312; }
 .admin-page { min-height: 100dvh; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 72px; color: #f3f0e8; background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
@@ -508,6 +526,16 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   margin: 18px 0 0;
   color: rgba(243, 240, 232, .46);
   font-size: 12px;
+}
+.landing-privacy-link {
+  margin-top: 48px;
+  color: rgba(243, 240, 232, .3);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color 180ms ease;
+}
+.landing-privacy-link:hover, .landing-privacy-link:focus-visible {
+  color: rgba(243, 240, 232, .6);
 }
 
 /* Dashboard owner row: name, editable URL, sign out. */

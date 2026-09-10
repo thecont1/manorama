@@ -28,6 +28,7 @@ export default createRoute(async (c) => {
           Continue with Dropbox
         </a>
         {failed ? <p class="landing-note">Sign-in didn&rsquo;t complete. Please try again.</p> : null}
+        <a class="landing-privacy-link" href="/privacy">Privacy Policy</a>
       </div>
     </main>,
     { title: 'manorama', description: 'A view that is delightful to the mind. The WOW-est way to enjoy a photo gallery with anyone!' },
