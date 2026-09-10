@@ -5,6 +5,7 @@ import type { GallerySummary } from '../lib/gallery-repository'
 type Props = {
   galleries: readonly GallerySummary[]
   owner: string
+  ownerName?: string
   publicHost: string
 }
 type EditableField = 'title' | 'caption' | 'slug'
@@ -26,6 +27,8 @@ const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) 
   return bTime - aTime || a.title.localeCompare(b.title)
 })
 
+const FREE_GALLERY_LIMIT = 3
+
 const friendlyDropboxError = (error: unknown) => {
   const message = error instanceof Error ? error.message : ''
   if (/Use a public Dropbox folder link/i.test(message)) return 'Paste a public Dropbox folder link, not a file link.'
@@ -40,7 +43,7 @@ const TrashIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 
 const OpenIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M19 13v5.5A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-11A1.5 1.5 0 0 1 6.5 6H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
 const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 16M4 20v-4h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
 
-export default function Admin({ galleries: initialGalleries, owner, publicHost }: Props) {
+export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [dropboxUrl, setDropboxUrl] = useState('')
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -48,6 +51,8 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
+  const [ownerSlugEditing, setOwnerSlugEditing] = useState(false)
+  const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
@@ -55,6 +60,48 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
 
   const galleryPath = (slug: string) => `/${owner}/${slug}`
   const galleryAddress = (slug: string) => `${publicHost}${galleryPath(slug)}`
+
+  const beginOwnerSlugEditing = () => {
+    setOwnerSlugEditing(true)
+    setOwnerSlugDraft(owner)
+    setStatus('')
+  }
+
+  const cancelOwnerSlugEditing = () => {
+    setOwnerSlugEditing(false)
+    setOwnerSlugDraft('')
+  }
+
+  /** Changes the owner URL and follows the dashboard to its new address.
+   * The gentle reminder below the field notes the consequence before the
+   * save, not after. */
+  const saveOwnerSlug = async () => {
+    const value = ownerSlugDraft.trim().toLowerCase()
+    if (value.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
+      setStatus('Use at least 3 lowercase letters, numbers, and single hyphens')
+      return
+    }
+    if (value === owner) {
+      cancelOwnerSlugEditing()
+      return
+    }
+    if (busy) return
+    setBusy(true)
+    setStatus('Saving…')
+    try {
+      const response = await fetch('/api/account', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ownerSlug: value }),
+      })
+      const payload = await response.json() as { ownerSlug?: string; error?: string }
+      if (!response.ok || !payload.ownerSlug) throw new Error(payload.error || 'That URL could not be saved')
+      window.location.assign(`/${payload.ownerSlug}`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'That URL could not be saved')
+      setBusy(false)
+    }
+  }
 
    const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
     if (busy) return
@@ -168,7 +215,10 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
         body: JSON.stringify({ url }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || "That gallery could not be added")
+      if (!response.ok || !payload.gallery) {
+        if (response.status === 403) { setStatus(payload.error || "That gallery could not be added"); return }
+        throw new Error(payload.error || "That gallery could not be added")
+      }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
       setDropboxUrl("")
       setStatus('Done! ' + payload.gallery.title + ' is at the top.')
@@ -308,13 +358,38 @@ export default function Admin({ galleries: initialGalleries, owner, publicHost }
         <div>
           <h1 class="admin-brand-title">manorama</h1>
           <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+          <div class="admin-owner-row">
+            {ownerName ? <span class="admin-owner-name">{ownerName}</span> : null}
+            {ownerSlugEditing ? (
+              <span class="admin-owner-slug-edit">
+                <input
+                  class="admin-owner-slug-input"
+                  type="text"
+                  value={ownerSlugDraft}
+                  autoFocus
+                  disabled={busy}
+                  aria-label="Your URL"
+                  onInput={(event) => setOwnerSlugDraft((event.target as HTMLInputElement).value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') cancelOwnerSlugEditing()
+                    if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
+                  }}
+                  onBlur={() => { void saveOwnerSlug() }}
+                />
+                <span class="admin-owner-slug-note">Your gallery links will change with it.</span>
+              </span>
+            ) : (
+              <button type="button" class="admin-owner-slug" title="Change your URL" aria-label={`Change your URL, currently /${owner}`} onClick={beginOwnerSlugEditing}>/{owner}</button>
+            )}
+            <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">Sign out</button></form>
+          </div>
         </div>
         <img class="admin-brand-mark" src="/manorama-logo-upright-test.png" alt="" aria-hidden="true" />
         {status ? <div class="admin-header-meta"><span class="admin-status" role="status" aria-live="polite">{status}</span></div> : null}
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
-        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2></div>
+        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2><span class="admin-limit-count" aria-label={`${galleries.filter((gallery) => gallery.sourceUrl).length} of ${FREE_GALLERY_LIMIT} galleries used`}>{galleries.filter((gallery) => gallery.sourceUrl).length} of {FREE_GALLERY_LIMIT}</span></div>
         <form class="gallery-import-form" onSubmit={addGallery}>
           <label class="admin-field"><span>Public Dropbox folder URL</span><input type="url" value={dropboxUrl} placeholder="https://www.dropbox.com/scl/fo/..." onInput={(event) => { setDropboxUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>

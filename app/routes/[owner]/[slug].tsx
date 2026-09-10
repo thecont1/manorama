@@ -2,22 +2,16 @@ import { createRoute } from 'honox/factory'
 import Viewer from '../../islands/Viewer'
 import { BundledSource } from '../../lib/imagesource'
 import { defaultGallerySettings } from '../../lib/gallery-settings'
-import { getGallery, type GalleryRecord } from '../../lib/gallery-repository'
-
-type RuntimeEnv = {
-  AIRTABLE_PAT?: string
-  AIRTABLE_BASE_ID?: string
-  AIRTABLE_GALLERIES_TABLE?: string
-  OWNER_SLUG?: string
-}
+import { getGallery, type GalleryEnv, type GalleryRecord } from '../../lib/gallery-repository'
+import { getUserByOwnerSlug } from '../../lib/user-repository'
 
 export default createRoute(async (c) => {
-  const env = c.env as RuntimeEnv
-  const owner = c.req.param('owner')
-  if (owner !== (env.OWNER_SLUG || 'thecontrarian')) return c.notFound()
+  const owner = c.req.param('owner') ?? ''
+  const user = await getUserByOwnerSlug(owner, c.env as GalleryEnv)
+  if (!user) return c.notFound()
 
-  const slug = c.req.param('slug')
-  const gallery = await getGallery(slug, env)
+  const slug = c.req.param('slug') ?? ''
+  const gallery = await getGallery(user.dropboxAccountId, slug, c.env as GalleryEnv)
   if (!gallery) return c.notFound()
 
   const source = new BundledSource(gallery as GalleryRecord)

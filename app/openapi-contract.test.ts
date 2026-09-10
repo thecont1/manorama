@@ -1,9 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { createManoramaApi } from './api'
-import { generateKeyPair, SignJWT, jwtVerify } from 'jose'
-import type { AccessJwtVerifier } from './lib/session'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const spec = JSON.parse(readFileSync(`${repoRoot}/openapi.json`, 'utf8')) as {
@@ -19,26 +18,16 @@ const operationIds = () =>
     .map((op) => op.operationId as string)
 
 const api = createManoramaApi()
-let authedApi: ReturnType<typeof createManoramaApi> | null = null
-let assertion = ''
+const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
+let cookie = ''
 
-const setupAuthedApi = async () => {
-  if (authedApi) return
-  const { publicKey, privateKey } = await generateKeyPair('RS256')
-  const verifier: AccessJwtVerifier = (token, checks) =>
-    jwtVerify(token, publicKey, { issuer: checks.issuer, audience: checks.audience })
-      .then(({ payload }) => payload as { sub?: unknown; email?: unknown })
-  assertion = await new SignJWT({ sub: 'owner-1', email: 'mahesh@manorama.xyz' })
-    .setProtectedHeader({ alg: 'RS256' })
-    .setIssuer('https://manorama-team.cloudflareaccess.com')
-    .setAudience('manorama-test-audience')
-    .setIssuedAt()
-    .setExpirationTime('2m')
-    .sign(privateKey)
-  authedApi = createManoramaApi({ sessionVerifier: verifier })
+const setupAuth = async () => {
+  if (cookie) return
+  await seedTestUser()
+  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
 }
 
-const request = (path: string, init?: RequestInit) => api.request(path, init)
+const request = (path: string, init?: RequestInit) => api.request(path, init, env)
 
 describe('OpenAPI contract: static spec', () => {
   test('declares OpenAPI 3.1.0', () => {
@@ -120,12 +109,12 @@ describe('OpenAPI contract: runtime behavior', () => {
   })
 
   test('a create without a Dropbox URL reports 400 with the contract error shape', async () => {
-    await setupAuthedApi()
-    const response = await authedApi!.request('/api/galleries', {
+    await setupAuth()
+    const response = await api.request('/api/galleries', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': assertion },
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
       body: JSON.stringify({}),
-    }, { CF_ACCESS_TEAM_DOMAIN: 'manorama-team', CF_ACCESS_AUD: 'manorama-test-audience' })
+    }, env)
     expect(response.status).toBe(400)
     const payload = await response.json() as { error?: string }
     expect(typeof payload.error).toBe('string')

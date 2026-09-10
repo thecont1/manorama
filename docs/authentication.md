@@ -1,89 +1,97 @@
 # Authentication
 
-Manorama has exactly one human identity: the gallery owner (Mahesh), acting
-through the owner administration surface at `/<OWNER_SLUG>` and the gallery
-management API under `/api/galleries`. Identity is Cloudflare Access — there
-is deliberately no password database, no magic-link store, and no anonymous
-or demo principal.
+Manorama is a consumer app with three kinds of participants:
 
-## Application-level verification (authoritative)
+- **Viewers** — no authentication. Anyone with a gallery link
+  (`/<owner_slug>/<slug>`) can view its photos.
+- **Gallery editors** — Dropbox sign-in. Up to 3 galleries.
+- **Paying editors** (future) — Dropbox sign-in. Unlimited galleries and
+  richer customisations. The `tier` column already carries this seam.
 
-Every gated request is verified by `app/lib/session.ts`
-(`resolveManoramaSession`), which is the single resolver for both the
-management API middleware (`app/lib/session.ts` `requireSession`, applied at
-the route-group boundary in `app/api.ts`) and the Vendo principal
-(`vendo/server.ts`). It verifies the Cloudflare Access JWT from the
-`Cf-Access-Jwt-Assertion` header (or the `CF_Authorization` cookie, through
-the identical verification path) against the Access team JWKS:
+There is deliberately no password database, no magic-link store, and no
+sign-up form: Dropbox owns the account lifecycle, we only accept
+signed-in Dropbox users.
 
-- issuer: `https://<CF_ACCESS_TEAM_DOMAIN>.cloudflareaccess.com`
-- audience: `CF_ACCESS_AUD` (the Access application's AUD tag)
-- signature (RS256, team JWKS at `<issuer>/cdn-cgi/access/certs`)
-- expiry / not-before
-- a non-empty immutable `sub` claim
+## Identity
 
-Failures — missing configuration, missing token, wrong audience or issuer,
-expired or not-yet-valid tokens, bad signatures, missing `sub` — resolve to
-`null` and the request is refused with `401` JSON. Emails are surfaced only
-as verified token claims, never accepted from headers, query strings, or
-bodies. Subjects are `cf-access:<sub>` and never the email address.
+The user's immutable Dropbox account ID (`dbid:…`) is the identity and
+the repository owner key. The owner slug (`/<owner_slug>/…`) is
+user-facing and changeable at any time; galleries reference the account
+ID, so a slug change never orphans them. Emails surface only as verified
+Dropbox account claims.
 
-Gated surfaces:
+## The sign-in flow
+
+1. `GET /` — the landing page carries the one quiet "Continue with
+   Dropbox" button and doubles as the sign-in door: an existing session
+   skips straight to the dashboard.
+2. `GET /auth/dropbox` — sets a short-lived CSRF state cookie and
+   redirects to Dropbox's OAuth2 authorize endpoint. The redirect URI is
+   derived from the request origin (register both
+   `https://manorama.xyz/auth/dropbox/callback` and the dev origin in
+   the Dropbox app console).
+3. `GET /auth/dropbox/callback` — verifies the state cookie, exchanges
+   the code, fetches the account, upserts the user (minting a unique
+   owner slug from the display name on first sign-in), and sets the
+   session cookie.
+4. `POST /auth/logout` — clears the session.
+
+## Sessions
+
+`app/lib/dropbox-session.ts` mints an HS256 JWT (signed with
+`HOST_API_JWT_SECRET`) into the `manorama_session` httpOnly cookie. The
+token carries only the Dropbox account ID; the owner slug, name, and
+tier are loaded from D1 on every request, so profile changes apply
+immediately. Missing secret, missing cookie, invalid/expired token, or
+a deleted account all fail closed to `null` → `401` JSON for API
+routes, a `/` redirect for the dashboard.
+
+## Storage (D1)
+
+- `users` — one row per Dropbox account: `dropbox_account_id` (PK),
+  unique `owner_slug`, display name, email, `tier`.
+- `galleries` — keyed `(owner_id, slug)`: two owners may share a gallery
+  slug. Public URLs resolve through the owner slug first.
+
+The free-tier limit (3 galleries) is enforced in `POST /api/galleries`
+via a per-owner count, returning a polite `403`.
+
+## Gated surfaces
 
 - `GET/POST /api/galleries`, `POST /api/galleries/scan`,
   `PATCH/DELETE /api/galleries/:slug`, `POST /api/galleries/:slug/refresh`
-- the owner administration page `/<OWNER_SLUG>` (middleware gate plus a
-  fail-closed check in `app/routes/[owner].tsx`)
+  — scoped to the signed-in owner.
+- `PATCH /api/account` — changes the signed-in owner's URL segment.
+- `GET /<owner_slug>` — the dashboard; renders only for that owner.
+- `/api/vendo/*` — the Vendo composition applies the same resolver
+  (`vendo/server.ts`) and fails closed on its own.
 
-Intentionally public surfaces:
+## Intentionally public surfaces
 
-- public gallery pages `/<OWNER_SLUG>/<slug>`
-- `/api/dropbox/thumbnail` and `/api/dropbox/file` (public gallery pages load
-  Dropbox-sourced images through this proxy; the underlying Dropbox folders
+- Public gallery pages `/<owner_slug>/<slug>`
+- `/` and the OAuth redirect endpoints
+- `/api/dropbox/thumbnail` and `/api/dropbox/file` (public gallery pages
+  load Dropbox-sourced images through this proxy; the underlying folders
   are public share links)
-- `/api/vendo/*` (the Vendo composition applies the same resolver and fails
-  closed on its own)
-
-## Cloudflare Access configuration (defence in depth)
-
-The application verifies tokens itself, so a mis-scoped Access policy can
-never silently open the admin surface. Access in front of the origin is
-still required so the owner gets a login flow and the Worker receives
-assertions. Configure in the Cloudflare Zero Trust dashboard (or IaC) for
-the `manorama.xyz` zone:
-
-1. **Self-hosted Access application** covering the admin and management
-   paths:
-   - `manorama.xyz/<OWNER_SLUG>` (the administration page)
-   - `manorama.xyz/api/galleries*` (the management API)
-   Exclude the public image proxy paths
-   `manorama.xyz/api/dropbox/thumbnail` and `manorama.xyz/api/dropbox/file`
-   and the public gallery pages `manorama.xyz/<OWNER_SLUG>/*` from the
-   application's path rules, or scope the application to the exact paths
-   above only.
-2. **Policy**: `Allow`, `Include` → `Emails` → the owner's email address
-   only. No open registration, no bypass rules.
-3. **Record the application's AUD tag** and set it as the Worker
-   configuration value `CF_ACCESS_AUD` (see below).
-
-Because the Worker re-verifies issuer/audience/signature, an origin or
-preview bypass that skips Access still cannot reach the management API or
-render the admin page.
 
 ## Environment configuration
 
 Non-secret configuration (Wrangler `[vars]` or dashboard settings):
 
-- `CF_ACCESS_TEAM_DOMAIN` — the Zero Trust team domain (the `<team>` in
-  `<team>.cloudflareaccess.com`).
-- `CF_ACCESS_AUD` — the Access application's audience (AUD) tag. This is
-  configuration, not identity: possession of it grants nothing without a
-  valid signed token.
+- `PUBLIC_HOST` — the public origin.
+- `VENDO_BASE_URL` — the public origin for Vendo's resource URLs.
 
 Secrets (Wrangler secret store only, never in TOML or committed files):
 
+- `HOST_API_JWT_SECRET` — signs the session cookie.
+- `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` — the Dropbox app powering
+  both the OAuth sign-in and the gallery folder scanner.
 - `VENDO_API_KEY` — the Vendo Cloud key (see `vendo/server.ts`).
+- `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` — legacy; only needed while the
+  one-time gallery migration to D1 is pending
+  (`scripts/migrate-galleries.ts`).
 
-Local development sets these in `.env.local` (never committed). Tests inject
-a local JOSE verifier (`app/lib/session.test.ts`, `app/server.test.ts`) so
-no test ever contacts Cloudflare.
+Local development sets these in `.env.local` (never committed). Tests
+mint real HS256 tokens with a test secret and seed the in-memory user
+store (`app/lib/test-fixtures.ts`) — no test ever contacts Dropbox or
+Cloudflare.
