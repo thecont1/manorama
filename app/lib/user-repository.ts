@@ -102,10 +102,26 @@ export const upsertUser = async (
         'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
       ).bind(account.dropboxAccountId, ownerSlug, displayName, email ?? null).run()
     } catch (error) {
-      // A concurrent new-user sign-in may have claimed the same owner_slug
-      // between deriveOwnerSlug and the INSERT. Retry with a fresh slug
-      // once; a second failure is a real error.
       if (!String(error).includes('UNIQUE')) throw error
+      // A concurrent sign-in may have created this user (account_id PK
+      // conflict) OR claimed the same owner_slug. Query by account_id;
+      // if the user exists, refresh the profile instead of retrying.
+      const concurrent = await env.DB
+        .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
+        .bind(account.dropboxAccountId)
+        .first()
+      if (concurrent) {
+        await env.DB.prepare(
+          `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
+        ).bind(displayName, email ?? null, account.dropboxAccountId).run()
+        const updated = await env.DB
+          .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
+          .bind(account.dropboxAccountId)
+          .first()
+        return rowToUser(updated as Record<string, unknown>)!
+      }
+      // The conflict was on owner_slug, not account_id — retry with a
+      // fresh slug.
       const retrySlug = await deriveOwnerSlug(displayName, env)
       await env.DB.prepare(
         'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
