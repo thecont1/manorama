@@ -26,3 +26,10 @@ CREATE TABLE IF NOT EXISTS galleries (
 );
 
 CREATE INDEX IF NOT EXISTS idx_galleries_owner ON galleries(owner_id);
+
+-- A Dropbox folder can back at most one gallery per owner. source_url is
+-- NULL for the bundled italy-2018 fixture and any local-only gallery, so
+-- the partial index applies only to explicitly sourced galleries.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_galleries_owner_source
+  ON galleries(owner_id, source_url)
+  WHERE source_url IS NOT NULL;

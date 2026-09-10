@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { fetchDropboxFile, fetchDropboxThumbnail, scanDropboxFolder } from './lib/dropbox-public'
-import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug } from './lib/user-repository'
 
@@ -93,7 +93,15 @@ export const createManoramaApi = () => {
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       if (sourceUrlMatch) return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
       const orderedImages = payload.order?.length
-        ? payload.order.flatMap((filename) => scan.images.filter((image) => image.filename === filename)).concat(scan.images.filter((image) => !payload.order?.includes(image.filename)))
+        ? (() => {
+            const seen = new Set<string>()
+            const uniqueOrder: string[] = []
+            for (const filename of payload.order!) {
+              if (!seen.has(filename)) { seen.add(filename); uniqueOrder.push(filename) }
+            }
+            return uniqueOrder.flatMap((filename) => scan.images.filter((image) => image.filename === filename))
+              .concat(scan.images.filter((image) => !seen.has(image.filename)))
+          })()
         : scan.images
       const baseSlug = slugify(scan.title)
       let slug = baseSlug
@@ -117,6 +125,7 @@ export const createManoramaApi = () => {
         }, FREE_GALLERY_LIMIT, dbEnv(c))
         if (result.ok) return c.json({ gallery: toSummary(result.gallery) }, 201)
         if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
+        if (result.reason === 'duplicate-source') return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
         if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
         slug = `${baseSlug}-${suffix}`
         suffix += 1
@@ -171,7 +180,9 @@ export const createManoramaApi = () => {
       const scan = await scanDropboxFolder(gallery.sourceUrl, envOf(c))
       const byFilename = new Map(gallery.images.map((image) => [image.filename, image]))
       const refreshed = scan.images.map((image) => byFilename.get(image.filename) ?? image)
-      const updated = await updateGalleryRecord(session.dropboxAccountId, { ...gallery, images: refreshed }, dbEnv(c))
+      // Persist only the refreshed images, not the stale gallery metadata
+      // read before the scan — a concurrent metadata change is preserved.
+      const updated = await updateGalleryImages(session.dropboxAccountId, gallery.slug, refreshed, dbEnv(c))
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {

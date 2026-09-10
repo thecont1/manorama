@@ -137,12 +137,13 @@ export const createGallery = async (ownerId: string, gallery: GalleryRecord, env
 
 export type CreateWithinLimitResult =
   | { readonly ok: true; readonly gallery: GalleryRecord }
-  | { readonly ok: false; readonly reason: 'limit' | 'conflict' }
+  | { readonly ok: false; readonly reason: 'limit' | 'conflict' | 'duplicate-source' }
 
 /** Atomically checks the free-tier limit and inserts the gallery in one D1
  *  statement, so concurrent requests cannot both pass the count check and
  *  exceed the limit. Returns `conflict` when the (owner_id, slug) key
- *  already exists, so the caller can pick another slug. */
+ *  already exists, or `duplicate-source` when the (owner_id, source_url)
+ *  unique index already holds that Dropbox folder. */
 export const createGalleryWithinLimit = async (
   ownerId: string,
   gallery: GalleryRecord,
@@ -160,7 +161,9 @@ export const createGalleryWithinLimit = async (
       if ((result.meta.changes ?? 0) === 0) return { ok: false, reason: 'limit' }
       return { ok: true, gallery }
     } catch (error) {
-      if (String(error).includes('UNIQUE')) return { ok: false, reason: 'conflict' }
+      const message = String(error)
+      if (message.includes('idx_galleries_owner_source')) return { ok: false, reason: 'duplicate-source' }
+      if (message.includes('UNIQUE')) return { ok: false, reason: 'conflict' }
       throw error
     }
   }
@@ -185,6 +188,25 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
   if (!exists) return null
   ownerStore(ownerId).set(gallery.slug, gallery)
   return gallery
+}
+
+/** Updates only the images_json column of an existing gallery, leaving
+ *  metadata (title, caption, date) untouched. Used by the refresh flow so
+ *  a concurrent metadata change is not overwritten with stale read data. */
+export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryImage[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
+  const imagesJson = JSON.stringify(images)
+  if (d1Configured(env)) {
+    const result = await env.DB.prepare(
+      `UPDATE galleries SET images_json = ? WHERE owner_id = ? AND slug = ?`,
+    ).bind(imagesJson, ownerId, slug).run()
+    if ((result.meta.changes ?? 0) === 0) return null
+    return getGallery(ownerId, slug, env)
+  }
+  const current = await getGallery(ownerId, slug, env)
+  if (!current) return null
+  const updated = { ...current, images: [...images] }
+  ownerStore(ownerId).set(slug, updated)
+  return updated
 }
 
 export const updateGalleryMetadata = async (ownerId: string, slug: string, patch: { title?: string; caption?: string }, env?: GalleryEnv): Promise<GalleryRecord | null> => {
