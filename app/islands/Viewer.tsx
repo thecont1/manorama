@@ -184,10 +184,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       return
     }
     const started = performance.now()
-    const duration = 300
+    const duration = 900
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
-      const eased = 1 - Math.pow(1 - progress, 3)
+      const eased = 1 - Math.pow(1 - progress, 5)
       const next = from + (destination - from) * eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)

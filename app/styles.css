@@ -40,7 +40,7 @@ button { color: inherit; }
 .viewer-stage.mode-single { cursor: default; }
 .viewer-track { display: flex; flex-wrap: nowrap; width: max-content; height: 100%; gap: 0; will-change: transform; }
 .viewer-track--vertical { display: block; width: 100%; height: auto; transform: none !important; }
-.viewer-track--single { width: 100%; transform: none !important; }
+.viewer-track--single { width: 100%; transform: none !important; position: relative; }
 .viewer-frame { position: relative; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: #0a0a0a; overflow: visible; }
 .viewer-frame img { display: block; width: auto; height: 100%; max-width: none; max-height: none; object-fit: contain; user-select: none; -webkit-user-drag: none; opacity: 0; transition: opacity 260ms ease; background: transparent; }
 .viewer-frame img[src] { opacity: 1; }
@@ -48,8 +48,8 @@ button { color: inherit; }
 .viewer-track--vertical .viewer-frame img { width: 100%; height: auto; max-width: 100%; object-fit: contain; }
 .viewer-track--vertical .viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: #0a0a0a; overflow: hidden; }
 .viewer-track--vertical .viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
-.viewer-track--single .viewer-frame { width: 100%; height: 100%; display: none; }
-.viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { display: flex; align-items: center; justify-content: center; }
+.viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); pointer-events: none; }
+.viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { opacity: 1; pointer-events: auto; }
 .viewer-track--single .viewer-frame img { width: 100%; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* The client’s future square mark lives here; it remains the sole stage control and opens provenance plus current-image information. */
