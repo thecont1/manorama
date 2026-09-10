@@ -30,6 +30,6 @@ export default createRoute(async (c) => {
         {failed ? <p class="landing-note">Sign-in didn&rsquo;t complete. Please try again.</p> : null}
       </div>
     </main>,
-    { title: 'manorama' },
+    { title: 'manorama', description: 'A view that is delightful to the mind. The WOW-est way to enjoy a photo gallery with anyone!' },
   )
 })

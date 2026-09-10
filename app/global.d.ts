@@ -2,6 +2,8 @@ import type {} from 'hono'
 
 type Head = {
   title?: string
+  description?: string
+  ogImage?: string
 }
 
 declare module 'hono' {

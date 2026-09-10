@@ -37,6 +37,6 @@ export default createRoute(async (c) => {
       </section>
       <Viewer slug={gallery.slug} images={source.list()} settings={settings} />
     </main>,
-    { title: `${gallery.title} — manorama` },
+    { title: `${gallery.title} — manorama`, description: gallery.caption || `${gallery.title} — a photo gallery on manorama` },
   )
 })
