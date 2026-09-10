@@ -389,7 +389,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
-        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2><span class="admin-limit-count" aria-label={`${galleries.length} of ${FREE_GALLERY_LIMIT} galleries used`}>{galleries.length} of {FREE_GALLERY_LIMIT}</span></div>
+        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2><span class="admin-limit-count" aria-label={`${galleries.filter((gallery) => gallery.sourceUrl).length} of ${FREE_GALLERY_LIMIT} galleries used`}>{galleries.filter((gallery) => gallery.sourceUrl).length} of {FREE_GALLERY_LIMIT}</span></div>
         <form class="gallery-import-form" onSubmit={addGallery}>
           <label class="admin-field"><span>Public Dropbox folder URL</span><input type="url" value={dropboxUrl} placeholder="https://www.dropbox.com/scl/fo/..." onInput={(event) => { setDropboxUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
