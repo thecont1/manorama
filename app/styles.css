@@ -136,6 +136,8 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: #f3f0e8; }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
 .policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 16px; font-weight: 300; line-height: 1.6; opacity: .85; }
 .policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 14px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; }
+.policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
+.policy-document a:hover, .policy-document a:focus-visible { text-decoration-color: rgba(243,240,232,.7); }
 .policy-participants { margin: 0 0 16px; padding-left: 20px; }
 .policy-participants li { margin: 0 0 10px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 16px; font-weight: 300; line-height: 1.6; opacity: .85; }
 .policy-table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 15px; }

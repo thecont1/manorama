@@ -10,11 +10,11 @@ export default createRoute((c) =>
         <p>Manorama is a photo-gallery app at manorama.xyz. This page explains what we do and don't collect, and why.</p>
 
         <h2>The three kinds of people on Manorama</h2>
-        <p>Manorama has three participants, and the rules are different for each:</p>
+        <p>Manorama has three kinds of users. The rules are different for each:</p>
         <ol class="policy-participants">
-          <li><strong>Just Looking</strong> — anyone with a gallery link. No sign-in, no account, no data collected. You open a link, you see photos, that's it.</li>
-          <li><strong>Can Touch</strong> — people who create and manage galleries. You sign in with Dropbox, you get up to three galleries, and we keep a small record of who you are so your galleries have a home.</li>
-          <li><strong>Will Pay</strong> (coming soon) — same sign-in, no gallery limit, richer customisation. The account tier column in our database already has a slot for this, but nobody is in it yet.</li>
+          <li><strong>Mister Just Looking</strong> — anyone with a gallery link. No sign-in, no account, no data collected. You open a link, you see photos, that's it. We have no clue who you are. Why not write in to say hello?</li>
+          <li><strong>Miss Can Touch</strong> — people who create and manage galleries. You sign in with Dropbox, you get up to three galleries, and we keep a small record of who you are so your galleries have a home.</li>
+          <li><strong>Lord Will Pay</strong> (coming soon) — same sign-in, no gallery limit, richer customisation. The account tier column in our database already has a slot for this, but nobody is in it yet.</li>
         </ol>
 
         <h2>If you're Just Looking: we collect nothing</h2>
@@ -68,7 +68,7 @@ export default createRoute((c) =>
         <p>If we change what we collect or how we use it, we'll update this page and bump the date at the top.</p>
 
         <h2>Contact</h2>
-        <p>For privacy questions or data deletion requests, reach us through the contact information on the manorama.xyz landing page.</p>
+        <p>For privacy questions, feel free to reach out to app developer <a href="https://thecontrarian.in/#contact">Mahesh Shantaram</a>.</p>
       </article>
     </main>,
     { title: 'Privacy Policy — manorama', description: 'Manorama does not collect data from gallery viewers. Editor accounts store only a Dropbox ID, name, and gallery metadata. No images are stored.' },
