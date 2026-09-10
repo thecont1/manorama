@@ -9,6 +9,9 @@ export default jsxRenderer(({ children, title, description, ogImage }) => (
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       <meta name="robots" content="noindex, nofollow, noarchive" />
       <meta name="theme-color" content="#0a0a0a" />
+      <link rel="icon" type="image/png" sizes="64x64" href="/manorama_64x64.png" />
+      <link rel="icon" type="image/png" sizes="256x256" href="/manorama_256x256.png" />
+      <link rel="apple-touch-icon" href="/manorama_256x256.png" />
       <Link href="/app/styles.css" rel="stylesheet" />
       <title>{title}</title>
       <meta property="og:site_name" content="manorama" />
