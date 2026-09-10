@@ -79,8 +79,8 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
 const recordToRow = (gallery: GalleryRecord): GalleryRow => ({
   slug: gallery.slug,
   title: gallery.title,
-  caption: gallery.caption || null,
-  date: gallery.date || null,
+  caption: gallery.caption ?? '',
+  date: gallery.date ?? '',
   source_url: gallery.sourceUrl ?? null,
   images_json: JSON.stringify(gallery.images),
   created_at: gallery.createdAt || new Date().toISOString(),
