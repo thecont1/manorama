@@ -50,6 +50,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [editing, setEditing] = useState<Editing>(null)
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const announce = (message: string) => {
+    setStatus(message)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setStatus(''), 5000)
+  }
+  // Flash messages survive the redirect that follows an owner-slug change.
+  const flashChecked = useRef(false)
+  if (!flashChecked.current && typeof sessionStorage !== 'undefined') {
+    flashChecked.current = true
+    const flash = sessionStorage.getItem('manorama-toast')
+    if (flash) { sessionStorage.removeItem('manorama-toast'); announce(flash) }
+  }
   const [busy, setBusy] = useState(false)
   const [ownerSlugEditing, setOwnerSlugEditing] = useState(false)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
@@ -64,7 +77,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const beginOwnerSlugEditing = () => {
     setOwnerSlugEditing(true)
     setOwnerSlugDraft(owner)
-    setStatus('')
+    announce('')
   }
 
   const cancelOwnerSlugEditing = () => {
@@ -78,7 +91,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const saveOwnerSlug = async () => {
     const value = ownerSlugDraft.trim().toLowerCase()
     if (value.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
-      setStatus('Use at least 3 lowercase letters, numbers, and single hyphens')
+      announce('Use at least 3 lowercase letters, numbers, and single hyphens')
       return
     }
     if (value === owner) {
@@ -87,7 +100,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     if (busy) return
     setBusy(true)
-    setStatus('Saving…')
+    announce('Saving…')
     try {
       const response = await fetch('/api/account', {
         method: 'PATCH',
@@ -96,9 +109,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       })
       const payload = await response.json() as { ownerSlug?: string; error?: string }
       if (!response.ok || !payload.ownerSlug) throw new Error(payload.error || 'That URL could not be saved')
+      sessionStorage.setItem('manorama-toast', `Your address is now manorama.xyz/${payload.ownerSlug}`)
       window.location.assign(`/${payload.ownerSlug}`)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'That URL could not be saved')
+      announce(error instanceof Error ? error.message : 'That URL could not be saved')
       setBusy(false)
     }
   }
@@ -106,7 +120,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
    const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
     if (busy) return
     setBusy(true)
-    setStatus('Saving order…')
+    announce('Saving order…')
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
         method: 'PATCH',
@@ -116,10 +130,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
       setGalleries((previous) => sortRecent(previous.map((item) => item.slug === payload.gallery!.slug ? payload.gallery! : item)))
-      setStatus('Order saved')
+      announce('Order saved')
     } catch (error) {
       setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? gallery : item))
-      setStatus(error instanceof Error ? error.message : 'That order could not be saved')
+      announce(error instanceof Error ? error.message : 'That order could not be saved')
     } finally {
       setBusy(false)
     }
@@ -207,7 +221,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const url = dropboxUrl.trim()
     if (!url) return
     setBusy(true)
-    setStatus("Manorama-fying…")
+    announce("Manorama-fying…")
     try {
       const response = await fetch("/api/galleries", {
         method: "POST",
@@ -216,14 +230,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok || !payload.gallery) {
-        if (response.status === 403) { setStatus(payload.error || "That gallery could not be added"); return }
+        if (response.status === 403) { announce(payload.error || "That gallery could not be added"); return }
         throw new Error(payload.error || "That gallery could not be added")
       }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
       setDropboxUrl("")
-      setStatus('Done! ' + payload.gallery.title + ' is at the top.')
+      announce('Done! ' + payload.gallery.title + ' is at the top.')
     } catch (error) {
-      setStatus(friendlyDropboxError(error))
+      announce(friendlyDropboxError(error))
     } finally {
       setBusy(false)
     }
@@ -231,7 +245,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const beginEditing = (gallery: GallerySummary, field: EditableField) => {
     setEditing({ slug: gallery.slug, field })
     setDraft(gallery[field])
-    setStatus('')
+    announce('')
   }
 
   const cancelEditing = () => {
@@ -244,16 +258,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const editingSlug = editing.slug
     const value = draft.trim()
     if (editing.field === 'title' && !value) {
-      setStatus('A gallery title cannot be empty')
+      announce('A gallery title cannot be empty')
       return
     }
     if (editing.field === 'slug' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
-      setStatus('Use lowercase letters, numbers, and single hyphens for the gallery URL')
+      announce('Use lowercase letters, numbers, and single hyphens for the gallery URL')
       return
     }
     saveEditingInFlight.current = true
     setBusy(true)
-    setStatus('Saving…')
+    announce('Saving…')
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(editing.slug)}`, {
         method: 'PATCH',
@@ -266,9 +280,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       setGalleries((previous) => sortRecent(previous.map((item) => item.slug === editingSlug ? payload.gallery! : item)))
       setEditing(null)
       setDraft('')
-      setStatus('Saved')
+      announce('Saved')
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'That change could not be saved')
+      announce(error instanceof Error ? error.message : 'That change could not be saved')
     } finally {
       saveEditingInFlight.current = false
       setBusy(false)
@@ -279,7 +293,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const address = `https://${galleryAddress(gallery.slug)}`
     try {
       await navigator.clipboard.writeText(address)
-      setStatus('Gallery link copied')
+      announce('Gallery link copied')
     } catch {
       const field = document.createElement('textarea')
       field.value = address
@@ -289,22 +303,22 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       field.select()
       document.execCommand('copy')
       field.remove()
-      setStatus('Gallery link copied')
+      announce('Gallery link copied')
     }
   }
 
   const removeGallery = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl || !window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
     setBusy(true)
-    setStatus('Removing gallery…')
+    announce('Removing gallery…')
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, { method: 'DELETE' })
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
       setGalleries((previous) => previous.filter((item) => item.slug !== gallery.slug))
-      setStatus('Gallery removed')
+      announce('Gallery removed')
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'That gallery could not be removed')
+      announce(error instanceof Error ? error.message : 'That gallery could not be removed')
     } finally {
       setBusy(false)
     }
@@ -313,7 +327,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const refreshGallery = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl) return
     setBusy(true)
-    setStatus(`Refreshing “${gallery.title}”…`)
+    announce(`Refreshing “${gallery.title}”…`)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, { method: 'POST' })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
@@ -321,9 +335,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       if (payload.gallery) {
         setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? payload.gallery! : item))
       }
-      setStatus(`“${gallery.title}” refreshed`)
+      announce(`“${gallery.title}” refreshed`)
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'That gallery could not be refreshed')
+      announce(error instanceof Error ? error.message : 'That gallery could not be refreshed')
     } finally {
       setBusy(false)
     }
@@ -386,7 +400,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">Sign out</button></form>
           </div>
         </div>
-        {status ? <div class="admin-header-meta"><span class="admin-status" role="status" aria-live="polite">{status}</span></div> : null}
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
@@ -429,6 +442,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
 
+      {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}
       <footer class="site-footer">
         <a class="site-footer-link" href="/privacy">Privacy Policy</a>
         <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
