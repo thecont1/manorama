@@ -5,7 +5,7 @@ const HEIC = /\.hei[cf]$/i
 const ALLOWED_HOSTS = new Set(['dropbox.com', 'www.dropbox.com'])
 
 type DropboxEnv = { DROPBOX_APP_KEY?: string; DROPBOX_APP_SECRET?: string }
-type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; path_display?: string; size?: number; media_info?: { metadata?: { dimensions?: { width?: number; height?: number } } } }
+type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?: number; media_info?: { metadata?: { dimensions?: { width?: number; height?: number } } } }
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
 type SharedLinkMetadata = { name?: string }
 
@@ -84,8 +84,10 @@ const thumbnailDimensions = async (sourceUrl: string, filename: string, env: Dro
 }
 
 const collectEntries = async (sourceUrl: string, env: DropboxEnv) => {
+  // Top-level of the shared folder only; subfolders are intentionally
+  // not descended into.
   const entries: DropboxEntry[] = []
-  let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true, recursive: true }, env)
+  let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true }, env)
   entries.push(...response.entries)
   while (response.has_more) response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env), entries.push(...response.entries)
   return entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name))
@@ -116,20 +118,17 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv): Promise
   const folderName = await sharedLinkName(sourceUrl, env)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   const images = await Promise.all(entries.map(async (entry, index) => {
-    // Nested files need their path relative to the shared folder root —
-    // `name` alone only covers top-level files.
-    const path = (entry.path_display || `/${entry.name}`).replace(/^\//, '')
-    const dimensions = await thumbnailDimensions(sourceUrl, path, env, entry.media_info?.metadata?.dimensions)
+    const dimensions = await thumbnailDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions)
     return {
       id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
       filename: entry.name,
-      src: HEIC.test(entry.name) ? previewProxy(sourceUrl, path) : originalProxy(sourceUrl, path),
+      src: HEIC.test(entry.name) ? previewProxy(sourceUrl, entry.name) : originalProxy(sourceUrl, entry.name),
       width: dimensions.width,
       height: dimensions.height,
       alt: filenameLabel(entry.name),
       c2pa: true,
       placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${dimensions.width} ${dimensions.height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
-      variants: [{ width: 256, src: thumbnailProxy(sourceUrl, path), format: 'jpeg' }],
+      variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
     } satisfies GalleryImage
   }))
   return { sourceUrl, title, images }
