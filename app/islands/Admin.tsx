@@ -356,7 +356,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     <main class="admin-page admin-page--selector">
       <header class="admin-header">
         <div>
-          <h1 class="admin-brand-title">manorama</h1>
+          <h1 class="admin-brand-title"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></h1>
           <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
           <div class="admin-owner-row">
             {ownerName ? <span class="admin-owner-name">{ownerName}</span> : null}
@@ -384,7 +384,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">Sign out</button></form>
           </div>
         </div>
-        <img class="admin-brand-mark" src="/manorama-logo-upright-test.png" alt="" aria-hidden="true" />
         {status ? <div class="admin-header-meta"><span class="admin-status" role="status" aria-live="polite">{status}</span></div> : null}
       </header>
 
@@ -421,6 +420,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </section>
 
       <p class="admin-privacy-note">Manorama reads only public shared Dropbox folders. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox.</p>
+      <footer class="site-footer">
+        <a class="site-footer-link" href="/privacy">Privacy Policy</a>
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
+      </footer>
     </main>
   )
 }

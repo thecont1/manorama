@@ -20,16 +20,18 @@ export default createRoute(async (c) => {
   return c.render(
     <main class="landing-page">
       <div class="landing-brand">
-        <img src="/manorama-logo-upright-test.png" alt="" aria-hidden="true" class="landing-brand-mark" />
-        <h1 class="landing-brand-title">manorama</h1>
+        <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
         <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         <a class="landing-signin" href="/auth/dropbox">
           <DropboxGlyph />
           Continue with Dropbox
         </a>
         {failed ? <p class="landing-note">Sign-in didn&rsquo;t complete. Please try again.</p> : null}
-        <a class="landing-privacy-link" href="/privacy">Privacy Policy</a>
       </div>
+      <footer class="site-footer">
+        <a class="site-footer-link" href="/privacy">Privacy Policy</a>
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
+      </footer>
     </main>,
     { title: 'manorama', description: 'A view that is delightful to the mind. The WOW-est way to enjoy a photo gallery with anyone!' },
   )

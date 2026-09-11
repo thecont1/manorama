@@ -147,7 +147,7 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: #f3f0e8; }
 
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; background: #111312; }
-.admin-page { min-height: 100dvh; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 72px; color: #f3f0e8; background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
+.admin-page { min-height: 100dvh; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 120px; color: #f3f0e8; background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
 .admin-header, .admin-form { width: min(1180px, 100%); margin: 0 auto; }
 .admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 36px; padding-bottom: clamp(48px, 8vw, 108px); }
 .admin-eyebrow, .admin-section-index, .admin-status, .admin-image-label code { margin: 0; color: rgba(243, 240, 232, .46); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .08em; text-transform: lowercase; }
@@ -373,9 +373,9 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 /* Brand hierarchy and logo marks */
 .admin-header { position: relative; }
 .admin-header .admin-brand-title { max-width: none; margin: 0 0 18px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; white-space: nowrap; }
-.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; }
+.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; }
+.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
-.admin-brand-mark { position: absolute; top: 20px; right: 0; width: clamp(200px, 22vw, 320px); height: auto; opacity: .92; }
 .control-logo { width: 144px; height: 80px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; opacity: .4; overflow: hidden; }
 .control-logo::before { display: none; }
 .control-logo img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: .9; }
@@ -383,7 +383,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .control-logo:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 4px; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
-  .admin-brand-mark { top: 8px; right: 0; width: 180px; }
+  .admin-brand-logo { width: min(300px, 80vw); }
 }
 
 /* Public curtain brand treatment */
@@ -417,7 +417,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   text-align: center;
 }
 .landing-brand-mark {
-  width: clamp(280px, 36vw, 460px);
+  width: clamp(340px, 44vw, 560px);
   height: auto;
   margin-bottom: clamp(32px, 5vw, 56px);
 }
@@ -434,19 +434,18 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   margin: 10px 0 0;
   font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif;
   font-size: 16px;
+  line-height: 1.5;
   font-weight: 300;
   font-style: normal;
   font-optical-sizing: auto;
   font-variation-settings: "wdth" 85, "wght" 300;
   letter-spacing: -.02em;
-  line-height: 1.15;
   text-transform: none;
 }
 .landing-brand-intro em { font-style: italic; }
 @media (max-width: 520px) {
   .landing-page { padding: 24px; }
-  .landing-brand-mark { width: 260px; }
-  .landing-brand-title { font-size: 96px; }
+  .landing-brand-mark { width: 300px; }
 }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
@@ -529,14 +528,31 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   color: rgba(243, 240, 232, .46);
   font-size: 12px;
 }
-.landing-privacy-link {
-  margin-top: 48px;
+/* Frozen footer: privacy left, copyright right — shared by landing + admin. */
+.site-footer {
+  position: fixed;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 14px clamp(20px, 4vw, 40px) max(14px, env(safe-area-inset-bottom));
+}
+.site-footer-link, .site-footer-copy, .site-footer-copy a {
+  margin: 0;
   color: rgba(243, 240, 232, .3);
   font-size: 12px;
+  font-weight: 400;
+  letter-spacing: .04em;
   text-decoration: none;
   transition: color 180ms ease;
 }
-.landing-privacy-link:hover, .landing-privacy-link:focus-visible {
+.site-footer-copy { font-style: italic; }
+.site-footer-link:hover, .site-footer-link:focus-visible,
+.site-footer-copy a:hover, .site-footer-copy a:focus-visible {
   color: rgba(243, 240, 232, .6);
 }
 
