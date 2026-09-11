@@ -289,10 +289,10 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .admin-row-action:hover, .admin-row-action:focus-visible { border-color: #fff; color: #fff; outline: none; }
 .admin-row-action--delete:hover, .admin-row-action--delete:focus-visible { border-color: rgba(255, 190, 180, .85); color: rgba(255, 210, 202, .94); }
 .admin-row-action:disabled { cursor: wait; opacity: .4; }
+.gallery-card-url-row { display: flex; align-items: center; gap: 14px; grid-column: 1 / -1; margin: 14px 0 18px; }
 .gallery-card-actions { min-width: 0; flex-wrap: wrap; }
 @media (max-width: 720px) {
   .gallery-card-actions { align-items: flex-start; gap: 12px 16px; }
-  .admin-gallery-url { flex-basis: 100%; }
 }
 
 /* Gallery ordering strip: a 150px, full-bleed editorial rail */
