@@ -400,7 +400,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; transform: translateX(-9.2%); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
-.control-logo { width: 144px; height: 80px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; opacity: .4; overflow: hidden; }
+.control-logo { width: 120px; height: 56px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; opacity: .4; overflow: hidden; }
 .control-logo::before { display: none; }
 .control-logo img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: .9; }
 .control-logo:hover, .control-logo:focus-visible { opacity: .85; border: 1px solid rgba(243, 240, 232, .9); background: rgba(10, 10, 10, .7); transform: translateX(-50%) scale(1.03); }
@@ -415,12 +415,12 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .curtain-caption {
   font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
 }
-.curtain-logo { width: clamp(180px, 24vw, 200px); height: auto; margin: 0 0 56px -18px; }
-.curtain h1 { max-width: 15ch; margin: 0 0 24px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; text-transform: lowercase; }
+.curtain-logo { display: block; width: clamp(196px, 27vw, 294px); height: auto; margin: 0 0 56px; transform: translateX(-9.2%) translateY(-150%); }
+.curtain h1 { max-width: 15ch; margin: 0 0 24px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; }
 .curtain-caption { max-width: 42ch; margin: 0; color: #f3f0e8; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: italic; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; text-transform: none; }
 @media (max-width: 640px) {
   .curtain h1 { font-size: 96px; }
-  .curtain-logo { width: 160px; }
+  .curtain-logo { width: min(196px, 78vw); }
 }
 
 /* Minimal public landing page */
