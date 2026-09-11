@@ -34,6 +34,15 @@ const slugify = (value: string) => value
 const FREE_GALLERY_LIMIT = 3
 const limitMessage = `You're using all ${FREE_GALLERY_LIMIT} of your galleries. Remove one to add another — or write to us about keeping more.`
 
+/** Typographic quotes on save: straight quotes typed into the editor come
+ *  out curly. Other special characters already pass through untouched. */
+const smartQuotes = (text: string) =>
+  text
+    .replace(/(^|[\s([{<])'/g, '$1\u2018')
+    .replace(/'/g, '\u2019')
+    .replace(/(^|[\s([{<])"/g, '$1\u201C')
+    .replace(/"/g, '\u201D')
+
 const streamResponse = (response: Response, cacheControl: string) => {
   const headers = new Headers()
   headers.set('Content-Type', response.headers.get('Content-Type') || 'application/octet-stream')
@@ -116,7 +125,7 @@ export const createManoramaApi = () => {
       for (let attempt = 0; ; attempt++) {
         const result = await createGalleryWithinLimit(session.dropboxAccountId, {
           slug,
-          title: scan.title,
+          title: smartQuotes(scan.title),
           caption: '',
           date: '',
           sourceUrl: scan.sourceUrl,
@@ -140,8 +149,8 @@ export const createManoramaApi = () => {
     // Body `slug` is intentionally not read: the URL slug is the resource
     // identity; a rename arrives only as `newSlug`.
     const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; newSlug?: string } => ({}))
-    const title = typeof payload.title === 'string' ? payload.title.trim().slice(0, 120) : undefined
-    const caption = typeof payload.caption === 'string' ? payload.caption.trim().slice(0, 500) : undefined
+    const title = typeof payload.title === 'string' ? smartQuotes(payload.title.trim().slice(0, 120)) : undefined
+    const caption = typeof payload.caption === 'string' ? smartQuotes(payload.caption.trim().slice(0, 500)) : undefined
     const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, 500) : undefined
     const nextSlug = typeof payload.newSlug === 'string' ? payload.newSlug.trim().toLowerCase() : undefined
     if (title !== undefined && !title) return c.json({ error: 'A gallery title cannot be empty' }, 400)

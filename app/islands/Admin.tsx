@@ -362,7 +362,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       return field === 'caption' ? <textarea class={`${className} is-editing`} rows={3} {...common} /> : <input class={`${className} is-editing`} type="text" {...common} />
     }
     const text = gallery[field] || (field === 'caption' ? 'Add a caption' : gallery.title)
-    const displayText = field === 'title' ? text.replace(/\b\w/g, (c) => c.toUpperCase()) : text
+    const displayText = text
     return <button type="button" class={`${className} editable-value${gallery[field] ? '' : ' is-empty'}`} aria-label={`Edit gallery ${field}: ${text}`} onClick={() => beginEditing(gallery, field)}>{displayText}</button>
   }
 
