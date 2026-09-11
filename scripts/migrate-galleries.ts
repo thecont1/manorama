@@ -1,6 +1,6 @@
 /**
- * One-time migration: Airtable galleries (plus the bundled italy-2018
- * fixture) into D1, owned by a single Dropbox account.
+ * One-time migration: Airtable galleries into D1, owned by a single
+ * Dropbox account.
  *
  *   bun scripts/migrate-galleries.ts <dropbox-account-id> [--dry-run]
  *
@@ -15,7 +15,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import manifest from '../app/lib/gallery-manifest'
+import type { GalleryImage } from '../app/lib/imagesource'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const DATABASE_ID =
@@ -25,7 +25,6 @@ const DATABASE_ID =
 const D1_QUERY_URL = (accountId: string) =>
   `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${DATABASE_ID}/query`
 
-type GalleryImage = typeof manifest.images[number]
 type GalleryRecord = {
   slug: string
   title: string
@@ -138,19 +137,9 @@ const main = async () => {
     .map((record) => recordFromFields(record.fields))
     .filter((gallery): gallery is GalleryRecord => (gallery?.images?.length ?? 0) > 0)
 
-  // 2. The bundled italy-2018 fixture, when Airtable does not carry it.
-  const bundled: GalleryRecord = {
-    slug: manifest.slug,
-    title: manifest.title,
-    caption: manifest.caption,
-    date: manifest.date,
-    images: manifest.images,
-  }
-  const galleries = airtableGalleries.some((gallery) => gallery.slug === bundled.slug)
-    ? airtableGalleries
-    : [bundled, ...airtableGalleries]
+  const galleries = airtableGalleries
 
-  console.log(`found ${airtableGalleries.length} Airtable galleries + ${galleries.length - airtableGalleries.length} bundled`)
+  console.log(`found ${galleries.length} Airtable galleries`)
   for (const gallery of galleries) {
     console.log(`  ${gallery.slug} — ${gallery.images.length} images`)
   }

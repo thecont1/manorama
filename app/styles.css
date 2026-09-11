@@ -249,7 +249,7 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 .admin-trash { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid rgba(243, 240, 232, .18); background: transparent; color: rgba(243, 240, 232, .54); font-size: 18px; line-height: 1; cursor: pointer; }
 .admin-trash:hover, .admin-trash:focus-visible { border-color: rgba(243, 240, 232, .78); color: #f3f0e8; outline: none; }
 .admin-trash:disabled { cursor: wait; opacity: .4; }
-.admin-privacy-note { width: min(1040px, 100%); margin: 0 auto; padding: 20px 0 40px; color: rgba(243, 240, 232, .36); font-size: 11px; line-height: 1.6; }
+.admin-privacy-note { max-width: 52ch; margin: 14px 0 0; color: rgba(243, 240, 232, .36); font-size: 11px; line-height: 1.6; }
 @media (max-width: 720px) {
   .gallery-import-form { grid-template-columns: 1fr; }
   .gallery-import-form .admin-button { width: 100%; }
@@ -373,7 +373,10 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 /* Brand hierarchy and logo marks */
 .admin-header { position: relative; }
 .admin-header .admin-brand-title { max-width: none; margin: 0 0 18px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; white-space: nowrap; }
-.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; }
+.admin-brand-form { margin: 0; }
+.admin-brand-logo-button { display: block; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.admin-brand-logo-button:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 6px; }
+.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; transform: translateX(-9.2%); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
 .control-logo { width: 144px; height: 80px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; opacity: .4; overflow: hidden; }
@@ -564,6 +567,12 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
   gap: 14px;
   margin-top: 22px;
 }
+.admin-greeting {
+  margin: 26px 0 0;
+  color: rgba(243, 240, 232, .82);
+  font-size: 13px;
+  letter-spacing: -.01em;
+}
 .admin-owner-name {
   color: rgba(243, 240, 232, .82);
   font-size: 13px;
@@ -619,6 +628,8 @@ body:has(.admin-page) { overflow: auto; background: #111312; }
 }
 .admin-signout:hover, .admin-signout:focus-visible { color: #fff; border-color: rgba(243, 240, 232, .78); outline: none; }
 .admin-limit-count {
+  display: block;
+  margin: -18px 0 26px;
   color: rgba(243, 240, 232, .46);
   font-family: 'DM Mono', ui-monospace, monospace;
   font-size: 10px;

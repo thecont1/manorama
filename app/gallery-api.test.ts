@@ -20,14 +20,21 @@ beforeAll(async () => {
   cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
   api = createManoramaApi()
 
-  // Seed a runtime gallery (no DB binding -> in-memory store) with a slug
-  // distinct from the bundled italy-2018 fixture, which always resolves.
+  // Seed a runtime gallery (no DB binding -> in-memory store) plus a second
+  // one that serves as a guaranteed slug-collision target.
   await createGallery(TEST_OWNER.dropboxAccountId, {
     slug: 'test-gallery',
     title: 'Test Gallery',
     caption: '',
     date: '',
     createdAt: '2026-09-04T00:00:00.000Z',
+    images: [],
+  })
+  await createGallery(TEST_OWNER.dropboxAccountId, {
+    slug: 'test-other',
+    title: 'Other Gallery',
+    caption: '',
+    date: '',
     images: [],
   })
 })
@@ -65,9 +72,8 @@ describe('slug rename contract', () => {
   })
 
   test('renaming onto an existing slug reports a collision', async () => {
-    // The bundled italy-2018 fixture always resolves, so it is a guaranteed
-    // collision target in the local runtime store.
-    const response = await patch('test-renamed', { newSlug: 'italy-2018' })
+    // The seeded test-other gallery is a guaranteed collision target.
+    const response = await patch('test-renamed', { newSlug: 'test-other' })
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual({ error: 'That gallery URL is already in use' })
   })

@@ -9,7 +9,7 @@ import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
 import indexPage from './routes/index'
 import { resetUserStore } from './lib/user-repository'
-import { resetGalleryStore } from './lib/gallery-repository'
+import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 
 /** honox's createApp runs every request inside this context store; route
@@ -27,6 +27,13 @@ beforeAll(async () => {
   resetGalleryStore()
   await seedTestUser()
   cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
+  await createGallery(TEST_OWNER.dropboxAccountId, {
+    slug: 'test-gallery',
+    title: 'Test Gallery',
+    caption: '',
+    date: '',
+    images: [{ id: 'test-1', filename: 'test-1.jpg', src: '/images/test-1.jpg', width: 1200, height: 800, alt: 'test image', c2pa: false, placeholder: '' }],
+  })
 })
 
 const authed = (init: RequestInit = {}): RequestInit => ({
@@ -80,9 +87,7 @@ describe('gallery management API authentication', () => {
     const response = await request(api(), '/api/galleries', authed())
     expect(response.status).toBe(200)
     const payload = await response.json() as { galleries?: { slug: string }[] }
-    // The bundled italy-2018 fixture resolves for every owner in the
-    // in-memory fallback.
-    expect(payload.galleries?.some((gallery) => gallery.slug === 'italy-2018')).toBe(true)
+    expect(payload.galleries?.some((gallery) => gallery.slug === 'test-gallery')).toBe(true)
   })
 
   test('a valid session reaches the scan validation handler', async () => {
@@ -199,7 +204,7 @@ describe('public gallery pages stay public', () => {
     app.use(honoxContext)
     app.use(renderer)
     mountRoute(app, '/:owner/:slug', viewerPage)
-    const response = await app.request('/test-owner/italy-2018', undefined, env)
+    const response = await app.request('/test-owner/test-gallery', undefined, env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()

@@ -1,6 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import type { GalleryImage, GalleryManifest } from './imagesource'
-import manifest from './gallery-manifest'
 
 /**
  * Gallery storage. Every gallery belongs to exactly one owner (a Dropbox
@@ -9,8 +8,7 @@ import manifest from './gallery-manifest'
  * the owner first: /<owner_slug>/<gallery_slug>.
  *
  * D1 is the production store. Without the DB binding (vite dev, tests)
- * an in-memory store is used, where the bundled italy-2018 fixture
- * resolves for every owner so the dev server has content to show.
+ * an in-memory store is used.
  */
 
 export type GalleryRecord = GalleryManifest & {
@@ -29,16 +27,6 @@ type GalleryRow = {
 }
 
 export type GalleryEnv = { DB?: D1Database }
-
-const cloneImages = (images: readonly GalleryImage[]) => images.map((image) => ({
-  ...image,
-  variants: image.variants ? [...image.variants] : undefined,
-}))
-
-export const bundledGallery: GalleryRecord = {
-  ...manifest,
-  images: cloneImages(manifest.images),
-}
 
 const runtimeGalleries = new Map<string, Map<string, GalleryRecord>>()
 
@@ -103,10 +91,7 @@ export const listGalleries = async (ownerId: string, env?: GalleryEnv): Promise<
       .filter((item): item is GalleryRecord => (item?.images?.length ?? 0) > 0)
     return sortRecent(external)
   }
-  const store = ownerStore(ownerId)
-  const merged = new Map<string, GalleryRecord>([[bundledGallery.slug, bundledGallery]])
-  store.forEach((gallery) => merged.set(gallery.slug, gallery))
-  return sortRecent([...merged.values()])
+  return sortRecent([...ownerStore(ownerId).values()])
 }
 
 export const getGallery = async (ownerId: string, slug: string, env?: GalleryEnv): Promise<GalleryRecord | null> => {
@@ -118,8 +103,7 @@ export const getGallery = async (ownerId: string, slug: string, env?: GalleryEnv
     const external = rowToRecord(row)
     return external && external.images.length > 0 ? external : null
   }
-  const runtime = ownerStore(ownerId).get(slug) ?? null
-  return runtime ?? (slug === bundledGallery.slug ? bundledGallery : null)
+  return ownerStore(ownerId).get(slug) ?? null
 }
 
 export const createGallery = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv): Promise<GalleryRecord> => {
@@ -289,9 +273,6 @@ export const updateGalleryOrder = async (ownerId: string, slug: string, order: s
 const previewImages = (images: readonly GalleryImage[]) => images.map(({ id, filename, src, width, height, alt, placeholder, variants }) => ({ id, filename, src, width, height, alt, placeholder, variants }))
 
 export const deleteGallery = async (ownerId: string, slug: string, env?: GalleryEnv, options?: { force?: boolean }): Promise<boolean> => {
-  // The bundled fixture is dev-only content and can never be deleted; the
-  // guard applies only to the in-memory fallback where it resolves.
-  if (!options?.force && !d1Configured(env) && slug === bundledGallery.slug) return false
   if (d1Configured(env)) {
     const result = await env.DB
       .prepare('DELETE FROM galleries WHERE owner_id = ? AND slug = ?')
@@ -310,8 +291,6 @@ export const countGalleries = async (ownerId: string, env?: GalleryEnv): Promise
       .first<{ count: number }>()
     return row?.count ?? 0
   }
-  // The bundled fixture is dev-only content and never counts against a
-  // real owner's limit; only explicitly created galleries do.
   return ownerStore(ownerId).size
 }
 

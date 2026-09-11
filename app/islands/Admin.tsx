@@ -356,10 +356,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     <main class="admin-page admin-page--selector">
       <header class="admin-header">
         <div>
-          <h1 class="admin-brand-title"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></h1>
+          <form method="post" action="/auth/logout" class="admin-brand-form">
+            <h1 class="admin-brand-title"><button type="submit" class="admin-brand-logo-button" aria-label="Sign out and return to the homepage" title="Sign out"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></button></h1>
+          </form>
           <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+          <p class="admin-greeting">Hello {ownerName}, welcome to manorama.xyz/{owner}</p>
           <div class="admin-owner-row">
-            {ownerName ? <span class="admin-owner-name">{ownerName}</span> : null}
             {ownerSlugEditing ? (
               <span class="admin-owner-slug-edit">
                 <input
@@ -388,11 +390,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
-        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2><span class="admin-limit-count" aria-label={`${galleries.filter((gallery) => gallery.sourceUrl).length} of ${FREE_GALLERY_LIMIT} galleries used`}>{galleries.filter((gallery) => gallery.sourceUrl).length} of {FREE_GALLERY_LIMIT}</span></div>
+        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2></div>
+        {(() => {
+          const used = galleries.length
+          const remaining = Math.max(0, FREE_GALLERY_LIMIT - used)
+          const have = used === 0 ? 'You have no galleries.' : `You have ${used} ${used === 1 ? 'gallery' : 'galleries'}.`
+          const can = remaining === 0 ? 'You have reached the limit.' : `You can add ${remaining} more.`
+          return <p class="admin-limit-count" aria-live="polite">{have} {can}</p>
+        })()}
         <form class="gallery-import-form" onSubmit={addGallery}>
           <label class="admin-field"><span>Public Dropbox folder URL</span><input type="url" value={dropboxUrl} placeholder="https://www.dropbox.com/scl/fo/..." onInput={(event) => { setDropboxUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
+        <p class="admin-privacy-note">Manorama reads only public shared Dropbox folders. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox.</p>
       </section>
 
       {/* Pinned Vendo generated view — a dense inventory/health table authored
@@ -401,7 +411,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           hono/jsx island free of React; with no pin saved the section is
           simply absent below the heading. */}
       <section class="gallery-inventory" aria-label="Gallery inventory (generated view)">
-        <div class="gallery-selector-heading"><h2 id="inventory-heading">Gallery inventory</h2></div>
         <div id="vendo-slot-gallery-inventory" />
       </section>
 
@@ -419,7 +428,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
 
-      <p class="admin-privacy-note">Manorama reads only public shared Dropbox folders. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox.</p>
       <footer class="site-footer">
         <a class="site-footer-link" href="/privacy">Privacy Policy</a>
         <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
