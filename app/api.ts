@@ -210,9 +210,10 @@ export const createManoramaApi = () => {
   api.get('/api/dropbox/thumbnail', async (c) => {
     const sourceUrl = c.req.query('sourceUrl')
     const filename = c.req.query('filename')
+    const size = c.req.query('size') === 'w2048h2048' ? 'w2048h2048' as const : 'w256h256' as const
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
-      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c)), 'private, max-age=300')
+      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), size), 'private, max-age=300')
     } catch {
       return c.json({ error: 'That Dropbox thumbnail is unavailable' }, 404)
     }
