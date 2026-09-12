@@ -602,7 +602,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         ) : null}
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance}><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /></button>
+      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
 
       <div
         ref={modalRef}

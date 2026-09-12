@@ -30,7 +30,7 @@ export default createRoute(async (c) => {
         aria-label="Enter gallery"
       >
         <div class="curtain-content">
-          <img src="/manorama-merged-logo.png" alt="" aria-hidden="true" class="curtain-logo" />
+          <span class="brand-mark-wrap curtain-logo-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" class="curtain-logo" /><span class="brand-tld" aria-hidden="true">.xyz</span></span>
           <h1 data-curtain-title>{settings.title}</h1>
           <p class="curtain-caption" data-curtain-caption>{settings.caption}</p>
         </div>

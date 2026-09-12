@@ -398,7 +398,8 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-brand-form { margin: 0; }
 .admin-brand-logo-button { display: block; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .admin-brand-logo-button:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 6px; }
-.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; transform: translateX(-9.2%); }
+.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; }
+.admin-brand-logo-button .brand-mark-wrap { transform: translateX(-9.2%); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
 .control-logo { width: 120px; height: 56px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; opacity: .4; overflow: hidden; }
@@ -416,13 +417,15 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .curtain-caption {
   font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
 }
-.curtain-logo { display: block; width: clamp(196px, 27vw, 294px); height: auto; margin: 0 0 56px; transform: translateX(-9.2%) translateY(-150%); }
+.curtain-logo { display: block; width: clamp(196px, 27vw, 294px); height: auto; }
+.curtain-logo-wrap { margin: 0 0 56px; transform: translateX(-9.2%) translateY(-150%); }
 .curtain h1 { max-width: 15ch; margin: 0 0 24px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; }
 .curtain-caption { max-width: 42ch; margin: 0; color: #f3f0e8; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 24px; font-weight: 300; font-style: italic; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.15; text-transform: none; }
 @media (max-width: 640px) {
   .curtain-content { text-align: center; transform: none; }
   .curtain h1 { max-width: none; margin: 0 0 18px; font-size: clamp(34px, 11vw, 56px); line-height: 1.05; }
-  .curtain-logo { width: min(220px, 64vw); margin: 0 auto 36px; transform: none; }
+  .curtain-logo { width: min(220px, 64vw); }
+  .curtain-logo-wrap { display: block; margin: 0 auto 36px; transform: none; width: fit-content; }
   .curtain-caption { margin-left: auto; margin-right: auto; font-size: 20px; }
 }
 
@@ -475,6 +478,22 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .landing-page { padding: 24px; }
   .landing-brand-mark { width: 300px; }
 }
+
+/* ".xyz" badge under the merged wordmark — keeps the TLD memorable. */
+.brand-mark-wrap { position: relative; display: inline-block; }
+.brand-tld {
+  position: absolute;
+  right: 2.5%;
+  bottom: -0.75em;
+  color: rgba(243, 240, 232, .58);
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(12px, 1.6vw, 17px);
+  font-weight: 600;
+  letter-spacing: .01em;
+  pointer-events: none;
+}
+.control-logo .brand-tld { right: 6px; bottom: 1px; font-size: 7px; font-weight: 500; }
+.curtain-logo-wrap .brand-tld { font-size: 13px; }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }

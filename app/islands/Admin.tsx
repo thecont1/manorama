@@ -373,7 +373,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       <header class="admin-header">
         <div>
           <form method="post" action="/auth/logout" class="admin-brand-form">
-            <h1 class="admin-brand-title"><button type="submit" class="admin-brand-logo-button" aria-label="Sign out and return to the homepage" title="Sign out"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></button></h1>
+            <h1 class="admin-brand-title"><button type="submit" class="admin-brand-logo-button" aria-label="Sign out and return to the homepage" title="Sign out"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button></h1>
           </form>
           <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
           <div class="admin-greeting">

@@ -20,7 +20,7 @@ export default createRoute(async (c) => {
   return c.render(
     <main class="landing-page">
       <div class="landing-brand">
-        <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
+        <span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" /><span class="brand-tld" aria-hidden="true">.xyz</span></span>
         <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         <a class="landing-signin" href="/auth/dropbox">
           <DropboxGlyph />
