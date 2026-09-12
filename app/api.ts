@@ -16,6 +16,8 @@ export type RuntimeEnv = {
   VENDO_CONSOLE_URL?: string
   VENDO_BASE_URL?: string
   VENDO_SERVICE_KEY?: string
+  VENDO_MCP_BROKER_URL?: string
+  VENDO_MCP_FEDERATION_SECRET?: string
   HOST_API_JWT_SECRET?: string
 }
 

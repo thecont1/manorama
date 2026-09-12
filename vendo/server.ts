@@ -13,6 +13,7 @@
  * (credential forwarding fails closed without it — vendo doctor checks).
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { canonicalUri } from "@vendoai/mcp";
 import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore, type HostAuthPreset } from "@vendoai/vendo/server";
 import { resolveManoramaSession, type SessionEnv } from "../app/lib/dropbox-session";
 import { vendoProfile } from "./profile";
@@ -26,6 +27,8 @@ export interface VendoEnv extends SessionEnv {
   VENDO_API_KEY?: string;
   VENDO_CONSOLE_URL?: string;
   VENDO_BASE_URL?: string;
+  VENDO_MCP_BROKER_URL?: string;
+  VENDO_MCP_FEDERATION_SECRET?: string;
 }
 
 let vendo: ReturnType<typeof createVendo> | null = null;
@@ -70,6 +73,12 @@ function getVendo(env: VendoEnv = {}) {
     // The VENDO CONSOLE's origin — not your app's. Your app's public URL is VENDO_BASE_URL.
     const consoleUrl = (env.VENDO_CONSOLE_URL ?? hostEnv.VENDO_CONSOLE_URL ?? "https://console.vendo.run").replace(/\/+$/, "");
     const cloud = apiKey === undefined || apiKey === "" ? undefined : { apiKey, baseUrl: consoleUrl };
+    // The env pair Vendo reads via process.env (invisible to workerd) is
+    // passed explicitly: VENDO_MCP_BROKER_URL fronts the MCP door with the
+    // hosted broker, VENDO_MCP_FEDERATION_SECRET answers its signed
+    // login handshake.
+    const brokerUrl = env.VENDO_MCP_BROKER_URL ?? hostEnv.VENDO_MCP_BROKER_URL;
+    const federationSecret = env.VENDO_MCP_FEDERATION_SECRET ?? hostEnv.VENDO_MCP_FEDERATION_SECRET;
     vendo = createVendo({
       // Verify Manorama's trusted bearer session. Anonymous, malformed,
       // expired, or mis-signed sessions resolve to null and Vendo refuses
@@ -85,6 +94,12 @@ function getVendo(env: VendoEnv = {}) {
         },
       }),
       tools: vendoProfile.tools,
+      ...(brokerUrl === undefined ? {} : {
+        mcp: {
+          remoteAs: { issuer: new URL(brokerUrl).origin, audience: canonicalUri(brokerUrl) },
+          ...(federationSecret === undefined ? {} : { federation: { secret: federationSecret } }),
+        },
+      }),
       // The bundled .vendo profile — every surface the composition would
       // otherwise read from disk (theme, brief, catalog, overrides, policy)
       // arrives in memory, valid on runtimes with no filesystem.
