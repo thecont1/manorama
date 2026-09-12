@@ -13,6 +13,7 @@ export default jsxRenderer(({ children, title, description, ogImage }, c) => {
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       <meta name="robots" content="noindex, nofollow, noarchive" />
       <meta name="theme-color" content="#0a0a0a" />
+      <link rel="icon" href="/favicon.ico" sizes="any" />
       <link rel="icon" type="image/png" sizes="64x64" href="/manorama_64x64.png" />
       <link rel="icon" type="image/png" sizes="256x256" href="/manorama_256x256.png" />
       <link rel="apple-touch-icon" href="/manorama_256x256.png" />
