@@ -493,7 +493,7 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   pointer-events: none;
 }
 .control-logo .brand-tld { right: 6px; bottom: 1px; font-size: 7px; font-weight: 500; }
-.curtain-logo-wrap .brand-tld { font-size: 13px; }
+.curtain-logo-wrap .brand-tld { right: 8.39%; bottom: -0.35em; color: #f3f0e8; font-size: 18px; font-weight: 800; }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }
