@@ -15,6 +15,11 @@ export type DropboxOauthEnv = {
 
 export const OAUTH_STATE_COOKIE = 'manorama_oauth_state'
 
+/** Optional post-login destination, set alongside the state cookie by
+ * /auth/dropbox?next=… (e.g. the Vendo MCP door's returnTo) and consumed
+ * by the callback. Same-origin only — verified at use time. */
+export const OAUTH_NEXT_COOKIE = 'manorama_oauth_next'
+
 export type DropboxAccount = {
   dropboxAccountId: string
   displayName: string

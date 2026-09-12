@@ -1,6 +1,6 @@
 import { createRoute } from 'honox/factory'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { callbackUrl, fetchDropboxAccount, OAUTH_STATE_COOKIE } from '../../../lib/dropbox-oauth'
+import { callbackUrl, fetchDropboxAccount, OAUTH_NEXT_COOKIE, OAUTH_STATE_COOKIE } from '../../../lib/dropbox-oauth'
 import { upsertUser } from '../../../lib/user-repository'
 import { accessEnvOf, createSessionToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../../../lib/dropbox-session'
 
@@ -27,6 +27,13 @@ export default createRoute(async (c) => {
       path: '/',
       maxAge: SESSION_TTL_SECONDS,
     })
+    const next = getCookie(c, OAUTH_NEXT_COOKIE)
+    deleteCookie(c, OAUTH_NEXT_COOKIE, { path: '/' })
+    if (next) {
+      try {
+        if (new URL(next).origin === url.origin) return c.redirect(next)
+      } catch { /* fall through to the dashboard */ }
+    }
     return c.redirect(`/${user.ownerSlug}`)
   } catch {
     return c.redirect('/?error=1')

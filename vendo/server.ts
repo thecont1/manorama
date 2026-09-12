@@ -16,6 +16,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { canonicalUri } from "@vendoai/mcp";
 import { cloudConnections, cloudSandbox, cloudTools, createVendo, guard, hostedStore, type HostAuthPreset } from "@vendoai/vendo/server";
 import { resolveManoramaSession, type SessionEnv } from "../app/lib/dropbox-session";
+import { getUserByDropboxId } from "../app/lib/user-repository";
 import { vendoProfile } from "./profile";
 
 // The profile is BUNDLED at build time (vendo/profile.ts) — Cloudflare
@@ -59,6 +60,23 @@ export function createVendoAuth(env: VendoEnv = {}): HostAuthPreset {
     facts: async (request) => {
       const resolved = await session(request);
       return resolved?.email === undefined ? undefined : { email: resolved.email };
+    },
+    // The MCP door's host-identity seam: a signed-in Manorama session maps to
+    // its `dropbox:<id>` subject; a request without one is sent through the
+    // Dropbox login and returned to the door's authorization URL via `next`.
+    oauth: {
+      session: async (request, ctx) => {
+        const resolved = await session(request);
+        if (resolved) return { subject: resolved.id };
+        const login = new URL("/auth/dropbox", request.url);
+        login.searchParams.set("next", ctx.returnTo);
+        return Response.redirect(login.toString(), 302);
+      },
+      principal: async (subject) => {
+        const dropboxAccountId = subject.startsWith("dropbox:") ? subject.slice("dropbox:".length) : subject;
+        const user = await getUserByDropboxId(dropboxAccountId, sessionEnv);
+        return user ? { kind: "user", subject } : null;
+      },
     },
   };
 }
