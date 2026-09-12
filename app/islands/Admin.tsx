@@ -64,8 +64,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (flash) { sessionStorage.removeItem('manorama-toast'); announce(flash) }
   }
   const [busy, setBusy] = useState(false)
-  const [ownerSlugEditing, setOwnerSlugEditing] = useState(false)
-  const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
+  const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
@@ -74,15 +73,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const galleryPath = (slug: string) => `/${owner}/${slug}`
   const galleryAddress = (slug: string) => `${publicHost}${galleryPath(slug)}`
 
-  const beginOwnerSlugEditing = () => {
-    setOwnerSlugEditing(true)
-    setOwnerSlugDraft(owner)
-    announce('')
-  }
-
   const cancelOwnerSlugEditing = () => {
-    setOwnerSlugEditing(false)
-    setOwnerSlugDraft('')
+    setOwnerSlugDraft(owner)
   }
 
   /** Changes the owner URL and follows the dashboard to its new address.
@@ -348,7 +340,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (isEditing) {
       const common = {
         value: draft,
-        autofocus: true,
+        ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+          if (!el || el === document.activeElement) return
+          el.focus()
+          el.setSelectionRange(el.value.length, el.value.length)
+        },
         'aria-label': `Edit gallery ${field}`,
         disabled: busy,
         onInput: (event: Event) => setDraft((event.target as HTMLInputElement | HTMLTextAreaElement).value),
@@ -374,30 +370,22 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <h1 class="admin-brand-title"><button type="submit" class="admin-brand-logo-button" aria-label="Sign out and return to the homepage" title="Sign out"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></button></h1>
           </form>
           <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-          <p class="admin-greeting">Hello {ownerName}, welcome to manorama.xyz/{owner}</p>
-          <div class="admin-owner-row">
-            {ownerSlugEditing ? (
-              <span class="admin-owner-slug-edit">
-                <input
-                  class="admin-owner-slug-input"
-                  type="text"
-                  value={ownerSlugDraft}
-                  autoFocus
-                  disabled={busy}
-                  aria-label="Your URL"
-                  onInput={(event) => setOwnerSlugDraft((event.target as HTMLInputElement).value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') cancelOwnerSlugEditing()
-                    if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
-                  }}
-                  onBlur={() => { void saveOwnerSlug() }}
-                />
-                <span class="admin-owner-slug-note">Your gallery links will change with it.</span>
-              </span>
-            ) : (
-              <button type="button" class="admin-owner-slug" title="Change your URL" aria-label={`Change your URL, currently /${owner}`} onClick={beginOwnerSlugEditing}>/{owner}</button>
-            )}
-            <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">Sign out</button></form>
+          <div class="admin-greeting">
+            <p class="admin-greeting-url">manorama.xyz/<input
+              class="admin-owner-slug-input"
+              type="text"
+              value={ownerSlugDraft}
+              disabled={busy}
+              aria-label="Your URL — edit to change your address"
+              spellcheck={false}
+              onInput={(event) => setOwnerSlugDraft((event.target as HTMLInputElement).value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') cancelOwnerSlugEditing()
+                if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
+              }}
+              onBlur={() => { void saveOwnerSlug() }}
+            /></p>
+            <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
           </div>
         </div>
       </header>
@@ -416,15 +404,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
         <p class="admin-privacy-note">Manorama reads only public shared Dropbox folders. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox.</p>
-      </section>
-
-      {/* Pinned Vendo generated view — a dense inventory/health table authored
-          in the conversation and pinned here. The React VendoSlot mounts into
-          this placeholder from app/vendo-client.tsx (portal), keeping the
-          hono/jsx island free of React; with no pin saved the section is
-          simply absent below the heading. */}
-      <section class="gallery-inventory" aria-label="Gallery inventory (generated view)">
-        <div id="vendo-slot-gallery-inventory" />
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">
