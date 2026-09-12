@@ -12,7 +12,7 @@ export type UserRecord = {
   ownerSlug: string
   displayName: string
   email?: string
-  tier: 'free'
+  tier: 'free' | 'pro'
 }
 
 export type UserRepositoryEnv = { DB?: D1Database }
@@ -35,7 +35,7 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
     dropboxAccountId: row.dropbox_account_id,
     ownerSlug: row.owner_slug as string,
     displayName: row.display_name as string,
-    tier: 'free',
+    tier: row.tier === 'pro' ? 'pro' : 'free',
   }
   if (typeof row.email === 'string' && row.email.length > 0) user.email = row.email
   return user

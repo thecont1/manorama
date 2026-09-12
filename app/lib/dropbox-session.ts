@@ -26,7 +26,7 @@ export type ManoramaSession = {
   ownerSlug: string
   name: string
   email?: string
-  tier: 'free'
+  tier: 'free' | 'pro'
 }
 
 export type SessionEnv = {

@@ -55,7 +55,8 @@ export function createVendoAuth(env: VendoEnv = {}): HostAuthPreset {
   return {
     principal: async (request) => {
       const resolved = await session(request);
-      return resolved === null ? null : { kind: "user", subject: resolved.id };
+      // Ask Manu is a pro-tier feature; free sessions get no principal.
+      return resolved === null || resolved.tier !== "pro" ? null : { kind: "user", subject: resolved.id };
     },
     facts: async (request) => {
       const resolved = await session(request);
@@ -75,7 +76,7 @@ export function createVendoAuth(env: VendoEnv = {}): HostAuthPreset {
       principal: async (subject) => {
         const dropboxAccountId = subject.startsWith("dropbox:") ? subject.slice("dropbox:".length) : subject;
         const user = await getUserByDropboxId(dropboxAccountId, sessionEnv);
-        return user ? { kind: "user", subject } : null;
+        return user && user.tier === "pro" ? { kind: "user", subject } : null;
       },
     },
   };

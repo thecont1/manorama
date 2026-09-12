@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { VendoOverlay, VendoProvider } from '@vendoai/vendo/react'
 import theme from '../.vendo/theme.json'
@@ -9,39 +9,72 @@ import theme from '../.vendo/theme.json'
 // and no client-supplied subject is ever trusted — the wire verifies the
 // Access session server-side and fails closed without one.
 const container = document.getElementById('vendo-root')
+const isPro = container?.dataset.tier === 'pro'
+
+// Free-tier stand-in for the Vendo launcher: the same orb styling, but it
+// opens a small upgrade note instead of the chat overlay. The server also
+// refuses free principals, so this is presentation only.
+const UpgradeOrb = () => {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        className="fl-launcher manu-orb"
+        aria-label="Ask Manu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      />
+      {open && (
+        <div className="manu-upgrade" role="status">
+          <p><strong>Ask Manu</strong> is part of Manorama Pro — your gallery assistant that can inspect, organize, and maintain your galleries for you.</p>
+          <p>Write to <a href="mailto:mahesh@thecontrarian.in">mahesh@thecontrarian.in</a> to upgrade.</p>
+        </div>
+      )}
+    </>
+  )
+}
+
 if (container) {
   createRoot(container).render(
     <StrictMode>
-      <VendoProvider baseUrl="/api/vendo" theme={theme}>
-        <VendoOverlay launcher={{ position: 'bottom-right', label: null }} />
-      </VendoProvider>
+      {isPro ? (
+        <VendoProvider baseUrl="/api/vendo" theme={theme}>
+          <VendoOverlay launcher={{ position: 'bottom-right', label: null }} />
+        </VendoProvider>
+      ) : (
+        <UpgradeOrb />
+      )}
     </StrictMode>,
   )
 
   // The bare launcher (label: null) keeps the custom "ask Manu" orb styling,
   // but its default accessible name is "AI agent". Restore the "Ask Manu"
   // name with a BOUNDED fixer: the observer disconnects the moment the label
-  // is set, instead of observing the DOM forever.
-  const fixLauncherLabel = (): boolean => {
-    const launcher = document.querySelector<HTMLButtonElement>('[data-vendo-launcher]')
-    if (!launcher) return false
-    if (launcher.getAttribute('aria-label') !== 'Ask Manu') {
-      launcher.setAttribute('aria-label', 'Ask Manu')
+  // is set, instead of observing the DOM forever. Pro tier only — the free
+  // orb is our own button and needs no fixer.
+  if (isPro) {
+    const fixLauncherLabel = (): boolean => {
+      const launcher = document.querySelector<HTMLButtonElement>('[data-vendo-launcher]')
+      if (!launcher) return false
+      if (launcher.getAttribute('aria-label') !== 'Ask Manu') {
+        launcher.setAttribute('aria-label', 'Ask Manu')
+      }
+      return true
     }
-    return true
-  }
-  if (!fixLauncherLabel()) {
-    const observer = new MutationObserver(() => {
-      if (fixLauncherLabel()) observer.disconnect()
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-  }
+    if (!fixLauncherLabel()) {
+      const observer = new MutationObserver(() => {
+        if (fixLauncherLabel()) observer.disconnect()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    }
 
-  // A Cloudflare Access sign-in normally remounts the whole page. When it
-  // happens without a reload (re-authentication in another tab, then focus
-  // returns here), announce it so Vendo's identity latch re-opens and its
-  // pollers quietly re-check instead of staying signed-out until refresh.
-  window.addEventListener('focus', () => {
-    window.dispatchEvent(new Event('vendo:identity-changed'))
-  })
+    // A Cloudflare Access sign-in normally remounts the whole page. When it
+    // happens without a reload (re-authentication in another tab, then focus
+    // returns here), announce it so Vendo's identity latch re-opens and its
+    // pollers quietly re-check instead of staying signed-out until refresh.
+    window.addEventListener('focus', () => {
+      window.dispatchEvent(new Event('vendo:identity-changed'))
+    })
+  }
 }

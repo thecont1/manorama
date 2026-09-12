@@ -32,8 +32,9 @@ const slugify = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
 
-/** Everyone is on the free tier today; the check is one seam. */
+/** Free tier caps at 3 galleries; pro is unlimited. The check is one seam. */
 const FREE_GALLERY_LIMIT = 3
+const galleryLimit = (tier: 'free' | 'pro') => tier === 'pro' ? Number.MAX_SAFE_INTEGER : FREE_GALLERY_LIMIT
 const limitMessage = `You're using all ${FREE_GALLERY_LIMIT} of your galleries. Remove one to add another — or write to us about keeping more.`
 
 /** Typographic quotes on save: straight quotes typed into the editor come
@@ -96,7 +97,7 @@ export const createManoramaApi = () => {
     try {
       // Best-effort fast reject at the limit; the atomic check below is
       // the real guard against concurrent requests.
-      if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= FREE_GALLERY_LIMIT) {
+      if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= galleryLimit(session.tier)) {
         return c.json({ error: limitMessage }, 403)
       }
       const scan = await scanDropboxFolder(payload.url, envOf(c))
@@ -133,7 +134,7 @@ export const createManoramaApi = () => {
           sourceUrl: scan.sourceUrl,
           createdAt: new Date().toISOString(),
           images: orderedImages,
-        }, FREE_GALLERY_LIMIT, dbEnv(c))
+        }, galleryLimit(session.tier), dbEnv(c))
         if (result.ok) return c.json({ gallery: toSummary(result.gallery) }, 201)
         if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
         if (result.reason === 'duplicate-source') return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)

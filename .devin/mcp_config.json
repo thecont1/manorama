@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "workhorse": {
+      "url": "https://workhorse.mcp.vendo.run/mcp",
+      "transport": "http"
+    }
+  }
+}

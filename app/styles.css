@@ -530,6 +530,64 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   letter-spacing: 0;
 }
 
+/* Free-tier Ask Manu orb — same look as the Vendo launcher, opens an
+   upgrade note instead of the chat overlay. */
+.manu-orb {
+  position: fixed;
+  z-index: 30;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  width: 75px;
+  height: 65px;
+  padding: 0;
+  background: #1a1a1a;
+  border: 0.6px solid #777;
+  border-radius: 50%;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .3);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.manu-orb:hover { transform: scale(1.05); }
+.manu-orb::before {
+  content: 'ask';
+  position: absolute;
+  top: 15px;
+  left: 75%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-family: 'Great Vibes', cursive;
+  font-size: 20px;
+  line-height: 1;
+}
+.manu-orb::after {
+  content: 'Manu';
+  position: absolute;
+  bottom: 10px;
+  left: 47%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-family: 'Great Vibes', cursive;
+  font-size: 28px;
+  line-height: 1;
+}
+.manu-upgrade {
+  position: fixed;
+  z-index: 31;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 80px);
+  width: min(300px, calc(100vw - 40px));
+  padding: 18px 20px;
+  border: 1px solid #161817;
+  background: #f3f0e8;
+  color: #161817;
+  box-shadow: 4px 4px 0 #ff4da6;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.manu-upgrade p { margin: 0 0 10px; }
+.manu-upgrade p:last-child { margin: 0; }
+.manu-upgrade a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
 /* Sign-in: the one door into manorama, on the landing page. A single,
    quiet Dropbox button. */
 .landing-signin {

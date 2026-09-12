@@ -33,10 +33,11 @@ export default createRoute(async (c) => {
         owner={owner}
         ownerName={user.displayName}
         publicHost={env.PUBLIC_HOST || new URL(c.req.url).host}
+        tier={user.tier}
       />
       {/* The Vendo surface mounts only on this authenticated page, after the
           admin content: the root element first, then the client script. */}
-      <div id="vendo-root" />
+      <div id="vendo-root" data-tier={user.tier} />
       <Script src="/app/vendo-client.tsx" />
     </Fragment>,
     { title: 'manorama' },
