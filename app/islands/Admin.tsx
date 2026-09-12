@@ -215,6 +215,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (!url) return
     setBusy(true)
     announce("Manorama-fying…")
+    // Bring the gallery list into view so the incoming photo strip is
+    // visible as it lands.
+    requestAnimationFrame(() => {
+      document.querySelector('.gallery-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
     try {
       const response = await fetch("/api/galleries", {
         method: "POST",
