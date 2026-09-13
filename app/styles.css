@@ -94,8 +94,13 @@ button { color: inherit; }
 .mode-options span { font-size: 13px; }
 .mode-options small { color: rgba(243, 240, 232, .48); font-size: 11px; line-height: 1.4; }
 .compact-section { display: grid; gap: 14px; }
-.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; color: rgba(243, 240, 232, .82); font-size: 13px; }
-.toggle-row input { width: 36px; height: 20px; accent-color: #f3f0e8; }
+.panel-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.panel-action { min-height: 52px; padding: 12px 14px; border: 1px solid rgba(243, 240, 232, .14); background: transparent; color: rgba(243, 240, 232, .82); font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 14px; text-align: center; cursor: pointer; box-shadow: 2px 2px 0 rgba(243, 240, 232, .25); }
+.mode-options span { font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-weight: 600; }
+.panel-action:hover, .panel-action:focus-visible { border-color: rgba(243, 240, 232, .72); background: rgba(243, 240, 232, .06); color: #f3f0e8; outline: none; }
+@media (max-width: 640px) { .panel-actions { grid-template-columns: 1fr; } }
+.toggle-row { display: flex; align-items: center; justify-content: flex-start; gap: 12px; color: rgba(243, 240, 232, .9); font-size: 16px; }
+.toggle-row input { width: 22px; height: 22px; accent-color: #f3f0e8; }
 .position-value, .credential-mark { font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; color: rgba(243, 240, 232, .62); }
 .quiet-copy, .about-copy, .shortcuts p { margin: 0; max-width: 62ch; color: rgba(243, 240, 232, .62); font-size: 12px; line-height: 1.65; }
 .credential-success { color: rgba(215, 236, 218, .82); }
@@ -103,6 +108,7 @@ button { color: inherit; }
 .info-grid div { min-width: 0; }
 .info-grid dt { margin-bottom: 5px; color: rgba(243, 240, 232, .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 .info-grid dd { margin: 0; overflow-wrap: anywhere; color: rgba(243, 240, 232, .82); font-size: 12px; }
+.shortcuts { display: grid; gap: 10px; }
 .shortcuts p { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 kbd { border: 1px solid rgba(243, 240, 232, .23); padding: 3px 5px; color: rgba(243, 240, 232, .76); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 cai-manifest-summary { display: block; margin-top: 16px; }

@@ -625,25 +625,25 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <section class="panel-section" aria-labelledby="view-mode-heading">
             <h3 id="view-mode-heading">View mode</h3>
             <div class="mode-options" role="radiogroup" aria-label="View mode">
-              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => setMode('strip')} /> <span>Strip</span><small>full-height, continuous</small></label>
-              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => setMode('vertical')} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
-              <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => setMode('single')} /> <span>One at a time</span><small>advance per gesture</small></label>
+              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); setModalOpen(false) }} /> <span>Strip</span><small>full-height, continuous</small></label>
+              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); setModalOpen(false) }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
+              <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); setModalOpen(false) }} /> <span>One at a time</span><small>advance per gesture</small></label>
             </div>
           </section>
 
           <section class="panel-section compact-section" aria-label="Display options">
-            <label class="toggle-row"><span>Show captions</span><input type="checkbox" aria-label="Show captions" checked={showCaptions} onChange={(event) => setShowCaptions((event.target as HTMLInputElement).checked)} /></label>
-            {showCaptions ? <p class="quiet-copy">{currentImage?.caption || 'This album does not carry a separate caption for the current photograph.'}</p> : null}
-            {mode === 'vertical' ? <p class="quiet-copy">Navigation arrows are unavailable in vertical scroll.</p> : <label class="toggle-row"><span>Show navigation arrows</span><input type="checkbox" aria-label="Show navigation arrows" checked={showArrows} onChange={(event) => setShowArrows((event.target as HTMLInputElement).checked)} /></label>}
-            {fullscreenAvailable ? <button class="text-button" onClick={toggleFullscreen}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
+            <div class="panel-actions">
+              {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); setModalOpen(false) }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
+              {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); setModalOpen(false) }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
+            </div>
           </section>
 
-          <section class="panel-section" aria-labelledby="position-heading">
+          <section class="panel-section" aria-labelledby="position-heading" hidden>
             <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
             <p class="quiet-copy">Photograph {index + 1} of {images.length}</p>
           </section>
 
-          <section class="panel-section" aria-labelledby="info-heading">
+          <section class="panel-section" aria-labelledby="info-heading" hidden>
             <h3 id="info-heading">Image info</h3>
             <dl class="info-grid">
               <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
@@ -656,12 +656,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             </dl>
           </section>
 
-          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading">
+          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading" hidden>
             <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
             {!currentImage?.c2pa ? <p class="quiet-copy">This photograph carries no Content Credentials.</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
           </section>
 
-          <section class="panel-section" aria-labelledby="about-heading">
+          <section class="panel-section" aria-labelledby="about-heading" hidden>
             <h3 id="about-heading">About this gallery</h3>
             <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
             <button class="text-button" onClick={recallCurtain}>Recall the opening curtain</button>
@@ -669,7 +669,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
             <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
-            <p><kbd>←</kbd><kbd>→</kbd> move between photographs <span>·</span> <kbd>Home</kbd><kbd>End</kbd> jump to the ends <span>·</span> <kbd>Esc</kbd> close controls</p>
+            <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
+            <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
+            <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
       </div>
