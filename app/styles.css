@@ -419,14 +419,15 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-brand-logo-button .brand-tld { bottom: 0.85em; font-size: clamp(18px, 2vw, 29px); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
-.control-logo { width: clamp(150px, 18vw, 210px); height: clamp(70px, 8.4vw, 98px); padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; opacity: .4; overflow: hidden; }
+.control-logo { width: clamp(150px, 18vw, 210px); height: clamp(50px, 6vw, 70px); padding: 8px 10px; border: 1px solid rgba(243, 240, 232, .14); border-radius: 0; background: rgba(10, 10, 10, .45); box-shadow: 2px 2px 0 rgba(243, 240, 232, .15); opacity: .3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200ms backwards; }
 .control-logo::before { display: none; }
-.control-logo img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: .9; }
+.control-logo .brand-mark-wrap { display: block; width: 100%; height: 100%; }
+.control-logo img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; opacity: .9; }
 @keyframes control-logo-intro {
   0% { opacity: 1; border: 1px solid rgba(243, 240, 232, .9); background: rgba(10, 10, 10, .7); }
   55% { opacity: 1; border: 1px solid rgba(243, 240, 232, .9); background: rgba(10, 10, 10, .7); }
-  100% { opacity: .4; border: 0 solid transparent; background: transparent; }
+  100% { opacity: .3; border: 1px solid rgba(243, 240, 232, .14); background: rgba(10, 10, 10, .45); }
 }
 .control-logo:hover, .control-logo:focus-visible { opacity: .85; border: 1px solid rgba(243, 240, 232, .9); background: rgba(10, 10, 10, .7); transform: translateX(-50%) scale(1.03); animation: none; }
 .control-logo:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 4px; }
