@@ -30,6 +30,23 @@ const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) 
 
 const FREE_GALLERY_LIMIT = 3
 
+/** After a new gallery card mounts, bring it fully into view: centered with
+ *  breathing room when it fits, top-parked with a margin when it doesn't.
+ *  Fires in the same frame the card renders — just as its strip images begin
+ *  streaming in. */
+const scrollToGalleryCard = (slug: string) => {
+  requestAnimationFrame(() => {
+    const card = document.querySelector<HTMLElement>(`[data-gallery-card="${slug}"]`)
+    if (!card) return
+    const rect = card.getBoundingClientRect()
+    const margin = Math.min(96, Math.max(24, Math.round(window.innerHeight * 0.08)))
+    const fits = rect.height + margin * 2 <= window.innerHeight
+    const top = window.scrollY + (fits ? rect.top - (window.innerHeight - rect.height) / 2 : rect.top - margin)
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' })
+  })
+}
+
 const friendlyDropboxError = (error: unknown) => {
   const message = error instanceof Error ? error.message : ''
   if (/Use a public Dropbox folder link/i.test(message)) return 'Paste a public Dropbox folder link, not a file link.'
@@ -215,11 +232,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (!url) return
     setBusy(true)
     announce("Manorama-fying…")
-    // Bring the gallery list into view so the incoming photo strip is
-    // visible as it lands.
-    requestAnimationFrame(() => {
-      document.querySelector('.gallery-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
     try {
       const response = await fetch("/api/galleries", {
         method: "POST",
@@ -233,6 +245,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
       setDropboxUrl("")
+      scrollToGalleryCard(payload.gallery.slug)
       announce('Done! ' + payload.gallery.title + ' is at the top.')
     } catch (error) {
       announce(friendlyDropboxError(error))
@@ -413,7 +426,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">
-        {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug}>
+        {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
           <div class="gallery-card-url-row"><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>
