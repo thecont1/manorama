@@ -11,6 +11,7 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
  */
 
 type Mode = 'strip' | 'vertical' | 'single'
+type SeamMode = 'light' | 'dark' | 'none'
 type DragSample = { x: number; time: number }
 type Props = {
   slug: string
@@ -27,6 +28,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
+  const [seamMode, setSeamMode] = useState<SeamMode>('none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -574,7 +576,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     <>
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode}`}
+        class={`viewer-stage mode-${mode} seam-${seamMode}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -646,6 +648,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); setModalOpen(false) }} /> <span>One at a time</span><small>advance per gesture</small></label>
             </div>
           </section>
+
+          {mode === 'strip' ? (
+            <section class="panel-section" aria-labelledby="seam-heading">
+              <h3 id="seam-heading">Separators</h3>
+              <div class="mode-options" role="radiogroup" aria-label="Separators between photographs">
+                <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light ground, dark stripes</small></label>
+                <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark ground, light stripes</small></label>
+                <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
+              </div>
+            </section>
+          ) : null}
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
