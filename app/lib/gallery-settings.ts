@@ -25,7 +25,7 @@ export const defaultGallerySettings = (manifest: GalleryManifest): GallerySettin
   curtainPrompt: 'Tap, click, or press Enter to enter',
   defaultMode: 'strip',
   defaultShowCaptions: false,
-  defaultShowArrows: false,
+  defaultShowArrows: true,
   imageCaptions: Object.fromEntries(manifest.images.map((image) => [image.id, image.caption ?? ''])),
   imageAlts: Object.fromEntries(manifest.images.map((image) => [image.id, image.alt])),
 })

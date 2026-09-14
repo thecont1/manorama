@@ -36,6 +36,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
+  const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
@@ -96,7 +97,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [])
 
   const hasMultiple = images.length > 1
-  const arrowsVisible = showArrows && mode !== 'vertical'
+  const arrowsVisible = showArrows && mode !== 'vertical' && hasMultiple
 
   const getBounds = () => {
     if (!boundsDirtyRef.current) return boundsRef.current
@@ -268,7 +269,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       curtain.setAttribute('aria-hidden', 'true')
       curtain.classList.add('is-lifting')
       document.body.classList.add('gallery-entered')
-      dotRef.current?.focus({ preventScroll: true })
+      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : dotRef.current
+      focusTarget?.focus({ preventScroll: true })
       const finish = () => {
         curtain.removeEventListener('transitionend', onLiftEnd)
         if (finishTimer) window.clearTimeout(finishTimer)
@@ -611,7 +613,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         {arrowsVisible ? (
           <div class="stage-arrows" aria-label="Image navigation">
             <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
-            <button data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
+            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
           </div>
         ) : null}
       </div>

@@ -71,8 +71,9 @@ button { color: inherit; }
 .curtain:focus-visible { outline: 2px solid #f3f0e8; outline-offset: -8px; }
 
 .stage-arrows { position: fixed; z-index: 10; right: max(24px, env(safe-area-inset-right)); bottom: max(76px, calc(env(safe-area-inset-bottom) + 58px)); display: flex; gap: 8px; }
-.stage-arrows button { width: 42px; height: 42px; border: 1px solid rgba(243, 240, 232, .24); border-radius: 50%; background: rgba(10, 10, 10, .58); color: #f3f0e8; cursor: pointer; }
-.stage-arrows button:hover, .stage-arrows button:focus-visible { border-color: rgba(243, 240, 232, .8); background: rgba(10, 10, 10, .82); }
+.stage-arrows button { width: 42px; height: 42px; border: 1px solid rgba(243, 240, 232, .18); border-radius: 0; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(243, 240, 232, .18); color: rgba(243, 240, 232, .85); opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+.stage-arrows button:hover, .stage-arrows button:focus-visible { opacity: 1; border-color: rgba(243, 240, 232, .8); background: rgba(10, 10, 10, .82); }
+.stage-arrows button:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 3px; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
 
 .controls-modal { position: fixed; z-index: 40; inset: 0; overflow: auto; display: grid; place-items: start center; padding: clamp(22px, 5vw, 72px); background: rgba(17, 20, 19, .73); backdrop-filter: blur(18px) saturate(.75); }
