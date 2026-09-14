@@ -228,9 +228,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (mode !== 'strip') { step(direction); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
-    const currentFrame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`)
-    const imageWidth = currentFrame?.offsetWidth ?? viewportWidth
-    const advance = Math.min(viewportWidth, imageWidth)
+    let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`) ?? null
+    let advance: number
+    if (direction === 1) {
+      advance = Math.min(viewportWidth, frame?.offsetWidth ?? viewportWidth)
+    } else {
+      // Moving left: cover the lesser of the viewport width or the part of the
+      // active image still hidden to the left of the stage edge. When the
+      // active image's left edge is already at the stage edge, the remaining
+      // width belongs to the frame before it.
+      const scrollX = -currentXRef.current
+      let remaining = frame ? scrollX - frame.offsetLeft : 0
+      while (remaining <= 0 && frame) {
+        frame = frame.previousElementSibling as HTMLElement | null
+        remaining = frame ? scrollX - frame.offsetLeft : 0
+      }
+      advance = Math.min(viewportWidth, Math.max(0, remaining))
+    }
     settleTo(currentXRef.current - direction * advance, false, true)
   }
 
