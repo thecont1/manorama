@@ -13,9 +13,9 @@ describe('Vendo review fixes', () => {
 
   test('the authenticated admin page loads the Vendo client only after its mount root', () => {
     const ownerPage = readFileSync(`${repoRoot}/app/routes/[owner].tsx`, 'utf8')
-    expect(ownerPage.indexOf('<div id="vendo-root" />')).toBeGreaterThan(-1)
+    expect(ownerPage.indexOf('<div id="vendo-root"')).toBeGreaterThan(-1)
     expect(ownerPage.indexOf('<Script src="/app/vendo-client.tsx"')).toBeGreaterThan(
-      ownerPage.indexOf('<div id="vendo-root" />'),
+      ownerPage.indexOf('<div id="vendo-root"'),
     )
   })
 

@@ -177,6 +177,26 @@ export const getUserByOwnerSlug = async (
 
 export class OwnerSlugError extends Error {}
 
+/** Promotes or demotes an account's tier. There is no self-serve billing
+ *  seam yet — upgrades land through this (or a manual D1 update) only.
+ *  Sign-in never writes tier: upsertUser keeps whatever is stored. */
+export const setUserTier = async (
+  dropboxAccountId: string,
+  tier: 'free' | 'pro',
+  env?: UserRepositoryEnv,
+): Promise<UserRecord | null> => {
+  const current = await getUserByDropboxId(dropboxAccountId, env)
+  if (!current) return null
+  if (d1Configured(env)) {
+    await env.DB.prepare(
+      `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
+    ).bind(tier, dropboxAccountId).run()
+    return { ...current, tier }
+  }
+  current.tier = tier
+  return { ...current }
+}
+
 /** Validates and applies a new owner slug. Galleries follow automatically:
  * they reference the account ID, so their public URLs derive from the new
  * slug the moment it changes. Throws OwnerSlugError with a friendly
