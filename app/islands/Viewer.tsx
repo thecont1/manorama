@@ -156,18 +156,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const stage = stageRef.current
     const track = trackRef.current
     if (!stage || !track) return
-      const midpoint = -currentXRef.current + stage.clientWidth / 2
+      // "Active" is the frame holding the stage's left edge — the docked
+      // image under the left-align rule. Nearest-center reporting drifts:
+      // a narrow docked portrait loses to a wide successor's center, which
+      // then makes the next advance skip a frame.
+      const leftEdge = -currentXRef.current
     const frames = [...track.querySelectorAll<HTMLElement>('[data-index]')]
     let nearest = 0
-    let nearestDistance = Number.POSITIVE_INFINITY
     for (const frame of frames) {
       const frameIndex = Number(frame.dataset.index ?? 1) - 1
-      const center = frame.offsetLeft + frame.offsetWidth / 2
-      const distance = Math.abs(center - midpoint)
-      if (distance < nearestDistance) {
-        nearest = frameIndex
-        nearestDistance = distance
-      }
+      if (frame.offsetLeft <= leftEdge + 1) nearest = frameIndex
+      else break
     }
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
@@ -279,7 +278,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`) ?? null
     let advance: number
     if (direction === 1) {
-      advance = Math.min(viewportWidth, frame?.offsetWidth ?? viewportWidth)
+      // Dock the next image: scroll until the following frame's left edge
+      // reaches the stage's left edge. Inside images wider than the stage
+      // that distance exceeds a viewport, so it pages through in viewport
+      // chunks and docks the next frame on the final step.
+      const target = frame?.nextElementSibling as HTMLElement | null
+      advance = Math.min(viewportWidth, Math.max(0, (target?.offsetLeft ?? scrollX + viewportWidth) - scrollX))
     } else {
       // Moving left: cover the lesser of the viewport width or the part of the
       // active image still hidden to the left of the stage edge. When the
