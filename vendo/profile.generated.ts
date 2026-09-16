@@ -175,7 +175,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_delete_gallery",
@@ -214,7 +214,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_get_drive_file",
@@ -245,7 +245,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_get_drive_thumbnail",
@@ -284,7 +284,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_get_dropbox_file",
@@ -316,7 +316,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -348,7 +348,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_get_icloud_image",
@@ -385,7 +385,44 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
+    },
+    {
+      "name": "host_get_mega_file",
+      "description": "Fetch a MEGA image. Fetch an original image from a public MEGA shared folder. The AES-128-CTR ciphertext is fetched from MEGA's CDN and decrypted at proxy time using the node key.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "description": "The public folder handle"
+          },
+          "node": {
+            "type": "string",
+            "description": "The file node handle within the folder"
+          },
+          "k": {
+            "type": "string",
+            "description": "The file's node key (base64url), decrypted at scan time from the share key"
+          }
+        },
+        "required": [
+          "folder",
+          "node",
+          "k"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_mega_file",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/mega/file"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_list_galleries",
@@ -530,7 +567,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_refresh_gallery",
@@ -680,7 +717,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_scan_gallery_source",
@@ -818,7 +855,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     },
     {
       "name": "host_update_gallery",
@@ -1000,7 +1037,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:dfcde3c2bfd504ee78bb065f17dbc0833375cab702bc0aa7b3760f0123ecfec0"
     }
   ]
 } as {
@@ -1027,6 +1064,9 @@ export const OVERRIDES_FILE = {
       "risk": "read"
     },
     "host_get_icloud_image": {
+      "risk": "read"
+    },
+    "host_get_mega_file": {
       "risk": "read"
     },
     "host_list_galleries": {

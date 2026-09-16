@@ -19,6 +19,9 @@
     "host_get_icloud_image": {
       "risk": "read"
     },
+    "host_get_mega_file": {
+      "risk": "read"
+    },
     "host_list_galleries": {
       "risk": "read"
     },

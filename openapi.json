@@ -629,6 +629,68 @@
         ]
       }
     },
+    "/api/mega/file": {
+      "get": {
+        "description": "Fetch an original image from a public MEGA shared folder. The AES-128-CTR ciphertext is fetched from MEGA's CDN and decrypted at proxy time using the node key.",
+        "operationId": "get_mega_file",
+        "parameters": [
+          {
+            "description": "The public folder handle",
+            "in": "query",
+            "name": "folder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file node handle within the folder",
+            "in": "query",
+            "name": "node",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file's node key (base64url), decrypted at scan time from the share key",
+            "in": "query",
+            "name": "k",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The decrypted original image bytes"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Fetch a MEGA image",
+        "tags": [
+          "mega"
+        ]
+      }
+    },
     "/api/galleries": {
       "get": {
         "description": "List all photo galleries with titles, captions, dates, and image counts.",
@@ -923,6 +985,10 @@
     {
       "description": "Public iCloud shared album image proxy",
       "name": "icloud"
+    },
+    {
+      "description": "Public MEGA shared folder image proxy",
+      "name": "mega"
     }
   ]
 }
