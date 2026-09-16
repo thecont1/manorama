@@ -226,6 +226,20 @@ describe('scanMegaFolder', () => {
     const fetchImpl = async () => jsonResponse([{ f: [folderNode, fileNode('IMG_9.heic')] }])
     await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('No image files')
   })
+
+  test('accepts AVIF and consciously ignores PNG, GIF, and TIFF', async () => {
+    const fetchImpl = async () => jsonResponse([{ f: [
+      folderNode,
+      fileNode('a.avif', { h: 'AvIf' }),
+      fileNode('b.png', { h: 'Png1' }),
+      fileNode('c.gif', { h: 'Gif1' }),
+      fileNode('d.tiff', { h: 'Tiff' }),
+      fileNode('e.mp4', { h: 'Vid1' }),
+    ] }])
+    const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
+    expect(scan.images.map((image) => image.filename)).toEqual(['a.avif'])
+    expect(scan.images[0]!.src).toContain('/api/mega/file?')
+  })
 })
 
 const SET_HANDLE = 'SeThAnDlE1'

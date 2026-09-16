@@ -21,7 +21,9 @@ import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptT
  * MEGA bandwidth quotas (509) which surface as temporary failures.
  */
 
-const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|heic|heif|tiff?|png)$/i
+// Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
+// video, and every other file type are consciously ignored at scan.
+const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|avif|hei[cf])$/i
 const API = 'https://g.api.mega.co.nz/cs'
 // Enough head bytes to find a JPEG SOF marker past typical EXIF APP1.
 const DIMS_PROBE_BYTES = 65536
@@ -159,9 +161,9 @@ const fileProxy = (auth: MegaAuth, node: string, nodeKey: Uint8Array) =>
 const previewProxy = (auth: MegaAuth, fah: string, nodeKey: Uint8Array) =>
   `/api/mega/preview?${ctxParams(auth)}&h=${encodeURIComponent(fah)}&k=${b64uEncode(nodeKey)}`
 
-// Formats browsers render natively; everything else goes through the
-// decrypted JPEG preview (fa) path.
-const BROWSER_RENDERABLE = /\.(?:jpe?g|webp|png|gif|avif)$/i
+// Accepted formats browsers render natively; HEIC/HEIF go through the
+// decrypted preview (fa) path.
+const BROWSER_RENDERABLE = /\.(?:jpe?g|webp|avif)$/i
 
 /** Finds the file-attribute handle for a type (0 thumbnail, 1 preview)
  *  in a node's `fa` string ("{type}*{b64handle}" entries). */
@@ -244,7 +246,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
 }
 
 /** Best-effort dimensions: the decrypted JPEG preview when the node
- *  carries one (small, and works for HEIC/TIFF too), else a ranged
+ *  carries one (small, and works for HEIC/HEIF too), else a ranged
  *  head fetch of JPEG originals; anything else gets a 4:3 placeholder.
  *  Reported dims are the rendition's — aspect is what matters for
  *  layout, matching the Dropbox thumbnail-dims precedent. */
@@ -271,7 +273,7 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
 const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number): GalleryImage | null => {
   const renderable = BROWSER_RENDERABLE.test(name)
   const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
-  // HEIC/TIFF originals can't render in browsers — route them through
+  // HEIC/HEIF originals can't render in browsers — route them through
   // MEGA's JPEG preview. If MEGA generated no preview, drop the image
   // rather than shipping undisplayable bytes.
   if (!renderable && !fah) return null
@@ -399,7 +401,7 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
 }
 
 /** Serves a decrypted JPEG preview/thumbnail for files whose originals
- *  browsers can't render (HEIC, TIFF). */
+ *  browsers can't render (HEIC, HEIF). */
 export const fetchMegaPreview = async (folder: string | undefined, set: string | undefined, fah: string, keyB64: string, fetchImpl: typeof fetch = fetch) => {
   const nodeKey = b64uDecode(keyB64)
   const preview = await fetchFileAttribute(megaAuthFromParams(folder, set), fah, nodeKey, fetchImpl)

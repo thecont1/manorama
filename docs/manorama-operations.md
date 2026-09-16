@@ -64,12 +64,14 @@ link is rejected with a 409.
   uses AES-GCM/CCM TLV containers). The decrypted per-file node key
   travels in the image proxy URL (`?k=`), equivalent in exposure to
   the public link itself. MEGA serves decrypted originals (`c2pa`
-  preserved); formats browsers cannot render (HEIC, HEIF, TIFF) are
+  preserved); formats browsers cannot render (HEIC, HEIF) are
   served through MEGA's own generated JPEG/WebP preview via
   `/api/mega/preview`, and images with no generated preview are
   excluded. Free-tier MEGA bandwidth limits (HTTP 509) can interrupt
   image delivery — these surface as 503s; retry later.
-- Accepted image formats: JPEG, WebP, TIFF, HEIC, and HEIF.
+- Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG,
+  GIF, TIFF, video, and all non-image files are consciously ignored
+  at scan time.
 - Only the top level of a folder is scanned; subfolders are not
   descended into.
 - Files that are not images are ignored, not deleted.

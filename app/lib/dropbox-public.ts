@@ -1,6 +1,8 @@
 import { SourceFetchError, type GalleryImage } from './imagesource'
 
-const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|heic|heif|tiff?)$/i
+// Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
+// video, and every other file type are consciously ignored at scan.
+const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|avif|hei[cf])$/i
 const HEIC = /\.hei[cf]$/i
 const ALLOWED_HOSTS = new Set(['dropbox.com', 'www.dropbox.com'])
 

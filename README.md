@@ -81,7 +81,7 @@ iCloud **Drive** share links (`icloud.com/iclouddrive/…`) are a different prod
 
 ## MEGA setup
 
-MEGA shared folder links (`mega.nz/folder/{id}#{key}`) and collection links (`mega.nz/collection/{id}#{key}`, MEGA's "Sets") need no credentials — the share key in the link fragment is the decryption key. Manorama enumerates the source through MEGA's public API (`a:'f'` for folders, `a:'aft'` for collections), decrypts node keys and attributes client-side, and decrypts image content at proxy time (`/api/mega/file`) using AES-128-CTR with each file's node key. Formats browsers cannot render (HEIC, HEIF, TIFF) are served through MEGA's generated JPEG/WebP previews (`/api/mega/preview`); images with no preview are excluded.
+MEGA shared folder links (`mega.nz/folder/{id}#{key}`) and collection links (`mega.nz/collection/{id}#{key}`, MEGA's "Sets") need no credentials — the share key in the link fragment is the decryption key. Manorama enumerates the source through MEGA's public API (`a:'f'` for folders, `a:'aft'` for collections), decrypts node keys and attributes client-side, and decrypts image content at proxy time (`/api/mega/file`) using AES-128-CTR with each file's node key. Formats browsers cannot render (HEIC, HEIF) are served through MEGA's generated JPEG/WebP previews (`/api/mega/preview`); images with no preview are excluded.
 
 Caveats: the API is undocumented; decryption happens per view so large sources mean per-request CPU cost; MEGA's free-tier bandwidth quota (HTTP 509) surfaces as a temporary failure; and the decrypted node key rides in the image proxy URL — equivalent in exposure to the public link itself. MEGA images are decrypted originals, so `c2pa` is preserved.
 

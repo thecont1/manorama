@@ -57,7 +57,7 @@ const friendlySourceError = (error: unknown) => {
   if (/iCloud Drive links cannot be read/i.test(message)) return 'That is an iCloud Drive link, which Apple keeps behind sign-in. In Photos, share a Shared Album instead and paste its public link.'
   if (/Use a public MEGA|usable key|MEGA link was not found|could not read that MEGA|MEGA folder was not found/i.test(message)) return 'Paste a public MEGA folder or collection link (mega.nz/folder/… or mega.nz/collection/…) with its #key fragment.'
   if (/MEGA is rate limiting|bandwidth limit/i.test(message)) return 'MEGA is rate limiting requests — wait a few minutes and try again.'
-  if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, TIFF, or HEIC images and try again.'
+  if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, AVIF, or HEIC images and try again.'
   if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that link. Check that it is public, downloading is enabled, and the URL points to the folder or album itself.'
   if (/not configured|credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach that service. Please try again later.'
   return 'We could not read that link. Check the URL and try again.'

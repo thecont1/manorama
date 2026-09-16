@@ -10,12 +10,14 @@ import { SourceFetchError, type GalleryImage } from './imagesource'
  * file ID alone — the folder context is only needed at scan time.
  */
 
+// Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
+// video, and every other file type are consciously ignored at scan.
 const SUPPORTED_MIME = new Set([
-  'image/jpeg', 'image/jpg', 'image/webp', 'image/heic', 'image/heif', 'image/tiff', 'image/tif',
+  'image/jpeg', 'image/jpg', 'image/webp', 'image/avif', 'image/heic', 'image/heif',
 ])
-// Browsers can't render HEIC or TIFF; Drive transcodes both to JPEG via
+// Browsers can't render HEIC/HEIF; Drive transcodes them to JPEG via
 // the thumbnail endpoint, so those display through a large rendition.
-const NEEDS_JPEG_DERIVATIVE = /^image\/(hei[cf]|tiff?)$/i
+const NEEDS_JPEG_DERIVATIVE = /^image\/hei[cf]$/i
 
 type GDriveEnv = { GOOGLE_DRIVE_API_KEY?: string }
 
@@ -102,7 +104,7 @@ export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: 
   const images = files.map((file, index): GalleryImage => {
     const width = file.imageMediaMetadata?.width || 4
     const height = file.imageMediaMetadata?.height || 3
-    // HEIC and TIFF can't render in browsers; Drive transcodes to JPEG via
+    // HEIC/HEIF can't render in browsers; Drive transcodes to JPEG via
     // the thumbnail endpoint, so the display src is a large rendition —
     // the same treatment Dropbox HEIC files get.
     const viaDerivative = Boolean(file.mimeType && NEEDS_JPEG_DERIVATIVE.test(file.mimeType))
@@ -131,7 +133,7 @@ export const fetchDriveFile = async (fileId: string, env: GDriveEnv, fetchImpl: 
 }
 
 /** Public thumbnail endpoint used by the Drive web UI — serves a JPEG
- *  rendition (transcoding HEIC and TIFF) for any link-shared file without
+ *  rendition (transcoding HEIC/HEIF) for any link-shared file without
  *  credentials. The resource key rides as a query parameter; the
  *  X-Goog-Drive-Resource-Keys header does not apply to this endpoint. */
 export const fetchDriveThumbnail = async (fileId: string, _env: GDriveEnv, size: 'w256' | 'w2048' = 'w256', fetchImpl: typeof fetch = fetch, resourceKey?: string) => {
