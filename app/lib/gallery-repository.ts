@@ -245,14 +245,23 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
   return nextGallery
 }
 
+/** Order/dedupe key: `ref` when the provider gives a stable item ID
+ *  (Drive file ID, iCloud photo GUID), else the filename (Dropbox names
+ *  are unique per folder). */
+const imageKey = (image: GalleryImage) => image.ref ?? image.filename
+
 export const updateGalleryOrder = async (ownerId: string, slug: string, order: string[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
+  const reorder = (current: GalleryRecord) => {
+    const byKey = new Map(current.images.map((image) => [imageKey(image), image]))
+    const reordered = order.map((key) => byKey.get(key)).filter((image): image is GalleryImage => Boolean(image))
+    const seen = new Set(reordered.map(imageKey))
+    current.images.forEach((image) => { if (!seen.has(imageKey(image))) reordered.push(image) })
+    return reordered
+  }
   if (d1Configured(env)) {
     const current = await getGallery(ownerId, slug, env)
     if (!current) return null
-    const byFilename = new Map(current.images.map((image) => [image.filename, image]))
-    const reordered = order.map((filename) => byFilename.get(filename)).filter((image): image is GalleryImage => Boolean(image))
-    const seen = new Set(reordered.map((image) => image.filename))
-    current.images.forEach((image) => { if (!seen.has(image.filename)) reordered.push(image) })
+    const reordered = reorder(current)
     const result = await env.DB.prepare(
       `UPDATE galleries SET images_json = ? WHERE owner_id = ? AND slug = ?`,
     ).bind(JSON.stringify(reordered), ownerId, slug).run()
@@ -261,16 +270,13 @@ export const updateGalleryOrder = async (ownerId: string, slug: string, order: s
   }
   const current = await getGallery(ownerId, slug, env)
   if (!current) return null
-  const byFilename = new Map(current.images.map((image) => [image.filename, image]))
-  const reordered = order.map((filename) => byFilename.get(filename)).filter((image): image is GalleryImage => Boolean(image))
-  const seen = new Set(reordered.map((image) => image.filename))
-  current.images.forEach((image) => { if (!seen.has(image.filename)) reordered.push(image) })
+  const reordered = reorder(current)
   const updated = { ...current, images: reordered }
   ownerStore(ownerId).set(slug, updated)
   return updated
 }
 
-const previewImages = (images: readonly GalleryImage[]) => images.map(({ id, filename, src, width, height, alt, placeholder, variants }) => ({ id, filename, src, width, height, alt, placeholder, variants }))
+const previewImages = (images: readonly GalleryImage[]) => images.map(({ id, ref, filename, src, width, height, alt, placeholder, variants }) => ({ id, ref, filename, src, width, height, alt, placeholder, variants }))
 
 export const deleteGallery = async (ownerId: string, slug: string, env?: GalleryEnv, options?: { force?: boolean }): Promise<boolean> => {
   if (d1Configured(env)) {

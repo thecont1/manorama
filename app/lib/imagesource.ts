@@ -17,6 +17,11 @@ export type ImageVariant = {
 
 export type GalleryImage = {
   id: string
+  /** Provider-stable item key (Drive file ID, iCloud photo GUID). Ordering
+   *  and refresh dedupe use `ref ?? filename` — Dropbox filenames are unique
+   *  per folder so it stays unset there, but Drive allows duplicate names
+   *  and iCloud shared albums have no filenames at all. */
+  ref?: string
   filename: string
   src: string
   width: number
