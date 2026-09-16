@@ -25,8 +25,8 @@ A gallery moves through these states:
    or renamed) since the last refresh. Staleness is not detected
    automatically; refresh is a manual action
    (`POST /api/galleries/:slug/refresh`, or the refresh button in the
-   admin). A refresh reconciles the inventory and restores source
-   ordering — see "Image ordering".
+   admin). A refresh reconciles the inventory while preserving the
+   owner's ordering — see "Image ordering".
 4. **Deleted** — deletion removes the gallery record and its metadata.
    Original source files are never touched. Deletion is irreversible
    from the operator side; recovery requires recreating the gallery from
@@ -93,10 +93,12 @@ sets.
   admin rail; the result is saved through `PATCH /api/galleries/:slug`
   as an `order` array of keys. Images missing from the submitted order
   keep their relative position at the end.
-- A refresh re-applies **source order**: matched images keep their
-  stored metadata, removed files drop out, and new files appear where
-  the provider lists them. Custom ordering does not survive a refresh —
-  redo it afterwards if the source order is not the intended one.
+- A refresh **preserves owner ordering**: matched images stay in their
+  stored gallery positions but are replaced with the freshly scanned
+  objects, so updated scanner metadata and source references flow
+  through. Images removed from the source drop out; newly discovered
+  images append at the end in scan order. Custom ordering survives a
+  refresh.
 
 ## Content Credentials preservation
 
@@ -135,9 +137,12 @@ sets.
 - iCloud image URLs expire, so delivery URLs are resolved fresh per
   view from the persisted checksum. If a derivative disappears upstream
   the image 404s until the gallery is refreshed.
-- Dropbox/Drive proxy failures surface as 404s on the image routes;
-  the gallery itself is unaffected — recheck the source link and
-  refresh.
+- Proxy failures distinguish confirmed misses from temporary provider
+  failures. A confirmed missing asset returns **404** on the image
+  route — recheck the source link and refresh. Missing provider
+  configuration, network errors, and upstream 429 or 5xx responses
+  return **503** — these are temporary provider-side failures; retry
+  before investigating further. Other upstream statuses pass through.
 
 ## Destructive-action policy
 
