@@ -49,7 +49,7 @@
             }
           }
         },
-        "description": "The request was understood but the operation failed (bad Dropbox link, slug collision, ...)"
+        "description": "The request was understood but the operation failed (bad source link, slug collision, ...)"
       }
     },
     "schemas": {
@@ -57,7 +57,7 @@
         "additionalProperties": false,
         "properties": {
           "order": {
-            "description": "Optional image filenames in the desired display order; unlisted images keep scan order after them",
+            "description": "Optional image refs (filenames for Dropbox) in the desired display order; unlisted images keep scan order after them",
             "items": {
               "type": "string"
             },
@@ -65,7 +65,7 @@
             "type": "array"
           },
           "url": {
-            "description": "A public, download-enabled Dropbox folder URL to create the gallery from",
+            "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL to create the gallery from",
             "type": "string"
           }
         },
@@ -127,7 +127,7 @@
             "type": "string"
           },
           "sourceUrl": {
-            "description": "Public Dropbox folder URL backing this gallery",
+            "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
             "type": "string"
           },
           "title": {
@@ -179,7 +179,7 @@
             "type": "array"
           },
           "sourceUrl": {
-            "description": "Normalized public Dropbox folder URL",
+            "description": "Normalized public source URL",
             "type": "string"
           },
           "title": {
@@ -216,6 +216,10 @@
             "type": "string"
           },
           "placeholder": {
+            "type": "string"
+          },
+          "ref": {
+            "description": "Provider-stable item key used for ordering and refresh dedupe; absent for Dropbox (filename is the key)",
             "type": "string"
           },
           "src": {
@@ -269,7 +273,7 @@
         "additionalProperties": false,
         "properties": {
           "url": {
-            "description": "A public, download-enabled Dropbox folder URL",
+            "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL",
             "type": "string"
           }
         },
@@ -305,7 +309,7 @@
             "type": "string"
           },
           "order": {
-            "description": "New image display order (filenames)",
+            "description": "New image display order (image refs, or filenames for Dropbox)",
             "items": {
               "type": "string"
             },
@@ -332,7 +336,7 @@
     }
   },
   "info": {
-    "description": "Gallery management and Dropbox image APIs for Manorama, the photography-first publishing application. Management operations require a verified Cloudflare Access session; the Dropbox image proxy is public because public gallery pages load images through it.",
+    "description": "Gallery management and source image APIs for Manorama, the photography-first publishing application. Management operations require a verified Cloudflare Access session; the image proxies are public because public gallery pages load images through them.",
     "title": "Manorama Gallery Management API",
     "version": "1.0.0"
   },
@@ -379,6 +383,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],
@@ -429,12 +436,196 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],
         "summary": "Fetch a Dropbox thumbnail",
         "tags": [
           "dropbox"
+        ]
+      }
+    },
+    "/api/drive/file": {
+      "get": {
+        "description": "Fetch a full-resolution image from a link-shared Google Drive folder by file ID.",
+        "operationId": "get_drive_file",
+        "parameters": [
+          {
+            "description": "The Google Drive file ID",
+            "in": "query",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file's resource key, required for resource-keyed shared links",
+            "in": "query",
+            "name": "rk",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original image bytes, never recompressed"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Fetch a Google Drive original",
+        "tags": [
+          "gdrive"
+        ]
+      }
+    },
+    "/api/drive/thumbnail": {
+      "get": {
+        "description": "Fetch a thumbnail image from a link-shared Google Drive folder by file ID. HEIC files are served as JPEG renditions.",
+        "operationId": "get_drive_thumbnail",
+        "parameters": [
+          {
+            "description": "The Google Drive file ID",
+            "in": "query",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Thumbnail width class (w256 default, w2048 for HEIC previews)",
+            "in": "query",
+            "name": "size",
+            "required": false,
+            "schema": {
+              "enum": [
+                "w256",
+                "w2048"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file's resource key, required for resource-keyed shared links",
+            "in": "query",
+            "name": "rk",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The thumbnail image bytes"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Fetch a Google Drive thumbnail",
+        "tags": [
+          "gdrive"
+        ]
+      }
+    },
+    "/api/icloud/image": {
+      "get": {
+        "description": "Fetch an image derivative from a public iCloud shared album. The expiring CDN URL is re-resolved on every request.",
+        "operationId": "get_icloud_image",
+        "parameters": [
+          {
+            "description": "The shared album token",
+            "in": "query",
+            "name": "album",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The photo GUID within the album",
+            "in": "query",
+            "name": "photo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The derivative checksum selecting the rendition",
+            "in": "query",
+            "name": "c",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The derivative image bytes (JPEG, web resolution)"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Fetch an iCloud shared album image",
+        "tags": [
+          "icloud"
         ]
       }
     },
@@ -471,7 +662,7 @@
         ]
       },
       "post": {
-        "description": "Scan a public Dropbox folder URL and create a gallery from its images, optionally in a given order.",
+        "description": "Scan a public Dropbox, Google Drive, or iCloud shared album link and create a gallery from its images, optionally in a given order.",
         "operationId": "create_gallery",
         "requestBody": {
           "content": {
@@ -509,7 +700,7 @@
             "cloudflareAccess": []
           }
         ],
-        "summary": "Create a gallery from a Dropbox folder",
+        "summary": "Create a gallery from a shared link",
         "tags": [
           "galleries"
         ]
@@ -517,8 +708,8 @@
     },
     "/api/galleries/scan": {
       "post": {
-        "description": "Scan a public Dropbox folder URL to discover images for a new gallery. Returns the folder title and image metadata.",
-        "operationId": "scan_dropbox_folder",
+        "description": "Scan a public Dropbox, Google Drive, or iCloud shared album link to discover images for a new gallery. Returns the source title and image metadata.",
+        "operationId": "scan_gallery_source",
         "requestBody": {
           "content": {
             "application/json": {
@@ -555,7 +746,7 @@
             "cloudflareAccess": []
           }
         ],
-        "summary": "Scan a Dropbox folder",
+        "summary": "Scan a shared link",
         "tags": [
           "galleries"
         ]
@@ -563,7 +754,7 @@
     },
     "/api/galleries/{slug}": {
       "delete": {
-        "description": "Delete a gallery and its Manorama references. This is irreversible; Dropbox files are never touched.",
+        "description": "Delete a gallery and its Manorama references. This is irreversible; source files are never touched.",
         "operationId": "delete_gallery",
         "responses": {
           "200": {
@@ -668,7 +859,7 @@
         }
       ],
       "post": {
-        "description": "Re-scan a gallery's Dropbox source folder and update its images with any new or changed files.",
+        "description": "Re-scan a gallery's source link and update its images with any new or changed files.",
         "operationId": "refresh_gallery",
         "responses": {
           "200": {
@@ -699,7 +890,7 @@
             "cloudflareAccess": []
           }
         ],
-        "summary": "Refresh a gallery from Dropbox",
+        "summary": "Refresh a gallery from its source",
         "tags": [
           "galleries"
         ]
@@ -724,6 +915,14 @@
     {
       "description": "Public Dropbox image proxy",
       "name": "dropbox"
+    },
+    {
+      "description": "Public Google Drive image proxy",
+      "name": "gdrive"
+    },
+    {
+      "description": "Public iCloud shared album image proxy",
+      "name": "icloud"
     }
   ]
 }

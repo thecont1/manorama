@@ -5,16 +5,19 @@ import { fileURLToPath } from 'node:url'
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
 describe('bundled Vendo runtime profile', () => {
-  test('exposes all eight Manorama tools', async () => {
+  test('exposes all eleven Manorama tools', async () => {
     const { vendoProfile } = await import('../vendo/profile')
     expect(vendoProfile.tools?.map((tool) => tool.name).sort()).toEqual([
       'host_create_gallery',
       'host_delete_gallery',
+      'host_get_drive_file',
+      'host_get_drive_thumbnail',
       'host_get_dropbox_file',
       'host_get_dropbox_thumbnail',
+      'host_get_icloud_image',
       'host_list_galleries',
       'host_refresh_gallery',
-      'host_scan_dropbox_folder',
+      'host_scan_gallery_source',
       'host_update_gallery',
     ])
   })

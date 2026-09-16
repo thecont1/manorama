@@ -1,4 +1,4 @@
-import type { GalleryImage } from './imagesource'
+import { SourceFetchError, type GalleryImage } from './imagesource'
 
 const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|heic|heif|tiff?)$/i
 const HEIC = /\.hei[cf]$/i
@@ -30,25 +30,27 @@ const authHeaders = (env: DropboxEnv) => {
   return { Authorization: `Basic ${btoa(`${env.DROPBOX_APP_KEY}:${env.DROPBOX_APP_SECRET}`)}` }
 }
 
-const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv) => {
-  const response = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
+const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch) => {
+  const response = await fetchImpl(`https://api.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
     headers: { ...authHeaders(env), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!response.ok) {
     const message = await response.text()
-    throw new Error(`Dropbox ${endpoint} failed (${response.status}): ${message.slice(0, 220)}`)
+    throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status}): ${message.slice(0, 220)}`, response.status)
   }
   return response.json() as Promise<T>
 }
 
-const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv) => {
-  const response = await fetch(`https://content.dropboxapi.com/2/${endpoint}`, {
+const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch) => {
+  const response = await fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
     headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg) },
   })
-  if (!response.ok) throw new Error(`Dropbox ${endpoint} failed (${response.status})`)
+  // Dropbox reports a missing path inside a valid shared folder as 409 —
+  // for the proxy that is a confirmed miss, not a conflict.
+  if (!response.ok) throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status})`, response.status === 409 ? 404 : response.status)
   return response
 }
 
@@ -67,14 +69,14 @@ const parseJpegDimensions = (bytes: Uint8Array) => {
   return null
 }
 
-const thumbnailDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback?: { width?: number; height?: number }) => {
+const thumbnailDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   try {
     const response = await contentRequest('files/get_thumbnail_v2', {
       resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },
       format: { '.tag': 'jpeg' },
       size: 'w256h256',
       mode: 'strict',
-    }, env)
+    }, env, fetchImpl)
     const dimensions = parseJpegDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
   } catch {
@@ -83,19 +85,19 @@ const thumbnailDimensions = async (sourceUrl: string, filename: string, env: Dro
   return { width: fallback?.width || 4, height: fallback?.height || 3 }
 }
 
-const collectEntries = async (sourceUrl: string, env: DropboxEnv) => {
+const collectEntries = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
   // Top-level of the shared folder only; subfolders are intentionally
   // not descended into.
   const entries: DropboxEntry[] = []
-  let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true }, env)
+  let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true }, env, fetchImpl)
   entries.push(...response.entries)
-  while (response.has_more) response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env), entries.push(...response.entries)
+  while (response.has_more) response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env, fetchImpl), entries.push(...response.entries)
   return entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name))
 }
 
-const sharedLinkName = async (sourceUrl: string, env: DropboxEnv) => {
+const sharedLinkName = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
   try {
-    const metadata = await rpc<SharedLinkMetadata>("sharing/get_shared_link_metadata", { url: sourceUrl }, env)
+    const metadata = await rpc<SharedLinkMetadata>("sharing/get_shared_link_metadata", { url: sourceUrl }, env, fetchImpl)
     return metadata.name?.trim() || ""
   } catch {
     return ""
@@ -111,14 +113,14 @@ const titleFromEntries = (entries: DropboxEntry[]) => {
   return 'Untitled gallery'
 }
 
-export const scanDropboxFolder = async (input: string, env: DropboxEnv): Promise<DropboxScan> => {
+export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImpl: typeof fetch = fetch): Promise<DropboxScan> => {
   const sourceUrl = validateFolderUrl(input)
-  const entries = await collectEntries(sourceUrl, env)
+  const entries = await collectEntries(sourceUrl, env, fetchImpl)
   if (!entries.length) throw new Error('No image files were found in that public Dropbox folder')
-  const folderName = await sharedLinkName(sourceUrl, env)
+  const folderName = await sharedLinkName(sourceUrl, env, fetchImpl)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   const images = await Promise.all(entries.map(async (entry, index) => {
-    const dimensions = await thumbnailDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions)
+    const dimensions = await thumbnailDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, fetchImpl)
     return {
       id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
       filename: entry.name,

@@ -12,6 +12,8 @@ VENDO_BASE_URL = "https://manorama.xyz"
 # VENDO_API_KEY and the session signing key are SECRETS:
 # `bunx wrangler secret put VENDO_API_KEY` — never in this file.
 # HOST_API_JWT_SECRET signs the Dropbox session cookie.
+# GOOGLE_DRIVE_API_KEY enables public Google Drive folder ingestion
+# (iCloud shared albums need no secret).
 
 [[d1_databases]]
 binding = "DB"

@@ -1,14 +1,14 @@
 # manorama
 
-Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. The current prototype has one owner namespace, `thecontrarian`, and accepts public Dropbox folder URLs without asking gallery providers to connect their Dropbox accounts.
+Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. The current prototype has one owner namespace, `thecontrarian`, and accepts public Dropbox folder, Google Drive folder, and iCloud shared album URLs without asking gallery providers to connect their accounts.
 
 ## Current workflow
 
-Open the noindex admin at `https://manorama.thecontrarian.workers.dev/`. Paste a public, download-enabled Dropbox folder URL and choose **Manorama-fy it!**. Manorama uses its server-side Dropbox app credentials to enumerate the shared folder, ignores non-image files, loads a low-resolution preview strip, and lets the owner arrange the images before adding the gallery.
+Open the noindex admin at `https://manorama.thecontrarian.workers.dev/`. Paste a public, download-enabled Dropbox folder, Google Drive folder ("Anyone with the link"), or iCloud shared album URL and choose **Manorama-fy it!**. Manorama detects the provider from the link, enumerates the shared images using its server-side credentials (Dropbox app credentials, a Drive API key, or none for iCloud), ignores non-image files, loads a low-resolution preview strip, and lets the owner arrange the images before adding the gallery.
 
-Added galleries are stored in Airtable as metadata and ordered image manifests. Original image bytes remain in Dropbox and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama’s reference only; it does not delete anything in Dropbox.
+Added galleries are stored as metadata and ordered image manifests. Original image bytes remain with the provider and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama’s reference only; it does not delete anything at the source.
 
-The admin lists Dropbox-backed galleries newest first. Clicking a title or caption opens an inline editor. Beneath each title and caption is a full-viewport-width, 100px image rail containing the gallery thumbnails. Images can be dragged into a new position, moved with the keyboard when focused, and panned within the rail using horizontal trackpad/wheel input or touch-style pointer movement. Each gallery row exposes its public URL, a copy action, and a delete action. Gallery links open in a new tab.
+The admin lists link-sourced galleries newest first. Clicking a title or caption opens an inline editor. Beneath each title and caption is a full-viewport-width, 100px image rail containing the gallery thumbnails. Images can be dragged into a new position, moved with the keyboard when focused, and panned within the rail using horizontal trackpad/wheel input or touch-style pointer movement. Each gallery row exposes its public URL, a copy action, and a delete action. Gallery links open in a new tab.
 
 ## Public URLs
 
@@ -44,7 +44,7 @@ The `Galleries` table uses these fields:
 | `title` | Single line text | Opening curtain and admin title |
 | `caption` | Long text | Opening curtain and admin caption |
 | `date` | Single line text | Optional displayed gallery date |
-| `sourceUrl` | URL or text | Public Dropbox folder URL |
+| `sourceUrl` | URL or text | Public Dropbox, Google Drive, or iCloud shared album URL |
 | `createdAt` | Date/text | Recency ordering |
 | `imagesJson` | Long text | Ordered image metadata and transient source references |
 
@@ -62,6 +62,22 @@ The Worker expects these server-side secrets:
 The Dropbox app must have the read scopes needed for public shared-link metadata and file content. End users do not authorize Dropbox. They only provide a public shared-folder URL with downloading enabled.
 
 Dropbox enumeration uses the official shared-link API path. The initial scan returns image metadata and thumbnail routes; the Worker uses cursors internally for the folder listing. The delivery routes proxy thumbnails and originals without persisting the image bytes in Manorama.
+
+## Google Drive setup
+
+Google Drive ingestion reads folders shared with "Anyone with the link" using a server-side API key — no end-user OAuth:
+
+| Secret | Purpose |
+| --- | --- |
+| `GOOGLE_DRIVE_API_KEY` | API key from a Google Cloud project with the Drive API enabled |
+
+Create a Google Cloud project, enable the Google Drive API, and create an API key (optionally restricted to the Drive API). Listing uses `files.list` scoped to the folder; originals stream through `/api/drive/file` (`alt=media`) and thumbnails through `/api/drive/thumbnail`. HEIC files display via Drive's JPEG thumbnail rendition.
+
+## iCloud setup
+
+iCloud shared album links (`icloud.com/sharedalbum/#…` or `share.icloud.com/photos/…`) need no credentials — the album token is the only key. Manorama uses the undocumented `sharedstreams` endpoints that power Apple's own public album web viewer. Two consequences: the endpoint is unsupported and may change without notice, and shared albums serve web-optimized JPEG derivatives (~2048px) rather than originals, so iCloud images are never marked `c2pa`.
+
+iCloud **Drive** share links (`icloud.com/iclouddrive/…`) are a different product: folder contents sit behind authenticated CloudKit sharing and cannot be scanned anonymously, so they are rejected with guidance to use a Photos Shared Album instead.
 
 ## Run locally
 
@@ -104,9 +120,9 @@ The admin root and public galleries send `X-Robots-Tag: noindex, nofollow, noarc
 
 ## ImageSource and gallery model
 
-The viewer consumes the `ImageSource` interface in `app/lib/imagesource.ts`. `BundledSource` reads the generated local manifest and is retained as a development fallback. Dropbox-backed records use the same manifest shape and are delivered through the Worker’s transient Dropbox proxy routes, so the viewer does not need to know where the image originated.
+The viewer consumes the `ImageSource` interface in `app/lib/imagesource.ts`. `BundledSource` reads the generated local manifest and is retained as a development fallback. Link-sourced records use the same manifest shape and are delivered through the Worker’s transient per-provider proxy routes (`/api/dropbox/*`, `/api/drive/*`, `/api/icloud/*`), so the viewer does not need to know where the image originated.
 
-Each image has a stable ID, filename, dimensions, alt text, optional caption and EXIF data, C2PA state, placeholder, and responsive variants. The ordered image sequence is persisted in `imagesJson`; dragging or keyboard-moving an image changes only the gallery order, not the Dropbox files. The admin rail renders 100px thumbnails with preserved aspect ratios and does not alter the source images.
+Each image has a stable ID, an optional provider `ref` (Drive file ID, iCloud photo GUID) used for ordering and refresh dedupe, filename, dimensions, alt text, optional caption and EXIF data, C2PA state, placeholder, and responsive variants. The ordered image sequence is persisted in `imagesJson`; dragging or keyboard-moving an image changes only the gallery order, not the source files. The admin rail renders 100px thumbnails with preserved aspect ratios and does not alter the source images.
 
 The asset pipeline treats Content Credentials and ICC profiles as part of the image bytes. Originals are never recompressed, cropped, stretched, upscaled, or converted into a sole alternate format. C2PA verification remains client-side and lazy-loaded.
 
@@ -121,9 +137,12 @@ During gallery viewing, the stage contains only the quiet Gallery controls dot. 
 | `app/routes/index.tsx` | Root noindex admin route |
 | `app/routes/[owner]/[slug].tsx` | Canonical owner-scoped gallery route |
 | `app/routes/[slug].tsx` | Legacy single-segment redirect into the owner namespace |
-| `app/islands/Admin.tsx` | Dropbox intake, image arrangement, gallery list, inline editing, copy, and delete |
+| `app/islands/Admin.tsx` | Shared-link intake, image arrangement, gallery list, inline editing, copy, and delete |
 | `app/islands/Viewer.tsx` | Hydrated strip viewer, modal, modes, gestures, and C2PA trigger |
+| `app/lib/sources.ts` | Source link detection and scanner dispatch (Dropbox, Drive, iCloud) |
 | `app/lib/dropbox-public.ts` | Public shared-link scan, thumbnail, and original delivery helpers |
+| `app/lib/gdrive-public.ts` | Link-shared Drive folder scan and image delivery helpers |
+| `app/lib/icloud-shared.ts` | Public iCloud shared album scan and derivative delivery helpers |
 | `app/lib/gallery-repository.ts` | Airtable-backed gallery persistence and local fallback |
 | `app/lib/gallery-registry.ts` | Earlier generated registry seam retained for compatibility |
 | `app/lib/gallery-settings.ts` | Per-gallery viewer settings and browser fallback |

@@ -1,5 +1,9 @@
-import { Hono } from 'hono'
-import { fetchDropboxFile, fetchDropboxThumbnail, scanDropboxFolder } from './lib/dropbox-public'
+import { Hono, type Context } from 'hono'
+import { SourceFetchError } from './lib/imagesource'
+import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
+import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
+import { fetchICloudImage } from './lib/icloud-shared'
+import { scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug } from './lib/user-repository'
@@ -12,6 +16,7 @@ export type RuntimeEnv = {
   AIRTABLE_GALLERIES_TABLE?: string
   DROPBOX_APP_KEY?: string
   DROPBOX_APP_SECRET?: string
+  GOOGLE_DRIVE_API_KEY?: string
   VENDO_API_KEY?: string
   VENDO_CONSOLE_URL?: string
   VENDO_BASE_URL?: string
@@ -45,6 +50,17 @@ const smartQuotes = (text: string) =>
     .replace(/'/g, '\u2019')
     .replace(/(^|[\s([{<])"/g, '$1\u201C')
     .replace(/"/g, '\u201D')
+
+/** Maps a provider fetch failure to a proxy response: 404 only for a
+ *  confirmed missing asset, 503 for missing configuration and retryable
+ *  or upstream 5xx failures, otherwise the upstream status is retained. */
+const proxyFailure = (c: Context, provider: string, reference: string, error: unknown) => {
+  const status = error instanceof SourceFetchError ? error.status : undefined
+  console.error('image proxy failure', { provider, reference, status: status ?? null, error })
+  if (status === 404) return c.json({ error: `That ${provider} is unavailable` }, 404)
+  if (status === undefined || status === 429 || status >= 500) return c.json({ error: `That ${provider} is temporarily unavailable` }, 503)
+  return c.json({ error: `That ${provider} is unavailable` }, status as 400)
+}
 
 const streamResponse = (response: Response, cacheControl: string) => {
   const headers = new Headers()
@@ -81,38 +97,38 @@ export const createManoramaApi = () => {
 
   api.post('/api/galleries/scan', async (c) => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
-    if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
+    if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     try {
-      const scan = await scanDropboxFolder(payload.url, envOf(c))
+      const scan = await scanSource(payload.url, envOf(c))
       return c.json({ scan })
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'That Dropbox folder could not be scanned' }, 422)
+      return c.json({ error: error instanceof Error ? error.message : 'That link could not be scanned' }, 422)
     }
   })
 
   api.post('/api/galleries', async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
-    if (!payload.url?.trim()) return c.json({ error: 'Paste a public Dropbox folder URL' }, 400)
+    if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     try {
       // Best-effort fast reject at the limit; the atomic check below is
       // the real guard against concurrent requests.
       if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= galleryLimit(session.tier)) {
         return c.json({ error: limitMessage }, 403)
       }
-      const scan = await scanDropboxFolder(payload.url, envOf(c))
+      const scan = await scanSource(payload.url, envOf(c))
       const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
-      if (sourceUrlMatch) return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
+      if (sourceUrlMatch) return c.json({ error: 'A gallery from that link already exists' }, 409)
       const orderedImages = payload.order?.length
         ? (() => {
             const seen = new Set<string>()
             const uniqueOrder: string[] = []
-            for (const filename of payload.order!) {
-              if (!seen.has(filename)) { seen.add(filename); uniqueOrder.push(filename) }
+            for (const key of payload.order!) {
+              if (!seen.has(key)) { seen.add(key); uniqueOrder.push(key) }
             }
-            return uniqueOrder.flatMap((filename) => scan.images.filter((image) => image.filename === filename))
-              .concat(scan.images.filter((image) => !seen.has(image.filename)))
+            return uniqueOrder.flatMap((key) => scan.images.filter((image) => (image.ref ?? image.filename) === key))
+              .concat(scan.images.filter((image) => !seen.has(image.ref ?? image.filename)))
           })()
         : scan.images
       const baseSlug = slugify(scan.title)
@@ -137,7 +153,7 @@ export const createManoramaApi = () => {
         }, galleryLimit(session.tier), dbEnv(c))
         if (result.ok) return c.json({ gallery: toSummary(result.gallery) }, 201)
         if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
-        if (result.reason === 'duplicate-source') return c.json({ error: 'A gallery from that Dropbox folder already exists' }, 409)
+        if (result.reason === 'duplicate-source') return c.json({ error: 'A gallery from that link already exists' }, 409)
         if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
         slug = `${baseSlug}-${suffix}`
         suffix += 1
@@ -188,10 +204,18 @@ export const createManoramaApi = () => {
     try {
       const gallery = await getGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-      if (!gallery.sourceUrl) return c.json({ error: 'Only Dropbox-sourced galleries can be refreshed' }, 400)
-      const scan = await scanDropboxFolder(gallery.sourceUrl, envOf(c))
-      const byFilename = new Map(gallery.images.map((image) => [image.filename, image]))
-      const refreshed = scan.images.map((image) => byFilename.get(image.filename) ?? image)
+      if (!gallery.sourceUrl) return c.json({ error: 'Only link-sourced galleries can be refreshed' }, 400)
+      const scan = await scanSource(gallery.sourceUrl, envOf(c))
+      // Retained images keep the owner's ordering but pick up fresh
+      // scanner metadata and source references; images removed from the
+      // source drop out, newly discovered ones append at the end.
+      const scanByKey = new Map(scan.images.map((image) => [image.ref ?? image.filename, image]))
+      const keptKeys = new Set(gallery.images.map((image) => image.ref ?? image.filename))
+      const retained = gallery.images.flatMap((image) => {
+        const fresh = scanByKey.get(image.ref ?? image.filename)
+        return fresh ? [fresh] : []
+      })
+      const refreshed = retained.concat(scan.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
       // Persist only the refreshed images, not the stale gallery metadata
       // read before the scan — a concurrent metadata change is preserved.
       const updated = await updateGalleryImages(session.dropboxAccountId, gallery.slug, refreshed, dbEnv(c))
@@ -217,8 +241,8 @@ export const createManoramaApi = () => {
     }
   })
 
-  // Public image proxy: public gallery pages load Dropbox-sourced images
-  // through these routes, so they are intentionally NOT behind the session.
+  // Public image proxies: public gallery pages load source images through
+  // these routes, so they are intentionally NOT behind the session.
   api.get('/api/dropbox/thumbnail', async (c) => {
     const sourceUrl = c.req.query('sourceUrl')
     const filename = c.req.query('filename')
@@ -226,8 +250,8 @@ export const createManoramaApi = () => {
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
       return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), size), 'private, max-age=300')
-    } catch {
-      return c.json({ error: 'That Dropbox thumbnail is unavailable' }, 404)
+    } catch (error) {
+      return proxyFailure(c, 'Dropbox thumbnail', `${filename} in ${sourceUrl}`, error)
     }
   })
 
@@ -237,8 +261,43 @@ export const createManoramaApi = () => {
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
       return streamResponse(await fetchDropboxFile(sourceUrl, filename, envOf(c)), 'private, no-store')
-    } catch {
-      return c.json({ error: 'That Dropbox image is unavailable' }, 404)
+    } catch (error) {
+      return proxyFailure(c, 'Dropbox image', `${filename} in ${sourceUrl}`, error)
+    }
+  })
+
+  api.get('/api/drive/thumbnail', async (c) => {
+    const id = c.req.query('id')
+    const resourceKey = c.req.query('rk')
+    const size = c.req.query('size') === 'w2048' ? 'w2048' as const : 'w256' as const
+    if (!id) return c.json({ error: 'Missing Google Drive image reference' }, 400)
+    try {
+      return streamResponse(await fetchDriveThumbnail(id, envOf(c), size, fetch, resourceKey), 'private, max-age=300')
+    } catch (error) {
+      return proxyFailure(c, 'Google Drive thumbnail', id, error)
+    }
+  })
+
+  api.get('/api/drive/file', async (c) => {
+    const id = c.req.query('id')
+    const resourceKey = c.req.query('rk')
+    if (!id) return c.json({ error: 'Missing Google Drive image reference' }, 400)
+    try {
+      return streamResponse(await fetchDriveFile(id, envOf(c), fetch, resourceKey), 'private, no-store')
+    } catch (error) {
+      return proxyFailure(c, 'Google Drive image', id, error)
+    }
+  })
+
+  api.get('/api/icloud/image', async (c) => {
+    const album = c.req.query('album')
+    const photo = c.req.query('photo')
+    const checksum = c.req.query('c')
+    if (!album || !photo || !checksum) return c.json({ error: 'Missing iCloud image reference' }, 400)
+    try {
+      return streamResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
+    } catch (error) {
+      return proxyFailure(c, 'iCloud image', `${photo} in ${album}`, error)
     }
   })
 

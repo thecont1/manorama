@@ -12,7 +12,7 @@ export const TOOLS_FILE = {
   "tools": [
     {
       "name": "host_create_gallery",
-      "description": "Create a gallery from a Dropbox folder. Scan a public Dropbox folder URL and create a gallery from its images, optionally in a given order.",
+      "description": "Create a gallery from a shared link. Scan a public Dropbox, Google Drive, or iCloud shared album link and create a gallery from its images, optionally in a given order.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -20,7 +20,7 @@ export const TOOLS_FILE = {
             "additionalProperties": false,
             "properties": {
               "order": {
-                "description": "Optional image filenames in the desired display order; unlisted images keep scan order after them",
+                "description": "Optional image refs (filenames for Dropbox) in the desired display order; unlisted images keep scan order after them",
                 "items": {
                   "type": "string"
                 },
@@ -28,7 +28,7 @@ export const TOOLS_FILE = {
                 "type": "array"
               },
               "url": {
-                "description": "A public, download-enabled Dropbox folder URL to create the gallery from",
+                "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL to create the gallery from",
                 "type": "string"
               }
             },
@@ -87,6 +87,10 @@ export const TOOLS_FILE = {
                     "placeholder": {
                       "type": "string"
                     },
+                    "ref": {
+                      "description": "Provider-stable item key used for ordering and refresh dedupe; absent for Dropbox (filename is the key)",
+                      "type": "string"
+                    },
                     "src": {
                       "type": "string"
                     },
@@ -139,7 +143,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public Dropbox folder URL backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -171,11 +175,11 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_delete_gallery",
-      "description": "Delete a gallery. Delete a gallery and its Manorama references. This is irreversible; Dropbox files are never touched.",
+      "description": "Delete a gallery. Delete a gallery and its Manorama references. This is irreversible; source files are never touched.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -210,7 +214,77 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+    },
+    {
+      "name": "host_get_drive_file",
+      "description": "Fetch a Google Drive original. Fetch a full-resolution image from a link-shared Google Drive folder by file ID.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The Google Drive file ID"
+          },
+          "rk": {
+            "type": "string",
+            "description": "The file's resource key, required for resource-keyed shared links"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_drive_file",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/drive/file"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+    },
+    {
+      "name": "host_get_drive_thumbnail",
+      "description": "Fetch a Google Drive thumbnail. Fetch a thumbnail image from a link-shared Google Drive folder by file ID. HEIC files are served as JPEG renditions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The Google Drive file ID"
+          },
+          "size": {
+            "enum": [
+              "w256",
+              "w2048"
+            ],
+            "type": "string",
+            "description": "Thumbnail width class (w256 default, w2048 for HEIC previews)"
+          },
+          "rk": {
+            "type": "string",
+            "description": "The file's resource key, required for resource-keyed shared links"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_drive_thumbnail",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/drive/thumbnail"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_dropbox_file",
@@ -242,7 +316,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -274,7 +348,44 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+    },
+    {
+      "name": "host_get_icloud_image",
+      "description": "Fetch an iCloud shared album image. Fetch an image derivative from a public iCloud shared album. The expiring CDN URL is re-resolved on every request.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "album": {
+            "type": "string",
+            "description": "The shared album token"
+          },
+          "photo": {
+            "type": "string",
+            "description": "The photo GUID within the album"
+          },
+          "c": {
+            "type": "string",
+            "description": "The derivative checksum selecting the rendition"
+          }
+        },
+        "required": [
+          "album",
+          "photo",
+          "c"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_icloud_image",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/icloud/image"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_list_galleries",
@@ -329,6 +440,10 @@ export const TOOLS_FILE = {
                       "placeholder": {
                         "type": "string"
                       },
+                      "ref": {
+                        "description": "Provider-stable item key used for ordering and refresh dedupe; absent for Dropbox (filename is the key)",
+                        "type": "string"
+                      },
                       "src": {
                         "type": "string"
                       },
@@ -381,7 +496,7 @@ export const TOOLS_FILE = {
                   "type": "string"
                 },
                 "sourceUrl": {
-                  "description": "Public Dropbox folder URL backing this gallery",
+                  "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
                   "type": "string"
                 },
                 "title": {
@@ -415,11 +530,11 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_refresh_gallery",
-      "description": "Refresh a gallery from Dropbox. Re-scan a gallery's Dropbox source folder and update its images with any new or changed files.",
+      "description": "Refresh a gallery from its source. Re-scan a gallery's source link and update its images with any new or changed files.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -477,6 +592,10 @@ export const TOOLS_FILE = {
                     "placeholder": {
                       "type": "string"
                     },
+                    "ref": {
+                      "description": "Provider-stable item key used for ordering and refresh dedupe; absent for Dropbox (filename is the key)",
+                      "type": "string"
+                    },
                     "src": {
                       "type": "string"
                     },
@@ -529,7 +648,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public Dropbox folder URL backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -561,11 +680,11 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
-      "name": "host_scan_dropbox_folder",
-      "description": "Scan a Dropbox folder. Scan a public Dropbox folder URL to discover images for a new gallery. Returns the folder title and image metadata.",
+      "name": "host_scan_gallery_source",
+      "description": "Scan a shared link. Scan a public Dropbox, Google Drive, or iCloud shared album link to discover images for a new gallery. Returns the source title and image metadata.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -573,7 +692,7 @@ export const TOOLS_FILE = {
             "additionalProperties": false,
             "properties": {
               "url": {
-                "description": "A public, download-enabled Dropbox folder URL",
+                "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL",
                 "type": "string"
               }
             },
@@ -616,6 +735,10 @@ export const TOOLS_FILE = {
                       "type": "string"
                     },
                     "placeholder": {
+                      "type": "string"
+                    },
+                    "ref": {
+                      "description": "Provider-stable item key used for ordering and refresh dedupe; absent for Dropbox (filename is the key)",
                       "type": "string"
                     },
                     "src": {
@@ -665,7 +788,7 @@ export const TOOLS_FILE = {
                 "type": "array"
               },
               "sourceUrl": {
-                "description": "Normalized public Dropbox folder URL",
+                "description": "Normalized public source URL",
                 "type": "string"
               },
               "title": {
@@ -688,14 +811,14 @@ export const TOOLS_FILE = {
       "risk": "ungraded",
       "binding": {
         "kind": "openapi",
-        "operationId": "scan_dropbox_folder",
+        "operationId": "scan_gallery_source",
         "baseUrl": "https://manorama.xyz",
         "method": "POST",
         "path": "/api/galleries/scan"
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_update_gallery",
@@ -722,7 +845,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "order": {
-                "description": "New image display order (filenames)",
+                "description": "New image display order (image refs, or filenames for Dropbox)",
                 "items": {
                   "type": "string"
                 },
@@ -789,6 +912,10 @@ export const TOOLS_FILE = {
                     "placeholder": {
                       "type": "string"
                     },
+                    "ref": {
+                      "description": "Provider-stable item key used for ordering and refresh dedupe; absent for Dropbox (filename is the key)",
+                      "type": "string"
+                    },
                     "src": {
                       "type": "string"
                     },
@@ -841,7 +968,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public Dropbox folder URL backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -873,7 +1000,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f506a4b7b80e459ddbaaad3647752457dc7b2e010668fd81b2b293637a5a2209"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     }
   ]
 } as {
@@ -887,10 +1014,19 @@ export const OVERRIDES_FILE = {
     "host_create_gallery": {
       "risk": "write"
     },
+    "host_get_drive_file": {
+      "risk": "read"
+    },
+    "host_get_drive_thumbnail": {
+      "risk": "read"
+    },
     "host_get_dropbox_file": {
       "risk": "read"
     },
     "host_get_dropbox_thumbnail": {
+      "risk": "read"
+    },
+    "host_get_icloud_image": {
       "risk": "read"
     },
     "host_list_galleries": {
@@ -899,7 +1035,7 @@ export const OVERRIDES_FILE = {
     "host_refresh_gallery": {
       "risk": "write"
     },
-    "host_scan_dropbox_folder": {
+    "host_scan_gallery_source": {
       "risk": "read"
     },
     "host_update_gallery": {

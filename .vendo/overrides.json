@@ -4,10 +4,19 @@
     "host_create_gallery": {
       "risk": "write"
     },
+    "host_get_drive_file": {
+      "risk": "read"
+    },
+    "host_get_drive_thumbnail": {
+      "risk": "read"
+    },
     "host_get_dropbox_file": {
       "risk": "read"
     },
     "host_get_dropbox_thumbnail": {
+      "risk": "read"
+    },
+    "host_get_icloud_image": {
       "risk": "read"
     },
     "host_list_galleries": {
@@ -16,7 +25,7 @@
     "host_refresh_gallery": {
       "risk": "write"
     },
-    "host_scan_dropbox_folder": {
+    "host_scan_gallery_source": {
       "risk": "read"
     },
     "host_update_gallery": {

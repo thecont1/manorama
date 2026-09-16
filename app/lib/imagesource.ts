@@ -17,6 +17,11 @@ export type ImageVariant = {
 
 export type GalleryImage = {
   id: string
+  /** Provider-stable item key (Drive file ID, iCloud photo GUID). Ordering
+   *  and refresh dedupe use `ref ?? filename` — Dropbox filenames are unique
+   *  per folder so it stays unset there, but Drive allows duplicate names
+   *  and iCloud shared albums have no filenames at all. */
+  ref?: string
   filename: string
   src: string
   width: number
@@ -40,6 +45,19 @@ export type GalleryManifest = {
 export interface ImageSource {
   list(): readonly GalleryImage[]
   url(id: string, variant?: number | 'original'): string
+}
+
+/** A provider fetch that failed upstream. `status` carries the upstream
+ *  HTTP status when one exists so the proxy routes can distinguish a
+ *  confirmed miss (404) from retryable failures (5xx, network, config). */
+export class SourceFetchError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message)
+    this.name = 'SourceFetchError'
+  }
 }
 
 export class BundledSource implements ImageSource {
