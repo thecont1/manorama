@@ -46,7 +46,8 @@ link is rejected with a 409.
   "Anyone with the link" (`drive.google.com/drive/folders/…`, plus the
   `/drive/u/{n}/folders/…` and `open?id=…` spellings), iCloud shared
   albums (`icloud.com/sharedalbum/#…`, `share.icloud.com/photos/…`),
-  and MEGA shared folders (`mega.nz/folder/{id}#{key}`).
+  and MEGA shared folders or collections (`mega.nz/folder/{id}#{key}`,
+  `mega.nz/collection/{id}#{key}`; legacy `#F!`/`#C!` fragments work too).
 - iCloud **Drive** links (`icloud.com/iclouddrive/…`) are a different
   product: folder contents sit behind authenticated sharing and cannot
   be scanned anonymously. They are rejected with guidance to share a
@@ -57,15 +58,17 @@ link is rejected with a 409.
   originals, no Content Credentials.
 - iCloud support rides Apple's undocumented shared-album web endpoints
   and can break without notice; treat iCloud galleries as best-effort.
-- MEGA links must carry the `#key` fragment — it is the folder's
+- MEGA links must carry the `#key` fragment — it is the share's
   decryption key. Manorama decrypts node keys, attributes, and image
-  content client-side (AES-128 ECB/CBC/CTR). The decrypted per-file
-  node key travels in the image proxy URL (`?k=`), equivalent in
-  exposure to the public link itself. MEGA serves decrypted originals
-  (`c2pa` preserved). Free-tier MEGA bandwidth limits (HTTP 509) can
-  interrupt image delivery — these surface as 503s; retry later.
-  MEGA images carry no thumbnail rendition — the admin strip loads
-  full images.
+  content client-side (AES-128 ECB/CBC/CTR; Set metadata additionally
+  uses AES-GCM/CCM TLV containers). The decrypted per-file node key
+  travels in the image proxy URL (`?k=`), equivalent in exposure to
+  the public link itself. MEGA serves decrypted originals (`c2pa`
+  preserved); formats browsers cannot render (HEIC, HEIF, TIFF) are
+  served through MEGA's own generated JPEG/WebP preview via
+  `/api/mega/preview`, and images with no generated preview are
+  excluded. Free-tier MEGA bandwidth limits (HTTP 509) can interrupt
+  image delivery — these surface as 503s; retry later.
 - Accepted image formats: JPEG, WebP, TIFF, HEIC, and HEIF.
 - Only the top level of a folder is scanned; subfolders are not
   descended into.
