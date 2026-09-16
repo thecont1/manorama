@@ -610,9 +610,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const { default: heic2any } = await import('heic2any')
       const response = await fetch(image.src)
       if (!response.ok) throw new Error(`HEIC fetch failed: ${response.status}`)
-      const converted = await heic2any({ blob: await response.blob(), toType: 'image/jpeg', quality: 0.95 })
-      const blob = Array.isArray(converted) ? converted[0] : converted
-      setHeicSrc((previous) => ({ ...previous, [image.id]: URL.createObjectURL(blob) }))
+      const blob = await response.blob()
+      const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
+      // Older gallery records still point at JPEG renditions — a 'ftyp' box
+      // means real HEIC; anything else (JPEG, WebP) renders directly.
+      const isHeicBlob = head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70
+      if (!isHeicBlob) {
+        setHeicSrc((previous) => ({ ...previous, [image.id]: URL.createObjectURL(blob) }))
+        return
+      }
+      const converted = await heic2any({ blob, toType: 'image/jpeg', quality: 0.95 })
+      const out = Array.isArray(converted) ? converted[0] : converted
+      setHeicSrc((previous) => ({ ...previous, [image.id]: URL.createObjectURL(out) }))
     } catch {
       heicPendingRef.current.delete(image.id)
     }
