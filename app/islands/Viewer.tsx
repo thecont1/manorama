@@ -721,13 +721,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           })}
         </div>
         <div class="stage-arrows" aria-label="Image navigation and information">
+          <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
           {arrowsVisible ? (
             <>
               <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
               <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
             </>
           ) : null}
-          <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
         </div>
       </div>
 
