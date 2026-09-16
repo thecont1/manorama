@@ -1,4 +1,4 @@
-import { useRef, useState } from 'hono/jsx'
+import { useEffect, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 
@@ -20,6 +20,10 @@ type GalleryDrag = {
   currentIndex: number
   images: GallerySummary['images']
 }
+type Theme = 'light' | 'dark'
+
+const THEME_KEY = 'manorama:theme'
+const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
 
 const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
 const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) => {
@@ -92,6 +96,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
   const [busy, setBusy] = useState(false)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof localStorage === 'undefined') return 'dark'
+    try {
+      return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+    } catch {
+      return 'dark'
+    }
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'light') root.classList.add('light')
+    else root.classList.remove('light')
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch { /* private browsing */ }
+  }, [theme])
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
@@ -416,6 +437,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
           </div>
         </div>
+        <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
+          <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
+        </button>
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
