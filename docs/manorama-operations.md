@@ -41,11 +41,12 @@ link is rejected with a 409.
 
 - Only **public share links** are accepted. Login-walled or
   password-protected links cannot be scanned.
-- Three providers are recognized: Dropbox shared folders
+- Four providers are recognized: Dropbox shared folders
   (`dropbox.com/scl/fo/…` or `/sh/…`), Google Drive folders shared with
   "Anyone with the link" (`drive.google.com/drive/folders/…`, plus the
-  `/drive/u/{n}/folders/…` and `open?id=…` spellings), and iCloud shared
-  albums (`icloud.com/sharedalbum/#…`, `share.icloud.com/photos/…`).
+  `/drive/u/{n}/folders/…` and `open?id=…` spellings), iCloud shared
+  albums (`icloud.com/sharedalbum/#…`, `share.icloud.com/photos/…`),
+  and MEGA shared folders (`mega.nz/folder/{id}#{key}`).
 - iCloud **Drive** links (`icloud.com/iclouddrive/…`) are a different
   product: folder contents sit behind authenticated sharing and cannot
   be scanned anonymously. They are rejected with guidance to share a
@@ -56,6 +57,15 @@ link is rejected with a 409.
   originals, no Content Credentials.
 - iCloud support rides Apple's undocumented shared-album web endpoints
   and can break without notice; treat iCloud galleries as best-effort.
+- MEGA links must carry the `#key` fragment — it is the folder's
+  decryption key. Manorama decrypts node keys, attributes, and image
+  content client-side (AES-128 ECB/CBC/CTR). The decrypted per-file
+  node key travels in the image proxy URL (`?k=`), equivalent in
+  exposure to the public link itself. MEGA serves decrypted originals
+  (`c2pa` preserved). Free-tier MEGA bandwidth limits (HTTP 509) can
+  interrupt image delivery — these surface as 503s; retry later.
+  MEGA images carry no thumbnail rendition — the admin strip loads
+  full images.
 - Accepted image formats: JPEG, WebP, TIFF, HEIC, and HEIF.
 - Only the top level of a folder is scanned; subfolders are not
   descended into.
