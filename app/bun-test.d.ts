@@ -18,8 +18,14 @@ declare module 'bun:test' {
     toBeNull(): void
     toContain(expected: unknown): void
     toBeGreaterThan(expected: number): void
+    toBeGreaterThanOrEqual(expected: number): void
+    toBeLessThan(expected: number): void
     toMatch(expected: unknown): void
     toBeUndefined(): void
+    toBeDefined(): void
+    toHaveLength(expected: number): void
+    toThrow(expected?: unknown): void
+    readonly rejects: Matchers<unknown>
     readonly not: Matchers<T>
   }
 }
