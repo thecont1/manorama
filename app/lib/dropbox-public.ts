@@ -25,7 +25,8 @@ const originalProxy = (sourceUrl: string, filename: string) => `/api/dropbox/fil
 const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
 // HEIC can't render in browsers; Dropbox transcodes to JPEG via the
 // thumbnail endpoint, so the display src is a large JPEG rendition.
-const previewProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w2048h2048`
+// HEIC thumbs stop at w1024h768 — w2048h2048 is rejected upstream.
+const previewProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w1024h768`
 
 const authHeaders = (env: DropboxEnv) => {
   if (!env.DROPBOX_APP_KEY || !env.DROPBOX_APP_SECRET) throw new Error('Dropbox app credentials are not configured')
@@ -143,7 +144,7 @@ export const fetchDropboxFile = async (sourceUrlInput: string, filename: string,
   return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env)
 }
 
-export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w2048h2048' = 'w256h256') => {
+export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w1024h768' | 'w2048h2048' = 'w256h256') => {
   const sourceUrl = validateFolderUrl(sourceUrlInput)
   return contentRequest('files/get_thumbnail_v2', {
     resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },

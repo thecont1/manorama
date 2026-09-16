@@ -247,10 +247,14 @@ export const createManoramaApi = () => {
   api.get('/api/dropbox/thumbnail', async (c) => {
     const sourceUrl = c.req.query('sourceUrl')
     const filename = c.req.query('filename')
-    const size = c.req.query('size') === 'w2048h2048' ? 'w2048h2048' as const : 'w256h256' as const
+    const sizeParam = c.req.query('size')
+    const size = sizeParam === 'w2048h2048' || sizeParam === 'w1024h768' ? sizeParam : 'w256h256' as const
+    // Dropbox offers HEIC renditions only up to w1024h768; clamp so stored
+    // galleries with w2048h2048 preview URLs keep working.
+    const effectiveSize = filename && /\.hei[cf]$/i.test(filename) && size === 'w2048h2048' ? 'w1024h768' as const : size
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
-      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), size), 'private, max-age=300')
+      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'Dropbox thumbnail', `${filename} in ${sourceUrl}`, error)
     }
