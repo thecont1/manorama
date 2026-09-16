@@ -77,6 +77,8 @@ Create a Google Cloud project, enable the Google Drive API, and create an API ke
 
 iCloud shared album links (`icloud.com/sharedalbum/#…` or `share.icloud.com/photos/…`) need no credentials — the album token is the only key. Manorama uses the undocumented `sharedstreams` endpoints that power Apple's own public album web viewer. Two consequences: the endpoint is unsupported and may change without notice, and shared albums serve web-optimized JPEG derivatives (~2048px) rather than originals, so iCloud images are never marked `c2pa`.
 
+iCloud **Drive** share links (`icloud.com/iclouddrive/…`) are a different product: folder contents sit behind authenticated CloudKit sharing and cannot be scanned anonymously, so they are rejected with guidance to use a Photos Shared Album instead.
+
 ## Run locally
 
 The project uses Bun:

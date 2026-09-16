@@ -46,6 +46,19 @@ export const extractAlbumToken = (input: string) => {
 
 export const canonicalICloudUrl = (token: string) => `https://www.icloud.com/sharedalbum/#${token}`
 
+/** iCloud Drive share links (icloud.com/iclouddrive/{token}#name) are a
+ *  different product from Photos shared albums: folder contents sit behind
+ *  CloudKit's authenticated sharing, so they cannot be scanned without a
+ *  sign-in. Recognized only to produce a specific error. */
+export const isICloudDriveLink = (input: string) => {
+  try {
+    const url = new URL(input.trim())
+    return url.hostname.replace(/^www\./, '') === 'icloud.com' && url.pathname.startsWith('/iclouddrive/')
+  } catch {
+    return false
+  }
+}
+
 const base62ToInt = (input: string) =>
   Array.from(input).reduce((result, char) => result * 62 + BASE62.indexOf(char), 0)
 

@@ -22,6 +22,7 @@ describe('detectSource', () => {
     expect(detectSource('https://photos.google.com/share/abc')).toBeNull()
     expect(detectSource('https://onedrive.live.com/?id=abc')).toBeNull()
     expect(detectSource('https://icloud.com/photos')).toBeNull()
+    expect(detectSource('https://www.icloud.com/iclouddrive/03c_T_Sxo0bE6AecC8_Ol21tw#Moral_Polis')).toBeNull()
     expect(detectSource('not a url')).toBeNull()
     expect(detectSource('ftp://dropbox.com/sh/x')).toBeNull()
     expect(detectSource('')).toBeNull()
@@ -31,5 +32,10 @@ describe('detectSource', () => {
 describe('scanSource', () => {
   test('rejects unrecognized links with the shared guidance', async () => {
     await expect(scanSource('https://example.com/photos', {})).rejects.toThrow(UNRECOGNIZED_LINK_MESSAGE)
+  })
+
+  test('rejects iCloud Drive links with the Shared Album guidance', async () => {
+    await expect(scanSource('https://www.icloud.com/iclouddrive/03c_T_Sxo0bE6AecC8_Ol21tw#Moral_Polis', {}))
+      .rejects.toThrow('iCloud Drive links cannot be read')
   })
 })

@@ -54,6 +54,7 @@ const friendlySourceError = (error: unknown) => {
   if (/Use a public iCloud shared album link/i.test(message)) return 'Paste a public iCloud Shared Album link (icloud.com/sharedalbum or share.icloud.com/photos).'
   if (/Google Drive folder was not found|could not read that Google Drive/i.test(message)) return 'Manorama could not read that Google Drive folder. Check that it is shared with "Anyone with the link".'
   if (/could not read that iCloud|could not locate that shared album/i.test(message)) return 'Manorama could not read that iCloud album. Check that it is a public Shared Album link.'
+  if (/iCloud Drive links cannot be read/i.test(message)) return 'That is an iCloud Drive link, which Apple keeps behind sign-in. In Photos, share a Shared Album instead and paste its public link.'
   if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, TIFF, or HEIC images and try again.'
   if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that link. Check that it is public, downloading is enabled, and the URL points to the folder or album itself.'
   if (/not configured|credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach that service. Please try again later.'

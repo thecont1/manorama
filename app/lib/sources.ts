@@ -1,6 +1,6 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { scanDriveFolder } from './gdrive-public'
-import { scanICloudAlbum } from './icloud-shared'
+import { isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import type { GalleryImage } from './imagesource'
 
 /**
@@ -46,7 +46,13 @@ export const detectSource = (input: string): SourceProvider | null => {
 
 export const scanSource = async (input: string, env: SourceEnv, fetchImpl: typeof fetch = fetch): Promise<SourceScan> => {
   const provider = detectSource(input)
-  if (!provider) throw new Error(UNRECOGNIZED_LINK_MESSAGE)
+  if (!provider) {
+    // iCloud Drive links look like album links but enumerate folders only
+    // behind an authenticated CloudKit session — steer the owner to the
+    // Photos Shared Album link instead.
+    if (isICloudDriveLink(input)) throw new Error('iCloud Drive links cannot be read — share a Shared Album from Photos instead (icloud.com/sharedalbum or share.icloud.com/photos)')
+    throw new Error(UNRECOGNIZED_LINK_MESSAGE)
+  }
   switch (provider) {
     case 'dropbox':
       return { provider, ...(await scanDropboxFolder(input, env, fetchImpl)) }
