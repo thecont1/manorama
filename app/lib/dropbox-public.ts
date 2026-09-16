@@ -1,4 +1,7 @@
 import { SourceFetchError, type GalleryImage } from './imagesource'
+import { parseJpegDimensions, probeImageDimensions } from './image-dims'
+
+export { parseJpegDimensions }
 
 // Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
 // video, and every other file type are consciously ignored at scan.
@@ -46,10 +49,10 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
   return response.json() as Promise<T>
 }
 
-const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch) => {
+const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit) => {
   const response = await fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
-    headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg) },
+    headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg), ...headers },
   })
   // Dropbox reports a missing path inside a valid shared folder as 409 —
   // for the proxy that is a confirmed miss, not a conflict.
@@ -57,22 +60,11 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
   return response
 }
 
-export const parseJpegDimensions = (bytes: Uint8Array) => {
-  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null
-  let offset = 2
-  while (offset + 9 < bytes.length) {
-    if (bytes[offset] !== 0xff) { offset += 1; continue }
-    const marker = bytes[offset + 1]
-    const length = (bytes[offset + 2] << 8) + bytes[offset + 3]
-    if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
-      return { width: (bytes[offset + 7] << 8) + bytes[offset + 8], height: (bytes[offset + 5] << 8) + bytes[offset + 6] }
-    }
-    offset += Math.max(2, length + 2)
-  }
-  return null
-}
-
-const thumbnailDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
+/** Resolution order: JPEG thumbnail probe → ranged fetch of the original's
+ *  head parsed by format → list_folder media_info → 4:3 guess. The head
+ *  probe keeps frames correctly shaped even when Dropbox can't render a
+ *  thumbnail for an accepted format. */
+const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   try {
     const response = await contentRequest('files/get_thumbnail_v2', {
       resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },
@@ -85,7 +77,15 @@ const thumbnailDimensions = async (sourceUrl: string, filename: string, env: Dro
   } catch {
     // A preview is helpful but not required to validate the folder.
   }
-  return { width: fallback?.width || 4, height: fallback?.height || 3 }
+  if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
+  try {
+    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetchImpl, { Range: 'bytes=0-131071' })
+    const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
+    if (dimensions) return dimensions
+  } catch {
+    // Fall through to the 4:3 guess.
+  }
+  return { width: 4, height: 3 }
 }
 
 const collectEntries = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
@@ -123,7 +123,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
   const folderName = await sharedLinkName(sourceUrl, env, fetchImpl)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   const images = await Promise.all(entries.map(async (entry, index) => {
-    const dimensions = await thumbnailDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, fetchImpl)
+    const dimensions = await imageDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, fetchImpl)
     return {
       id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
       filename: entry.name,

@@ -1,5 +1,5 @@
 import { SourceFetchError, type GalleryImage } from './imagesource'
-import { parseJpegDimensions } from './dropbox-public'
+import { parseJpegDimensions, parseWebpDimensions, probeImageDimensions } from './image-dims'
 import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
 
 /**
@@ -192,25 +192,6 @@ const decryptContent = (bytes: Uint8Array, nodeKey: Uint8Array) =>
 
 /** WebP RIFF dims: VP8X (1+LE24 fields), lossy VP8 (14-bit LE after
  *  the 9d 012a start code), VP8L (packed 14-bit fields). */
-const parseWebpDimensions = (bytes: Uint8Array) => {
-  if (bytes.length < 30 || bytes[0] !== 0x52 || bytes[1] !== 0x49 || bytes[2] !== 0x46 || bytes[3] !== 0x46) return null
-  const view = new DataView(bytes.buffer, bytes.byteOffset)
-  const fourcc = String.fromCharCode(...bytes.subarray(12, 16))
-  if (fourcc === 'VP8X') {
-    return { width: 1 + ((bytes[24]! | bytes[25]! << 8 | bytes[26]! << 16)), height: 1 + ((bytes[27]! | bytes[28]! << 8 | bytes[29]! << 16)) }
-  }
-  if (fourcc === 'VP8 ') {
-    if (bytes[23] !== 0x9d || bytes[24] !== 0x01 || bytes[25] !== 0x2a) return null
-    return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff }
-  }
-  if (fourcc === 'VP8L') {
-    if (bytes[20] !== 0x2f) return null
-    const bits = view.getUint32(21, true)
-    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 }
-  }
-  return null
-}
-
 const parsePreviewDimensions = (bytes: Uint8Array) => parseJpegDimensions(bytes) ?? parseWebpDimensions(bytes)
 
 const sniffContentType = (bytes: Uint8Array) =>
@@ -247,7 +228,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
 
 /** Best-effort dimensions: the decrypted JPEG preview when the node
  *  carries one (small, and works for HEIC/HEIF too), else a ranged
- *  head fetch of JPEG originals; anything else gets a 4:3 placeholder.
+ *  head fetch of the original; anything else gets a 4:3 placeholder.
  *  Reported dims are the rendition's — aspect is what matters for
  *  layout, matching the Dropbox thumbnail-dims precedent. */
 const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch) => {
@@ -258,11 +239,11 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
       const dimensions = preview ? parsePreviewDimensions(preview) : null
       if (dimensions) return dimensions
     }
-    if (!/\.jpe?g$/i.test(name)) return { width: 4, height: 3 }
+    if (!BROWSER_RENDERABLE.test(name)) return { width: 4, height: 3 }
     const info = await downloadInfo(auth, node.h, fetchImpl)
     if (!info.g) return { width: 4, height: 3 }
     const head = await fetchRange(info.g, 0, DIMS_PROBE_BYTES - 1, fetchImpl)
-    const dimensions = parseJpegDimensions(decryptContent(head, nodeKey))
+    const dimensions = probeImageDimensions(decryptContent(head, nodeKey))
     if (dimensions) return dimensions
   } catch {
     // Dimensions are a nicety — never fail a scan over them.
