@@ -52,6 +52,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [fullscreenActive, setFullscreenActive] = useState(false)
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
+  const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
+  const heicPendingRef = useRef(new Set<string>())
   const stageRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
@@ -597,6 +599,32 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
   }
 
+  // HEIC originals can't render in a browser, so decode them at full
+  // resolution via libheif WASM — lazily, only when a frame enters the
+  // active window. The 256px JPEG variant shows while decoding.
+  const isHeic = (image: GalleryImage) => /\.hei[cf]$/i.test(image.filename)
+  const decodeHeic = async (image: GalleryImage) => {
+    if (heicPendingRef.current.has(image.id)) return
+    heicPendingRef.current.add(image.id)
+    try {
+      const { default: heic2any } = await import('heic2any')
+      const response = await fetch(image.src)
+      if (!response.ok) throw new Error(`HEIC fetch failed: ${response.status}`)
+      const converted = await heic2any({ blob: await response.blob(), toType: 'image/jpeg', quality: 0.95 })
+      const blob = Array.isArray(converted) ? converted[0] : converted
+      setHeicSrc((previous) => ({ ...previous, [image.id]: URL.createObjectURL(blob) }))
+    } catch {
+      heicPendingRef.current.delete(image.id)
+    }
+  }
+
+  useEffect(() => {
+    images.forEach((image, imageIndex) => {
+      const active = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
+      if (active && isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
+    })
+  }, [index, mode, images, heicSrc])
+
   useEffect(() => {
     if (!currentImage || credentialState[currentImage.id] !== 'verified') return
     const summary = document.querySelector('cai-manifest-summary') as HTMLElement & { manifestStore?: unknown } | null
@@ -649,7 +677,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
               >
                 <img
-                  src={isActive ? image.src : image.placeholder}
+                  src={isActive ? (isHeic(image) ? heicSrc[image.id] ?? image.variants?.[0]?.src ?? image.placeholder : image.src) : image.placeholder}
                   data-full-src={image.src}
                   data-placeholder-src={image.placeholder}
                   data-active={isActive ? 'true' : 'false'}

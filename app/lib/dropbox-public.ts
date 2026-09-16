@@ -23,10 +23,10 @@ const validateFolderUrl = (input: string) => {
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 const originalProxy = (sourceUrl: string, filename: string) => `/api/dropbox/file?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
 const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
-// HEIC can't render in browsers; Dropbox transcodes to JPEG via the
-// thumbnail endpoint, so the display src is a large JPEG rendition.
-// HEIC thumbs stop at w1024h768 — w2048h2048 is rejected upstream.
-const previewProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w1024h768`
+// HEIC can't render in browsers. Dropbox caps its JPEG renditions at
+// w1024h768, which reads soft at full bleed — so the display src is the
+// raw original and the viewer decodes it client-side (libheif WASM).
+// The JPEG variant stays for placeholders and the editor rail.
 
 const authHeaders = (env: DropboxEnv) => {
   if (!env.DROPBOX_APP_KEY || !env.DROPBOX_APP_SECRET) throw new Error('Dropbox app credentials are not configured')
@@ -127,7 +127,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
     return {
       id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
       filename: entry.name,
-      src: HEIC.test(entry.name) ? previewProxy(sourceUrl, entry.name) : originalProxy(sourceUrl, entry.name),
+      src: originalProxy(sourceUrl, entry.name),
       width: dimensions.width,
       height: dimensions.height,
       alt: filenameLabel(entry.name),
