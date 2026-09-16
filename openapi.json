@@ -631,20 +631,29 @@
     },
     "/api/mega/file": {
       "get": {
-        "description": "Fetch an original image from a public MEGA shared folder. The AES-128-CTR ciphertext is fetched from MEGA's CDN and decrypted at proxy time using the node key.",
+        "description": "Fetch an original image from a public MEGA shared folder or collection. The AES-128-CTR ciphertext is fetched from MEGA's CDN and decrypted at proxy time using the node key.",
         "operationId": "get_mega_file",
         "parameters": [
           {
-            "description": "The public folder handle",
+            "description": "The public folder handle (either folder or set is required)",
             "in": "query",
             "name": "folder",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "The file node handle within the folder",
+            "description": "The public collection (Set) handle (either folder or set is required)",
+            "in": "query",
+            "name": "set",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file node handle within the folder or collection",
             "in": "query",
             "name": "node",
             "required": true,
@@ -686,6 +695,83 @@
         },
         "security": [],
         "summary": "Fetch a MEGA image",
+        "tags": [
+          "mega"
+        ]
+      }
+    },
+    "/api/mega/preview": {
+      "get": {
+        "description": "Fetch MEGA's generated JPEG/WebP preview for an image whose original browsers cannot render (HEIC, TIFF). The encrypted file attribute is fetched through MEGA's ufa endpoint and decrypted at proxy time.",
+        "operationId": "get_mega_preview",
+        "parameters": [
+          {
+            "description": "The public folder handle (either folder or set is required)",
+            "in": "query",
+            "name": "folder",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The public collection (Set) handle (either folder or set is required)",
+            "in": "query",
+            "name": "set",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file-attribute handle (base64url) from the node's fa string",
+            "in": "query",
+            "name": "h",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The file's node key (base64url), decrypted at scan time from the share key",
+            "in": "query",
+            "name": "k",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The decrypted preview image"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Fetch a MEGA image preview",
         "tags": [
           "mega"
         ]

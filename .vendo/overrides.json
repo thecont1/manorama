@@ -33,6 +33,9 @@
     },
     "host_update_gallery": {
       "risk": "write"
+    },
+    "host_get_mega_preview": {
+      "risk": "read"
     }
   },
   "remix": {
