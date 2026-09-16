@@ -22,12 +22,13 @@ describe('deterministic Vendo sync', () => {
     expect(second).toBe(first)
   })
 
-  test('generated tools.json is valid JSON with the eight expected tool names', () => {
+  test('generated tools.json is valid JSON with the eleven expected tool names', () => {
     const tools = JSON.parse(readTools()) as { format: string; tools: { name: string; risk: string }[] }
     expect(tools.format).toBe('vendo/tools@3')
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
-      'host_create_gallery', 'host_delete_gallery', 'host_get_dropbox_file', 'host_get_dropbox_thumbnail',
-      'host_list_galleries', 'host_refresh_gallery', 'host_scan_dropbox_folder', 'host_update_gallery',
+      'host_create_gallery', 'host_delete_gallery', 'host_get_drive_file', 'host_get_drive_thumbnail',
+      'host_get_dropbox_file', 'host_get_dropbox_thumbnail', 'host_get_icloud_image',
+      'host_list_galleries', 'host_refresh_gallery', 'host_scan_gallery_source', 'host_update_gallery',
     ])
   })
 
@@ -38,14 +39,17 @@ describe('deterministic Vendo sync', () => {
     }
     expect(overrides.format).toBe('vendo/overrides@3')
     // Every tool carries an explicit grade: sync infers delete as destructive
-    // (asserted below from tools.json); the other seven are host-authored here.
+    // (asserted below from tools.json); the other ten are host-authored here.
     const expected: Record<string, string> = {
       host_create_gallery: 'write',
+      host_get_drive_file: 'read',
+      host_get_drive_thumbnail: 'read',
       host_get_dropbox_file: 'read',
       host_get_dropbox_thumbnail: 'read',
+      host_get_icloud_image: 'read',
       host_list_galleries: 'read',
       host_refresh_gallery: 'write',
-      host_scan_dropbox_folder: 'read',
+      host_scan_gallery_source: 'read',
       host_update_gallery: 'write',
     }
     for (const [name, risk] of Object.entries(expected)) {

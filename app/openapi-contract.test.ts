@@ -34,10 +34,11 @@ describe('OpenAPI contract: static spec', () => {
     expect(spec.openapi).toBe('3.1.0')
   })
 
-  test('contains exactly the eight Manorama operations', () => {
+  test('contains exactly the eleven Manorama operations', () => {
     expect(operationIds().sort()).toEqual([
-      'create_gallery', 'delete_gallery', 'get_dropbox_file', 'get_dropbox_thumbnail',
-      'list_galleries', 'refresh_gallery', 'scan_dropbox_folder', 'update_gallery',
+      'create_gallery', 'delete_gallery', 'get_drive_file', 'get_drive_thumbnail',
+      'get_dropbox_file', 'get_dropbox_thumbnail', 'get_icloud_image', 'list_galleries',
+      'refresh_gallery', 'scan_gallery_source', 'update_gallery',
     ])
   })
 
@@ -126,8 +127,9 @@ describe('OpenAPI contract: runtime behavior', () => {
     // and the spec must not drift from the eight Vendo tools.
     const specPaths = Object.keys(spec.paths).sort()
     expect(specPaths).toEqual([
-      '/api/dropbox/file', '/api/dropbox/thumbnail', '/api/galleries',
-      '/api/galleries/scan', '/api/galleries/{slug}', '/api/galleries/{slug}/refresh',
+      '/api/drive/file', '/api/drive/thumbnail', '/api/dropbox/file', '/api/dropbox/thumbnail',
+      '/api/galleries', '/api/galleries/scan', '/api/galleries/{slug}',
+      '/api/galleries/{slug}/refresh', '/api/icloud/image',
     ])
   })
 })

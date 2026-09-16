@@ -52,7 +52,7 @@ const check = async (tool: string, venue: RunContext['venue'] = 'chat') => {
 
 describe('Vendo guard policy decisions (chat venue)', () => {
   test('reads run automatically for authenticated users', async () => {
-    for (const tool of ['host_list_galleries', 'host_scan_dropbox_folder', 'host_get_dropbox_thumbnail', 'host_get_dropbox_file']) {
+    for (const tool of ['host_list_galleries', 'host_scan_gallery_source', 'host_get_dropbox_thumbnail', 'host_get_dropbox_file', 'host_get_drive_thumbnail', 'host_get_drive_file', 'host_get_icloud_image']) {
       expect(await check(tool)).toBe('run')
     }
   })
