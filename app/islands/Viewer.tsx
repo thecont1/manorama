@@ -345,6 +345,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onPointerCancel = (event: PointerEvent) => {
       if (pointerStart?.id === event.pointerId) pointerStart = null
     }
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pointerStart) return
+      const touch = event.touches[0]
+      if (touch && pointerStart.y - touch.clientY >= 32) dismiss()
+    }
     const onClick = () => {
       if (ignoreClick) { ignoreClick = false; return }
       dismiss()
@@ -354,12 +359,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     curtain.addEventListener('pointerdown', onPointerDown)
     curtain.addEventListener('pointerup', onPointerUp)
     curtain.addEventListener('pointercancel', onPointerCancel)
+    curtain.addEventListener('touchmove', onTouchMove, { passive: true })
     return () => {
       curtain.removeEventListener('click', onClick)
       curtain.removeEventListener('keydown', onKey)
       curtain.removeEventListener('pointerdown', onPointerDown)
       curtain.removeEventListener('pointerup', onPointerUp)
       curtain.removeEventListener('pointercancel', onPointerCancel)
+      curtain.removeEventListener('touchmove', onTouchMove)
       if (finishTimer) window.clearTimeout(finishTimer)
     }
   }, [])
@@ -468,17 +475,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current = currentXRef.current
-      dragSamplesRef.current = [{ x: event.clientX, time: performance.now() }]
+      dragSamplesRef.current = [{ x: 0, time: performance.now() }]
       stage.setPointerCapture(event.pointerId)
       stage.classList.add('is-dragging')
     }
     const onPointerMove = (event: PointerEvent) => {
       if (!draggingRef.current) return
-      const dx = event.clientX - lastPointerRef.current.x
+      // Vertical thumb scroll counts toward the strip: swipe up slides
+      // images right-to-left, swipe down slides them left-to-right.
+      const move = event.clientX - lastPointerRef.current.x + event.clientY - lastPointerRef.current.y
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
-      dragTargetXRef.current += dx
+      dragTargetXRef.current += move
       const now = performance.now()
-      dragSamplesRef.current.push({ x: event.clientX, time: now })
+      const previous = dragSamplesRef.current.at(-1)?.x ?? 0
+      dragSamplesRef.current.push({ x: previous + move, time: now })
       dragSamplesRef.current = dragSamplesRef.current.filter((sample) => now - sample.time < 100)
       scheduleDragTarget()
     }
