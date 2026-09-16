@@ -82,10 +82,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const announce = (message: string) => {
+  // In-progress messages are sticky: they hold until the outcome
+  // announcement replaces them, so the toast never outlives "Working…".
+  const announce = (message: string, sticky = false) => {
     setStatus(message)
     if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setStatus(''), 5000)
+    if (!sticky && message) toastTimer.current = setTimeout(() => setStatus(''), 5000)
   }
   // Flash messages survive the redirect that follows an owner-slug change.
   const flashChecked = useRef(false)
@@ -140,7 +142,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     if (busy) return
     setBusy(true)
-    announce('Saving…')
+    announce('Saving…', true)
     try {
       const response = await fetch('/api/account', {
         method: 'PATCH',
@@ -160,7 +162,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
    const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
     if (busy) return
     setBusy(true)
-    announce('Saving order…')
+    announce('Saving order…', true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
         method: 'PATCH',
@@ -261,7 +263,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const url = sourceUrl.trim()
     if (!url) return
     setBusy(true)
-    announce("Manorama-fying…")
+    announce("Manorama-fying…", true)
     try {
       const response = await fetch("/api/galleries", {
         method: "POST",
@@ -308,7 +310,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     saveEditingInFlight.current = true
     setBusy(true)
-    announce('Saving…')
+    announce('Saving…', true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(editing.slug)}`, {
         method: 'PATCH',
@@ -351,7 +353,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const removeGallery = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl || !window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
     setBusy(true)
-    announce('Removing gallery…')
+    announce('Removing gallery…', true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, { method: 'DELETE' })
       const payload = await response.json() as { error?: string }
@@ -368,7 +370,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const refreshGallery = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl) return
     setBusy(true)
-    announce(`Refreshing “${gallery.title}”…`)
+    announce(`Refreshing “${gallery.title}”…`, true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, { method: 'POST' })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
