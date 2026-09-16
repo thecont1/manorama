@@ -1,13 +1,13 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { scanDriveFolder } from './gdrive-public'
 import { isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
-import { extractMegaFolder, scanMegaFolder } from './mega-public'
+import { scanMegaSource } from './mega-public'
 import type { GalleryImage } from './imagesource'
 
 /**
  * Gallery source dispatch. The admin drops one of the recognized link
  * shapes — Dropbox shared folder, Google Drive shared folder, iCloud
- * shared album, MEGA shared folder — and this module routes it to the
+ * shared album, MEGA shared folder or collection — and this module routes it to the
  * right scanner. Each scanner returns a canonical sourceUrl so
  * different spellings of the same source dedupe through the
  * (owner_id, source_url) unique index.
@@ -29,7 +29,7 @@ export type SourceEnv = {
 }
 
 export const UNRECOGNIZED_LINK_MESSAGE =
-  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder link'
+  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection link'
 
 export const detectSource = (input: string): SourceProvider | null => {
   let url: URL
@@ -65,6 +65,6 @@ export const scanSource = async (input: string, env: SourceEnv, fetchImpl: typeo
     case 'icloud':
       return { provider, ...(await scanICloudAlbum(input, fetchImpl)) }
     case 'mega':
-      return { provider, ...(await scanMegaFolder(input, fetchImpl)) }
+      return { provider, ...(await scanMegaSource(input, fetchImpl)) }
   }
 }

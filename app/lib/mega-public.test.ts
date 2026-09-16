@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, ecbDecrypt, foldKey } from './mega-crypto'
-import { extractMegaFolder, scanMegaFolder } from './mega-public'
+import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
+import { extractMegaFolder, extractMegaLink, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-public'
 
 const hex = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
@@ -93,6 +93,39 @@ const encryptAttributes = (key: Uint8Array, attrs: object) => {
   return b64uEncode(out)
 }
 
+const cbcEncryptZeroIv = (key: Uint8Array, data: Uint8Array) => {
+  const padded = new Uint8Array(Math.ceil(data.length / 16) * 16)
+  padded.set(data)
+  const out = new Uint8Array(padded.length)
+  let prev = new Uint8Array(16)
+  for (let i = 0; i < padded.length; i += 16) {
+    const block = padded.subarray(i, i + 16).map((b, j) => b ^ prev[j]!)
+    const enc = aesEncryptBlock(key, block)
+    out.set(enc, i)
+    prev = enc
+  }
+  return out
+}
+
+/** Builds an encrypted TLV container (AES_GCM_12_16) holding the given
+ *  records — the format MEGA Sets use for `at`. */
+const encryptTlv = async (key: Uint8Array, records: Record<string, string>) => {
+  const parts: number[] = []
+  for (const [type, value] of Object.entries(records)) {
+    const valueBytes = new TextEncoder().encode(value)
+    for (const c of type) parts.push(c.charCodeAt(0))
+    parts.push(0, valueBytes.length >> 8, valueBytes.length & 0xff, ...valueBytes)
+  }
+  const iv = hex('aabbccddeeff00112233aabb')
+  const cryptoKey = await crypto.subtle.importKey('raw', key.slice().buffer as ArrayBuffer, 'AES-GCM', false, ['encrypt'])
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, new Uint8Array(parts)))
+  const blob = new Uint8Array(1 + iv.length + cipher.length)
+  blob[0] = 0x10
+  blob.set(iv, 1)
+  blob.set(cipher, 1 + iv.length)
+  return b64uEncode(blob)
+}
+
 const FOLDER_HANDLE = 'AbCdEf12'
 const FILE_HANDLE = 'FiLeHaNd'
 const fileNode = (name: string, overrides: Record<string, unknown> = {}) => ({
@@ -173,6 +206,126 @@ describe('scanMegaFolder', () => {
 
   test('rejects links without a key', async () => {
     await expect(scanMegaFolder(`https://mega.nz/folder/${FOLDER_HANDLE}`)).rejects.toThrow('folder link')
+  })
+
+  test('routes non-renderable originals through the JPEG preview proxy', async () => {
+    const heicNode = fileNode('IMG_9.heic', { fa: `1*${FA_HANDLE}` })
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (String(input).includes('cs?')) {
+        if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, heicNode] }])
+      }
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
+    expect(scan.images).toHaveLength(1)
+    expect(scan.images[0]!.src).toContain(`/api/mega/preview?folder=${FOLDER_HANDLE}&h=${FA_HANDLE}&k=`)
+  })
+
+  test('drops non-renderable originals with no preview available', async () => {
+    const fetchImpl = async () => jsonResponse([{ f: [folderNode, fileNode('IMG_9.heic')] }])
+    await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('No image files')
+  })
+})
+
+const SET_HANDLE = 'SeThAnDlE1'
+const COLLECTION_HANDLE = 'MzBkCAJQ'
+const ELEMENT_KEY = NODE_KEY // element keys are the node file keys
+const FA_HANDLE = b64uEncode(hex('0102030405060708'))
+
+const setElement = (node: string, order: number) => ({
+  id: `el${node}`,
+  s: SET_HANDLE,
+  h: node,
+  k: b64uEncode(cbcEncryptZeroIv(SHARE_KEY, ELEMENT_KEY)),
+  o: order,
+})
+
+describe('extractMegaLink collections', () => {
+  test('parses /collection/ links and legacy #C! fragments', () => {
+    const link = extractMegaLink(`https://mega.nz/collection/${COLLECTION_HANDLE}#${SHARE_KEY_B64}`)
+    expect(link).toEqual({ kind: 'collection', id: COLLECTION_HANDLE, key: SHARE_KEY_B64 })
+    expect(extractMegaLink(`https://mega.nz/#C!${COLLECTION_HANDLE}!${SHARE_KEY_B64}`)?.kind).toBe('collection')
+    expect(extractMegaLink(`https://mega.nz/folder/${FOLDER_HANDLE}#${SHARE_KEY_B64}`)?.kind).toBe('folder')
+  })
+})
+
+describe('decryptTlvRecords', () => {
+  test('decrypts a GCM TLV container into records', async () => {
+    const blob = b64uDecode(await encryptTlv(SHARE_KEY, { n: 'My Set' }))
+    const records = await decryptTlvRecords(SHARE_KEY, blob)
+    expect(new TextDecoder().decode(records?.get('n'))).toBe('My Set')
+  })
+})
+
+describe('scanMegaCollection', () => {
+  const link = `https://mega.nz/collection/${COLLECTION_HANDLE}#${SHARE_KEY_B64}`
+
+  test('decrypts element keys and node metadata, honoring element order', async () => {
+    const setAttrs = await encryptTlv(SHARE_KEY, { n: 'Bangkok Plates' })
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes(`cs?`) && body[0]?.a === 'aft') {
+        expect(url).toContain(`&s=${COLLECTION_HANDLE}`)
+        expect(body[0]?.v).toBe(2)
+        return jsonResponse([{
+          s: [{ id: SET_HANDLE, at: setAttrs }],
+          e: [setElement('nodeB', 2), setElement('nodeA', 1)],
+          n: [
+            { h: 'nodeA', s: 10, at: encryptAttributes(ELEMENT_KEY, { n: 'a.jpg' }) },
+            { h: 'nodeB', s: 10, at: encryptAttributes(ELEMENT_KEY, { n: 'b.jpg' }) },
+          ],
+        }])
+      }
+      if (url.includes('cs?') && body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      if (url.startsWith('https://cdntest/')) {
+        return new Response(ctrCrypt(foldKey(ELEMENT_KEY), ELEMENT_KEY.subarray(16, 24), jpegHead()), { status: 200 })
+      }
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanMegaCollection(link, fetchImpl as typeof fetch)
+    expect(scan.title).toBe('Bangkok Plates')
+    expect(scan.sourceUrl).toBe(link)
+    expect(scan.images.map((image) => image.filename)).toEqual(['a.jpg', 'b.jpg'])
+    expect(scan.images[0]!.src).toContain(`/api/mega/file?set=${COLLECTION_HANDLE}&node=nodeA&k=`)
+  })
+
+  test('fails friendly when the collection is not found', async () => {
+    const fetchImpl = async () => jsonResponse([-9])
+    await expect(scanMegaCollection(link, fetchImpl as typeof fetch)).rejects.toThrow('not found')
+  })
+
+  test('rejects a folder link', async () => {
+    await expect(scanMegaCollection(`https://mega.nz/folder/${FOLDER_HANDLE}#${SHARE_KEY_B64}`)).rejects.toThrow('collection link')
+  })
+})
+
+describe('fetchMegaPreview', () => {
+  test('posts the attribute handle and returns the decrypted JPEG', async () => {
+    const jpeg = jpegHead()
+    const record = new Uint8Array(12 + Math.ceil(jpeg.length / 16) * 16)
+    record.set(b64uDecode(FA_HANDLE), 0)
+    new DataView(record.buffer).setUint32(8, record.length - 12, true)
+    record.set(cbcEncryptZeroIv(foldKey(ELEMENT_KEY), jpeg), 12)
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body
+      if (url.includes('cs?') && typeof body === 'string' && JSON.parse(body)[0]?.a === 'ufa') {
+        const arg = JSON.parse(body)[0]
+        expect(b64uDecode(String(arg.fah)).length).toBe(8)
+        return jsonResponse([{ p: 'https://fa.test/post' }])
+      }
+      if (url === 'https://fa.test/post') {
+        expect(init?.method).toBe('POST')
+        expect(new Uint8Array(body as ArrayBuffer)).toEqual(b64uDecode(FA_HANDLE))
+        return new Response(record, { status: 200 })
+      }
+      return jsonResponse({}, 404)
+    }
+    const response = await fetchMegaPreview(FOLDER_HANDLE, undefined, FA_HANDLE, b64uEncode(ELEMENT_KEY), fetchImpl as typeof fetch)
+    expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+    expect(new Uint8Array(await response.arrayBuffer()).subarray(0, 10)).toEqual(jpeg.subarray(0, 10))
   })
 })
 

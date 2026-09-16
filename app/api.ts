@@ -3,7 +3,7 @@ import { SourceFetchError } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudImage } from './lib/icloud-shared'
-import { fetchMegaFile } from './lib/mega-public'
+import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
@@ -292,13 +292,27 @@ export const createManoramaApi = () => {
 
   api.get('/api/mega/file', async (c) => {
     const folder = c.req.query('folder')
+    const set = c.req.query('set')
     const node = c.req.query('node')
     const key = c.req.query('k')
-    if (!folder || !node || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    if ((!folder && !set) || !node || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
     try {
-      return streamResponse(await fetchMegaFile(folder, node, key), 'private, max-age=300')
+      return streamResponse(await fetchMegaFile(folder, set, node, key), 'private, max-age=300')
     } catch (error) {
-      return proxyFailure(c, 'MEGA image', `${node} in ${folder}`, error)
+      return proxyFailure(c, 'MEGA image', `${node} in ${folder ?? set}`, error)
+    }
+  })
+
+  api.get('/api/mega/preview', async (c) => {
+    const folder = c.req.query('folder')
+    const set = c.req.query('set')
+    const fah = c.req.query('h')
+    const key = c.req.query('k')
+    if ((!folder && !set) || !fah || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    try {
+      return streamResponse(await fetchMegaPreview(folder, set, fah, key), 'private, max-age=300')
+    } catch (error) {
+      return proxyFailure(c, 'MEGA preview', `${fah} in ${folder ?? set}`, error)
     }
   })
 

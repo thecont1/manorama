@@ -179,6 +179,86 @@ export const foldKey = (key: Uint8Array) => {
   return folded
 }
 
+export const b64Encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
+
+/** AES-CCM payload decrypt (tag verification skipped — we proxy, we
+ *  don't attest). Counter blocks: [L-1][nonce][BE counter], L = 15 -
+ *  ivlen, data starts at counter 1. */
+const ccmPayloadDecrypt = (key: Uint8Array, iv: Uint8Array, data: Uint8Array) => {
+  const l = 15 - iv.length
+  const block = new Uint8Array(16)
+  block[0] = l - 1
+  block.set(iv, 1)
+  const out = new Uint8Array(data.length)
+  let counter = 1
+  let position = 0
+  while (position < data.length) {
+    for (let i = 0; i < l; i++) block[15 - i] = (counter >> (8 * i)) & 0xff
+    const keystream = aesEncryptBlock(key, block)
+    const n = Math.min(16, data.length - position)
+    for (let j = 0; j < n; j++) out[position + j] = data[position + j]! ^ keystream[j]!
+    position += n
+    counter++
+  }
+  return out
+}
+
+/** Parses the MEGA TLV record container: repeated {type C-string,
+ *  u16be length, value} entries. */
+const tlvParse = (data: Uint8Array) => {
+  const records = new Map<string, Uint8Array>()
+  let offset = 0
+  while (offset < data.length) {
+    let end = offset
+    while (end < data.length && data[end] !== 0) end++
+    if (end >= data.length || end + 3 > data.length) return null
+    const type = new TextDecoder().decode(data.subarray(offset, end))
+    const length = (data[end + 1]! << 8) | data[end + 2]!
+    const value = data.subarray(end + 3, end + 3 + length)
+    if (value.length !== length) return null
+    records.set(type, value)
+    offset = end + 3 + length
+  }
+  return records
+}
+
+/** Decrypts a MEGA encrypted-TLV attribute container (Sets and Set
+ *  Elements use these instead of "MEGA{...}" JSON): layout is
+ *  {encSetting byte}{iv}{ciphertext+tag}. New data uses AES-GCM;
+ *  legacy encSettings are AES-CCM. */
+export const decryptTlvRecords = async (key16: Uint8Array, blob: Uint8Array) => {
+  if (blob.length < 1) return null
+  const setting = blob[0]!
+  // encSetting -> [mode, ivlen, taglen]
+  const table: Record<number, ['ccm' | 'gcm', number, number] | undefined> = {
+    0x00: ['ccm', 12, 16], 0x01: ['ccm', 10, 16], 0x02: ['ccm', 10, 8],
+    0x03: ['ccm', 12, 16], 0x04: ['ccm', 10, 8], // legacy mislabeled GCM
+    0x10: ['gcm', 12, 16], 0x11: ['gcm', 10, 8],
+  }
+  const spec = table[setting]
+  if (!spec || blob.length < 1 + spec[1] + spec[2]) return null
+  const [mode, ivlen, taglen] = spec
+  const iv = blob.subarray(1, 1 + ivlen)
+  const payload = blob.subarray(1 + ivlen)
+  let plain: Uint8Array
+  if (mode === 'gcm') {
+    try {
+      const cryptoKey = await crypto.subtle.importKey('raw', key16.slice().buffer as ArrayBuffer, 'AES-GCM', false, ['decrypt'])
+      const result = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv.slice().buffer as ArrayBuffer, tagLength: taglen * 8 },
+        cryptoKey,
+        payload.slice().buffer as ArrayBuffer,
+      )
+      plain = new Uint8Array(result)
+    } catch {
+      return null
+    }
+  } else {
+    plain = ccmPayloadDecrypt(key16, iv, payload.subarray(0, payload.length - taglen))
+  }
+  return tlvParse(plain)
+}
+
 /** AES-128-CTR over data starting at a 16-byte-aligned offset. Counter
  *  block = 8-byte nonce || 8-byte big-endian block counter. */
 export const ctrCrypt = (key: Uint8Array, nonce: Uint8Array, data: Uint8Array, startOffset = 0) => {
