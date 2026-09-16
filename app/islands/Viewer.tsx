@@ -620,7 +620,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     images.forEach((image, imageIndex) => {
-      const active = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
+      const active = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index)
       if (active && isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
     })
   }, [index, mode, images, heicSrc])
@@ -666,7 +666,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           data-track
         >
           {images.map((image, imageIndex) => {
-            const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
+            const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index)
             const isPortrait = image.height > image.width
             return (
               <figure
