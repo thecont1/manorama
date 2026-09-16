@@ -21,14 +21,31 @@ type Props = {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
+/** Anonymous per-gallery viewing preferences: mode + border choice are
+ *  remembered in localStorage keyed by gallery slug, so a link recipient
+ *  keeps their own preference without an account. */
+type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
+const readViewPrefs = (slug: string): ViewPrefs => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
+    return {
+      mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
+      seamMode: stored.seamMode && ['light', 'dark', 'none'].includes(stored.seamMode) ? stored.seamMode : undefined,
+    }
+  } catch {
+    return {}
+  }
+}
+
 export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
-  const [mode, setMode] = useState<Mode>(initialSettings.defaultMode)
+  const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
+  const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
-  const [seamMode, setSeamMode] = useState<SeamMode>('none')
+  const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -60,6 +77,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
+  useEffect(() => {
+    try {
+      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
+    } catch {
+      // Storage can be unavailable (private mode) — preferences are best-effort.
+    }
+  }, [slug, mode, seamMode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
@@ -96,6 +120,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     updateFullscreenState()
     document.addEventListener('fullscreenchange', updateFullscreenState)
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
+  }, [])
+
+  useEffect(() => {
+    const preventButtonFocus = (event: MouseEvent) => {
+      if ((event.target as HTMLElement).closest('button')) event.preventDefault()
+    }
+    document.addEventListener('mousedown', preventButtonFocus)
+    return () => document.removeEventListener('mousedown', preventButtonFocus)
   }, [])
 
   const hasMultiple = images.length > 1
@@ -230,6 +262,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (mode !== 'strip') { step(direction); return }
+    // Wrap: right arrow at the last image returns to the first, left
+    // arrow at the first image jumps to the last.
+    const scrollX = -currentXRef.current
+    const bounds = getBounds()
+    if (direction === 1 && scrollX >= bounds.max - 1) { goTo(0); return }
+    if (direction === -1 && scrollX <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
     let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`) ?? null
     let advance: number
@@ -643,22 +681,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <section class="panel-section" aria-labelledby="view-mode-heading">
             <h3 id="view-mode-heading">View mode</h3>
             <div class="mode-options" role="radiogroup" aria-label="View mode">
-              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); setModalOpen(false) }} /> <span>Strip</span><small>full-height, continuous</small></label>
+              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); setModalOpen(false) }} /> <span>Horizontal Strip</span><small>full-height, continuous</small></label>
               <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); setModalOpen(false) }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
               <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); setModalOpen(false) }} /> <span>One at a time</span><small>advance per gesture</small></label>
             </div>
           </section>
 
-          {mode === 'strip' ? (
-            <section class="panel-section" aria-labelledby="border-heading">
-              <h3 id="border-heading">Borders</h3>
-              <div class="mode-options" role="radiogroup" aria-label="Borders around photographs">
-                <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light border, dark stripes</small></label>
-                <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark border, light stripes</small></label>
-                <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
-              </div>
-            </section>
-          ) : null}
+          <section class="panel-section" aria-labelledby="border-heading">
+            <h3 id="border-heading">Borders</h3>
+            <div class="mode-options" role="radiogroup" aria-label="Borders around photographs">
+              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light border, dark stripes</small></label>
+              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark border, light stripes</small></label>
+              <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
+            </div>
+          </section>
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
