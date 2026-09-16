@@ -41,7 +41,9 @@ export const extractAlbumToken = (input: string) => {
   let token: string | null = null
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) token = url.hash.replace(/^#/, '') || null
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) token = url.pathname.slice('/photos/'.length).split('/')[0] || null
-  return token && /^[A-Za-z0-9]+$/.test(token) ? token : null
+  // Newer Apple tokens use URL-safe base64 — underscores and hyphens
+  // appear in real shared-album links.
+  return token && /^[A-Za-z0-9_-]+$/.test(token) ? token : null
 }
 
 export const canonicalICloudUrl = (token: string) => `https://www.icloud.com/sharedalbum/#${token}`
@@ -66,6 +68,9 @@ const base62ToInt = (input: string) =>
  *  after a leading 'A', two otherwise. */
 const partitionFromToken = (token: string) => {
   const value = token[0] === 'A' ? base62ToInt(token[1] ?? '0') : base62ToInt(token.slice(1, 3) || '0')
+  // URL-safe base64 chars (-_) poison the guess — a wrong-but-valid
+  // partition is fine because the 330 redirect names the real host.
+  if (Number.isNaN(value) || value < 0) return '01'
   return value < 10 ? `0${value}` : `${value}`
 }
 
