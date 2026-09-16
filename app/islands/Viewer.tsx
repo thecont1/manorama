@@ -44,6 +44,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
@@ -54,6 +55,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const stageRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
+  const infoModalRef = useRef<HTMLDivElement | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -414,7 +416,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (modalOpen || !document.body.classList.contains('gallery-entered')) return
+      if (modalOpen || infoOpen || !document.body.classList.contains('gallery-entered')) return
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -422,7 +424,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, mode, modalOpen, images.length])
+  }, [index, mode, modalOpen, infoOpen, images.length])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -535,16 +537,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [mode])
 
   useEffect(() => {
-    if (!modalOpen) return
+    if (!modalOpen && !infoOpen) return
+    const modal = modalOpen ? modalRef.current : infoModalRef.current
     previousFocusRef.current = document.activeElement as HTMLElement
     requestAnimationFrame(() => {
-      modalRef.current?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
-      modalRef.current?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
+      modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
+      modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
     })
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); setModalOpen(false); return }
-      if (event.key !== 'Tab' || !modalRef.current) return
-      const focusable = [...modalRef.current.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
+      if (event.key === 'Escape') { event.preventDefault(); setModalOpen(false); setInfoOpen(false); return }
+      if (event.key !== 'Tab' || !modal) return
+      const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
@@ -553,15 +556,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [modalOpen])
+  }, [modalOpen, infoOpen])
 
   useEffect(() => {
-    if (modalOpen) return
+    if (modalOpen || infoOpen) return
     if (previousFocusRef.current) {
       previousFocusRef.current.focus({ preventScroll: true })
       previousFocusRef.current = null
     }
-  }, [modalOpen])
+  }, [modalOpen, infoOpen])
 
   const openCredentials = async () => {
     if (!currentImage) return
@@ -590,7 +593,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const openImageProvenance = () => {
-    setModalOpen(true)
+    setInfoOpen(true)
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
   }
 
@@ -660,22 +663,25 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             )
           })}
         </div>
-        {arrowsVisible ? (
-          <div class="stage-arrows" aria-label="Image navigation">
-            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
-            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
-          </div>
-        ) : null}
+        <div class="stage-arrows" aria-label="Image navigation and information">
+          {arrowsVisible ? (
+            <>
+              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
+              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
+            </>
+          ) : null}
+          <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
+        </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
+      <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={() => setModalOpen(true)}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
 
       <div
         ref={modalRef}
         class="controls-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Image information and Content Credentials"
+        aria-label="Display settings"
         hidden={!modalOpen}
         onClick={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}
       >
@@ -683,9 +689,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>Current photograph</h2>
+              <h2>Display settings</h2>
             </div>
-            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setModalOpen(false)}>Close</button>
+            <button data-close class="quiet-button" aria-label="Close display settings" onClick={() => setModalOpen(false)}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="view-mode-heading">
@@ -713,12 +719,45 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             </div>
           </section>
 
-          <section class="panel-section" aria-labelledby="position-heading" hidden>
+          <section class="panel-section" aria-labelledby="about-heading" hidden>
+            <h3 id="about-heading">About this gallery</h3>
+            <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
+            <button class="text-button" onClick={recallCurtain}>Recall the opening curtain</button>
+          </section>
+
+          <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
+            <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
+            <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
+            <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
+            <p><kbd>Esc</kbd> close controls</p>
+          </section>
+        </div>
+      </div>
+
+      <div
+        ref={infoModalRef}
+        class="controls-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Image information and Content Credentials"
+        hidden={!infoOpen}
+        onClick={(event) => { if (event.target === event.currentTarget) setInfoOpen(false) }}
+      >
+        <div class="controls-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
+              <h2>Current photograph</h2>
+            </div>
+            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setInfoOpen(false)}>Close</button>
+          </div>
+
+          <section class="panel-section" aria-labelledby="position-heading">
             <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
             <p class="quiet-copy">Photograph {index + 1} of {images.length}</p>
           </section>
 
-          <section class="panel-section" aria-labelledby="info-heading" hidden>
+          <section class="panel-section" aria-labelledby="info-heading">
             <h3 id="info-heading">Image info</h3>
             <dl class="info-grid">
               <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
@@ -731,22 +770,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             </dl>
           </section>
 
-          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading" hidden>
+          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading">
             <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
             {!currentImage?.c2pa ? <p class="quiet-copy">This photograph carries no Content Credentials.</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
-          </section>
-
-          <section class="panel-section" aria-labelledby="about-heading" hidden>
-            <h3 id="about-heading">About this gallery</h3>
-            <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
-            <button class="text-button" onClick={recallCurtain}>Recall the opening curtain</button>
-          </section>
-
-          <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
-            <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
-            <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
-            <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
-            <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
       </div>

@@ -88,7 +88,8 @@ button { color: inherit; }
 .curtain:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -8px; }
 
 .stage-arrows { position: fixed; z-index: 10; right: max(24px, env(safe-area-inset-right)); bottom: max(76px, calc(env(safe-area-inset-bottom) + 58px)); display: flex; gap: 8px; }
-.stage-arrows button { width: 42px; height: 42px; border: 1px solid rgba(var(--ink), .18); border-radius: 0; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+.stage-arrows button { width: clamp(54px, 9svh, 84px); height: clamp(54px, 9svh, 84px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(20px, 3.4svh, 32px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+.stage-arrows .stage-info { font-family: 'Playfair', 'Bricolate Grotesque', Georgia, serif; font-style: italic; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
