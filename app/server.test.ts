@@ -93,7 +93,7 @@ describe('gallery management API authentication', () => {
   test('a valid session reaches the scan validation handler', async () => {
     const response = await request(api(), '/api/galleries/scan', authed({ method: 'POST', body: '{}' }))
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder, Google Drive folder, or iCloud shared album link' })
+    expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder link' })
   })
 
   test('a valid session reaches the update validation handler', async () => {

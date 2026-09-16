@@ -54,7 +54,7 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
   return response
 }
 
-const parseJpegDimensions = (bytes: Uint8Array) => {
+export const parseJpegDimensions = (bytes: Uint8Array) => {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null
   let offset = 2
   while (offset + 9 < bytes.length) {

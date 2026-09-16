@@ -1,21 +1,24 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { scanDriveFolder } from './gdrive-public'
 import { isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
+import { extractMegaFolder, scanMegaFolder } from './mega-public'
 import type { GalleryImage } from './imagesource'
 
 /**
- * Gallery source dispatch. The admin drops one of three recognized link
+ * Gallery source dispatch. The admin drops one of the recognized link
  * shapes — Dropbox shared folder, Google Drive shared folder, iCloud
- * shared album — and this module routes it to the right scanner. Each
- * scanner returns a canonical sourceUrl so different spellings of the
- * same source dedupe through the (owner_id, source_url) unique index.
+ * shared album, MEGA shared folder — and this module routes it to the
+ * right scanner. Each scanner returns a canonical sourceUrl so
+ * different spellings of the same source dedupe through the
+ * (owner_id, source_url) unique index.
  *
- * All three providers read public links only: Dropbox and Google Drive
- * authenticate as the app (Basic credentials / API key), iCloud shared
- * albums need no credentials at all. There are no per-user source tokens.
+ * All providers read public links only: Dropbox and Google Drive
+ * authenticate as the app (Basic credentials / API key); iCloud shared
+ * albums and MEGA need no credentials at all (MEGA's share key rides in
+ * the link fragment). There are no per-user source tokens.
  */
 
-export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud'
+export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega'
 
 export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryImage[] }
 
@@ -26,7 +29,7 @@ export type SourceEnv = {
 }
 
 export const UNRECOGNIZED_LINK_MESSAGE =
-  'Paste a public Dropbox folder, Google Drive folder, or iCloud shared album link'
+  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder link'
 
 export const detectSource = (input: string): SourceProvider | null => {
   let url: URL
@@ -41,6 +44,7 @@ export const detectSource = (input: string): SourceProvider | null => {
   if (host === 'drive.google.com') return 'gdrive'
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) return 'icloud'
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'icloud'
+  if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
   return null
 }
 
@@ -60,5 +64,7 @@ export const scanSource = async (input: string, env: SourceEnv, fetchImpl: typeo
       return { provider, ...(await scanDriveFolder(input, env, fetchImpl)) }
     case 'icloud':
       return { provider, ...(await scanICloudAlbum(input, fetchImpl)) }
+    case 'mega':
+      return { provider, ...(await scanMegaFolder(input, fetchImpl)) }
   }
 }

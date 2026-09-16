@@ -3,6 +3,7 @@ import { SourceFetchError } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudImage } from './lib/icloud-shared'
+import { fetchMegaFile } from './lib/mega-public'
 import { scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
@@ -286,6 +287,18 @@ export const createManoramaApi = () => {
       return streamResponse(await fetchDriveFile(id, envOf(c), fetch, resourceKey), 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'Google Drive image', id, error)
+    }
+  })
+
+  api.get('/api/mega/file', async (c) => {
+    const folder = c.req.query('folder')
+    const node = c.req.query('node')
+    const key = c.req.query('k')
+    if (!folder || !node || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    try {
+      return streamResponse(await fetchMegaFile(folder, node, key), 'private, max-age=300')
+    } catch (error) {
+      return proxyFailure(c, 'MEGA image', `${node} in ${folder}`, error)
     }
   })
 
