@@ -650,11 +650,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           </section>
 
           {mode === 'strip' ? (
-            <section class="panel-section" aria-labelledby="seam-heading">
-              <h3 id="seam-heading">Separators</h3>
-              <div class="mode-options" role="radiogroup" aria-label="Separators between photographs">
-                <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light ground, dark stripes</small></label>
-                <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark ground, light stripes</small></label>
+            <section class="panel-section" aria-labelledby="border-heading">
+              <h3 id="border-heading">Borders</h3>
+              <div class="mode-options" role="radiogroup" aria-label="Borders around photographs">
+                <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light border, dark stripes</small></label>
+                <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark border, light stripes</small></label>
                 <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
               </div>
             </section>

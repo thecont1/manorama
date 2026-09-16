@@ -44,15 +44,14 @@ button { color: inherit; }
 .viewer-frame { position: relative; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: #0a0a0a; overflow: visible; }
 .viewer-frame img { display: block; width: auto; height: 100%; max-width: none; max-height: none; object-fit: contain; user-select: none; -webkit-user-drag: none; opacity: 0; transition: opacity 260ms ease; background: transparent; }
 .viewer-frame img[src] { opacity: 1; }
-/* Strip mode: the only separator is the gap itself — photographs are never
-   filtered, dimmed, or masked. 'light'/'dark' set the gap's ground + stripe
-   tones; 'none' closes the gap so photographs sit flush. */
-.mode-strip.seam-light .viewer-track,
-.mode-strip.seam-dark .viewer-track { gap: 6px; }
-/* 'light' = light ground with dark stripes; 'dark' = dark ground with light stripes. */
-.mode-strip.seam-light .viewer-track { background-color: rgba(243, 240, 232, .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .16) 0 1.5px, transparent 1.5px 6px); }
-.mode-strip.seam-dark .viewer-track { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(243, 240, 232, .12) 0 1.5px, transparent 1.5px 6px); }
-.mode-strip.seam-none .viewer-track { gap: 0; background-image: none; }
+/* Strip mode: borders wrap each photograph on all four sides — frame
+   padding (border-box) shrinks the image, never crops it. 'light'/'dark'
+   set the border's ground + stripe tones; 'none' sits photographs flush. */
+.mode-strip.seam-light .viewer-frame,
+.mode-strip.seam-dark .viewer-frame { padding: 7px; }
+/* 'light' = light border with dark stripes; 'dark' = dark border with light stripes. */
+.mode-strip.seam-light .viewer-frame { background-color: rgba(243, 240, 232, .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .16) 0 1.5px, transparent 1.5px 6px); }
+.mode-strip.seam-dark .viewer-frame { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(243, 240, 232, .12) 0 1.5px, transparent 1.5px 6px); }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: 100%; height: auto; max-width: 100%; object-fit: contain; }
 .viewer-track--vertical .viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: #0a0a0a; overflow: hidden; }
