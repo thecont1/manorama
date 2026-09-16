@@ -93,7 +93,7 @@ describe('gallery management API authentication', () => {
   test('a valid session reaches the scan validation handler', async () => {
     const response = await request(api(), '/api/galleries/scan', authed({ method: 'POST', body: '{}' }))
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder URL' })
+    expect(await response.json()).toEqual({ error: 'Paste a public Dropbox folder, Google Drive folder, or iCloud shared album link' })
   })
 
   test('a valid session reaches the update validation handler', async () => {
@@ -142,7 +142,7 @@ describe('owner dashboard authentication', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
-    expect(html).toContain('Add from Dropbox')
+    expect(html).toContain('Add a gallery')
     expect(html).toContain('Sign out')
     expect(html).toContain('id="vendo-root"')
     expect(html.indexOf('/app/vendo-client.tsx')).toBeGreaterThan(html.indexOf('id="vendo-root"'))

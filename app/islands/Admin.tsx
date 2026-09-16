@@ -47,13 +47,17 @@ const scrollToGalleryCard = (slug: string) => {
   })
 }
 
-const friendlyDropboxError = (error: unknown) => {
+const friendlySourceError = (error: unknown) => {
   const message = error instanceof Error ? error.message : ''
   if (/Use a public Dropbox folder link/i.test(message)) return 'Paste a public Dropbox folder link, not a file link.'
-  if (/No image files were found/i.test(message)) return 'No supported image files were found in that folder. Add JPG, PNG, WebP, GIF, or TIFF images and try again.'
-  if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that Dropbox folder. Check that the link is public, downloading is enabled, and the URL points to the folder itself.'
-  if (/credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach Dropbox. Please try again later.'
-  return 'We could not read that Dropbox folder. Check the URL and try again.'
+  if (/Use a public Google Drive folder link/i.test(message)) return 'Paste a Google Drive folder link, not a file link.'
+  if (/Use a public iCloud shared album link/i.test(message)) return 'Paste a public iCloud Shared Album link (icloud.com/sharedalbum or share.icloud.com/photos).'
+  if (/Google Drive folder was not found|could not read that Google Drive/i.test(message)) return 'Manorama could not read that Google Drive folder. Check that it is shared with "Anyone with the link".'
+  if (/could not read that iCloud|could not locate that shared album/i.test(message)) return 'Manorama could not read that iCloud album. Check that it is a public Shared Album link.'
+  if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, TIFF, or HEIC images and try again.'
+  if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that link. Check that it is public, downloading is enabled, and the URL points to the folder or album itself.'
+  if (/not configured|credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach that service. Please try again later.'
+  return 'We could not read that link. Check the URL and try again.'
 }
 
 const CopyIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
@@ -63,7 +67,7 @@ const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M
 
 export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free' }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
-  const [dropboxUrl, setDropboxUrl] = useState('')
+  const [sourceUrl, setSourceUrl] = useState('')
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [draft, setDraft] = useState('')
@@ -135,7 +139,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: images.map((image) => image.filename) }),
+        body: JSON.stringify({ order: images.map((image) => image.ref ?? image.filename) }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
@@ -228,7 +232,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const addGallery = async (event: Event) => {
     event.preventDefault()
-    const url = dropboxUrl.trim()
+    const url = sourceUrl.trim()
     if (!url) return
     setBusy(true)
     announce("Manorama-fying…")
@@ -244,11 +248,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         throw new Error(payload.error || "That gallery could not be added")
       }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
-      setDropboxUrl("")
+      setSourceUrl("")
       scrollToGalleryCard(payload.gallery.slug)
       announce('Done! ' + payload.gallery.title + ' is at the top.')
     } catch (error) {
-      announce(friendlyDropboxError(error))
+      announce(friendlySourceError(error))
     } finally {
       setBusy(false)
     }
@@ -410,7 +414,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
-        <div class="gallery-selector-heading"><h2 id="import-heading">Add from Dropbox</h2></div>
+        <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
         {(() => {
           const used = galleries.length
           const remaining = Math.max(0, FREE_GALLERY_LIMIT - used)
@@ -419,10 +423,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           return <p class="admin-limit-count" aria-live="polite">{have} {can}</p>
         })()}
         <form class="gallery-import-form" onSubmit={addGallery}>
-          <label class="admin-field"><span>Public Dropbox folder URL</span><input type="url" value={dropboxUrl} placeholder="https://www.dropbox.com/scl/fo/..." onInput={(event) => { setDropboxUrl((event.target as HTMLInputElement).value) }} required /></label>
+          <label class="admin-field"><span>Public Dropbox, Google Drive, or iCloud link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, or iCloud shared album link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
-        <p class="admin-privacy-note">Manorama reads only public shared Dropbox folders. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox.</p>
+        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, or iCloud.</p>
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">
@@ -436,7 +440,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               </figure>)}
             </div>
           </div>
-          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title="Refresh from Dropbox" aria-label={`Refresh ${gallery.title} from Dropbox`} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button> : null}</div>
+          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title="Refresh from source" aria-label={`Refresh ${gallery.title} from its source link`} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button> : null}</div>
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
 
