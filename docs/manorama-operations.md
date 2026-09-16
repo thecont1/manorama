@@ -11,18 +11,31 @@ procedures.
 A gallery moves through these states:
 
 1. **Candidate** — a public source link (Dropbox folder, Google Drive
-   folder, or iCloud shared album) has been scanned, and the image
-   inventory and metadata are visible to the owner, but nothing is
-   published.
-2. **Published** — the gallery exists at `https://manorama.xyz/g/<slug>`
-   and is publicly readable. Publication does not copy images; Manorama
+   folder, or iCloud shared album) has been scanned through
+   `POST /api/galleries/scan`, and the image inventory and metadata are
+   visible to the owner, but nothing is persisted. The admin UI skips
+   this preview and creates directly; scan exists for tool-assisted
+   flows.
+2. **Published** — the gallery exists at
+   `https://manorama.xyz/<owner>/<slug>` and is publicly readable.
+   Gallery pages send `X-Robots-Tag: noindex, nofollow, noarchive` —
+   public, but unlisted. Publication does not copy images; Manorama
    proxies source-hosted originals and derivative sizes on request.
 3. **Stale** — the source folder or album changed (files added, removed,
-   or renamed) since the last refresh. A refresh reconciles the inventory.
+   or renamed) since the last refresh. Staleness is not detected
+   automatically; refresh is a manual action
+   (`POST /api/galleries/:slug/refresh`, or the refresh button in the
+   admin). A refresh reconciles the inventory and restores source
+   ordering — see "Image ordering".
 4. **Deleted** — deletion removes the gallery record and its metadata.
    Original source files are never touched. Deletion is irreversible
    from the operator side; recovery requires recreating the gallery from
    the source link.
+
+Free-tier owners are limited to 3 galleries; creates beyond the limit
+fail with a 403 ("Remove one to add another — or write to us about
+keeping more"). Pro is unlimited. A second gallery from the same source
+link is rejected with a 409.
 
 ## Source link expectations
 
@@ -30,15 +43,20 @@ A gallery moves through these states:
   password-protected links cannot be scanned.
 - Three providers are recognized: Dropbox shared folders
   (`dropbox.com/scl/fo/…` or `/sh/…`), Google Drive folders shared with
-  "Anyone with the link" (`drive.google.com/drive/folders/…`), and iCloud
-  shared albums (`icloud.com/sharedalbum/#…`, `share.icloud.com/photos/…`).
+  "Anyone with the link" (`drive.google.com/drive/folders/…`, plus the
+  `/drive/u/{n}/folders/…` and `open?id=…` spellings), and iCloud shared
+  albums (`icloud.com/sharedalbum/#…`, `share.icloud.com/photos/…`).
+- iCloud **Drive** links (`icloud.com/iclouddrive/…`) are a different
+  product: folder contents sit behind authenticated sharing and cannot
+  be scanned anonymously. They are rejected with guidance to share a
+  Photos Shared Album instead.
 - Dropbox and Google Drive deliver originals (C2PA preserved; HEIC is
   transcoded to JPEG renditions for web display). iCloud shared albums
   serve web-optimized JPEG derivatives only — ~2048px maximum, no
   originals, no Content Credentials.
 - iCloud support rides Apple's undocumented shared-album web endpoints
   and can break without notice; treat iCloud galleries as best-effort.
-- Accepted image formats: JPEG, WebP, TIFF, and HEIC.
+- Accepted image formats: JPEG, WebP, TIFF, HEIC, and HEIF.
 - Only the top level of a folder is scanned; subfolders are not
   descended into.
 - Files that are not images are ignored, not deleted.
@@ -46,5 +64,88 @@ A gallery moves through these states:
 
 ## Slug policy
 
-- Slugs are lowercase, URL-safe: `a-z`, `0-9`, and hyphens; they start and
-  end with an alphanum...[truncated]
+Every public gallery URL is `/<owner>/<slug>` — two slugs, two rule
+sets.
+
+- **Owner slug** identifies the account. 3–48 characters: lowercase
+  `a-z`, `0-9`, single hyphens, starting and ending with an alphanum.
+  Globally unique; minted from the display name on first sign-in
+  (`name`, `name-2`, `name-3`, …). Changeable via `PATCH /api/account`;
+  galleries follow the account, so every gallery URL changes with it.
+- **Gallery slug** is unique per owner, not globally —
+  `/mahesh/italy` and `/sarah/italy` can coexist. Auto-derived from the
+  source title: diacritics stripped, lowercased, non-alphanumerics
+  become hyphens, capped at 48 characters, `gallery` if nothing usable
+  remains. Collisions get `-2`, `-3`, … suffixes automatically.
+- Manual renames (`newSlug` in `PATCH /api/galleries/:slug`) must match
+  `^[a-z0-9]+(?:-[a-z0-9]+)*$` — lowercase letters, numbers, and single
+  hyphens only. A rename that collides with another of the owner's
+  galleries fails; slugs are never silently overwritten.
+
+## Image ordering
+
+- Order is persisted in the gallery's stored image manifest; reordering
+  never affects source files.
+- Images are keyed by `ref ?? filename`: Drive file ID, iCloud photo
+  GUID, or Dropbox filename (unique within a folder). Reorder and
+  refresh dedupe both use that key.
+- The owner reorders by dragging or keyboard-moving thumbnails in the
+  admin rail; the result is saved through `PATCH /api/galleries/:slug`
+  as an `order` array of keys. Images missing from the submitted order
+  keep their relative position at the end.
+- A refresh re-applies **source order**: matched images keep their
+  stored metadata, removed files drop out, and new files appear where
+  the provider lists them. Custom ordering does not survive a refresh —
+  redo it afterwards if the source order is not the intended one.
+
+## Content Credentials preservation
+
+- Originals are proxied byte-for-byte through the same-origin routes
+  (`/api/dropbox/file`, `/api/drive/file`). They are never recompressed,
+  cropped, or converted, so embedded C2PA manifests survive intact.
+- The `c2pa` flag is true for Dropbox and Drive images and false for
+  iCloud images, which exist only as web derivatives — there is no
+  original to verify.
+- HEIC originals carry credentials, but browsers cannot render HEIC, so
+  the display rendition is a transcoded JPEG. Verification reads the
+  served display bytes, so a HEIC image's credentials do not verify
+  from that rendition even though the flag is set — say so rather than
+  calling it a failed verification.
+- Verification is lazy and client-side: the viewer loads the C2PA
+  toolkit and reads the manifest only when a viewer asks, inside their
+  own browser. Manorama never validates or strips credentials
+  server-side.
+
+## Error recovery
+
+- Scan failures return a 422 with a provider-specific message:
+  unrecognized link, folder not shared publicly, no images found, or —
+  for iCloud Drive links — a steer to Shared Albums. Nothing is
+  persisted on a failed scan.
+- A failed refresh leaves the stored gallery untouched; the manifest is
+  rewritten only after a successful rescan.
+- Duplicate source link → 409 "A gallery from that link already
+  exists". Free-tier limit → 403.
+- Slug conflicts on create retry automatically with the next numeric
+  suffix. A rename colliding with an existing slug returns "That
+  gallery URL is already in use".
+- A malformed stored manifest reads as an empty gallery rather than
+  crashing; empty galleries are hidden from the admin list and the
+  public route 404s.
+- iCloud image URLs expire, so delivery URLs are resolved fresh per
+  view from the persisted checksum. If a derivative disappears upstream
+  the image 404s until the gallery is refreshed.
+- Dropbox/Drive proxy failures surface as 404s on the image routes;
+  the gallery itself is unaffected — recheck the source link and
+  refresh.
+
+## Destructive-action policy
+
+- Deleting a gallery removes only the Manorama record. Source files —
+  images and non-images alike — are never modified or deleted, on any
+  provider.
+- There is no trash, undo, or retention window. The only recovery path
+  is recreating the gallery from the same source link; title, caption,
+  slug suffix, and custom ordering must be redone by hand.
+- Refreshes and reorders are non-destructive to the source but
+  overwrite the stored manifest — see the ordering caveat above.

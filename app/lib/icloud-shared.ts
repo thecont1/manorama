@@ -1,4 +1,4 @@
-import type { GalleryImage } from './imagesource'
+import { SourceFetchError, type GalleryImage } from './imagesource'
 
 /**
  * iCloud public Shared Album scanning via the same `sharedstreams`
@@ -83,10 +83,10 @@ const postSharedstreams = async <T>(token: string, endpoint: string, body: unkno
   if (response.status === 330) {
     const hint = await response.json() as Record<string, string>
     const host = hint['X-Apple-MMe-Host']
-    if (!host) throw new Error('iCloud could not locate that shared album')
+    if (!host) throw new SourceFetchError('iCloud could not locate that shared album', 503)
     response = await fetchImpl(`https://${host}/${token}/sharedstreams/${endpoint}`, options)
   }
-  if (!response.ok) throw new Error('Manorama could not read that iCloud album — check that it is a public Shared Album link')
+  if (!response.ok) throw new SourceFetchError('Manorama could not read that iCloud album — check that it is a public Shared Album link', response.status)
   const data = await response.json() as T
   return { ...data, partition }
 }
@@ -111,11 +111,15 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
   const token = extractAlbumToken(input)
   if (!token) throw new Error('Use a public iCloud shared album link')
   const stream = await postSharedstreams<StreamResponse>(token, 'webstream', { streamCtag: null }, fetchImpl)
-  const photos = (stream.photos ?? []).filter((photo) => photo.mediaAssetType !== 'video' && photo.derivatives && Object.keys(photo.derivatives).length)
+  const photos = (stream.photos ?? [])
+    .filter((photo) => photo.mediaAssetType !== 'video' && photo.derivatives && Object.keys(photo.derivatives).length)
+    .flatMap((photo) => {
+      const largest = pickDerivative(photo.derivatives!, 'largest')
+      const smallest = pickDerivative(photo.derivatives!, 'smallest')
+      return largest && smallest ? [{ photo, largest, smallest }] : []
+    })
   if (!photos.length) throw new Error('No photos were found in that public iCloud album')
-  const images = photos.map((photo, index): GalleryImage => {
-    const largest = pickDerivative(photo.derivatives!, 'largest')!
-    const smallest = pickDerivative(photo.derivatives!, 'smallest')!
+  const images = photos.map(({ photo, largest, smallest }, index): GalleryImage => {
     const width = largest.width || photo.width || 4
     const height = largest.height || photo.height || 3
     const caption = photo.caption?.trim()
@@ -142,8 +146,8 @@ export const fetchICloudImage = async (token: string, photoGuid: string, checksu
   const assets = await postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
   const item = assets.items?.[checksum]
   const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
-  if (!item?.url_path || !location?.scheme || !location.hosts?.length) throw new Error('That iCloud image is unavailable')
+  if (!item?.url_path || !location?.scheme || !location.hosts?.length) throw new SourceFetchError('That iCloud image is unavailable', 404)
   const response = await fetchImpl(`${location.scheme}://${location.hosts[0]}${item.url_path}`)
-  if (!response.ok) throw new Error(`iCloud image fetch failed (${response.status})`)
+  if (!response.ok) throw new SourceFetchError(`iCloud image fetch failed (${response.status})`, response.status)
   return response
 }

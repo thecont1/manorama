@@ -1,4 +1,4 @@
-import type { GalleryImage } from './imagesource'
+import { SourceFetchError, type GalleryImage } from './imagesource'
 
 const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|heic|heif|tiff?)$/i
 const HEIC = /\.hei[cf]$/i
@@ -38,7 +38,7 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
   })
   if (!response.ok) {
     const message = await response.text()
-    throw new Error(`Dropbox ${endpoint} failed (${response.status}): ${message.slice(0, 220)}`)
+    throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status}): ${message.slice(0, 220)}`, response.status)
   }
   return response.json() as Promise<T>
 }
@@ -48,7 +48,9 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
     method: 'POST',
     headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg) },
   })
-  if (!response.ok) throw new Error(`Dropbox ${endpoint} failed (${response.status})`)
+  // Dropbox reports a missing path inside a valid shared folder as 409 —
+  // for the proxy that is a confirmed miss, not a conflict.
+  if (!response.ok) throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status})`, response.status === 409 ? 404 : response.status)
   return response
 }
 

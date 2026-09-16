@@ -79,7 +79,9 @@ describe('deterministic Vendo sync', () => {
     } finally {
       writeFileSync(toolsPath, pristine)
     }
-  })
+  // Two vendo sync subprocesses run back-to-back; the default 5s timeout
+  // sits right at their combined runtime.
+  }, 20_000)
 
   test('package.json exposes vendo:sync and vendo:check scripts', () => {
     const pkg = JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as { scripts: Record<string, string> }

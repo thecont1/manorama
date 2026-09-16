@@ -175,7 +175,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_delete_gallery",
@@ -214,7 +214,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_drive_file",
@@ -225,6 +225,10 @@ export const TOOLS_FILE = {
           "id": {
             "type": "string",
             "description": "The Google Drive file ID"
+          },
+          "rk": {
+            "type": "string",
+            "description": "The file's resource key, required for resource-keyed shared links"
           }
         },
         "required": [
@@ -241,7 +245,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_drive_thumbnail",
@@ -260,6 +264,10 @@ export const TOOLS_FILE = {
             ],
             "type": "string",
             "description": "Thumbnail width class (w256 default, w2048 for HEIC previews)"
+          },
+          "rk": {
+            "type": "string",
+            "description": "The file's resource key, required for resource-keyed shared links"
           }
         },
         "required": [
@@ -276,7 +284,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_dropbox_file",
@@ -308,7 +316,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -340,7 +348,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_get_icloud_image",
@@ -377,7 +385,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_list_galleries",
@@ -522,7 +530,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_refresh_gallery",
@@ -672,7 +680,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_scan_gallery_source",
@@ -810,7 +818,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     },
     {
       "name": "host_update_gallery",
@@ -992,7 +1000,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:0ff40f38df9f68d4f3c72aad54bc5ed33a816886a2ef13c528d25da870a7d465"
+      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
     }
   ]
 } as {

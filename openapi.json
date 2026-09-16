@@ -383,6 +383,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],
@@ -433,6 +436,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],
@@ -455,6 +461,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "The file's resource key, required for resource-keyed shared links",
+            "in": "query",
+            "name": "rk",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -474,6 +489,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],
@@ -509,6 +527,15 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "description": "The file's resource key, required for resource-keyed shared links",
+            "in": "query",
+            "name": "rk",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -528,6 +555,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],
@@ -587,6 +617,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
           }
         },
         "security": [],

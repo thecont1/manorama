@@ -47,6 +47,19 @@ export interface ImageSource {
   url(id: string, variant?: number | 'original'): string
 }
 
+/** A provider fetch that failed upstream. `status` carries the upstream
+ *  HTTP status when one exists so the proxy routes can distinguish a
+ *  confirmed miss (404) from retryable failures (5xx, network, config). */
+export class SourceFetchError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message)
+    this.name = 'SourceFetchError'
+  }
+}
+
 export class BundledSource implements ImageSource {
   constructor(private readonly manifest: GalleryManifest) {}
 
