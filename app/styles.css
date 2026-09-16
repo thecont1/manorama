@@ -52,12 +52,7 @@ button { color: inherit; }
 .viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: none; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
-/* 'fade' reveal: once the full image is decoded, the placeholder dips
-   out first and the image rises after — through-dark rather than a blend.
-   The placeholder stays put during loading so frames never sit blank. */
-.reveal-fade .viewer-frame .frame-ph { transition: opacity .16s ease; }
-.reveal-fade .viewer-frame:has(.frame-img.is-loaded) .frame-ph { opacity: 0; }
-.reveal-fade .viewer-frame .frame-img.is-loaded { transition-delay: .16s; }
+
 /* Borders: frame padding (border-box) wraps photographs in a thick
    barber-pole stripe — the image shrinks, never crops. The leading edge
    stays open so the strip reads continuous: strip borders left/top/
@@ -362,7 +357,8 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-gallery-strip-item { position: relative; flex: 0 0 auto; width: auto; height: 150px; margin: 0; outline: none; cursor: grab; }
 .admin-gallery-strip-item:active { cursor: grabbing; }
 .admin-gallery-strip-item:focus-visible { z-index: 1; box-shadow: inset 0 0 0 2px rgb(var(--ink)); }
-.admin-gallery-strip-item img { display: block; width: auto; height: 150px; max-width: none; object-fit: contain; pointer-events: none; }
+.admin-gallery-strip-item img { display: block; width: auto; height: 150px; max-width: none; object-fit: contain; pointer-events: none; opacity: 0; transition: opacity .32s ease; }
+.admin-gallery-strip-item img.is-loaded { opacity: 1; }
 .admin-gallery-strip-item::after { position: absolute; inset: 0; border-right: 1px solid rgba(17, 19, 18, .45); content: ''; pointer-events: none; }
 .admin-gallery-strip-frame + .gallery-card-actions { grid-column: 2 / -1; margin-top: 0; }
 @media (max-width: 720px) {

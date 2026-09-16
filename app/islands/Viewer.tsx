@@ -24,15 +24,13 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 /** Anonymous per-gallery viewing preferences: mode + border choice are
  *  remembered in localStorage keyed by gallery slug, so a link recipient
  *  keeps their own preference without an account. */
-type RevealMode = 'cross' | 'fade'
-type ViewPrefs = { mode?: Mode; seamMode?: SeamMode; reveal?: RevealMode }
+type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
       mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
       seamMode: stored.seamMode && ['light', 'dark', 'none'].includes(stored.seamMode) ? stored.seamMode : undefined,
-      reveal: stored.reveal && ['cross', 'fade'].includes(stored.reveal) ? stored.reveal : undefined,
     }
   } catch {
     return {}
@@ -49,7 +47,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [infoOpen, setInfoOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
-  const [reveal, setReveal] = useState<RevealMode>(viewPrefs.reveal ?? 'cross')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -86,11 +83,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => { modeRef.current = mode }, [mode])
   useEffect(() => {
     try {
-      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode, reveal }))
+      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
     } catch {
       // Storage can be unavailable (private mode) — preferences are best-effort.
     }
-  }, [slug, mode, seamMode, reveal])
+  }, [slug, mode, seamMode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
@@ -671,7 +668,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     <>
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} seam-${seamMode} reveal-${reveal}`}
+        class={`viewer-stage mode-${mode} seam-${seamMode}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -766,14 +763,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light border, dark stripes</small></label>
               <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark border, light stripes</small></label>
               <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
-            </div>
-          </section>
-
-          <section class="panel-section" aria-labelledby="reveal-heading">
-            <h3 id="reveal-heading">Image reveal</h3>
-            <div class="mode-options" role="radiogroup" aria-label="How photographs appear when loaded">
-              <label><input type="radio" name="reveal-mode" value="cross" checked={reveal === 'cross'} onChange={() => setReveal('cross')} /> <span>Crossfade</span><small>new image blends over the last</small></label>
-              <label><input type="radio" name="reveal-mode" value="fade" checked={reveal === 'fade'} onChange={() => setReveal('fade')} /> <span>Fade</span><small>a quiet dip, then the image</small></label>
             </div>
           </section>
 
