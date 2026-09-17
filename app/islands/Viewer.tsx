@@ -81,6 +81,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const momentumRef = useRef<number | null>(null)
   const c2paRef = useRef<any>(null)
   const currentXRef = useRef(0)
+  // The strip X an in-flight button navigation is heading for. Rapid taps
+  // anchor their advance at this pending destination, so N clicks carry
+  // the strip N photos instead of collapsing into a single hop.
+  const navDestXRef = useRef<number | null>(null)
   const indexRef = useRef(index)
   const modeRef = useRef(mode)
   const reportedIndexRef = useRef(index)
@@ -189,6 +193,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         reportedIndexRef.current = nearest
         setIndex(nearest)
       }
+      // The navigation this report settles is over — drop the pending
+      // destination so the next tap anchors at the real position.
+      navDestXRef.current = null
     })
   }
 
@@ -244,11 +251,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const started = performance.now()
     // Ease-in-out cubic: a quintic ease-out's violent initial velocity
     // reads as the image snapping into place; a symmetric curve glides.
-    const duration = 1100
+    // Duration scales with travel distance — a full-gallery rewind glides
+    // back deliberately instead of covering tens of thousands of px in
+    // one 1100ms blur.
+    const duration = clamp(Math.abs(destination - from) / 12, 1100, 3600)
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
       const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2
-      const next = from + (destination - from) * eased
+      // Chase navDestX live: a mid-flight retarget (queued taps, or a
+      // healed frame shifting the destination's offset) is absorbed into
+      // the remaining travel instead of cancelling the navigation.
+      const liveDest = navDestXRef.current ?? destination
+      const next = from + (liveDest - from) * eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
@@ -269,7 +283,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     cancelPositionReport()
     reportedIndexRef.current = next
     setIndex(next)
-    if (mode === 'strip') settleTo(-imageStart(next), instant)
+    if (mode === 'strip') {
+      navDestXRef.current = -imageStart(next)
+      settleTo(navDestXRef.current, instant)
+    }
     if (mode === 'vertical') {
       requestAnimationFrame(() => document.querySelector(`[data-image-id="${images[next]?.id}"]`)?.scrollIntoView({ block: 'start', behavior: instant ? 'auto' : 'smooth' }))
     }
@@ -289,12 +306,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (mode !== 'strip') { step(direction); return }
     // Wrap: right arrow at the last image returns to the first, left
     // arrow at the first image jumps to the last.
-    const scrollX = -currentXRef.current
     const bounds = getBounds()
-    if (direction === 1 && scrollX >= bounds.max - 1) { goTo(0); return }
-    if (direction === -1 && scrollX <= 1) { goTo(images.length - 1); return }
+    // Rapid taps accumulate: anchor each advance at the pending in-flight
+    // destination (or the real position when idle), so the tap count
+    // becomes the photo count travelled.
+    const base = -(navDestXRef.current ?? currentXRef.current)
+    if (direction === 1 && base >= bounds.max - 1) { goTo(0); return }
+    if (direction === -1 && base <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
-    let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`) ?? null
+    let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${leftmostFrameIndex(base) + 1}"]`) ?? null
     let advance: number
     if (direction === 1) {
       // Dock the next image: scroll until the following frame's left edge
@@ -302,21 +322,21 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // that distance exceeds a viewport, so it pages through in viewport
       // chunks and docks the next frame on the final step.
       const target = frame?.nextElementSibling as HTMLElement | null
-      advance = Math.min(viewportWidth, Math.max(0, (target?.offsetLeft ?? scrollX + viewportWidth) - scrollX))
+      advance = Math.min(viewportWidth, Math.max(0, (target?.offsetLeft ?? base + viewportWidth) - base))
     } else {
       // Moving left: cover the lesser of the viewport width or the part of the
       // active image still hidden to the left of the stage edge. When the
       // active image's left edge is already at the stage edge, the remaining
       // width belongs to the frame before it.
-      const scrollX = -currentXRef.current
-      let remaining = frame ? scrollX - frame.offsetLeft : 0
+      let remaining = frame ? base - frame.offsetLeft : 0
       while (remaining <= 0 && frame) {
         frame = frame.previousElementSibling as HTMLElement | null
-        remaining = frame ? scrollX - frame.offsetLeft : 0
+        remaining = frame ? base - frame.offsetLeft : 0
       }
       advance = Math.min(viewportWidth, Math.max(0, remaining))
     }
-    settleTo(currentXRef.current - direction * advance, false, true)
+    navDestXRef.current = clamp(-(base + direction * advance), -bounds.max, 0)
+    settleTo(navDestXRef.current, false, true)
   }
 
   useEffect(() => {
@@ -839,14 +859,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                             const healed = { w: img.naturalWidth, h: img.naturalHeight }
                             setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
                             if (mode === 'strip') {
+                              const oldWidth = frame.offsetWidth
                               frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
                               // A corrected frame changes track geometry —
-                              // drop the cached bounds, then dock on the frame
-                              // actually holding the stage's left edge. An
-                              // in-flight advance aimed at a now-stale offset
-                              // is superseded by this instant re-dock.
+                              // drop the cached bounds, then once layout
+                              // settles either carry an in-flight nav across
+                              // the shift or dock on the frame holding the
+                              // stage's left edge.
                               boundsDirtyRef.current = true
                               requestAnimationFrame(() => {
+                                const delta = frame.offsetWidth - oldWidth
+                                if (delta !== 0 && navDestXRef.current !== null && frame.offsetLeft < -navDestXRef.current) {
+                                  navDestXRef.current -= delta
+                                }
+                                if (navDestXRef.current !== null) return
                                 const docked = leftmostFrameIndex(-currentXRef.current)
                                 reportedIndexRef.current = docked
                                 setIndex(docked)
