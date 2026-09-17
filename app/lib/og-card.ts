@@ -120,7 +120,17 @@ const compositeWithJimp = async (
 ): Promise<Response | null> => {
   try {
     const { Jimp } = await import('jimp')
-    const card = await Jimp.fromBuffer(photoBytes)
+    let card
+    try {
+      card = await Jimp.fromBuffer(photoBytes)
+    } catch {
+      // jimp's codec set stops at jpeg/png/bmp/tiff/gif — webp and HEIC
+      // sources need a real decoder first. sharp transcodes to jpeg so the
+      // non-cf path matches the transform pipeline's format coverage.
+      const sharp = (await import('sharp')).default
+      const jpeg = await sharp(Buffer.from(photoBytes)).jpeg({ quality: 92 }).toBuffer()
+      card = await Jimp.fromBuffer(jpeg)
+    }
     card.cover({ w: OG_WIDTH, h: OG_HEIGHT })
     try {
       const pillResponse = await fetchImpl(pillUrl)

@@ -89,6 +89,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const dotRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  // "A modal is open" for always-on window key handlers: hono/jsx applies
+  // the state write synchronously but commits the render later, so both
+  // closures and render-synced values lag a setState call. The open/close
+  // helpers write this at event time; the render line is the backstop.
+  const anyModalOpenRef = useRef(false)
+  anyModalOpenRef.current = modalOpen || infoOpen
+  const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
+  const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
+  const closeModals = () => { anyModalOpenRef.current = false; setModalOpen(false); setInfoOpen(false) }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
   const dragSamplesRef = useRef<DragSample[]>([])
@@ -486,7 +495,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (modalOpen || infoOpen || !document.body.classList.contains('gallery-entered')) return
+      if (event.key === 'Escape' && anyModalOpenRef.current) {
+        event.preventDefault()
+        closeModals()
+        return
+      }
+      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -494,7 +508,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, mode, modalOpen, infoOpen, images.length])
+    // modalOpen/infoOpen deliberately absent: hono/jsx removes the old
+    // listener at commit and re-arms it in a later async flush, so every
+    // modal transition would unplug the handler for a few frames. The
+    // gate reads anyModalOpenRef (written at event time) instead.
+  }, [index, mode, images.length])
 
   // Magnifier availability is a media-query question, answered on the
   // client only: the server cannot know the pointer type, so the shortcut
@@ -542,7 +560,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // Never steal a keystroke from a text field.
       if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
       if (event.key === 'Escape') {
-        if (modalOpen || infoOpen) return
+        if (anyModalOpenRef.current) return
         if (!magnifierRef.current?.isActive()) return
         event.preventDefault()
         magnifierRef.current.deactivate()
@@ -550,7 +568,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         return
       }
       if (event.key !== 'm' && event.key !== 'M') return
-      if (modalOpen || infoOpen || !document.body.classList.contains('gallery-entered')) return
+      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       const handle = magnifierRef.current
       if (!handle) return
@@ -559,7 +577,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [magnifierAvailable, modalOpen, infoOpen])
+    // Same deliberate omission as the nav handler: re-arming on modal
+    // transitions would leave a window where M/Esc presses vanish.
+  }, [magnifierAvailable])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -583,12 +603,19 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const stage = stageRef.current
     if (!stage || mode !== 'single') return
     let startX = 0
+    let swiping = false
     const onPointerDown = (event: PointerEvent) => {
       if ((event.target as HTMLElement).closest('button')) return
       startX = event.clientX
+      swiping = true
       stage.setPointerCapture(event.pointerId)
     }
     const onPointerUp = (event: PointerEvent) => {
+      // Only a pointerdown that armed a swipe may step — a pointerup that
+      // bubbles up from a button click would otherwise read startX = 0
+      // and fire a phantom back-step.
+      if (!swiping) return
+      swiping = false
       stage.releasePointerCapture?.(event.pointerId)
       const distance = event.clientX - startX
       if (Math.abs(distance) > 42) step(distance < 0 ? 1 : -1)
@@ -671,6 +698,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [mode])
 
+  // Escape and the Tab trap live on the dialog element itself — attached
+  // at commit — while a render-synced ref lets the always-on window key
+  // handler cover keys pressed with focus anywhere (e.g. Escape in the
+  // first frames after opening, before a passive effect could attach a
+  // document listener).
+  const onModalKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') { event.preventDefault(); closeModals(); return }
+    if (event.key !== 'Tab') return
+    const modal = event.currentTarget as HTMLElement
+    const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
+    if (!focusable.length) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+  }
+
   useEffect(() => {
     if (!modalOpen && !infoOpen) return
     const modal = modalOpen ? modalRef.current : infoModalRef.current
@@ -679,18 +723,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
       modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
     })
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); setModalOpen(false); setInfoOpen(false); return }
-      if (event.key !== 'Tab' || !modal) return
-      const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
-      if (!focusable.length) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
   }, [modalOpen, infoOpen])
 
   useEffect(() => {
@@ -728,7 +760,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const openImageProvenance = () => {
-    setInfoOpen(true)
+    openImageInfo()
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
   }
 
@@ -874,7 +906,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       document.body.classList.remove('gallery-entered')
       setGalleryEntered(false)
     }
-    setModalOpen(false)
+    closeModals()
   }
 
   const toggleFullscreen = async () => {
@@ -1043,7 +1075,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={() => setModalOpen(true)}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
+      <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
 
       <div
         ref={modalRef}
@@ -1052,7 +1084,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         aria-modal="true"
         aria-label="Display settings"
         hidden={!modalOpen}
-        onClick={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}
+        onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
+        onKeyDown={onModalKeyDown}
       >
         <div class="controls-panel">
           <div class="panel-header">
@@ -1060,15 +1093,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
               <h2>Display settings</h2>
             </div>
-            <button data-close class="quiet-button" aria-label="Close display settings" onClick={() => setModalOpen(false)}>Close</button>
+            <button data-close class="quiet-button" aria-label="Close display settings" onClick={() => closeModals()}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="view-mode-heading">
             <h3 id="view-mode-heading">View mode</h3>
             <div class="mode-options" role="radiogroup" aria-label="View mode">
-              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); setModalOpen(false) }} /> <span>Horizontal Strip</span><small>full-height, continuous</small></label>
-              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); setModalOpen(false) }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
-              <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); setModalOpen(false) }} /> <span>One at a time</span><small>advance per gesture</small></label>
+              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); closeModals() }} /> <span>Horizontal Strip</span><small>full-height, continuous</small></label>
+              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); closeModals() }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
+              <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); closeModals() }} /> <span>One at a time</span><small>advance per gesture</small></label>
             </div>
           </section>
 
@@ -1083,8 +1116,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
-              {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); setModalOpen(false) }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
-              {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); setModalOpen(false) }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
+              {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
+              {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
             </div>
           </section>
 
@@ -1114,7 +1147,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         aria-modal="true"
         aria-label="Image information and Content Credentials"
         hidden={!infoOpen}
-        onClick={(event) => { if (event.target === event.currentTarget) setInfoOpen(false) }}
+        onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
+        onKeyDown={onModalKeyDown}
       >
         <div class="controls-panel">
           <div class="panel-header">
@@ -1122,7 +1156,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
               <h2>{currentIsVideo ? 'Current video' : 'Current photograph'}</h2>
             </div>
-            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setInfoOpen(false)}>Close</button>
+            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => closeModals()}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="position-heading">

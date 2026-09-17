@@ -5,43 +5,45 @@
 // wire polling); the authenticated owner admin page mounts it. The anonymous
 // admin page is refused.
 //
-// Run against the dev server configured with the committed dev Access
-// fixture (.env.local sets CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD/CF_ACCESS_JWKS
-// from test/access-test-jwks.json):
+// Run against the dev server, which seeds the test owner through the
+// manorama-dev-seed vite plugin (dbid:AAATESTowner1 → 'thecontrarian'):
 //
 //   bun run dev                        # http://localhost:5173
 //   bunx playwright test vendo-surface
 //
-// Against a server WITHOUT the fixture (e.g. production behind real
-// Cloudflare Access) the authenticated test skips; the public-surface
-// guarantees still run.
+// Authentication is a dev-minted manorama_session cookie signed with the
+// dev server's HOST_API_JWT_SECRET (.env.local). With SKIP_ACCESS_FIXTURE_TESTS=1
+// the authenticated test skips; the public-surface guarantees still run.
 
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { importJWK, SignJWT } from "jose";
+import { SignJWT } from "jose";
 
 const BASE = process.env.GALLERY_URL ?? "http://localhost:5173";
 const OWNER = process.env.GALLERY_OWNER ?? "thecontrarian";
-const SLUG = process.env.GALLERY_SLUG ?? "italy-2018";
+const SLUG = process.env.GALLERY_SLUG ?? "kashmir";
 
-const fixture = JSON.parse(
-  readFileSync(new URL("./test/access-test-key.json", import.meta.url), "utf8"),
-) as {
-  team: string;
-  audience: string;
-  privateJwk: Record<string, string>;
-};
+const devEnv = (() => {
+  const env: Record<string, string> = {};
+  try {
+    for (const line of readFileSync(new URL("./.env.local", import.meta.url), "utf8").split("\n")) {
+      const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+      if (match) env[match[1]] = match[2].replace(/^"(.*)"$/, "$1");
+    }
+  } catch {
+    // .env.local exists only in a dev checkout.
+  }
+  return env;
+})();
 
-async function devAssertion(): Promise<string> {
-  const key = await importJWK(fixture.privateJwk, "RS256");
-  return new SignJWT({ sub: "mahesh-dev", email: "mahesh@manorama.xyz" })
-    .setProtectedHeader({ alg: "RS256" })
-    .setIssuer(`https://${fixture.team}.cloudflareaccess.com`)
-    .setAudience(fixture.audience)
+const sessionSecret = process.env.HOST_API_JWT_SECRET ?? devEnv.HOST_API_JWT_SECRET ?? "";
+
+const sessionCookie = async (dropboxAccountId = "dbid:AAATESTowner1"): Promise<string> =>
+  `manorama_session=${await new SignJWT({ sub: dropboxAccountId })
+    .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("2h")
-    .sign(key);
-}
+    .sign(new TextEncoder().encode(sessionSecret))}`;
 
 test("public gallery page mounts no Vendo surface and never polls the wire", async ({ page }) => {
   const vendoRequests: string[] = [];
@@ -59,14 +61,17 @@ test("public gallery page mounts no Vendo surface and never polls the wire", asy
 
 test("public landing page mounts no Vendo surface", async ({ page }) => {
   await page.goto(`${BASE}/`);
-  await page.locator(".landing-brand-title").waitFor({ state: "visible" });
+  await page.locator(".landing-brand").waitFor({ state: "visible" });
   expect(await page.locator("#vendo-root").count()).toBe(0);
   expect(await page.locator("[data-vendo-launcher]").count()).toBe(0);
 });
 
 test("anonymous admin request is refused and renders no surface", async ({ page, request }) => {
-  const response = await request.get(`${BASE}/${OWNER}`);
-  expect(response.status()).toBe(401);
+  // Session auth turns anons away with a redirect to the landing page —
+  // refusal is "you never reach the dashboard", not a bare 401.
+  const response = await request.get(`${BASE}/${OWNER}`, { maxRedirects: 0 });
+  expect(response.status()).toBe(302);
+  expect(response.headers()["location"]).toBe("/");
 
   await page.goto(`${BASE}/${OWNER}`);
   await page.waitForLoadState("networkidle");
@@ -75,7 +80,7 @@ test("anonymous admin request is refused and renders no surface", async ({ page,
 });
 
 test("authenticated admin page shows the Ask Manu launcher and opens the panel", async ({ page }) => {
-  await page.context().setExtraHTTPHeaders({ "Cf-Access-Jwt-Assertion": await devAssertion() });
+  await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() });
   const response = await page.goto(`${BASE}/${OWNER}`);
   // Only skip when the server is explicitly running without the dev Access
   // fixture (e.g. production behind real Cloudflare Access). Without this

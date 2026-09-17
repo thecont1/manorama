@@ -209,6 +209,30 @@ describe('scanICloudAlbum with video entries', () => {
     expect(video.poster.src).toContain('c=poster-cs')
   })
 
+  test('splits on derivative key names when fields arrive as strings (real vintage)', async () => {
+    // The observed live payload: no marker fields at all, fileSize and
+    // dimensions as STRINGS, and roles carried by the derivative key
+    // names — 720p/360p are the MP4s, PosterFrame the still.
+    const fetchImpl = async () => jsonResponse(stream([videoPhoto({
+      duration: '83',
+      derivatives: {
+        '720p': { fileSize: '3846231', checksum: 'hi-cs', width: '1280', state: 'available', height: '912' },
+        'PosterFrame': { fileSize: '219154', checksum: 'poster-cs', width: '1137', state: 'available', height: '810' },
+        '360p': { fileSize: '1293631', checksum: 'lo-cs', width: '640', state: 'available', height: '456' },
+      },
+    })]))
+    const scan = await scanICloudAlbum(`https://www.icloud.com/sharedalbum/#${TOKEN}`, fetchImpl as typeof fetch)
+    expect(scan.images).toHaveLength(1)
+    const video = scan.images[0] as VideoItem
+    expect(isVideoItem(video)).toBe(true)
+    expect(video.src).toContain('c=hi-cs')
+    expect(video.poster.src).toContain('c=poster-cs')
+    // Emitted dimensions are real numbers even though the wire sent strings.
+    expect(video.width).toBe(1280)
+    expect(video.poster.width).toBe(1137)
+    expect(video.durationSeconds).toBe(83)
+  })
+
   test('probes content type when both markers and sizes are ambiguous', async () => {
     const probed: string[] = []
     const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {

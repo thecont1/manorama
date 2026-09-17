@@ -17,10 +17,12 @@ const PHOTOS_UA = 'Photos/5.0 (Macintosh; OS X 10.15.4) AppleWebKit/605.1.15'
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
 type Derivative = {
-  fileSize?: number
+  /** Numeric fields arrive as STRINGS in some album vintages
+   *  ("fileSize": "3846231") — always read through `num`. */
+  fileSize?: number | string
   checksum?: string
-  width?: number
-  height?: number
+  width?: number | string
+  height?: number | string
   /** Apple marks video derivatives inconsistently across album vintages:
    *  some carry `fileType: 'public.mpeg-4'`, others only a `mediaAssetType`
    *  or a `Video` value in an opaque `derivativeType`. Every observed
@@ -29,18 +31,26 @@ type Derivative = {
   mediaAssetType?: string
   derivativeType?: string
   /** Present on video derivatives in some responses. */
-  duration?: number
+  duration?: number | string
+  /** "available" when the derivative can actually be fetched. */
+  state?: string
 }
 type StreamPhoto = {
   photoGuid: string
   caption?: string
   mediaAssetType?: string
-  width?: number
-  height?: number
+  width?: number | string
+  height?: number | string
   /** Seconds; spelling varies by album vintage. */
-  duration?: number
-  videoDuration?: number
+  duration?: number | string
+  videoDuration?: number | string
   derivatives?: Record<string, Derivative>
+}
+
+/** Coerces Apple's number-or-string fields; anything unusable is undefined. */
+const num = (value: number | string | undefined) => {
+  const n = typeof value === 'string' ? Number(value) : value
+  return typeof n === 'number' && Number.isFinite(n) ? n : undefined
 }
 type StreamResponse = { streamName?: string; photos?: StreamPhoto[] }
 type AssetUrls = {
@@ -125,14 +135,13 @@ const videoProxy = (token: string, guid: string, checksum: string) =>
   `/api/icloud/video?album=${encodeURIComponent(token)}&photo=${encodeURIComponent(guid)}&c=${encodeURIComponent(checksum)}`
 
 /** Largest derivative by pixel area drives display; smallest is the strip
- *  thumbnail. Derivatives have no names — keys are opaque, so we choose
- *  on size alone. */
+ *  thumbnail. For photos the keys are opaque, so we choose on size alone. */
 const pickDerivative = (derivatives: Record<string, Derivative>, pick: 'largest' | 'smallest') => {
-  const entries = Object.values(derivatives).filter((d) => d.checksum && d.width && d.height)
+  const entries = Object.values(derivatives).filter((d) => d.checksum && num(d.width) && num(d.height))
   if (!entries.length) return null
   return entries.reduce((best, d) => {
-    const area = (d.width ?? 0) * (d.height ?? 0)
-    const bestArea = (best.width ?? 0) * (best.height ?? 0)
+    const area = (num(d.width) ?? 0) * (num(d.height) ?? 0)
+    const bestArea = (num(best.width) ?? 0) * (num(best.height) ?? 0)
     return pick === 'largest' ? (area > bestArea ? d : best) : (area < bestArea ? d : best)
   })
 }
@@ -152,57 +161,72 @@ const looksLikeVideoDerivative = (derivative: Derivative) => {
 const isVideoEntry = (photo: StreamPhoto) => photo.mediaAssetType === 'video'
 
 const durationOf = (photo: StreamPhoto, derivative?: Derivative) => {
-  const seconds = derivative?.duration ?? photo.duration ?? photo.videoDuration
-  return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? seconds : undefined
+  const seconds = num(derivative?.duration) ?? num(photo.duration) ?? num(photo.videoDuration)
+  return seconds !== undefined && seconds > 0 ? seconds : undefined
 }
+
+/** Video rendition keys observed in the wild: `720p`, `360p`, `240p`. */
+const VIDEO_DERIVATIVE_KEY = /^\d{3,4}p$|video|mp4|movie|quicktime/i
+/** Poster keys observed in the wild: `PosterFrame`, `Poster`, `thumbnail`. */
+const POSTER_DERIVATIVE_KEY = /poster|frame|still|thumb/i
 
 /**
  * Splits a video entry's derivatives into the MP4 and its poster still.
  *
- * Marker fields are tried first. When Apple leaves them ambiguous the
- * split falls back to byte size: a transcoded clip is dramatically
- * heavier than its poster JPEG, so the largest `fileSize` is the video
- * and the largest *image* by pixel area among the rest is the poster.
- * `probe` (a live content-type check via webasseturls) is the final
- * arbiter and is only consulted when both heuristics are inconclusive.
+ * Four signals, tried strongest-first: explicit marker fields (some
+ * vintages); the derivative's own key name (`720p` vs `PosterFrame` —
+ * other vintages carry roles there and nothing else); byte size (an
+ * H.264 clip dwarfs its own poster frame); and finally `probe`, a live
+ * content-type check via webasseturls, consulted only when every cheaper
+ * signal was inconclusive.
  */
 const splitVideoDerivatives = async (
   derivatives: Record<string, Derivative>,
   probe?: (checksum: string) => Promise<boolean>,
 ): Promise<{ video: Derivative; poster: Derivative } | null> => {
-  const entries = Object.values(derivatives).filter((d) => d.checksum)
+  const entries = Object.entries(derivatives).filter(([, d]) => d.checksum && (!d.state || d.state === 'available'))
   if (entries.length < 2) return null
-  const posterCandidates = entries.filter((d) => d.width && d.height)
+  const posterCandidates = entries.filter(([, d]) => num(d.width) && num(d.height))
+  const bytes = (d: Derivative) => num(d.fileSize) ?? 0
+  const area = (d: Derivative) => (num(d.width) ?? 0) * (num(d.height) ?? 0)
+  const heaviestOf = (list: [string, Derivative][]) =>
+    list.reduce((best, entry) => (bytes(entry[1]) > bytes(best[1]) ? entry : best))[1]
 
-  const marked = entries.filter(looksLikeVideoDerivative)
+  // The poster: a poster-named key when one exists, else the largest
+  // frame among whatever the video did not claim.
   const pickPoster = (video: Derivative) => {
-    const rest = posterCandidates.filter((d) => d.checksum !== video.checksum)
+    const rest = posterCandidates.filter(([, d]) => d.checksum !== video.checksum)
     if (!rest.length) return null
-    return rest.reduce((best, d) => ((d.width ?? 0) * (d.height ?? 0) > (best.width ?? 0) * (best.height ?? 0) ? d : best))
+    const named = rest.filter(([key]) => POSTER_DERIVATIVE_KEY.test(key))
+    const pool = named.length ? named : rest
+    return pool.reduce((best, entry) => (area(entry[1]) > area(best[1]) ? entry : best))[1]
   }
 
-  if (marked.length === 1) {
-    const poster = pickPoster(marked[0])
-    return poster ? { video: marked[0], poster } : null
-  }
+  const candidates: Derivative[] = []
+  const marked = entries.filter(([, d]) => looksLikeVideoDerivative(d))
+  if (marked.length) candidates.push(heaviestOf(marked))
+  const keyed = entries.filter(([key]) => VIDEO_DERIVATIVE_KEY.test(key))
+  if (keyed.length) candidates.push(heaviestOf(keyed))
 
   // Heaviest derivative wins when byte sizes are present and unambiguous:
   // an H.264 clip dwarfs its own poster frame.
-  const sized = entries.filter((d) => typeof d.fileSize === 'number' && d.fileSize! > 0)
+  const sized = entries.filter(([, d]) => bytes(d) > 0)
   if (sized.length >= 2) {
-    const heaviest = sized.reduce((best, d) => (d.fileSize! > best.fileSize! ? d : best))
-    const nextSize = Math.max(...sized.filter((d) => d.checksum !== heaviest.checksum).map((d) => d.fileSize!))
-    if (heaviest.fileSize! >= nextSize * 2) {
-      const poster = pickPoster(heaviest)
-      if (poster) return { video: heaviest, poster }
-    }
+    const heaviest = sized.reduce((best, entry) => (bytes(entry[1]) > bytes(best[1]) ? entry : best))[1]
+    const nextSize = Math.max(...sized.filter(([, d]) => d.checksum !== heaviest.checksum).map(([, d]) => bytes(d)))
+    if (bytes(heaviest) >= nextSize * 2) candidates.push(heaviest)
+  }
+
+  for (const video of candidates) {
+    const poster = pickPoster(video)
+    if (poster) return { video, poster }
   }
 
   // Last resort: ask the CDN what each candidate actually is. Ordered
   // heaviest-first so the probable video is probed on the first call.
   if (probe) {
-    const ordered = [...entries].sort((a, b) => (b.fileSize ?? 0) - (a.fileSize ?? 0))
-    for (const candidate of ordered) {
+    const ordered = [...entries].sort(([, a], [, b]) => bytes(b) - bytes(a))
+    for (const [, candidate] of ordered) {
       let confirmed = false
       try {
         confirmed = await probe(candidate.checksum!)
@@ -222,18 +246,37 @@ const placeholderFor = (width: number, height: number) =>
   `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`
 
 /** Resolves a derivative's real CDN content type. Used only to break a
- *  tie the album metadata left ambiguous. */
-const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typeof fetch) =>
-  async (checksum: string) => {
-    const assets = await postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
-    const item = assets.items?.[checksum]
-    const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
-    if (!item?.url_path || !location?.scheme || !location.hosts?.length) return false
-    const url = `${location.scheme}://${location.hosts[0]}${item.url_path}`
-    const response = await fetchImpl(url, { method: 'HEAD' })
-    const contentType = response.headers.get('Content-Type') ?? ''
-    return /^video\//i.test(contentType)
+ *  tie the album metadata left ambiguous. The asset map is fetched once
+ *  for all candidates; the url_path's own filename (.mp4 vs .JPG) answers
+ *  most probes without touching the CDN, and when it can't, a HEAD is
+ *  tried and then a 1-byte Range GET — some CDN vintages refuse HEAD
+ *  outright (501) while happily serving ranged GETs. */
+const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typeof fetch) => {
+  let paths: Promise<Map<string, string>> | undefined
+  const assetPaths = () => (paths ??= postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
+    .then((assets) => {
+      const map = new Map<string, string>()
+      for (const [checksum, item] of Object.entries(assets.items ?? {})) {
+        const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
+        if (item?.url_path && location?.scheme && location.hosts?.length) {
+          map.set(checksum, `${location.scheme}://${location.hosts[0]}${item.url_path}`)
+        }
+      }
+      return map
+    }))
+  return async (checksum: string) => {
+    const url = (await assetPaths()).get(checksum)
+    if (!url) return false
+    const extension = /\.([a-z0-9]+)(?:\?|$)/i.exec(url)?.[1]?.toLowerCase()
+    if (extension && /^(mp4|mov|m4v|qt)$/.test(extension)) return true
+    if (extension && /^(jpe?g|png|webp|heic|heif|gif|tiff?)$/.test(extension)) return false
+    let response = await fetchImpl(url, { method: 'HEAD' })
+    if (response.status === 501 || response.status === 405) {
+      response = await fetchImpl(url, { headers: { Range: 'bytes=0-0' } })
+    }
+    return /^video\//i.test(response.headers.get('Content-Type') ?? '')
   }
+}
 
 export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = fetch): Promise<ICloudScan> => {
   const token = extractAlbumToken(input)
@@ -254,8 +297,8 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
       const split = await splitVideoDerivatives(photo.derivatives!, probeDerivativeIsVideo(token, photo.photoGuid, fetchImpl))
       if (!split) continue
       const { video, poster } = split
-      const width = video.width || poster.width || photo.width || 16
-      const height = video.height || poster.height || photo.height || 9
+      const width = num(video.width) || num(poster.width) || num(photo.width) || 16
+      const height = num(video.height) || num(poster.height) || num(photo.height) || 9
       const item: VideoItem = {
         type: 'video',
         id,
@@ -267,15 +310,15 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
         height,
         poster: {
           src: imageProxy(token, photo.photoGuid, poster.checksum!),
-          width: poster.width || width,
-          height: poster.height || height,
+          width: num(poster.width) || width,
+          height: num(poster.height) || height,
         },
         alt: caption || 'Video',
         c2pa: false,
         placeholder: placeholderFor(width, height),
         // The poster doubles as the rail/strip thumbnail, so every
         // `variants?.[0]?.src` consumer keeps working untouched.
-        variants: [{ width: poster.width || width, src: imageProxy(token, photo.photoGuid, poster.checksum!), format: 'jpeg' }],
+        variants: [{ width: num(poster.width) || width, src: imageProxy(token, photo.photoGuid, poster.checksum!), format: 'jpeg' }],
       }
       const durationSeconds = durationOf(photo, video)
       if (durationSeconds !== undefined) item.durationSeconds = durationSeconds
@@ -288,8 +331,8 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
     const largest = pickDerivative(photo.derivatives!, 'largest')
     const smallest = pickDerivative(photo.derivatives!, 'smallest')
     if (!largest || !smallest) continue
-    const width = largest.width || photo.width || 4
-    const height = largest.height || photo.height || 3
+    const width = num(largest.width) || num(photo.width) || 4
+    const height = num(largest.height) || num(photo.height) || 3
     const image: GalleryImage = {
       id,
       ref: photo.photoGuid,
@@ -301,7 +344,7 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
       caption,
       c2pa: false,
       placeholder: placeholderFor(width, height),
-      variants: [{ width: smallest.width || 256, src: imageProxy(token, photo.photoGuid, smallest.checksum!), format: 'jpeg' }],
+      variants: [{ width: num(smallest.width) || 256, src: imageProxy(token, photo.photoGuid, smallest.checksum!), format: 'jpeg' }],
     }
     items.push(image)
     index += 1
