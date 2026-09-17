@@ -50,6 +50,16 @@
           }
         },
         "description": "The request was understood but the operation failed (bad source link, slug collision, ...)"
+      },
+      "PayloadTooLarge": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "The image exceeds the proxy's size ceiling"
       }
     },
     "schemas": {
@@ -65,7 +75,7 @@
             "type": "array"
           },
           "url": {
-            "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL to create the gallery from",
+            "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL to create the gallery from",
             "type": "string"
           }
         },
@@ -127,7 +137,7 @@
             "type": "string"
           },
           "sourceUrl": {
-            "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+            "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
             "type": "string"
           },
           "title": {
@@ -273,7 +283,7 @@
         "additionalProperties": false,
         "properties": {
           "url": {
-            "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL",
+            "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL",
             "type": "string"
           }
         },
@@ -691,6 +701,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Unavailable"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
           }
         },
         "security": [],
@@ -937,7 +950,7 @@
       },
       "parameters": [
         {
-          "description": "Current gallery URL slug — the resource identity",
+          "description": "Current gallery URL slug \u2014 the resource identity",
           "in": "path",
           "name": "slug",
           "required": true,
