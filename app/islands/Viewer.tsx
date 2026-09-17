@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
-import type { GalleryImage } from '../lib/imagesource'
+import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
+import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
+import VideoSlide, { formatDuration } from './VideoSlide'
 
 /**
  * Strip invariant: each frame derives its width from the source aspect ratio at
@@ -15,7 +17,7 @@ type SeamMode = 'light' | 'dark' | 'none'
 type DragSample = { x: number; time: number }
 type Props = {
   slug: string
-  images: readonly GalleryImage[]
+  images: readonly GalleryMediaItem[]
   settings: GallerySettings
 }
 
@@ -63,6 +65,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // style.cssText on every render — an imperative aspectRatio write gets
   // reverted by the next state change unless the prop itself carries it.
   const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
+  // Viewer-level sound: once a visitor unmutes, every subsequently
+  // activated video starts audible. Deliberately NOT persisted — it
+  // resets when the viewer unmounts, so a fresh visit is always quiet.
+  const [soundOn, setSoundOn] = useState(false)
+  const [magnifierActive, setMagnifierActive] = useState(false)
+  const [magnifierAvailable, setMagnifierAvailable] = useState(false)
+  const [reducedMotion, setReducedMotion] = useState(false)
+  const magnifierRef = useRef<MagnifierHandle | null>(null)
   const heicPendingRef = useRef(new Set<string>())
   const heicUrlsRef = useRef(new Map<string, string>())
   const unmountedRef = useRef(false)
@@ -98,6 +108,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const boundsDirtyRef = useRef(true)
 
   const currentImage = images[index] ?? images[0]
+  // The info panel speaks about whichever medium is on screen, and EXIF
+  // only exists on photographs — narrow once here rather than at each use.
+  const currentVideo = currentImage && isVideoItem(currentImage) ? currentImage : null
+  const currentIsVideo = Boolean(currentVideo)
+  const currentExif = currentImage && !isVideoItem(currentImage) ? currentImage.exif : undefined
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -474,6 +489,71 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => window.removeEventListener('keydown', onKey)
   }, [index, mode, modalOpen, infoOpen, images.length])
 
+  // Magnifier availability is a media-query question, answered on the
+  // client only: the server cannot know the pointer type, so the shortcut
+  // row and the key binding appear after mount.
+  useEffect(() => {
+    setMagnifierAvailable(magnifierSupported())
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const sync = () => setReducedMotion(query.matches)
+    sync()
+    query.addEventListener?.('change', sync)
+    return () => query.removeEventListener?.('change', sync)
+  }, [])
+
+  useEffect(() => {
+    if (!magnifierAvailable) return
+    const handle = attachMagnifier(stageRef.current)
+    magnifierRef.current = handle
+    return () => {
+      handle?.destroy()
+      magnifierRef.current = null
+    }
+  }, [magnifierAvailable])
+
+  // Opening either modal dismisses the lens: a loupe floating over a
+  // dialog is both confusing and unreachable.
+  useEffect(() => {
+    if (!modalOpen && !infoOpen) return
+    magnifierRef.current?.deactivate()
+    setMagnifierActive(false)
+  }, [modalOpen, infoOpen])
+
+  useEffect(() => () => {
+    magnifierRef.current?.destroy()
+    magnifierRef.current = null
+  }, [])
+
+  // `M` toggles the lens under exactly the same gates as the nav keys.
+  // Esc closes it when no modal is open (a modal's own Esc handler wins).
+  useEffect(() => {
+    if (!magnifierAvailable) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      // Never steal a keystroke from a text field.
+      if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+      if (event.key === 'Escape') {
+        if (modalOpen || infoOpen) return
+        if (!magnifierRef.current?.isActive()) return
+        event.preventDefault()
+        magnifierRef.current.deactivate()
+        setMagnifierActive(false)
+        return
+      }
+      if (event.key !== 'm' && event.key !== 'M') return
+      if (modalOpen || infoOpen || !document.body.classList.contains('gallery-entered')) return
+      event.preventDefault()
+      const handle = magnifierRef.current
+      if (!handle) return
+      if (handle.isActive()) { handle.deactivate(); setMagnifierActive(false) }
+      else { handle.activate(); setMagnifierActive(true) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [magnifierAvailable, modalOpen, infoOpen])
+
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
@@ -648,7 +728,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // HEIC originals can't render in a browser, so decode them at full
   // resolution via libheif WASM — lazily, only when a frame enters the
   // active window. The 256px JPEG variant shows while decoding.
-  const isHeic = (image: GalleryImage) => /\.hei[cf]$/i.test(image.filename)
+  // Videos never take the HEIC path: their src is an MP4 proxy URL and
+  // their filename is a caption, which could otherwise end in ".heic".
+  const isHeic = (image: GalleryMediaItem) => !isVideoItem(image) && /\.hei[cf]$/i.test(image.filename)
   const storeHeicSrc = (id: string, url: string) => {
     // A decode finishing after teardown must not retain the blob.
     if (unmountedRef.current) {
@@ -659,7 +741,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     setHeicSrc((previous) => ({ ...previous, [id]: url }))
   }
 
-  const decodeHeic = async (image: GalleryImage) => {
+  const decodeHeic = async (image: GalleryMediaItem) => {
     if (heicPendingRef.current.has(image.id)) return
     heicPendingRef.current.add(image.id)
     let blob: Blob | undefined
@@ -720,6 +802,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       setVerticalActive(new Set())
     }
   }, [mode, images])
+
+  /**
+   * The ONE frame that may own a media element. `isFrameActive` is a
+   * window (±3 in strip mode) — correct for images, wrong for video: it
+   * would mount up to seven <video> elements, each fetching metadata.
+   * A video mounts only on the current slide; every other frame, adjacent
+   * or not, is its poster image alone.
+   */
+  const isVideoSlideActive = (imageIndex: number) => imageIndex === index && isFrameActive(imageIndex)
 
   const isFrameActive = (imageIndex: number) => {
     if (mode === 'vertical') {
@@ -806,15 +897,44 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             const frameW = healed?.w ?? image.width
             const frameH = healed?.h ?? image.height
             const isPortrait = frameH > frameW
+            const video = isVideoItem(image) ? image : null
             return (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''} ${video ? 'viewer-frame--video' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
+                data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
                 style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
+                {video ? (
+                  <>
+                    {/* The poster is the whole frame until the video is the
+                        active slide: adjacent frames cost one image, and
+                        non-adjacent frames mount no media element at all. */}
+                    <img
+                      class="frame-ph"
+                      src={video.poster.src}
+                      alt={isVideoSlideActive(imageIndex) ? '' : video.alt}
+                      aria-hidden={isVideoSlideActive(imageIndex) ? 'true' : undefined}
+                      width={frameW}
+                      height={frameH}
+                      decoding="async"
+                      loading={isActive ? 'eager' : 'lazy'}
+                    />
+                    {isVideoSlideActive(imageIndex) ? (
+                      <VideoSlide
+                        item={video}
+                        isActive
+                        soundOn={soundOn}
+                        prefersReducedMotion={reducedMotion}
+                        onToggleSound={setSoundOn}
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                <>
                 <img
                   class="frame-ph"
                   src={isActive && isHeic(image) ? image.variants?.[0]?.src ?? image.placeholder : image.placeholder}
@@ -895,11 +1015,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     }}
                   />
                 ) : null}
+                </>
+                )}
               </figure>
             )
           })}
         </div>
-        <div class="stage-arrows" aria-label="Image navigation and information">
+        {/* data-magnifier-ignore: the lens mirrors photographs, not the
+            page's own controls. */}
+        <div class="stage-arrows" data-magnifier-ignore aria-label="Image navigation and information">
           <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
           {arrowsVisible ? (
             <>
@@ -965,6 +1089,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
             <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
             <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
+            {/* Pointer-gated: a loupe replacing the cursor means nothing
+                on a touch device, so the row only exists where the key
+                actually works. */}
+            {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
             <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
@@ -983,32 +1111,34 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>Current photograph</h2>
+              <h2>{currentIsVideo ? 'Current video' : 'Current photograph'}</h2>
             </div>
             <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setInfoOpen(false)}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="position-heading">
             <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
-            <p class="quiet-copy">Photograph {index + 1} of {images.length}</p>
+            <p class="quiet-copy">{currentIsVideo ? 'Video' : 'Photograph'} {index + 1} of {images.length}</p>
           </section>
 
           <section class="panel-section" aria-labelledby="info-heading">
-            <h3 id="info-heading">Image info</h3>
+            <h3 id="info-heading">{currentIsVideo ? 'Video info' : 'Image info'}</h3>
             <dl class="info-grid">
               <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
               <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
-              {currentImage?.exif?.camera ? <div><dt>Camera</dt><dd>{currentImage.exif.camera}</dd></div> : null}
-              {currentImage?.exif?.lens ? <div><dt>Lens</dt><dd>{currentImage.exif.lens}</dd></div> : null}
-              {currentImage?.exif?.aperture ? <div><dt>Aperture</dt><dd>{currentImage.exif.aperture}</dd></div> : null}
-              {currentImage?.exif?.iso ? <div><dt>ISO</dt><dd>{currentImage.exif.iso}</dd></div> : null}
-              {currentImage?.exif?.dateOriginal ? <div><dt>Captured</dt><dd>{currentImage.exif.dateOriginal}</dd></div> : null}
+              {currentVideo ? <div><dt>Type</dt><dd>Video ({currentVideo.mimeType})</dd></div> : null}
+              {currentVideo?.durationSeconds ? <div><dt>Duration</dt><dd>{formatDuration(currentVideo.durationSeconds)}</dd></div> : null}
+              {currentExif?.camera ? <div><dt>Camera</dt><dd>{currentExif.camera}</dd></div> : null}
+              {currentExif?.lens ? <div><dt>Lens</dt><dd>{currentExif.lens}</dd></div> : null}
+              {currentExif?.aperture ? <div><dt>Aperture</dt><dd>{currentExif.aperture}</dd></div> : null}
+              {currentExif?.iso ? <div><dt>ISO</dt><dd>{currentExif.iso}</dd></div> : null}
+              {currentExif?.dateOriginal ? <div><dt>Captured</dt><dd>{currentExif.dateOriginal}</dd></div> : null}
             </dl>
           </section>
 
           <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading">
             <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
-            {!currentImage?.c2pa ? <p class="quiet-copy">This photograph carries no Content Credentials.</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
+            {!currentImage?.c2pa ? <p class="quiet-copy">{currentIsVideo ? 'This video carries no Content Credentials.' : 'This photograph carries no Content Credentials.'}</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
           </section>
         </div>
       </div>
