@@ -58,6 +58,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
+  // Decoded pixel truth for frames whose stored dims were wrong (4:3
+  // fallbacks, stale scans). Held in state because hono/jsx rewrites
+  // style.cssText on every render — an imperative aspectRatio write gets
+  // reverted by the next state change unless the prop itself carries it.
+  const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
   const heicPendingRef = useRef(new Set<string>())
   const heicUrlsRef = useRef(new Map<string, string>())
   const unmountedRef = useRef(false)
@@ -769,22 +774,25 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         >
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
-            const isPortrait = image.height > image.width
+            const healed = healedDims[image.id]
+            const frameW = healed?.w ?? image.width
+            const frameH = healed?.h ?? image.height
+            const isPortrait = frameH > frameW
             return (
               <figure
                 class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
-                style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+                style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 <img
                   class="frame-ph"
                   src={isActive && isHeic(image) ? image.variants?.[0]?.src ?? image.placeholder : image.placeholder}
                   alt=""
                   aria-hidden="true"
-                  width={image.width}
-                  height={image.height}
+                  width={frameW}
+                  height={frameH}
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
@@ -795,8 +803,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     data-full-src={image.src}
                     data-active="true"
                     alt={image.alt}
-                    width={image.width}
-                    height={image.height}
+                    width={frameW}
+                    height={frameH}
                     decoding="async"
                     loading="eager"
                     onLoad={(event: Event) => {
@@ -811,6 +819,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                         if (Math.abs(real - stored) / stored > 0.02) {
                           const frame = img.closest<HTMLElement>('.viewer-frame')
                           if (frame) {
+                            const healed = { w: img.naturalWidth, h: img.naturalHeight }
+                            setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
                             if (mode === 'strip') frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
                             frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
                             frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
