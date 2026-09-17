@@ -56,30 +56,32 @@ button { color: inherit; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
 
-/* Borders: frame padding (border-box) wraps photographs in a thick
-   barber-pole stripe — the image shrinks, never crops. The leading edge
-   stays open so the strip reads continuous: strip borders left/top/
-   bottom, vertical borders left/right/top, single borders all sides.
-   'none' sits photographs flush. */
+/* Background: choosing a stripe flavour fills each frame's background —
+   'light' is black stripes on a light field, 'dark' is light stripes on
+   black. A 2px pad shrinks photographs a hair on every side so the field
+   shows through and reads as a fine border. 'none' sits them flush. */
 .mode-strip.seam-light .viewer-frame,
-.mode-strip.seam-dark .viewer-frame { padding: 8px 0 8px 8px; }
+.mode-strip.seam-dark .viewer-frame,
 .mode-vertical.seam-light .viewer-frame,
-.mode-vertical.seam-dark .viewer-frame { padding: 8px 8px 0; }
-.mode-vertical.seam-light .viewer-frame--portrait,
-.mode-vertical.seam-dark .viewer-frame--portrait { place-items: end center; }
+.mode-vertical.seam-dark .viewer-frame,
 .mode-single.seam-light .viewer-frame,
-.mode-single.seam-dark .viewer-frame { padding: 8px; }
-/* 'light' = light border with dark stripes; 'dark' = dark border with light stripes. */
-.seam-light .viewer-frame { background-color: rgba(var(--ink), .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .18) 0 5px, transparent 5px 13px); }
-.seam-dark .viewer-frame { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(var(--ink), .14) 0 5px, transparent 5px 13px); }
+.mode-single.seam-dark .viewer-frame { padding: 2px; }
+.seam-light .viewer-frame { background-color: rgba(var(--ink), .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .55) 0 5px, transparent 5px 13px); }
+.seam-dark .viewer-frame { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(var(--ink), .55) 0 5px, transparent 5px 13px); }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); margin: 0 auto; object-fit: contain; }
 .viewer-track--vertical .viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: #0a0a0a; overflow: hidden; }
 /* The shorthand above resets background-image — re-assert the seam
-   treatment for portrait frames when borders are on. */
-.seam-light .viewer-track--vertical .viewer-frame--portrait { background-color: rgba(var(--ink), .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .18) 0 5px, transparent 5px 13px); }
-.seam-dark .viewer-track--vertical .viewer-frame--portrait { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(var(--ink), .14) 0 5px, transparent 5px 13px); }
+   treatment for portrait frames when a background is on, and shrink-wrap
+   the frame to the photo so the field reads as a ring, not flanking
+   panels that clash with the next frame's stripes. */
+.seam-light .viewer-track--vertical .viewer-frame--portrait { width: fit-content; margin-inline: auto; background-color: rgba(var(--ink), .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .55) 0 5px, transparent 5px 13px); }
+.seam-dark .viewer-track--vertical .viewer-frame--portrait { width: fit-content; margin-inline: auto; background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(var(--ink), .55) 0 5px, transparent 5px 13px); }
 .viewer-track--vertical .viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
+/* Inside a shrink-wrapped seamed frame the photo must resolve its own
+   size — cap both axes so the frame's fit-content wraps it exactly. */
+.seam-light .viewer-track--vertical .viewer-frame--portrait img,
+.seam-dark .viewer-track--vertical .viewer-frame--portrait img { max-width: calc(100vw - 4px); max-height: calc(var(--viewer-stage-height, 100dvh) - 4px); }
 .viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); pointer-events: none; }
 .viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { opacity: 1; pointer-events: auto; }
 .viewer-track--single .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }

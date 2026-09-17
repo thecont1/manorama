@@ -26,7 +26,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
  *  so decoded HEIC blobs get revoked as frames scroll away. */
 const VERTICAL_RETAIN = 6
 
-/** Anonymous per-gallery viewing preferences: mode + border choice are
+/** Anonymous per-gallery viewing preferences: mode + background choice are
  *  remembered in localStorage keyed by gallery slug, so a link recipient
  *  keeps their own preference without an account. */
 type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
@@ -931,11 +931,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             </div>
           </section>
 
-          <section class="panel-section" aria-labelledby="border-heading">
-            <h3 id="border-heading">Borders</h3>
-            <div class="mode-options" role="radiogroup" aria-label="Borders around photographs">
-              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light border, dark stripes</small></label>
-              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark border, light stripes</small></label>
+          <section class="panel-section" aria-labelledby="background-heading">
+            <h3 id="background-heading">Background</h3>
+            <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
+              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>light stripes on black</small></label>
+              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>black stripes on light</small></label>
               <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
             </div>
           </section>
