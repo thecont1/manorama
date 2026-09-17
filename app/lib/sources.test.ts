@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { canonicalSourceMatches, detectSource, embeddedSourceCandidate, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './sources'
+import { friendlySourceError } from './source-errors'
 
 describe('detectSource', () => {
   test('recognizes Dropbox shared folder links', () => {
@@ -21,6 +22,16 @@ describe('detectSource', () => {
   test('recognizes MEGA shared folder links in both spellings', () => {
     expect(detectSource('https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA')).toBe('mega')
     expect(detectSource('https://mega.co.nz/#F!AbCdEf12!a2V5LXNlY3JldA')).toBe('mega')
+  })
+
+  test('recognizes a provider host even for non-folder links, so the scanner can explain why', () => {
+    // detectSource routes; it does not validate the resource kind. Each
+    // scanner raises the precise "that is a file link, not a folder link"
+    // guidance, which is only reachable if detection succeeds first.
+    expect(detectSource('https://dropbox.com/')).toBe('dropbox')
+    expect(detectSource('https://www.dropbox.com/scl/fi/abc/file.jpg')).toBe('dropbox')
+    expect(detectSource('https://drive.google.com/file/d/1AbCdEf/view')).toBe('gdrive')
+    expect(detectSource('https://mega.nz/file/AbCdEf#key')).toBe('mega')
   })
 
   test('rejects everything else', () => {
@@ -157,4 +168,52 @@ describe('embeddedSourceCandidate', () => {
     expect(embeddedSourceCandidate('/javascript:alert(1)')).toBeNull()
     expect(embeddedSourceCandidate('/data:text/html,hi')).toBeNull()
   })
+
+  test('refuses a provider hostname that is not a share resource', () => {
+    // The catch-all matches every path. Claiming a bare provider homepage
+    // or a single-file link would turn a link that can never scan into a
+    // one-shot create action.
+    expect(embeddedSourceCandidate('/https://dropbox.com/')).toBeNull()
+    expect(embeddedSourceCandidate('/https://www.dropbox.com/scl/fi/abc/file.jpg')).toBeNull()
+    expect(embeddedSourceCandidate('/https://drive.google.com/file/d/1AbCdEf/view')).toBeNull()
+    expect(embeddedSourceCandidate('/https://mega.nz/')).toBeNull()
+    expect(embeddedSourceCandidate('/https://mega.nz/file/AbCdEf')).toBeNull()
+  })
+
+  test('accepts every folder spelling the providers actually emit', () => {
+    // folderview is deliberately absent: extractDriveFolderId does not
+    // parse it, so it was never scannable and must not reach the
+    // interstitial.
+    expect(embeddedSourceCandidate('/https://drive.google.com/drive/u/2/folders/1Ab')?.provider).toBe('gdrive')
+    expect(embeddedSourceCandidate('/https://drive.google.com/open?id=1Ab')?.provider).toBe('gdrive')
+    expect(embeddedSourceCandidate('/https://mega.nz/collection/AbCdEf12')?.provider).toBe('mega')
+    expect(embeddedSourceCandidate('/https://mega.co.nz/#F!AbCdEf12!key')?.provider).toBe('mega')
+    expect(embeddedSourceCandidate('/https://dropbox.com/sh/abc/def')?.provider).toBe('dropbox')
+  })
+})
+
+/**
+ * detectSource must stay permissive so these stay reachable: the scanner
+ * is the only layer that can tell a visitor *why* a provider link failed.
+ * Narrowing detection collapses all of them to the generic fallback.
+ */
+describe('a file link still earns its provider-specific guidance', () => {
+  const cases = [
+    ['https://www.dropbox.com/scl/fi/abc/file.jpg?rlkey=k', /not a file link/i],
+    ['https://drive.google.com/file/d/1AbCdEf/view', /not a file link/i],
+    ['https://mega.nz/file/AbCdEf#key', /folder or collection link/i],
+  ] as const
+
+  for (const [url, expected] of cases) {
+    test(url, async () => {
+      let message = ''
+      try {
+        await scanSource(url, {})
+      } catch (error) {
+        message = friendlySourceError(error)
+      }
+      expect(message).toMatch(expected)
+      expect(message).not.toBe('We could not read that link. Check the URL and try again.')
+    })
+  }
 })

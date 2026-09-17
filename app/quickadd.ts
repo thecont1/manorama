@@ -62,7 +62,7 @@ const wireSignIn = (sourceUrl: string) => {
   }
 }
 
-const createGallery = async (sourceUrl: string, root: HTMLElement) => {
+export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
   // Loop guard: if a create somehow returns us to this URL again, do not
   // retry forever.
   try {
@@ -84,6 +84,7 @@ const createGallery = async (sourceUrl: string, root: HTMLElement) => {
       body: JSON.stringify({ url: sourceUrl }),
     })
   } catch {
+    try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
     setStatus('Manorama could not reach the server. Check your connection and reload.')
     return
   }
@@ -101,6 +102,10 @@ const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     location.replace(payload.galleryUrl)
     return
   }
+  // The guard only exists to stop a redirect loop. Any terminal response
+  // that leaves this page visible must clear it so a reload can retry a
+  // transient provider/network failure in the same tab.
+  try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
   if (response.status === 401) { showSignInPanel(root, sourceUrl); return }
   if (response.status === 403) { setStatus(payload.error || 'You are using all of your galleries. Remove one to add another.'); return }
 

@@ -49,6 +49,45 @@ export const detectSource = (input: string): SourceProvider | null => {
 }
 
 /**
+ * Is this URL a *share resource* we can actually scan, as opposed to
+ * merely a provider hostname?
+ *
+ * `detectSource` stays deliberately permissive: `scanSource` relies on it
+ * to route a link to the right scanner, and each scanner then raises the
+ * precise complaint a visitor needs ("that is a file link, not a folder
+ * link"). Narrowing detectSource would reduce every one of those to the
+ * generic "we could not read that link".
+ *
+ * The quick-add catch-all needs the opposite answer. It matches EVERY
+ * path, so it must claim a URL only when that URL is genuinely a share
+ * resource — otherwise `manorama.xyz/https://dropbox.com/` becomes a
+ * one-shot create action for a link that can never scan.
+ */
+const isShareResource = (url: URL, provider: SourceProvider): boolean => {
+  switch (provider) {
+    case 'dropbox':
+      return /^\/(?:scl\/fo|sh)\//.test(url.pathname)
+    case 'gdrive':
+      try {
+        return Boolean(extractDriveFolderId(url.toString()))
+      } catch {
+        return false
+      }
+    case 'icloud':
+      // Reaching here already means a /sharedalbum/ or /photos/ path.
+      return true
+    case 'mega':
+      // The folder/collection key lives in the fragment, which the server
+      // never receives — so validate the resource path only. The stricter
+      // keyed parse happens in extractMegaLink once the browser
+      // reconstructs and POSTs the complete URL.
+      // A percent-escape can survive an undecodable path, so allow it.
+      if (/^\/(?:folder|collection)\/[0-9A-Za-z_%-]+(?:\/|$)/.test(url.pathname)) return true
+      return /^#(?:F|C)!/i.test(url.hash)
+  }
+}
+
+/**
  * Recognizes a share URL embedded in our own path — the `/…` quick-add
  * entry point. The browser mangles a pasted URL on the way into the
  * address bar, so every layer is undone in order:
@@ -90,7 +129,17 @@ export const embeddedSourceCandidate = (raw: string): { candidate: string; provi
     candidate = `https://${candidate}`
   }
   const provider = detectSource(candidate)
-  if (provider) return { candidate, provider }
+  // A provider hostname alone is not enough here. This is the catch-all:
+  // claiming `manorama.xyz/https://dropbox.com/` would turn a link that
+  // can never scan into a one-shot create action, and would shadow a real
+  // route. Only a genuine share resource earns the interstitial.
+  if (provider) {
+    try {
+      if (isShareResource(new URL(candidate), provider)) return { candidate, provider }
+    } catch {
+      return null
+    }
+  }
   // iCloud Drive links are recognized so the interstitial can explain the
   // Shared Album requirement instead of 404-ing.
   if (isICloudDriveLink(candidate)) return { candidate, provider: 'icloud' }

@@ -53,7 +53,12 @@ export type ICloudScan = { sourceUrl: string; title: string; images: GalleryMedi
 /** The album token from either public link spelling:
  *  icloud.com/sharedalbum/#{token} and share.icloud.com/photos/{token}. */
 export const extractAlbumToken = (input: string) => {
-  const url = new URL(input.trim())
+  let url: URL
+  try {
+    url = new URL(input.trim())
+  } catch {
+    return null
+  }
   const host = url.hostname.replace(/^www\./, '')
   let token: string | null = null
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) token = url.hash.replace(/^#/, '') || null

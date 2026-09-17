@@ -34,6 +34,11 @@ describe('extractAlbumToken', () => {
     expect(extractAlbumToken(`https://www.icloud.com/sharedalbum/#${keyful}`)).toBe(keyful)
   })
 
+  test('throws a usable input error instead of URL throwing on malformed input', () => {
+    expect(extractAlbumToken('not a url')).toBeNull()
+    expect(extractAlbumToken('')).toBeNull()
+  })
+
   test('returns null for other iCloud URLs', () => {
     expect(extractAlbumToken('https://www.icloud.com/photos')).toBeNull()
     expect(extractAlbumToken('https://www.icloud.com/sharedalbum/')).toBeNull()

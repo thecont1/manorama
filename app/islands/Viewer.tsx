@@ -72,6 +72,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [magnifierActive, setMagnifierActive] = useState(false)
   const [magnifierAvailable, setMagnifierAvailable] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
+  // Playback is gated by the opening curtain. Without React state here,
+  // adding a body class does not rerender the active VideoSlide, so a
+  // video-first gallery would remain mounted and autoplay behind the
+  // curtain (or never start after entry, depending on mount timing).
+  const [galleryEntered, setGalleryEntered] = useState(() =>
+    typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
   const magnifierRef = useRef<MagnifierHandle | null>(null)
   const heicPendingRef = useRef(new Set<string>())
   const heicUrlsRef = useRef(new Map<string, string>())
@@ -374,6 +380,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       curtain.setAttribute('aria-hidden', 'true')
       curtain.classList.add('is-lifting')
       document.body.classList.add('gallery-entered')
+      setGalleryEntered(true)
       const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : dotRef.current
       focusTarget?.focus({ preventScroll: true })
       const finish = () => {
@@ -810,7 +817,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
    * A video mounts only on the current slide; every other frame, adjacent
    * or not, is its poster image alone.
    */
-  const isVideoSlideActive = (imageIndex: number) => imageIndex === index && isFrameActive(imageIndex)
+  const isVideoSlideActive = (imageIndex: number) =>
+    galleryEntered && !modalOpen && !infoOpen && imageIndex === index && isFrameActive(imageIndex)
 
   const isFrameActive = (imageIndex: number) => {
     if (mode === 'vertical') {
@@ -864,6 +872,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       curtain.hidden = false
       curtain.removeAttribute('aria-hidden')
       document.body.classList.remove('gallery-entered')
+      setGalleryEntered(false)
     }
     setModalOpen(false)
   }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { formatDuration } from './islands/VideoSlide'
-import { reconstructSourceUrl } from './quickadd'
+import { createGallery, reconstructSourceUrl } from './quickadd'
 
 /**
  * Client-side pieces that are pure enough to pin directly: the duration
@@ -28,6 +28,42 @@ describe('formatDuration', () => {
     expect(formatDuration(-4)).toBeNull()
     expect(formatDuration(Number.NaN)).toBeNull()
     expect(formatDuration(Number.POSITIVE_INFINITY)).toBeNull()
+  })
+})
+
+describe('createGallery loop guard', () => {
+  test('a failed attempt may be retried after the page reloads', async () => {
+    // A guard may prevent redirect loops, but it must not make a transient
+    // network/provider failure permanent for the rest of the tab session.
+    const store = new Map<string, string>()
+    const globals = globalThis as Record<string, unknown>
+    const previous = {
+      location: globals.location,
+      sessionStorage: globals.sessionStorage,
+      document: globals.document,
+      fetch: globals.fetch,
+    }
+    globals.location = { href: 'https://manorama.xyz/https://mega.nz/folder/Ab#K', replace: () => {} }
+    globals.sessionStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value) },
+      removeItem: (key: string) => { store.delete(key) },
+    }
+    globals.document = { querySelector: () => null }
+    globals.fetch = async () => new Response(JSON.stringify({ error: 'temporary failure' }), {
+      status: 422,
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const root = { dataset: {} } as HTMLElement
+    try {
+      await createGallery('https://mega.nz/folder/Ab#K', root)
+      expect(store.has('manorama:quickadd-attempt')).toBe(false)
+    } finally {
+      globals.location = previous.location
+      globals.sessionStorage = previous.sessionStorage
+      globals.document = previous.document
+      globals.fetch = previous.fetch
+    }
   })
 })
 
