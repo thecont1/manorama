@@ -7,6 +7,21 @@ import type { RuntimeEnv } from './api'
 
 type AppEnv = HonoSessionEnv & { Bindings: SessionEnv & RuntimeEnv }
 
+// Process-level containment: the vendo route guards its awaited handler,
+// but a rejection that escapes on a floating promise would still kill the
+// Bun/Node dev process (and is undefined behaviour elsewhere). Log it and
+// keep serving — availability beats a restart. workerd's nodejs_compat
+// exposes process.on too; where it doesn't exist this is a no-op.
+const runtimeProcess = (globalThis as typeof globalThis & {
+  process?: { on?: (event: string, listener: (reason: unknown) => void) => void }
+}).process
+runtimeProcess?.on?.('unhandledRejection', (reason) => {
+  console.error('unhandled rejection contained:', reason instanceof Error ? reason.message : String(reason))
+})
+runtimeProcess?.on?.('uncaughtException', (error) => {
+  console.error('uncaught exception contained:', error instanceof Error ? error.message : String(error))
+})
+
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
 
 const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
