@@ -163,6 +163,11 @@ const manoramaDevSeed = (): Plugin => {
     console.log(`[dev-seed] owner '${owner.ownerSlug}' seeded: ${pristine.map(({ gallery }) => gallery.slug).join(', ')}`)
   }
 
+  // The server accepts connections before the seed finishes (seed() awaits
+  // ssrLoadModule). Handlers await this so a reset never races the initial
+  // seed and returns a 500 from null repositories.
+  let seeded: Promise<void> = Promise.resolve()
+
   return {
     name: 'manorama-dev-seed',
     apply: 'serve',
@@ -189,7 +194,8 @@ const manoramaDevSeed = (): Plugin => {
           res.end()
           return
         }
-        applySeed()
+        seeded
+          .then(() => applySeed())
           .then(() => {
             res.statusCode = 204
             res.end()
@@ -200,7 +206,9 @@ const manoramaDevSeed = (): Plugin => {
           })
       })
       server.httpServer?.once('listening', () => {
-        seed(server).catch((error) => console.warn('[dev-seed] seeding failed:', error))
+        seeded = seed(server).catch((error) => {
+          console.warn('[dev-seed] seeding failed:', error)
+        })
       })
     },
   }

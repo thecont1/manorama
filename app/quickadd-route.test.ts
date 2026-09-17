@@ -117,6 +117,25 @@ describe('the quick-add catch-all renders for provider links', () => {
     })
   }
 
+  test('a query-carrying Drive folder link renders — the ID lives in the query', async () => {
+    // `drive.google.com/open?id=…` puts the entire share in the query
+    // string. Detection that reads only c.req.path would drop the ID, fail
+    // the share-resource check and 404 a perfectly valid folder link.
+    const app = buildApp()
+    for (const path of [
+      '/https://drive.google.com/open?id=1AbCdEf',
+      '/https://drive.google.com/open?id=1AbCdEf&usp=sharing',
+      '/https://drive.google.com/drive/u/2/folders/1AbCdEf?usp=sharing',
+      '/https://www.dropbox.com/scl/fo/abc/xyz?rlkey=k&dl=0',
+    ]) {
+      const response = await app.request(path, {}, env)
+      const html = await response.text()
+      // No message arg — this suite's expect typing takes only one.
+      expect(response.status).toBe(200)
+      expect(`${path} → ${html.includes('data-quickadd')}`).toBe(`${path} → true`)
+    }
+  })
+
   test('a logged-out visitor gets the sign-in panel', async () => {
     const app = buildApp()
     const response = await app.request('/https://mega.nz/folder/AbCdEf12', {}, env)

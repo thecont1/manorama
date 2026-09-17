@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { readFileSync } from 'node:fs'
 import type { Context, Handler, Next } from 'hono'
 import { contextStorage } from 'honox/server/context-storage'
 import sharp from 'sharp'
@@ -111,21 +110,14 @@ describe('the gallery page advertises a per-gallery OG card', () => {
 })
 
 describe('video frames render as posters on the server', () => {
-  test('viewer source gates active video mounting on curtain entry and closed modals', () => {
-    // This is the lifecycle boundary hidden by SSR: a video-first gallery
-    // must not autoplay under the opening curtain, and opening either modal
-    // must unmount/pause it. Keep the three gates explicit in Viewer.
-    const source = readFileSync(new URL('./islands/Viewer.tsx', import.meta.url), 'utf8')
-    expect(source).toContain("galleryEntered && !modalOpen && !infoOpen && imageIndex === index")
-    expect(source).toContain('setGalleryEntered(true)')
-    expect(source).toContain('setGalleryEntered(false)')
-  })
-
-  test('a video item emits its poster and no <video> element in SSR HTML', async () => {
+  test('a video-first gallery ships no media element until the curtain lifts', async () => {
+    // The lifecycle boundary SSR cannot show: nothing is active before
+    // hydration. The browser-side gating (curtain entry, open modals) is
+    // asserted against a real video gallery in the Playwright suite —
+    // these unit tests can only prove the initial HTML is inert.
     const html = await (await buildApp().request(`/${ownerSlug}/mixed`, {}, env)).text()
     expect(html).toContain('data-media-type="video"')
     expect(html).toContain('c=poster')
-    // Nothing is active before hydration, so no media element is shipped.
     expect(html).not.toContain('<video')
   })
 

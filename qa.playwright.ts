@@ -1347,6 +1347,23 @@ test.describe("video slides", () => {
 
   const videoGallery = () => `${BASE}/${OWNER}/${VIDEO_SLUG}`;
 
+  test("no media element mounts before the curtain lifts, or under a modal", async ({ page }) => {
+    // The gating that SSR and source-text tests cannot prove: a video-first
+    // gallery stays fully inert behind the curtain, and opening a panel
+    // releases the media element rather than leaving it playing underneath.
+    await page.goto(videoGallery());
+    const videos = page.locator("video.frame-video");
+    await expect(page.locator("[data-curtain]")).toBeVisible();
+    await expect(videos).toHaveCount(0);
+
+    await dismissCurtain(page, videoGallery());
+    await expect(videos).toHaveCount(1);
+
+    await page.getByRole("button", { name: "Display settings" }).click();
+    await expect(page.getByRole("dialog", { name: "Display settings" })).toBeVisible();
+    await expect(videos).toHaveCount(0);
+  });
+
   test("the active slide autoplays muted and looping", async ({ page }) => {
     await dismissCurtain(page, videoGallery());
     const video = page.locator("video.frame-video").first();
