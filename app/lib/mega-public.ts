@@ -27,8 +27,9 @@ const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|avif|hei[cf])$/i
 const API = 'https://g.api.mega.co.nz/cs'
 // Enough head bytes to find a JPEG SOF marker past typical EXIF APP1.
 const DIMS_PROBE_BYTES = 65536
-// Whole-file proxy ceiling — keeps Worker memory bounded.
-const MAX_FILE_BYTES = 64 * 1024 * 1024
+// Whole-file proxy ceiling — the encrypted fetch buffer and the decrypted
+// buffer coexist, so the cap must stay well under half the 128MB isolate limit.
+const MAX_FILE_BYTES = 48 * 1024 * 1024
 
 type MegaNode = {
   h: string
