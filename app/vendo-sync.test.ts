@@ -49,6 +49,7 @@ describe('deterministic Vendo sync', () => {
       host_get_dropbox_thumbnail: 'read',
       host_get_icloud_image: 'read',
       host_get_mega_file: 'read',
+      host_get_mega_preview: 'read',
       host_list_galleries: 'read',
       host_refresh_gallery: 'write',
       host_scan_gallery_source: 'read',
