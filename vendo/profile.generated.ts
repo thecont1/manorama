@@ -28,7 +28,7 @@ export const TOOLS_FILE = {
                 "type": "array"
               },
               "url": {
-                "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL to create the gallery from",
+                "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL to create the gallery from",
                 "type": "string"
               }
             },
@@ -143,7 +143,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -175,7 +175,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_delete_gallery",
@@ -214,7 +214,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_drive_file",
@@ -245,7 +245,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_drive_thumbnail",
@@ -284,7 +284,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_dropbox_file",
@@ -316,7 +316,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -348,7 +348,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_icloud_image",
@@ -385,7 +385,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_mega_file",
@@ -425,7 +425,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_mega_preview",
@@ -465,7 +465,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_list_galleries",
@@ -576,7 +576,7 @@ export const TOOLS_FILE = {
                   "type": "string"
                 },
                 "sourceUrl": {
-                  "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                  "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                   "type": "string"
                 },
                 "title": {
@@ -610,7 +610,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_refresh_gallery",
@@ -728,7 +728,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -760,7 +760,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_scan_gallery_source",
@@ -772,7 +772,7 @@ export const TOOLS_FILE = {
             "additionalProperties": false,
             "properties": {
               "url": {
-                "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL",
+                "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL",
                 "type": "string"
               }
             },
@@ -898,7 +898,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_update_gallery",
@@ -1048,7 +1048,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -1080,7 +1080,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:fc7386f9ad5050eaa03032b79c50e27c99653804207c5c2c2b2e45fe99f0ae54"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     }
   ]
 } as {
