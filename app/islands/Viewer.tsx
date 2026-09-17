@@ -869,10 +869,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               boundsDirtyRef.current = true
                               requestAnimationFrame(() => {
                                 const delta = frame.offsetWidth - oldWidth
-                                if (delta !== 0 && navDestXRef.current !== null && frame.offsetLeft < -navDestXRef.current) {
+                                if (delta !== 0 && momentumRef.current !== null && navDestXRef.current !== null && frame.offsetLeft < -navDestXRef.current) {
                                   navDestXRef.current -= delta
                                 }
-                                if (navDestXRef.current !== null) return
+                                // An in-flight navigation chases navDestX
+                                // live, so the shift is already absorbed.
+                                // When nothing is animating — idle, or the
+                                // stale window between animation end and the
+                                // position report clearing navDestX — dock
+                                // on the frame actually holding the left
+                                // edge, or the strip is left delta-px off.
+                                if (momentumRef.current !== null && navDestXRef.current !== null) return
+                                navDestXRef.current = null
                                 const docked = leftmostFrameIndex(-currentXRef.current)
                                 reportedIndexRef.current = docked
                                 setIndex(docked)
