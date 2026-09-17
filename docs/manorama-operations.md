@@ -30,7 +30,7 @@ Free-tier owners are limited to 3 galleries; creates beyond the limit fail with 
 
 - MEGA links must carry the `#key` fragment — it is the share's decryption key. Manorama decrypts node keys, attributes, and image content client-side (AES-128 ECB/CBC/CTR; Set metadata additionally uses AES-GCM/CCM TLV containers). The decrypted per-file node key travels in the image proxy URL (`?k=`), equivalent in exposure to the public link itself. MEGA serves decrypted originals (`c2pa` preserved); formats browsers cannot render (HEIC, HEIF) are served through MEGA's own generated JPEG/WebP preview via `/api/mega/preview`, and images with no generated preview are excluded. Free-tier MEGA bandwidth limits (HTTP 509) can interrupt image delivery — these surface as 503s; retry later.
 
-- Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG, GIF, TIFF, video, and all non-image files are consciously ignored at scan time.
+- Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG, GIF, TIFF, and all non-image files are consciously ignored at scan time. Video is ignored too, except in iCloud shared albums — see the Video section below.
 
 - Only the top level of a folder is scanned; subfolders are not descended into.
 
