@@ -73,7 +73,7 @@ Depending on where you live — the GDPR in the EU/UK, CCPA in California, and t
 
 ## We don't sell your data
 
-We don't sell, rent, or share your personal data with anyone for advertising or commercial purposes. The only data that leaves our system goes to Dropbox (for sign-in and image fetching) and Cloudflare (for hosting), both of which are necessary to run the app.
+We don't sell, rent, or share your personal data with anyone for advertising or commercial purposes. The only data that leaves our system goes to Dropbox (for sign-in and image fetching), Google Drive, iCloud, and MEGA (for image fetching, when a gallery's photos live there), and Cloudflare (for hosting), all of which are necessary to run the app.
 
 ## Changes to this policy
 

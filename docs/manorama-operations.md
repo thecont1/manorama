@@ -6,7 +6,7 @@ This is the operator knowledge base for Manorama. It documents gallery lifecycle
 
 A gallery moves through these states:
 
-1. **Candidate** — a public source link (Dropbox folder, Google Drive folder, or iCloud shared album) has been scanned through `POST /api/galleries/scan`, and the image inventory and metadata are visible to the owner, but nothing is persisted. The admin UI skips this preview and creates directly; scan exists for tool-assisted flows.
+1. **Candidate** — a public source link (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) has been scanned through `POST /api/galleries/scan`, and the image inventory and metadata are visible to the owner, but nothing is persisted. The admin UI skips this preview and creates directly; scan exists for tool-assisted flows.
 
 2. **Published** — the gallery exists at `https://manorama.xyz/<owner>/<slug>` and is publicly readable. Gallery pages send `X-Robots-Tag: noindex, nofollow, noarchive` — public, but unlisted. Publication does not copy images; Manorama proxies source-hosted originals and derivative sizes on request.
 
@@ -61,9 +61,9 @@ sets.
 
 ## Content Credentials preservation
 
-- Originals are proxied byte-for-byte through the same-origin routes (`/api/dropbox/file`, `/api/drive/file`). They are never recompressed, cropped, or converted, so embedded C2PA manifests survive intact.
+- Originals are proxied byte-for-byte through the same-origin routes (`/api/dropbox/file`, `/api/drive/file`, `/api/mega/file`). They are never recompressed, cropped, or converted, so embedded C2PA manifests survive intact. MEGA originals arrive encrypted and are decrypted at proxy time — the bytes served are the file as uploaded, credentials included.
 
-- The `c2pa` flag is true for Dropbox and Drive images and false for iCloud images, which exist only as web derivatives — there is no original to verify.
+- The `c2pa` flag is true for Dropbox, Drive, and MEGA images and false for iCloud images, which exist only as web derivatives — there is no original to verify.
 
 - HEIC originals carry credentials, but browsers cannot render HEIC, so the display rendition is a transcoded JPEG. Verification reads the served display bytes, so a HEIC image's credentials do not verify from that rendition even though the flag is set — say so rather than calling it a failed verification.
 

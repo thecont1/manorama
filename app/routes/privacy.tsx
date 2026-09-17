@@ -68,7 +68,7 @@ export default createRoute((c) =>
         <p>Depending on where you live — the GDPR in the EU/UK, CCPA in California, and their equivalents elsewhere — you have the right to know what we hold about you, correct it, export it, or have it deleted. Our honest answer is that we hold very little: account owners have the small record described above, and visitors have nothing at all. Write to us and we'll show you, fix it, or erase it. We don't profile you, we don't make automated decisions about you, and we don't keep data longer than your account needs it.</p>
 
         <h2>We don't sell your data</h2>
-        <p>We don't sell, rent, or share your personal data with anyone for advertising or commercial purposes. The only data that leaves our system goes to Dropbox (for sign-in and image fetching) and Cloudflare (for hosting), both of which are necessary to run the app.</p>
+        <p>We don't sell, rent, or share your personal data with anyone for advertising or commercial purposes. The only data that leaves our system goes to Dropbox (for sign-in and image fetching), Google Drive, iCloud, and MEGA (for image fetching, when a gallery's photos live there), and Cloudflare (for hosting), all of which are necessary to run the app.</p>
 
         <h2>Changes to this policy</h2>
         <p>If we change what we collect or how we use it, we'll update this page and bump the date at the top.</p>
