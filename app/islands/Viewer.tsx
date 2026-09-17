@@ -54,6 +54,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
   const heicPendingRef = useRef(new Set<string>())
+  const heicUrlsRef = useRef(new Map<string, string>())
+  const unmountedRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
@@ -609,6 +611,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // resolution via libheif WASM — lazily, only when a frame enters the
   // active window. The 256px JPEG variant shows while decoding.
   const isHeic = (image: GalleryImage) => /\.hei[cf]$/i.test(image.filename)
+  const storeHeicSrc = (id: string, url: string) => {
+    // A decode finishing after teardown must not retain the blob.
+    if (unmountedRef.current) {
+      URL.revokeObjectURL(url)
+      return
+    }
+    heicUrlsRef.current.set(id, url)
+    setHeicSrc((previous) => ({ ...previous, [id]: url }))
+  }
+
   const decodeHeic = async (image: GalleryImage) => {
     if (heicPendingRef.current.has(image.id)) return
     heicPendingRef.current.add(image.id)
@@ -622,23 +634,50 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // means real HEIC; anything else (JPEG, WebP) renders directly.
       const isHeicBlob = head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70
       if (!isHeicBlob) {
-        setHeicSrc((previous) => ({ ...previous, [image.id]: URL.createObjectURL(blob) }))
+        storeHeicSrc(image.id, URL.createObjectURL(blob))
         return
       }
       const converted = await heic2any({ blob, toType: 'image/jpeg', quality: 0.95 })
       const out = Array.isArray(converted) ? converted[0] : converted
-      setHeicSrc((previous) => ({ ...previous, [image.id]: URL.createObjectURL(out) }))
+      storeHeicSrc(image.id, URL.createObjectURL(out))
     } catch {
+      // A failed decode just keeps showing the 256px placeholder.
+    } finally {
+      // Clear pending so a pruned entry can decode again on re-entry.
       heicPendingRef.current.delete(image.id)
     }
   }
 
   useEffect(() => {
+    const keep = new Set<string>()
     images.forEach((image, imageIndex) => {
       const active = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index)
-      if (active && isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
+      if (!active) return
+      keep.add(image.id)
+      if (isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
+    })
+    // Decoded blobs are megabytes each — drop entries that leave the
+    // window and revoke their object URLs.
+    setHeicSrc((previous) => {
+      const entries = Object.entries(previous)
+      if (entries.every(([id]) => keep.has(id))) return previous
+      const next: Record<string, string> = {}
+      for (const [id, url] of entries) {
+        if (keep.has(id)) next[id] = url
+        else {
+          heicUrlsRef.current.delete(id)
+          URL.revokeObjectURL(url)
+        }
+      }
+      return next
     })
   }, [index, mode, images, heicSrc])
+
+  useEffect(() => () => {
+    unmountedRef.current = true
+    for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
+    heicUrlsRef.current.clear()
+  }, [])
 
   useEffect(() => {
     if (!currentImage || credentialState[currentImage.id] !== 'verified') return
