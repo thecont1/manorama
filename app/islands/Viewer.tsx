@@ -222,10 +222,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       return
     }
     const started = performance.now()
-    const duration = 900
+    // Ease-in-out cubic: a quintic ease-out's violent initial velocity
+    // reads as the image snapping into place; a symmetric curve glides.
+    const duration = 1100
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
-      const eased = 1 - Math.pow(1 - progress, 5)
+      const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2
       const next = from + (destination - from) * eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
