@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types'
-import type { GalleryImage, GalleryManifest } from './imagesource'
+import { isVideoItem, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 
 /**
  * Gallery storage. Every gallery belongs to exactly one owner (a Dropbox
@@ -55,7 +55,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   }
   if (row.images_json) {
     try {
-      const images = JSON.parse(row.images_json) as GalleryImage[]
+      const images = JSON.parse(row.images_json) as GalleryMediaItem[]
       if (Array.isArray(images)) gallery.images = images
     } catch {
       // A malformed images payload yields an empty gallery, not a crash.
@@ -177,7 +177,7 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
 /** Updates only the images_json column of an existing gallery, leaving
  *  metadata (title, caption, date) untouched. Used by the refresh flow so
  *  a concurrent metadata change is not overwritten with stale read data. */
-export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryImage[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
+export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
   const imagesJson = JSON.stringify(images)
   if (d1Configured(env)) {
     const result = await env.DB.prepare(
@@ -247,13 +247,14 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
 
 /** Order/dedupe key: `ref` when the provider gives a stable item ID
  *  (Drive file ID, iCloud photo GUID), else the filename (Dropbox names
- *  are unique per folder). */
-const imageKey = (image: GalleryImage) => image.ref ?? image.filename
+ *  are unique per folder). Identical for images and videos — a mixed
+ *  gallery orders and dedupes through exactly one key path. */
+const imageKey = (image: GalleryMediaItem) => image.ref ?? image.filename
 
 export const updateGalleryOrder = async (ownerId: string, slug: string, order: string[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
   const reorder = (current: GalleryRecord) => {
     const byKey = new Map(current.images.map((image) => [imageKey(image), image]))
-    const reordered = order.map((key) => byKey.get(key)).filter((image): image is GalleryImage => Boolean(image))
+    const reordered = order.map((key) => byKey.get(key)).filter((image): image is GalleryMediaItem => Boolean(image))
     const seen = new Set(reordered.map(imageKey))
     current.images.forEach((image) => { if (!seen.has(imageKey(image))) reordered.push(image) })
     return reordered
@@ -276,7 +277,17 @@ export const updateGalleryOrder = async (ownerId: string, slug: string, order: s
   return updated
 }
 
-const previewImages = (images: readonly GalleryImage[]) => images.map(({ id, ref, filename, src, width, height, alt, placeholder, variants }) => ({ id, ref, filename, src, width, height, alt, placeholder, variants }))
+/** The trimmed item shape the admin dashboard receives. Video entries
+ *  additionally carry `type`, `durationSeconds` and `poster` so the rail
+ *  can badge them; image entries are byte-identical to before — no `type`
+ *  key is invented for them. */
+const previewImages = (images: readonly GalleryMediaItem[]) => images.map((image) => {
+  const { id, ref, filename, src, width, height, alt, placeholder, variants } = image
+  const base = { id, ref, filename, src, width, height, alt, placeholder, variants }
+  return isVideoItem(image)
+    ? { ...base, type: 'video' as const, durationSeconds: image.durationSeconds, poster: image.poster }
+    : base
+})
 
 export const deleteGallery = async (ownerId: string, slug: string, env?: GalleryEnv, options?: { force?: boolean }): Promise<boolean> => {
   if (d1Configured(env)) {

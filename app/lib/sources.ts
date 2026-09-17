@@ -1,8 +1,8 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { scanDriveFolder } from './gdrive-public'
-import { isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
+import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { scanMegaSource } from './mega-public'
-import type { GalleryImage } from './imagesource'
+import type { GalleryMediaItem } from './imagesource'
 
 /**
  * Gallery source dispatch. The admin drops one of the recognized link
@@ -20,7 +20,7 @@ import type { GalleryImage } from './imagesource'
 
 export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega'
 
-export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryImage[] }
+export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[] }
 
 export type SourceEnv = {
   DROPBOX_APP_KEY?: string
@@ -46,6 +46,103 @@ export const detectSource = (input: string): SourceProvider | null => {
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'icloud'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
   return null
+}
+
+/**
+ * Recognizes a share URL embedded in our own path — the `/…` quick-add
+ * entry point. The browser mangles a pasted URL on the way into the
+ * address bar, so every layer is undone in order:
+ *
+ *  - a leading `/` from the pathname join
+ *  - percent-encoding (guarded: a stray `%` must not throw)
+ *  - the collapsed scheme separator (`https:/x` → `https://x`), which
+ *    browsers and proxies produce from `//`
+ *  - a missing scheme entirely (`dropbox.com/…` → `https://dropbox.com/…`)
+ *
+ * Returns the reconstructed URL and its provider, or null when the tail
+ * is not a share link. Gallery slugs are `[a-z0-9-]` with no dot, so a
+ * slug can never be mistaken for a provider host — the catch-all always
+ * falls through to the real route for them.
+ */
+export const embeddedSourceCandidate = (raw: string): { candidate: string; provider: SourceProvider } | null => {
+  if (typeof raw !== 'string') return null
+  let candidate = raw.trim()
+  if (!candidate) return null
+  candidate = candidate.replace(/^\/+/, '')
+  if (!candidate) return null
+  // A pasted URL arrives percent-encoded from some clients and raw from
+  // others; decoding a already-raw string is a no-op, and a malformed
+  // escape must not throw.
+  try {
+    candidate = decodeURIComponent(candidate)
+  } catch {
+    // Keep the undecoded form — it may still be a valid link.
+  }
+  candidate = candidate.trim()
+  if (!candidate) return null
+  // `https://x` collapsed to `https:/x` (or more slashes) by path
+  // normalization — restore exactly two.
+  candidate = candidate.replace(/^(https?):\/+/i, '$1://')
+  if (!/^https?:\/\//i.test(candidate)) {
+    // Reject anything carrying another scheme (ftp:, javascript:, data:)
+    // rather than gluing https:// onto it.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(candidate)) return null
+    candidate = `https://${candidate}`
+  }
+  const provider = detectSource(candidate)
+  if (provider) return { candidate, provider }
+  // iCloud Drive links are recognized so the interstitial can explain the
+  // Shared Album requirement instead of 404-ing.
+  if (isICloudDriveLink(candidate)) return { candidate, provider: 'icloud' }
+  return null
+}
+
+/**
+ * Do two links point at the same source, without contacting the provider?
+ *
+ * Only the scanners know a source's true canonical form, but re-scanning
+ * just to discover "you already have this" is wasteful and fragile. This
+ * is a conservative, network-free approximation: same provider, and the
+ * provider's own identity token matches. A false negative merely costs
+ * the scan that would have happened anyway; there are no false positives
+ * across providers.
+ */
+export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: string): boolean => {
+  const storedProvider = detectSource(storedSourceUrl)
+  const candidateProvider = detectSource(candidateUrl)
+  if (!storedProvider || storedProvider !== candidateProvider) return false
+  if (storedSourceUrl === candidateUrl) return true
+  const identity = (input: string): string | null => {
+    let url: URL
+    try {
+      url = new URL(input.trim())
+    } catch {
+      return null
+    }
+    switch (storedProvider) {
+      case 'icloud':
+        // Both spellings reduce to the album token.
+        return extractAlbumToken(input)
+      case 'mega': {
+        // mega.nz/folder/{id}#{key} and the legacy #F!{id}!{key}.
+        const modern = url.pathname.match(/^\/(?:folder|collection)\/([^/]+)/)
+        if (modern) return modern[1]
+        const legacy = url.hash.match(/^#[FC]!([^!]+)/)
+        return legacy ? legacy[1] : null
+      }
+      case 'gdrive': {
+        const folder = url.pathname.match(/\/folders\/([^/?]+)/)
+        if (folder) return folder[1]
+        return url.searchParams.get('id')
+      }
+      case 'dropbox':
+        // Dropbox share paths are the identity; rlkey and dl vary freely.
+        return url.pathname.replace(/\/+$/, '') || null
+    }
+  }
+  const storedIdentity = identity(storedSourceUrl)
+  const candidateIdentity = identity(candidateUrl)
+  return Boolean(storedIdentity && candidateIdentity && storedIdentity === candidateIdentity)
 }
 
 export const scanSource = async (input: string, env: SourceEnv, fetchImpl: typeof fetch = fetch): Promise<SourceScan> => {
