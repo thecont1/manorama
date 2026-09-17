@@ -26,8 +26,7 @@
     "hono": "^4.9.7",
     "honox": "^0.1.61",
     "jimp": "^1.6.1",
-    "jose": "^6.2.10",
-    "sharp": "^0.34.5"
+    "jose": "^6.2.10"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
@@ -38,6 +37,7 @@
     "@types/node": "^22.20.2",
     "@types/react-dom": "^19.2.7",
     "happy-dom": "^20.14.5",
+    "sharp": "^0.34.5",
     "typescript": "^5.9.2",
     "vite": "^8.2.2",
     "wrangler": "^4.95.0"
