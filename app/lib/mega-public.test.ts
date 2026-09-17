@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
+import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey } from './mega-crypto'
 import { extractMegaFolder, extractMegaLink, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-public'
 
 const hex = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
@@ -12,14 +12,14 @@ describe('mega-crypto', () => {
   const FIPS_CIPHER = hex('69c4e0d86a7b0430d8cdb78070b4c55a')
 
   test('AES-128 encrypt/decrypt match the FIPS-197 vector', () => {
-    expect(aesEncryptBlock(FIPS_KEY, FIPS_PLAIN)).toEqual(FIPS_CIPHER)
-    expect(aesDecryptBlock(FIPS_KEY, FIPS_CIPHER)).toEqual(FIPS_PLAIN)
+    expect(aesEncryptBlock(expandKey(FIPS_KEY), FIPS_PLAIN)).toEqual(FIPS_CIPHER)
+    expect(aesDecryptBlock(expandKey(FIPS_KEY), FIPS_CIPHER)).toEqual(FIPS_PLAIN)
   })
 
   test('ECB decrypt decrypts blocks independently', () => {
     const two = new Uint8Array(32)
     two.set(FIPS_CIPHER, 0)
-    two.set(aesEncryptBlock(FIPS_KEY, hex('ffeeddccbbaa99887766554433221100')), 16)
+    two.set(aesEncryptBlock(expandKey(FIPS_KEY), hex('ffeeddccbbaa99887766554433221100')), 16)
     const out = ecbDecrypt(FIPS_KEY, two)
     expect(out.subarray(0, 16)).toEqual(FIPS_PLAIN)
     expect(out.subarray(16)).toEqual(hex('ffeeddccbbaa99887766554433221100'))
@@ -30,8 +30,8 @@ describe('mega-crypto', () => {
     const p1 = new TextEncoder().encode('MEGA{"n":"IMG_00') // 16 bytes — MEGA attr framing
     const p2 = new Uint8Array(16)
     p2.set(new TextEncoder().encode('1.jpg"}')) // zero-padded tail
-    const c1 = aesEncryptBlock(FIPS_KEY, p1)
-    const c2 = aesEncryptBlock(FIPS_KEY, p2.map((b, i) => b ^ c1[i]!))
+    const c1 = aesEncryptBlock(expandKey(FIPS_KEY), p1)
+    const c2 = aesEncryptBlock(expandKey(FIPS_KEY), p2.map((b, i) => b ^ c1[i]!))
     const cipher = new Uint8Array(32)
     cipher.set(c1, 0)
     cipher.set(c2, 16)
@@ -72,7 +72,7 @@ const NODE_KEY = hex('0f1e2d3c4b5a69788796a5b4c3d2e1f0aabbccddeeff00112233445566
 
 const ecbEncrypt = (key: Uint8Array, data: Uint8Array) => {
   const out = new Uint8Array(data.length)
-  for (let i = 0; i + 16 <= data.length; i += 16) out.set(aesEncryptBlock(key, data.subarray(i, i + 16)), i)
+  for (let i = 0; i + 16 <= data.length; i += 16) out.set(aesEncryptBlock(expandKey(key), data.subarray(i, i + 16)), i)
   return out
 }
 
@@ -86,7 +86,7 @@ const encryptAttributes = (key: Uint8Array, attrs: object) => {
   let prev = new Uint8Array(16)
   for (let i = 0; i < padded.length; i += 16) {
     const block = padded.subarray(i, i + 16).map((b, j) => b ^ prev[j]!)
-    const enc = aesEncryptBlock(aesKey, block)
+    const enc = aesEncryptBlock(expandKey(aesKey), block)
     out.set(enc, i)
     prev = enc
   }
@@ -100,7 +100,7 @@ const cbcEncryptZeroIv = (key: Uint8Array, data: Uint8Array) => {
   let prev = new Uint8Array(16)
   for (let i = 0; i < padded.length; i += 16) {
     const block = padded.subarray(i, i + 16).map((b, j) => b ^ prev[j]!)
-    const enc = aesEncryptBlock(key, block)
+    const enc = aesEncryptBlock(expandKey(key), block)
     out.set(enc, i)
     prev = enc
   }

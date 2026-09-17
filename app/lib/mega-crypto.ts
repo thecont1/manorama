@@ -44,7 +44,7 @@ const { sbox, invSbox } = buildTables()
 
 const RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
 
-const expandKey = (key: Uint8Array) => {
+export const expandKey = (key: Uint8Array) => {
   // 11 round keys of 16 bytes each.
   const w = new Uint8Array(176)
   w.set(key.slice(0, 16))
@@ -102,8 +102,9 @@ const invMixColumns = (s: Uint8Array) => {
   }
 }
 
-export const aesEncryptBlock = (key: Uint8Array, block: Uint8Array) => {
-  const w = expandKey(key)
+/** Block primitives take a precomputed key schedule (expandKey) — callers
+ *  looping over blocks expand once instead of per block. */
+export const aesEncryptBlock = (w: Uint8Array, block: Uint8Array) => {
   const s = block.slice(0, 16)
   addRoundKey(s, w, 0)
   for (let round = 1; round < 10; round++) {
@@ -118,8 +119,7 @@ export const aesEncryptBlock = (key: Uint8Array, block: Uint8Array) => {
   return s
 }
 
-export const aesDecryptBlock = (key: Uint8Array, block: Uint8Array) => {
-  const w = expandKey(key)
+export const aesDecryptBlock = (w: Uint8Array, block: Uint8Array) => {
   const s = block.slice(0, 16)
   addRoundKey(s, w, 10)
   for (let round = 9; round >= 1; round--) {
@@ -150,20 +150,22 @@ export const b64uEncode = (bytes: Uint8Array) =>
 
 /** ECB decrypt: each 16-byte block independently (node keys). */
 export const ecbDecrypt = (key: Uint8Array, data: Uint8Array) => {
+  const w = expandKey(key)
   const out = new Uint8Array(data.length)
   for (let i = 0; i + 16 <= data.length; i += 16) {
-    out.set(aesDecryptBlock(key, data.subarray(i, i + 16)), i)
+    out.set(aesDecryptBlock(w, data.subarray(i, i + 16)), i)
   }
   return out
 }
 
 /** CBC decrypt with a zero IV and zero (not PKCS7) padding (attributes). */
 export const cbcDecryptZeroIv = (key: Uint8Array, data: Uint8Array) => {
+  const w = expandKey(key)
   const out = new Uint8Array(data.length)
   let prev: Uint8Array = new Uint8Array(16)
   for (let i = 0; i + 16 <= data.length; i += 16) {
     const block = data.subarray(i, i + 16)
-    const dec = aesDecryptBlock(key, block)
+    const dec = aesDecryptBlock(w, block)
     for (let j = 0; j < 16; j++) out[i + j] = dec[j]! ^ prev[j]!
     prev = block
   }
@@ -189,12 +191,13 @@ const ccmPayloadDecrypt = (key: Uint8Array, iv: Uint8Array, data: Uint8Array) =>
   const block = new Uint8Array(16)
   block[0] = l - 1
   block.set(iv, 1)
+  const w = expandKey(key)
   const out = new Uint8Array(data.length)
   let counter = 1
   let position = 0
   while (position < data.length) {
     for (let i = 0; i < l; i++) block[15 - i] = (counter >> (8 * i)) & 0xff
-    const keystream = aesEncryptBlock(key, block)
+    const keystream = aesEncryptBlock(w, block)
     const n = Math.min(16, data.length - position)
     for (let j = 0; j < n; j++) out[position + j] = data[position + j]! ^ keystream[j]!
     position += n
@@ -262,16 +265,17 @@ export const decryptTlvRecords = async (key16: Uint8Array, blob: Uint8Array) => 
 /** AES-128-CTR over data starting at a 16-byte-aligned offset. Counter
  *  block = 8-byte nonce || 8-byte big-endian block counter. */
 export const ctrCrypt = (key: Uint8Array, nonce: Uint8Array, data: Uint8Array, startOffset = 0) => {
+  const w = expandKey(key)
   const out = new Uint8Array(data.length)
   const counterBlock = new Uint8Array(16)
   counterBlock.set(nonce.slice(0, 8))
+  const view = new DataView(counterBlock.buffer)
   let counter = Math.floor(startOffset / 16)
   let position = 0
   while (position < data.length) {
-    const view = new DataView(counterBlock.buffer)
     view.setUint32(8, Math.floor(counter / 0x100000000))
     view.setUint32(12, counter >>> 0)
-    const keystream = aesEncryptBlock(key, counterBlock)
+    const keystream = aesEncryptBlock(w, counterBlock)
     const n = Math.min(16, data.length - position)
     for (let j = 0; j < n; j++) out[position + j] = data[position + j]! ^ keystream[j]!
     position += n
