@@ -25,9 +25,20 @@ import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
  *    default GALLERY_OWNER), plus `dbid:AAATOTHERuser` → `another-dev`
  *  - gallery `kashmir`: the restored 9-image Italy manifest the
  *    acceptance suite was authored against (credentialed JPEG at index 1)
- *  - gallery `mixed-album`: a LIVE scan of MANORAMA_DEV_VIDEO_URL (set in
- *    .env.local), reordered so a video slide sits at index 0
+ *  - one gallery per MANORAMA_DEV_SOURCE_<PROVIDER> var set in
+ *    .env.local (live-scanned at boot): ICLOUD → mixed-album (the video
+ *    gallery GALLERY_VIDEO_SLUG points at), MEGA → dev-mega, DROPBOX →
+ *    dev-dropbox, GDRIVE → dev-gdrive. MANORAMA_DEV_VIDEO_URL predates
+ *    the per-provider names and still fills the iCloud slot.
  */
+
+/** Env-var name → seeded slug for live-scanned dev galleries. */
+const DEV_SEED_SOURCES: { env: string; slug: string }[] = [
+  { env: 'MANORAMA_DEV_SOURCE_ICLOUD', slug: 'mixed-album' },
+  { env: 'MANORAMA_DEV_SOURCE_MEGA', slug: 'dev-mega' },
+  { env: 'MANORAMA_DEV_SOURCE_DROPBOX', slug: 'dev-dropbox' },
+  { env: 'MANORAMA_DEV_SOURCE_GDRIVE', slug: 'dev-gdrive' },
+]
 const manoramaDevSeed = (): Plugin => {
   const fixtureRoot = fileURLToPath(new URL('./test/fixtures/', import.meta.url))
   const fixtureTypes: Record<string, string> = {
@@ -77,34 +88,53 @@ const manoramaDevSeed = (): Plugin => {
     const seededGalleries: { ownerId: string; gallery: GalleryRecord }[] = []
     const ownerId = 'dbid:AAATESTowner1'
 
-    // The live album is seeded first (older createdAt) so the fixture
-    // stays the newest — and therefore the first — admin card.
-    const videoSource = process.env.MANORAMA_DEV_VIDEO_URL?.trim()
-    if (videoSource) {
+    // Live albums are seeded first (older createdAt) so the fixture
+    // stays the newest — and therefore the first — admin card. Only the
+    // vars that are set get scanned; identical URLs seed once.
+    const sourceSeeds = DEV_SEED_SOURCES
+      .map(({ env, slug }) => ({ slug, url: process.env[env]?.trim() }))
+      .filter((entry): entry is { slug: string; url: string } => Boolean(entry.url))
+    const videoAlias = process.env.MANORAMA_DEV_VIDEO_URL?.trim()
+    if (videoAlias && !sourceSeeds.some((entry) => entry.slug === 'mixed-album')) {
+      sourceSeeds.unshift({ slug: 'mixed-album', url: videoAlias })
+    }
+    const sources = sourceSeeds.length
+      ? await server.ssrLoadModule('/app/lib/sources.ts') as unknown as Sources
+      : null
+    const seenUrls = new Set<string>()
+    const scans = await Promise.all(sourceSeeds.map(async ({ slug, url }) => {
+      if (seenUrls.has(url)) return null
+      seenUrls.add(url)
       try {
-        const sources = await server.ssrLoadModule('/app/lib/sources.ts') as unknown as Sources
-        const scan = await sources.scanSource(videoSource, process.env)
-        const firstVideo = scan.images.findIndex((item) => item.type === 'video')
-        const images = firstVideo > 0
-          ? [scan.images[firstVideo], ...scan.images.filter((_, index) => index !== firstVideo)]
-          : scan.images
-        seededGalleries.push({
-          ownerId,
-          gallery: {
-            slug: 'mixed-album',
-            title: scan.title,
-            caption: '',
-            date: '',
-            sourceUrl: scan.sourceUrl,
-            createdAt: new Date(Date.now() - 60_000).toISOString(),
-            images,
-          } as GalleryRecord,
-        })
-        const videos = scan.images.filter((item) => item.type === 'video').length
-        console.log(`[dev-seed] live scan: ${scan.images.length} items (${videos} video) → mixed-album`)
+        return { slug, scan: await sources!.scanSource(url, process.env) }
       } catch (error) {
-        console.warn('[dev-seed] MANORAMA_DEV_VIDEO_URL scan failed; video gallery not seeded:', error instanceof Error ? error.message : error)
+        console.warn(`[dev-seed] ${slug} scan failed; gallery not seeded:`, error instanceof Error ? error.message : error)
+        return null
       }
+    }))
+    let sourceIndex = 0
+    for (const result of scans) {
+      if (!result) continue
+      const { slug, scan } = result
+      const firstVideo = scan.images.findIndex((item) => item.type === 'video')
+      const images = firstVideo > 0
+        ? [scan.images[firstVideo], ...scan.images.filter((_, index) => index !== firstVideo)]
+        : scan.images
+      seededGalleries.push({
+        ownerId,
+        gallery: {
+          slug,
+          title: scan.title,
+          caption: '',
+          date: '',
+          sourceUrl: scan.sourceUrl,
+          createdAt: new Date(Date.now() - 60_000 * (sourceIndex + 1)).toISOString(),
+          images,
+        } as GalleryRecord,
+      })
+      sourceIndex += 1
+      const videos = scan.images.filter((item) => item.type === 'video').length
+      console.log(`[dev-seed] live scan: ${scan.images.length} items (${videos} video) → ${slug}`)
     }
 
     const manifest = JSON.parse(readFileSync(join(fixtureRoot, 'italy-2018/manifest.json'), 'utf8')) as {
