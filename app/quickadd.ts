@@ -98,6 +98,11 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
   // 201 created, or 409 "already exists" — both know where the gallery
   // lives, and both should simply open it.
   if ((response.status === 201 || response.status === 409) && payload.galleryUrl) {
+    // Clear the guard BEFORE leaving: this response is terminal and
+    // successful, so the guard has done its job. Leaving it set would block
+    // a later visit to the same quick-add URL in this tab and stop the 409
+    // path from reopening the gallery.
+    try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
     try { localStorage.removeItem(PENDING_KEY) } catch { /* best effort */ }
     location.replace(payload.galleryUrl)
     return

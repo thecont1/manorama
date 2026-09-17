@@ -32,9 +32,12 @@ const PROVIDER_LABEL: Record<string, string> = {
 // createRoute IS the handler array honox expects (factory.createHandlers),
 // so this export is already the `[handler]` shape — do not wrap it again.
 export default createRoute(async (c, next) => {
-    // c.req.path is already decoded and starts with '/'. The fragment is
-    // absent by definition — the client reconstructs it.
-    const detected = embeddedSourceCandidate(c.req.path)
+    // c.req.path is already decoded and starts with '/'. Pass the query
+    // too: `drive.google.com/open?id=…` carries its folder ID in the query,
+    // and the ID is the whole share — dropping it makes a valid folder link
+    // fall through to a 404. The fragment is still absent by definition;
+    // the client reconstructs that.
+    const detected = embeddedSourceCandidate(c.req.path + new URL(c.req.url).search)
     // Not a share link: hand the request to the real routes. Gallery and
     // owner slugs are [a-z0-9-] with no dot, so they can never match a
     // provider host.
