@@ -23,6 +23,8 @@ declare module 'bun:test' {
     toMatch(expected: unknown): void
     toBeUndefined(): void
     toBeDefined(): void
+    toBeTruthy(): void
+    toBeFalsy(): void
     toHaveLength(expected: number): void
     toThrow(expected?: unknown): void
     readonly rejects: Matchers<unknown>

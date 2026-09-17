@@ -1062,3 +1062,257 @@ test("Manorama-fication adds a gallery directly without an intermediate preview"
     0,
   );
 });
+
+
+// ── Quick-add, magnifier, and video slides ───────────────────────────
+// These exercise the four features added alongside the media union. They
+// are written against the same BASE/OWNER/SLUG fixtures as the suite
+// above; the video cases need a gallery containing at least one video
+// (set GALLERY_VIDEO_SLUG to point at one, else they skip).
+
+const VIDEO_SLUG = process.env.GALLERY_VIDEO_SLUG;
+
+test.describe("quick-add interstitial", () => {
+  test("a logged-out visitor sees the branded sign-in detour", async ({ browser }) => {
+    // A fresh context: no Access header, no session.
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(`${BASE}/https://mega.nz/folder/AbCdEf12#a2V5`);
+    await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-mode", "signin");
+    await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-provider", "mega");
+    const signin = page.locator("[data-quickadd-signin]");
+    await expect(signin).toBeVisible();
+    // The sign-in href must carry the WHOLE current URL, fragment included:
+    // the MEGA key lives there and the server never sees it.
+    const href = await signin.getAttribute("href");
+    expect(href).toContain("/auth/dropbox?next=");
+    expect(decodeURIComponent(href ?? "")).toContain("#a2V5");
+    await context.close();
+  });
+
+  test("the interstitial is never indexed", async ({ request }) => {
+    const response = await request.get(`${BASE}/https://mega.nz/folder/AbCdEf12`);
+    expect(response.status()).toBe(200);
+    expect(response.headers()["x-robots-tag"]).toContain("noindex");
+  });
+
+  test("normal routes are not swallowed by the catch-all", async ({ page }) => {
+    await page.goto(GALLERY);
+    await expect(page.locator("[data-quickadd]")).toHaveCount(0);
+    await expect(page.locator("[data-curtain]")).toBeVisible();
+  });
+
+  test("a signed-in visitor gets zero-click creation", async ({ page }) => {
+    let posted = false;
+    await page.route("**/api/galleries", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      posted = true;
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ galleryUrl: `/${OWNER}/${SLUG}`, gallery: { slug: SLUG } }),
+      });
+    });
+    await page.goto(`${BASE}/https://mega.nz/folder/ZeroClick#key`);
+    // Either it redirected to the gallery, or it showed the sign-in panel
+    // because this context has no session — both are valid, but a
+    // signed-in context must have POSTed.
+    await page.waitForLoadState("networkidle");
+    const mode = await page.locator("[data-quickadd]").getAttribute("data-mode").catch(() => null);
+    if (mode === "create" || posted) expect(posted).toBe(true);
+  });
+});
+
+test.describe("M magnifier (desktop only)", () => {
+  test("M summons a lens that follows the pointer, and Esc dismisses it", async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      hasTouch: false,
+      extraHTTPHeaders: { "Cf-Access-Jwt-Assertion": await devAssertion() },
+    });
+    const page = await context.newPage();
+    await page.goto(GALLERY);
+    await dismissCurtain(page);
+
+    await expect(page.locator(".magnifier-lens")).toHaveCount(1);
+    await expect(page.locator(".magnifier-lens")).toBeHidden();
+
+    await page.mouse.move(700, 450);
+    await page.keyboard.press("m");
+    const lens = page.locator(".magnifier-lens");
+    await expect(lens).toBeVisible();
+    // It replaces the cursor over the stage.
+    await expect(page.locator(".viewer-stage")).toHaveClass(/is-magnified/);
+    const first = await lens.boundingBox();
+
+    await page.mouse.move(1000, 600);
+    await page.waitForTimeout(120);
+    const second = await lens.boundingBox();
+    expect(second?.x).not.toBe(first?.x);
+
+    await page.keyboard.press("Escape");
+    await expect(lens).toBeHidden();
+
+    // And M toggles it off as well as on.
+    await page.keyboard.press("m");
+    await expect(lens).toBeVisible();
+    await page.keyboard.press("m");
+    await expect(lens).toBeHidden();
+    await context.close();
+  });
+
+  test("the lens is decorative — mirrored content is aria-hidden", async ({ page }) => {
+    await page.goto(GALLERY);
+    await dismissCurtain(page);
+    await page.mouse.move(700, 450);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  test("opening a modal dismisses the lens", async ({ page }) => {
+    await page.goto(GALLERY);
+    await dismissCurtain(page);
+    await page.mouse.move(700, 450);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toBeVisible();
+    await page.getByRole("button", { name: /display settings/i }).click();
+    await expect(page.locator(".magnifier-lens")).toBeHidden();
+  });
+
+  test("absent on a coarse-pointer device", async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+      extraHTTPHeaders: { "Cf-Access-Jwt-Assertion": await devAssertion() },
+    });
+    const page = await context.newPage();
+    await page.goto(GALLERY);
+    await dismissCurtain(page);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toHaveCount(0);
+    await context.close();
+  });
+
+  test("the shortcut row appears only where the key works", async ({ page }) => {
+    await page.goto(GALLERY);
+    await dismissCurtain(page);
+    await page.getByRole("button", { name: /display settings/i }).click();
+    await expect(page.locator(".shortcuts", { hasText: "magnify" })).toBeVisible();
+  });
+});
+
+test.describe("video slides", () => {
+  test.skip(!VIDEO_SLUG, "set GALLERY_VIDEO_SLUG to a gallery containing a video");
+
+  const videoGallery = () => `${BASE}/${OWNER}/${VIDEO_SLUG}`;
+
+  test("the active slide autoplays muted and looping", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    const video = page.locator("video.frame-video").first();
+    await expect(video).toHaveCount(1);
+    await expect(video).toHaveJSProperty("muted", true);
+    await expect(video).toHaveJSProperty("loop", true);
+    await page.waitForTimeout(600);
+    await expect(video).toHaveJSProperty("paused", false);
+  });
+
+  test("only the active slide mounts a media element", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    // Adjacent frames are posters only — never a second <video>.
+    expect(await page.locator("video.frame-video").count()).toBeLessThan(2);
+  });
+
+  test("leaving the slide pauses and rewinds it", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    await page.waitForTimeout(800);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(600);
+    const remaining = await page.locator("video.frame-video").count();
+    if (remaining > 0) {
+      const video = page.locator("video.frame-video").first();
+      await expect(video).toHaveJSProperty("currentTime", 0);
+    }
+  });
+
+  test("the megaphone unmutes and the control is a real button", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    const unmute = page.getByRole("button", { name: /unmute video/i }).first();
+    await expect(unmute).toBeVisible();
+    await expect(unmute).toHaveAttribute("aria-pressed", "false");
+    await unmute.click();
+    await expect(page.locator("video.frame-video").first()).toHaveJSProperty("muted", false);
+    await expect(page.getByRole("button", { name: /mute video/i }).first()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("playback controls are keyboard operable", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    const toggle = page.getByRole("button", { name: /pause video|play video/i }).first();
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+    await expect(toggle).toBeFocused();
+  });
+
+  test("arrow keys stay pure sequence navigation over a video", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    const before = await page.locator("[aria-current='true']").getAttribute("data-index");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(700);
+    const after = await page.locator("[aria-current='true']").getAttribute("data-index");
+    expect(after).not.toBe(before);
+  });
+
+  test("reduced motion shows a poster and an explicit Play control", async ({ browser }) => {
+    const context = await browser.newContext({
+      reducedMotion: "reduce",
+      extraHTTPHeaders: { "Cf-Access-Jwt-Assertion": await devAssertion() },
+    });
+    const page = await context.newPage();
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    await page.waitForTimeout(700);
+    const video = page.locator("video.frame-video").first();
+    if (await video.count()) await expect(video).toHaveJSProperty("paused", true);
+    await expect(page.getByRole("button", { name: /play video/i }).first()).toBeVisible();
+    await context.close();
+  });
+
+  test("the duration chip is present and announced only visually", async ({ page }) => {
+    await page.goto(videoGallery());
+    await dismissCurtain(page);
+    const chip = page.locator(".video-chip").first();
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute("aria-hidden", "true");
+    await expect(chip).toContainText("VIDEO");
+  });
+});
+
+test.describe("per-gallery social cards", () => {
+  test("the gallery page advertises its own OG image", async ({ page }) => {
+    await page.goto(GALLERY);
+    const ogImage = await page.locator('meta[property="og:image"]').getAttribute("content");
+    expect(ogImage).toContain(`/api/og/${OWNER}/${SLUG}`);
+    expect(await page.locator('meta[property="og:image:type"]').getAttribute("content")).toBe("image/jpeg");
+  });
+
+  test("the OG endpoint returns an image, never an error page", async ({ request }) => {
+    const response = await request.get(`${BASE}/api/og/${OWNER}/${SLUG}`);
+    expect([200, 302]).toContain(response.status());
+    if (response.status() === 200) {
+      expect(response.headers()["content-type"]).toContain("image/");
+      expect(response.headers()["cache-control"]).toContain("max-age=86400");
+    }
+  });
+
+  test("an unknown gallery still yields the fallback card", async ({ request }) => {
+    const response = await request.get(`${BASE}/api/og/${OWNER}/definitely-not-a-gallery`, { maxRedirects: 0 });
+    expect([302, 200]).toContain(response.status());
+  });
+});

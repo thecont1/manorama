@@ -32,13 +32,13 @@ Signing in with Dropbox creates a small record about you in our database. Here's
 | Your chosen URL slug (e.g. `manorama.xyz/your-name`) | This is the public address for your galleries. You can change it anytime. |
 | Your account tier (`free`) | To enforce the three-gallery limit. When paid accounts arrive, this field will track that too. |
 
-We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), and a list of image filenames and dimensions. This lets us render your gallery without re-scanning the source folder on every visit.
+We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), and a list of media filenames and dimensions (photographs, and videos when an iCloud shared album contains them). This lets us render your gallery without re-scanning the source folder on every visit.
 
 Your browser also keeps your own preferences — the editor's light/dark theme, and per-gallery viewing choices — in its local storage. Like the viewer's, this never reaches our server.
 
-## We don't store your photographs
+## We don't store your photographs or videos
 
-Manorama never copies, downloads, or caches your images. When a viewer opens your gallery, our server fetches each photo directly from the linked source and streams it to their browser on demand. The image data passes through our server but is never written to disk — image responses carry `no-store` cache headers. We store only the source link and image metadata (filenames, dimensions, alt text), never the pixels themselves.
+Manorama never copies, downloads, or caches your media. When a viewer opens your gallery, our server fetches each photograph — or, for an iCloud shared album containing video, each clip and its poster frame — directly from the linked source and streams it to their browser on demand. The media data passes through our server but is never written to disk; originals and video responses carry `no-store` cache headers. Video is proxied exactly like photographs: we never transcode it, never store it, and a seek simply forwards your browser's byte range to the source. We store only the source link and media metadata (filenames, dimensions, duration, alt text), never the pixels themselves.
 
 ## Content Credentials (C2PA)
 
@@ -56,7 +56,7 @@ Some photographs carry embedded Content Credentials — provenance information t
 A few companies process data on Manorama's behalf:
 
 - **Dropbox** — handles sign-in and may host the photos. When you sign in, Dropbox shares your account ID, name, and verified email with us. When a gallery is viewed, our server fetches images from the owner's public shared link. Dropbox's own privacy policy covers what they do on their side.
-- **Google Drive, iCloud, and MEGA** — if a gallery's photos live on one of these, our server fetches them from the owner's public link when the gallery is viewed. We never sign in to these services and share no account data with them; their privacy policies cover their side.
+- **Google Drive, iCloud, and MEGA** — if a gallery's photos or videos live on one of these, our server fetches them from the owner's public link when the gallery is viewed. We never sign in to these services and share no account data with them; their privacy policies cover their side.
 - **Cloudflare** — hosts the app and handles web traffic. Cloudflare may log request metadata (like IP addresses and timestamps) as part of keeping the site online and protected from abuse. Cloudflare's privacy policy covers what they do on their side.
 
 ## Your session

@@ -25,6 +25,7 @@
     "heic2any": "^0.0.4",
     "hono": "^4.9.7",
     "honox": "^0.1.61",
+    "jimp": "^1.6.1",
     "jose": "^6.2.10",
     "sharp": "^0.34.5"
   },
@@ -36,6 +37,7 @@
     "@playwright/test": "^1.55.0",
     "@types/node": "^22.20.2",
     "@types/react-dom": "^19.2.7",
+    "happy-dom": "^20.14.5",
     "typescript": "^5.9.2",
     "vite": "^8.2.2",
     "wrangler": "^4.95.0"
