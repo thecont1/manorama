@@ -1,81 +1,69 @@
 # manorama
 
-Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. The current prototype has one owner namespace, `thecontrarian`, and accepts public Dropbox folder, Google Drive folder, iCloud shared album, and MEGA folder or collection URLs without asking gallery providers to connect their accounts.
+Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. Owners sign in with Dropbox and get their own namespace — `manorama.xyz/{owner}/{gallery}` — fed by public Dropbox folder, Google Drive folder, iCloud shared album, and MEGA folder or collection URLs without asking gallery providers to connect their accounts. iCloud shared albums can contribute video alongside photos.
 
 ## Current workflow
 
-Open the noindex admin at `https://manorama.thecontrarian.workers.dev/`. Paste a public, download-enabled Dropbox folder, Google Drive folder ("Anyone with the link"), iCloud shared album, or MEGA folder/collection URL and choose **Manorama-fy it!**. Manorama detects the provider from the link, enumerates the shared images using its server-side credentials (Dropbox app credentials, a Drive API key, or none for iCloud and MEGA), ignores non-image files, loads a low-resolution preview strip, and lets the owner arrange the images before adding the gallery.
+Sign in at `https://manorama.xyz/` with Dropbox; the landing page forwards you to your dashboard at `/{owner}`. Paste a public, download-enabled Dropbox folder, Google Drive folder ("Anyone with the link"), iCloud shared album, or MEGA folder/collection URL and choose **Manorama-fy it!** — or skip the dashboard entirely by visiting `manorama.xyz/<the share URL>` (see Quick-add below). Manorama detects the provider from the link, enumerates the shared media using its server-side credentials (Dropbox app credentials, a Drive API key, or none for iCloud and MEGA), ignores files it cannot display, loads a low-resolution preview strip, and lets the owner arrange the gallery before adding it.
 
-Added galleries are stored as metadata and ordered image manifests. Original image bytes remain with the provider and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama’s reference only; it does not delete anything at the source.
+Added galleries are stored as metadata and ordered media manifests in D1. Original media bytes remain with the provider and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama's reference only; it does not delete anything at the source.
 
-The admin lists link-sourced galleries newest first. Clicking a title or caption opens an inline editor. Beneath each title and caption is a full-viewport-width, 100px image rail containing the gallery thumbnails. Images can be dragged into a new position, moved with the keyboard when focused, and panned within the rail using horizontal trackpad/wheel input or touch-style pointer movement. Each gallery row exposes its public URL, a copy action, and a delete action. Gallery links open in a new tab.
+The dashboard lists link-sourced galleries newest first. Clicking a title or caption opens an inline editor; the slug is editable too, and the public URL follows it. Beneath each title is a full-viewport-width, 100px media rail containing the gallery thumbnails — videos carry a `▶ mm:ss` badge. Items can be dragged into a new position, moved with the keyboard when focused, and panned within the rail using horizontal trackpad/wheel input or touch-style pointer movement. Each gallery row exposes its public URL, a copy action, and a delete action. Gallery links open in a new tab.
+
+## Quick-add: `manorama.xyz/<share-url>`
+
+Appending a supported share URL to the origin creates the gallery and opens it — `manorama.xyz/https://www.dropbox.com/scl/fo/…` or `manorama.xyz/mega.nz/collection/…#key` both work. Signed-in owners get zero-click creation; signed-out visitors see a branded interstitial whose **Continue with Dropbox** button round-trips the full URL through OAuth so the gallery completes on return. MEGA and iCloud keys live in the URL fragment, which browsers never send — the catch-all route (`app/routes/[...src].tsx`) recognizes provider-shaped paths, renders the interstitial, and the client (`app/quickadd.ts`) reassembles the complete URL from `pathname` + `search` + `hash`. Non-provider paths fall through to the real routes untouched, and revisiting a link opens the existing gallery (`409` + `galleryUrl`).
 
 ## Public URLs
 
 The canonical public URL shape is:
 
 ```text
-https://manorama.xyz/thecontrarian/{gallery-slug}
+https://manorama.xyz/{owner}/{gallery-slug}
 ```
 
-While DNS propagation is in progress, the same path is available through the Worker fallback:
+The same path is available through the Worker fallback:
 
 ```text
-https://manorama.thecontrarian.workers.dev/thecontrarian/{gallery-slug}
+https://manorama.thecontrarian.workers.dev/{owner}/{gallery-slug}
 ```
 
-The previous single-segment path, such as `/kashmir`, redirects to the owner-scoped path when the gallery exists. The bundled Italy fixture remains available only for local development and is not listed or served in the Airtable-backed production environment.
+Gallery pages emit per-gallery Open Graph cards: `og:image` points at `/api/og/{owner}/{slug}?i={first-item}`, a 1200×630 JPEG composite of the first frame (a video's poster, when the gallery opens with one) with the wordmark pill superimposed. The endpoint caches for a day, keys off the first item so reorders bust edge caches, and falls back to a static card rather than serving a broken image.
 
-## Airtable setup
+## Storage and sign-in
 
-Airtable is used as an internal metadata registry rather than as an image store. The Worker expects these server-side secrets:
+D1 is the production store (`DB` binding, `migrations/`); vite dev and tests use in-memory repositories instead. The `users` table maps Dropbox accounts to owner slugs and tiers; the `galleries` table stores per-owner manifests:
+
+| Field | Purpose |
+| --- | --- |
+| `slug` | Stable gallery URL segment (per-owner unique) |
+| `title`, `caption`, `date` | Curtain, admin, and OG copy |
+| `sourceUrl` | The public provider link |
+| `createdAt` | Recency ordering |
+| `imagesJson` | Ordered media manifest — `image` and `video` items in one union |
+
+Sign-in is Dropbox OAuth (`/auth/dropbox` → callback → HS256 `manorama_session` cookie signed by `HOST_API_JWT_SECRET`). The dashboard route `/{owner}` requires the session to match that owner; anything else redirects to the landing page or 404s. Server-side secrets:
 
 | Secret | Purpose |
 | --- | --- |
-| `AIRTABLE_PAT` | Personal Access Token with read/write access to the Manorama base/table |
-| `AIRTABLE_BASE_ID` | Airtable base identifier |
-| `AIRTABLE_GALLERIES_TABLE` | Table name, normally `Galleries` |
-
-The `Galleries` table uses these fields:
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `slug` | Single line text | Stable gallery URL segment |
-| `title` | Single line text | Opening curtain and admin title |
-| `caption` | Long text | Opening curtain and admin caption |
-| `date` | Single line text | Optional displayed gallery date |
-| `sourceUrl` | URL or text | Public Dropbox, Google Drive, iCloud shared album, or MEGA folder/collection URL |
-| `createdAt` | Date/text | Recency ordering |
-| `imagesJson` | Long text | Ordered image metadata and transient source references |
-
-Only records with a non-empty `sourceUrl` and at least one parsed image are shown in the production admin. This keeps incomplete planning records out of the public list.
+| `HOST_API_JWT_SECRET` | Signs the `manorama_session` cookie |
+| `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` | Dropbox OAuth and public shared-link ingestion |
+| `GOOGLE_DRIVE_API_KEY` | Public Drive folder ingestion |
+| `VENDO_API_KEY` | Vendo surface on the dashboard (pro tier) |
 
 ## Dropbox setup
 
-The Worker expects these server-side secrets:
-
-| Secret | Purpose |
-| --- | --- |
-| `DROPBOX_APP_KEY` | Manorama’s Dropbox app key |
-| `DROPBOX_APP_SECRET` | Manorama’s Dropbox app secret |
-
-The Dropbox app must have the read scopes needed for public shared-link metadata and file content. End users do not authorize Dropbox. They only provide a public shared-folder URL with downloading enabled.
-
-Dropbox enumeration uses the official shared-link API path. The initial scan returns image metadata and thumbnail routes; the Worker uses cursors internally for the folder listing. The delivery routes proxy thumbnails and originals without persisting the image bytes in Manorama.
+The Dropbox app needs the scopes for OAuth sign-in plus public shared-link metadata and file content. End users only ever provide a public shared-folder URL with downloading enabled — ingestion uses the shared-link API path, and delivery routes proxy thumbnails and originals without persisting bytes.
 
 ## Google Drive setup
 
-Google Drive ingestion reads folders shared with "Anyone with the link" using a server-side API key — no end-user OAuth:
-
-| Secret | Purpose |
-| --- | --- |
-| `GOOGLE_DRIVE_API_KEY` | API key from a Google Cloud project with the Drive API enabled |
-
-Create a Google Cloud project, enable the Google Drive API, and create an API key (optionally restricted to the Drive API). Listing uses `files.list` scoped to the folder; originals stream through `/api/drive/file` (`alt=media`) and thumbnails through `/api/drive/thumbnail`. HEIC files display via Drive's JPEG thumbnail rendition.
+Google Drive ingestion reads folders shared with "Anyone with the link" using a server-side API key — no end-user OAuth. Create a Google Cloud project, enable the Google Drive API, and create an API key (optionally restricted to the Drive API). Listing uses `files.list` scoped to the folder; originals stream through `/api/drive/file` (`alt=media`) and thumbnails through `/api/drive/thumbnail`. HEIC files display via Drive's JPEG thumbnail rendition.
 
 ## iCloud setup
 
-iCloud shared album links (`icloud.com/sharedalbum/#…` or `share.icloud.com/photos/…`) need no credentials — the album token is the only key. Manorama uses the undocumented `sharedstreams` endpoints that power Apple's own public album web viewer. Two consequences: the endpoint is unsupported and may change without notice, and shared albums serve web-optimized JPEG derivatives (~2048px) rather than originals, so iCloud images are never marked `c2pa`.
+iCloud shared album links (`icloud.com/sharedalbum/#…` or `share.icloud.com/photos/…`) need no credentials — the album token is the only key. Manorama uses the undocumented `sharedstreams` endpoints that power Apple's own public album web viewer. Two consequences: the endpoint is unsupported and may change without notice, and shared albums serve web-optimized derivatives (~2048px JPEGs, ~720p H.264 MP4s) rather than originals, so iCloud media is never marked `c2pa`.
+
+Albums containing video produce mixed galleries: the scanner picks the video derivative and a poster derivative per entry — derivative key names (`720p`, `PosterFrame`) and the asset's URL extension identify them on older album payloads, with a content-type probe as fallback. Video streams through `/api/icloud/video` with `Range` forwarding so seeking does not download the whole clip; posters come through `/api/icloud/image` like any other derivative.
 
 iCloud **Drive** share links (`icloud.com/iclouddrive/…`) are a different product: folder contents sit behind authenticated CloudKit sharing and cannot be scanned anonymously, so they are rejected with guidance to use a Photos Shared Album instead.
 
@@ -91,11 +79,19 @@ The project uses Bun:
 
 ```sh
 bun install
-bun run gallery
 bun run dev
 ```
 
-Open `http://localhost:5173/` for the admin. The local bundled Italy fixture is available at `http://localhost:5173/thecontrarian/italy-2018`; it is a development fallback used by the viewer acceptance suite when Airtable is not configured.
+Open `http://localhost:5173/` for the landing page. Dev seeding is driven by sample-source variables in `.env.local` — each one is live-scanned at boot into a gallery under the seeded `thecontrarian` owner:
+
+| Variable | Seeded slug |
+| --- | --- |
+| `MANORAMA_DEV_SOURCE_ICLOUD` | `mixed-album` |
+| `MANORAMA_DEV_SOURCE_MEGA` | `dev-mega` |
+| `MANORAMA_DEV_SOURCE_DROPBOX` | `dev-dropbox` |
+| `MANORAMA_DEV_SOURCE_GDRIVE` | `dev-gdrive` |
+
+(`MANORAMA_DEV_VIDEO_URL` is the older name for the iCloud slot and still works.) The plugin also serves `POST /.dev-seed/reset` so tests can restore canonical state, and mints a pro-tier `dbid:AAATESTowner1` so the Vendo surface mounts. A checkout with no source vars seeds the owner and nothing else — everything the suite runs against is a real album fetched from a real provider.
 
 ## Deploy to Cloudflare
 
@@ -105,7 +101,7 @@ The repository is one-command deployable to the Worker account:
 bun run deploy
 ```
 
-`wrangler.toml` configures the `manorama` Worker, Static Assets, `PUBLIC_HOST=manorama.xyz`, `OWNER_SLUG=thecontrarian`, and both the `workers.dev` fallback and the `manorama.xyz` custom domain.
+`wrangler.toml` configures the `manorama` Worker, the `DB` D1 binding, Static Assets, `PUBLIC_HOST=manorama.xyz`, and both the `workers.dev` fallback and the `manorama.xyz` custom domain.
 
 Cloudflare currently has a `manorama.xyz` zone and the custom domain attached to the Worker. The domain remains pending until the registrar publishes only the Cloudflare nameservers:
 
@@ -122,53 +118,73 @@ curl -I https://manorama.xyz/
 curl -I https://manorama.xyz/thecontrarian/kashmir
 ```
 
-The admin root and public galleries send `X-Robots-Tag: noindex, nofollow, noarchive`. The admin is intentionally not authenticated in this prototype and must be protected before inviting other users.
+The admin, galleries, and quick-add interstitials send `X-Robots-Tag: noindex, nofollow, noarchive`.
 
-## ImageSource and gallery model
+## Media model
 
-The viewer consumes the `ImageSource` interface in `app/lib/imagesource.ts`. `BundledSource` reads the generated local manifest and is retained as a development fallback. Link-sourced records use the same manifest shape and are delivered through the Worker’s transient per-provider proxy routes (`/api/dropbox/*`, `/api/drive/*`, `/api/icloud/*`), so the viewer does not need to know where the image originated.
+The viewer consumes the `ImageSource` interface in `app/lib/imagesource.ts`; `BundledSource` adapts a stored gallery record into the runtime sequence. A gallery is a `GalleryMediaItem[]` union — `image` items and `video` items interleaved, with an absent `type` implying image so all-photo manifests are unchanged. Video items carry a proxy `src`, a poster derivative, dimensions, and an optional duration. Link-sourced records are delivered through the Worker's transient per-provider proxy routes (`/api/dropbox/*`, `/api/drive/*`, `/api/icloud/*`, `/api/mega/*`), so the viewer does not need to know where the media originated.
 
-Each image has a stable ID, an optional provider `ref` (Drive file ID, iCloud photo GUID) used for ordering and refresh dedupe, filename, dimensions, alt text, optional caption and EXIF data, C2PA state, placeholder, and responsive variants. The ordered image sequence is persisted in `imagesJson`; dragging or keyboard-moving an image changes only the gallery order, not the source files. The admin rail renders 100px thumbnails with preserved aspect ratios and does not alter the source images.
+Each item has a stable ID, an optional provider `ref` (Drive file ID, iCloud photo GUID) used for ordering and refresh dedupe, filename, dimensions, alt text, optional caption and EXIF data, C2PA state, placeholder, and responsive variants. The ordered sequence is persisted in `imagesJson`; dragging or keyboard-moving an item changes only the gallery order, not the source files.
 
 The asset pipeline treats Content Credentials and ICC profiles as part of the image bytes. Originals are never recompressed, cropped, stretched, upscaled, or converted into a sole alternate format. C2PA verification remains client-side and lazy-loaded.
 
 ## Viewer contract
 
-During gallery viewing, the stage contains only the quiet Gallery controls dot. The full-screen modal is the single home for view modes, captions, image information, Content Credentials, curtain recall, current position, navigation arrows, and shortcuts. The viewer supports strip, vertical-scroll, and one-at-a-time modes, pointer and touch dragging, wheel input, keyboard navigation, deep links, and reduced-motion preferences.
+The stage shows a centered display-settings logo and an image-information control; everything else is quiet chrome. The display-settings dialog holds view modes, arrows, fullscreen, curtain recall, and shortcuts; the information dialog holds position, caption, EXIF, and Content Credentials. The viewer supports strip, vertical-scroll, and one-at-a-time modes, pointer and touch dragging, wheel input, keyboard navigation, and reduced-motion preferences — images fit the stage without cropping and are never upscaled past their natural size.
+
+Video slides are ambient: the active slide mounts the only `<video>` element — muted, looping, `playsInline` — while neighbors render posters only. A pause/play control, an unmute megaphone (sound is a viewer-level toggle), and a `VIDEO · mm:ss` chip overlay the slide; leaving the slide pauses and rewinds, and `prefers-reduced-motion` swaps autoplay for a poster plus an explicit Play control.
+
+On fine-pointer desktops, `M` summons a glass-ball magnifier that follows the cursor over the stage at 3× (a decorative DOM mirror — `aria-hidden`, dismissed by `Esc`, `M`, or opening a dialog). The shortcut row in display settings appears only where the key works.
 
 ## Project layout
 
 | Path | Responsibility |
 | --- | --- |
-| `app/routes/index.tsx` | Root noindex admin route |
+| `app/routes/index.tsx` | Landing page and sign-in door (redirects sessions to `/{owner}`) |
+| `app/routes/[owner].tsx` | Per-owner dashboard route (session-gated) |
 | `app/routes/[owner]/[slug].tsx` | Canonical owner-scoped gallery route |
-| `app/routes/[slug].tsx` | Legacy single-segment redirect into the owner namespace |
-| `app/islands/Admin.tsx` | Shared-link intake, image arrangement, gallery list, inline editing, copy, and delete |
-| `app/islands/Viewer.tsx` | Hydrated strip viewer, modal, modes, gestures, and C2PA trigger |
-| `app/lib/sources.ts` | Source link detection and scanner dispatch (Dropbox, Drive, iCloud, MEGA) |
+| `app/routes/[...src].tsx` | Quick-add catch-all — provider-shaped paths only, else `next()` |
+| `app/routes/auth/` | Dropbox OAuth start/callback and logout |
+| `app/routes/privacy.tsx` | Privacy policy |
+| `app/islands/Admin.tsx` | Gallery dashboard: intake, arrangement, inline editing, Vendo surface |
+| `app/islands/Viewer.tsx` | Hydrated strip viewer: modes, gestures, modals, magnifier, C2PA |
+| `app/islands/VideoSlide.tsx` | Ambient video leaf — mounts `<video>` only while its frame is active |
+| `app/lib/magnifier.ts` | DOM-mirror lens for the `M` magnifier |
+| `app/lib/og-card.ts` | Per-gallery OG compositor (`cf.image` primary, jimp/sharp fallback) |
+| `app/lib/sources.ts` | Source link detection (`embeddedSourceCandidate`) and scanner dispatch |
+| `app/lib/source-errors.ts` | Visitor-facing scan-failure copy, shared by admin and quick-add |
+| `app/lib/dropbox-session.ts` | `manorama_session` cookie verification and env access |
+| `app/lib/user-repository.ts` | User/owner persistence (D1, in-memory in dev) |
+| `app/lib/gallery-repository.ts` | Gallery persistence (D1, in-memory in dev) |
 | `app/lib/dropbox-public.ts` | Public shared-link scan, thumbnail, and original delivery helpers |
 | `app/lib/gdrive-public.ts` | Link-shared Drive folder scan and image delivery helpers |
-| `app/lib/icloud-shared.ts` | Public iCloud shared album scan and derivative delivery helpers |
+| `app/lib/icloud-shared.ts` | Public iCloud shared album scan — photos and video derivatives |
 | `app/lib/mega-public.ts` | Public MEGA folder/collection scan and decrypting file + preview delivery |
 | `app/lib/mega-crypto.ts` | Pure-JS AES-128 (ECB/CBC/CTR/CCM) + AES-GCM TLV for MEGA's client-side encryption |
-| `app/lib/gallery-repository.ts` | Airtable-backed gallery persistence and local fallback |
-| `app/lib/gallery-registry.ts` | Earlier generated registry seam retained for compatibility |
 | `app/lib/gallery-settings.ts` | Per-gallery viewer settings and browser fallback |
-| `app/lib/imagesource.ts` | ImageSource interface and bundled adapter |
-| `build-gallery.mjs` | EXIF, dimensions, placeholders, variants, and integrity report |
-| `qa.spec.ts` | Playwright acceptance contract |
-| `wrangler.toml` | Worker, environment variables, Static Assets, and custom domain route |
+| `app/lib/imagesource.ts` | `ImageSource` interface, `GalleryMediaItem` union, `BundledSource` adapter |
+| `app/quickadd.ts` | Quick-add client: URL reconstruction, create, sign-in handoff |
+| `vite.config.ts` | Dev-seed plugin (`MANORAMA_DEV_SOURCE_*` scans, `/.dev-seed/reset`) |
+| `*.playwright.ts` | Playwright acceptance specs (`qa`, `vendo-surface`, `vendo-slot`) |
+| `wrangler.toml` | Worker, `DB` binding, environment variables, custom domain route |
 
 ## Verification
 
-Run the local acceptance suite against the local server:
+Unit tests and typecheck:
 
 ```sh
-GALLERY_URL=http://localhost:5173 GALLERY_OWNER=thecontrarian GALLERY_SLUG=italy-2018 bunx playwright test qa.spec.ts
+bunx tsc --noEmit
+bun test
 ```
 
-The required matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide, with reduced motion enabled and disabled. It checks the one-visible-control rule, strip physics, gesture and keyboard navigation, curtain and modal behavior, alternate modes, CLS, accessibility, C2PA panel state, owner-scoped routing, admin branding, inline metadata editing, 100px admin image-rail ordering and panning, new-tab gallery links, copyable gallery URLs, and noindex privacy behavior.
+Run the local acceptance suite against the seeded dev server (`bun run dev`). The specs default to `GALLERY_SLUG=dev-dropbox` and need `GALLERY_VIDEO_SLUG` pointing at a video-containing gallery — so the corresponding `MANORAMA_DEV_SOURCE_*` vars must be set:
+
+```sh
+GALLERY_URL=http://localhost:5173 GALLERY_VIDEO_SLUG=mixed-album bunx playwright test
+```
+
+The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, and noindex privacy. Contract drift is checked with `bun run vendo:check`.
 
 ## Prototype limitations
 
-This prototype deliberately has no login or payment system. Anyone who can reach the root admin can currently attempt admin mutations, so the admin/API surface should be placed behind an access layer before the application becomes a public multi-tenant service. Airtable stores metadata and references only; the current Worker does not store user photographs.
+iCloud shared albums are the only video source in v1 — Dropbox, Drive, and MEGA scans remain image-only, and there is no transcode pipeline for master files. MEGA and iCloud ingestion rely on undocumented provider endpoints that may change without notice. Metadata and references are all Manorama stores; original media bytes are proxied, never persisted.
