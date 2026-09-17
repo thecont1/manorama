@@ -638,11 +638,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const decodeHeic = async (image: GalleryImage) => {
     if (heicPendingRef.current.has(image.id)) return
     heicPendingRef.current.add(image.id)
+    let blob: Blob | undefined
     try {
       const { default: heic2any } = await import('heic2any')
       const response = await fetch(image.src)
       if (!response.ok) throw new Error(`HEIC fetch failed: ${response.status}`)
-      const blob = await response.blob()
+      blob = await response.blob()
       const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
       // Older gallery records still point at JPEG renditions — a 'ftyp' box
       // means real HEIC; anything else (JPEG, WebP) renders directly.
@@ -655,7 +656,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const out = Array.isArray(converted) ? converted[0] : converted
       storeHeicSrc(image.id, URL.createObjectURL(out))
     } catch {
-      // A failed decode just keeps showing the 256px placeholder.
+      // libheif rejects some real HEIFs (10-bit, non-HEVC codecs, truncated
+      // files). Hand the untouched bytes to the browser — Safari renders
+      // HEIC natively; elsewhere the img's onError drops to the preview.
+      storeHeicSrc(image.id, blob ? URL.createObjectURL(blob) : image.src)
     } finally {
       // Clear pending so a pruned entry can decode again on re-entry.
       heicPendingRef.current.delete(image.id)
@@ -807,6 +811,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     height={frameH}
                     decoding="async"
                     loading="eager"
+                    onError={(event: Event) => {
+                      if (!isHeic(image)) return
+                      // The browser couldn't decode the fallback HEIC bytes
+                      // either — swap to the JPEG preview so the frame still
+                      // shows a full-size image, not just the stretched thumb.
+                      const preview = image.variants?.[0]?.src ?? image.placeholder
+                      if (preview && heicSrc[image.id] !== preview) storeHeicSrc(image.id, preview)
+                    }}
                     onLoad={(event: Event) => {
                       const img = event.currentTarget as HTMLImageElement
                       img.classList.add('is-loaded')
