@@ -110,6 +110,20 @@ describe('OpenAPI contract: runtime behavior', () => {
     expect(await response.json()).toEqual({ error: 'Missing Dropbox image reference' })
   })
 
+  // MEGA scope is either folder OR set — OpenAPI parameters cannot express
+  // the dependency, so the contract test pins the documented 400 instead.
+  test('mega file proxy rejects a scope-less request with 400', async () => {
+    const response = await request('/api/mega/file?node=abc&k=xyz')
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Missing MEGA image reference' })
+  })
+
+  test('mega preview proxy rejects a scope-less request with 400', async () => {
+    const response = await request('/api/mega/preview?h=abc&k=xyz')
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Missing MEGA image reference' })
+  })
+
   test('a create without a Dropbox URL reports 400 with the contract error shape', async () => {
     await setupAuth()
     const response = await api.request('/api/galleries', {
