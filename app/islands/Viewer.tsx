@@ -766,6 +766,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                             if (mode === 'strip') frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
                             frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
                             frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
+                            // A corrected frame changes track geometry —
+                            // drop the cached bounds and re-dock the active
+                            // frame once layout settles.
+                            boundsDirtyRef.current = true
+                            requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true))
                           }
                         }
                       }
