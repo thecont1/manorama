@@ -712,7 +712,25 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     height={image.height}
                     decoding="async"
                     loading="eager"
-                    onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')}
+                    onLoad={(event: Event) => {
+                      const img = event.currentTarget as HTMLImageElement
+                      img.classList.add('is-loaded')
+                      // Records can carry guessed dims (4:3 fallback, stale
+                      // scans): once the real pixels decode, reshape the
+                      // frame so geometry always matches the photograph.
+                      if (img.naturalWidth && img.naturalHeight) {
+                        const stored = image.width / image.height
+                        const real = img.naturalWidth / img.naturalHeight
+                        if (Math.abs(real - stored) / stored > 0.02) {
+                          const frame = img.closest<HTMLElement>('.viewer-frame')
+                          if (frame) {
+                            if (mode === 'strip') frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                            frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
+                            frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
+                          }
+                        }
+                      }
+                    }}
                   />
                 ) : null}
               </figure>

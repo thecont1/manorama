@@ -49,7 +49,10 @@ button { color: inherit; }
 /* Never upsize: images shrink to fit the frame but a small image stays
    at its natural size (centred) rather than scaling up soft. The full
    image crossfades over the placeholder layer instead of popping in. */
-.viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: none; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; }
+/* max-width clamps to the frame: when a record's stored aspect is narrower
+   than the real file's, the image letterboxes inside its slot instead of
+   overflowing onto neighbouring frames (overflow: visible). Never crops. */
+.viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
 
