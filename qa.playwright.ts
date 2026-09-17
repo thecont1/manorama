@@ -58,7 +58,7 @@ const test = base.extend({
 
 const BASE = process.env.GALLERY_URL ?? "http://localhost:8787";
 const OWNER = process.env.GALLERY_OWNER ?? "thecontrarian";
-const SLUG = process.env.GALLERY_SLUG ?? "kashmir";
+const SLUG = process.env.GALLERY_SLUG ?? "dev-dropbox";
 const GALLERY = `${BASE}/${OWNER}/${SLUG}`;
 const CONTROL_NAME = /image information and content credentials/i;
 

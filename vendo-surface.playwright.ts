@@ -21,7 +21,7 @@ import { SignJWT } from "jose";
 
 const BASE = process.env.GALLERY_URL ?? "http://localhost:5173";
 const OWNER = process.env.GALLERY_OWNER ?? "thecontrarian";
-const SLUG = process.env.GALLERY_SLUG ?? "kashmir";
+const SLUG = process.env.GALLERY_SLUG ?? "dev-dropbox";
 
 const devEnv = (() => {
   const env: Record<string, string> = {};

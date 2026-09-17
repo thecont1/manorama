@@ -1,35 +1,33 @@
 import build from '@hono/vite-build/cloudflare-workers'
 import adapter from '@hono/vite-dev-server/node'
 import honox from 'honox/vite'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
-import { join, normalize } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 
 /**
- * Dev-only gallery fixtures for `bun run dev`.
+ * Dev-only gallery seeding for `bun run dev`.
  *
  * With no D1 binding the user/gallery repositories fall back to in-memory
  * Maps that boot empty, and Dropbox OAuth is the only in-band way to mint
  * a user — so the Playwright suite (and manual QA) has nothing to run
  * against. This plugin seeds that store through `server.ssrLoadModule`,
  * which resolves the SAME module instances the dev server's SSR graph
- * uses. It also serves `test/fixtures/` at `/.dev-fixture/` so the seeded
- * gallery loads real bytes.
+ * uses.
  *
  * `apply: 'serve'` means the production Worker bundle never sees any of
- * this — the fixture URL space and seeded data exist only in vite dev.
+ * this — the seeded data exists only in vite dev.
  *
  * Seeds:
  *  - user `dbid:AAATESTowner1` → owner slug `thecontrarian` (the spec's
- *    default GALLERY_OWNER), plus `dbid:AAATOTHERuser` → `another-dev`
- *  - gallery `kashmir`: the restored 9-image Italy manifest the
- *    acceptance suite was authored against (credentialed JPEG at index 1)
+ *    default GALLERY_OWNER)
  *  - one gallery per MANORAMA_DEV_SOURCE_<PROVIDER> var set in
- *    .env.local (live-scanned at boot): ICLOUD → mixed-album (the video
+ *    .env.local, live-scanned at boot: ICLOUD → mixed-album (the video
  *    gallery GALLERY_VIDEO_SLUG points at), MEGA → dev-mega, DROPBOX →
  *    dev-dropbox, GDRIVE → dev-gdrive. MANORAMA_DEV_VIDEO_URL predates
  *    the per-provider names and still fills the iCloud slot.
+ *
+ * There is no bundled sample data: a checkout with no source vars seeds
+ * an owner and nothing else, so anything the suite runs against is a real
+ * album fetched from a real provider.
  */
 
 /** Env-var name → seeded slug for live-scanned dev galleries. */
@@ -40,12 +38,6 @@ const DEV_SEED_SOURCES: { env: string; slug: string }[] = [
   { env: 'MANORAMA_DEV_SOURCE_GDRIVE', slug: 'dev-gdrive' },
 ]
 const manoramaDevSeed = (): Plugin => {
-  const fixtureRoot = fileURLToPath(new URL('./test/fixtures/', import.meta.url))
-  const fixtureTypes: Record<string, string> = {
-    '.webp': 'image/webp', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-    '.png': 'image/png', '.json': 'application/json', '.svg': 'image/svg+xml',
-  }
-
   type UserRepo = typeof import('./app/lib/user-repository')
   type GalleryRepo = typeof import('./app/lib/gallery-repository')
   type Sources = typeof import('./app/lib/sources')
@@ -67,11 +59,6 @@ const manoramaDevSeed = (): Plugin => {
       dropboxAccountId: 'dbid:AAATESTowner1',
       displayName: 'thecontrarian',
       email: 'mahesh@manorama.xyz',
-    })
-    await users.upsertUser({
-      dropboxAccountId: 'dbid:AAATOTHERuser',
-      displayName: 'Another Dev',
-      email: 'another@manorama.xyz',
     })
     // Pro: the admin page mounts the real Vendo surface only for pro tier,
     // and the vendo-surface spec drives that launcher.
@@ -137,30 +124,12 @@ const manoramaDevSeed = (): Plugin => {
       console.log(`[dev-seed] live scan: ${scan.images.length} items (${videos} video) → ${slug}`)
     }
 
-    const manifest = JSON.parse(readFileSync(join(fixtureRoot, 'italy-2018/manifest.json'), 'utf8')) as {
-      title: string; caption: string; date: string
-      images: { src: string; variants?: { src: string }[] }[]
-    }
-    const images = manifest.images.map((image) => ({
-      ...image,
-      src: image.src.replace('/images/', '/.dev-fixture/'),
-      variants: image.variants?.map((variant) => ({ ...variant, src: variant.src.replace('/images/', '/.dev-fixture/') })),
-    }))
-    seededGalleries.push({
-      ownerId,
-      gallery: {
-        slug: 'kashmir',
-        title: manifest.title,
-        caption: manifest.caption,
-        date: manifest.date,
-        createdAt: new Date().toISOString(),
-        images: images as never,
-      } as GalleryRecord,
-    })
-
     pristine = seededGalleries.map((entry) => structuredClone(entry))
     const owner = await applySeed()
-    console.log(`[dev-seed] owner '${owner.ownerSlug}' seeded: ${pristine.map(({ gallery }) => gallery.slug).join(', ')}`)
+    const slugs = pristine.map(({ gallery }) => gallery.slug).join(', ')
+    console.log(slugs
+      ? `[dev-seed] owner '${owner.ownerSlug}' seeded: ${slugs}`
+      : `[dev-seed] owner '${owner.ownerSlug}' seeded with no galleries — set MANORAMA_DEV_SOURCE_<PROVIDER> in .env.local to seed real albums`)
   }
 
   // The server accepts connections before the seed finishes (seed() awaits
@@ -172,19 +141,6 @@ const manoramaDevSeed = (): Plugin => {
     name: 'manorama-dev-seed',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/.dev-fixture', (req, res) => {
-        const name = decodeURIComponent((req.url ?? '').split('?')[0]).replace(/^\/+/, '')
-        const file = normalize(join(fixtureRoot, name))
-        const ext = name.slice(name.lastIndexOf('.'))
-        if (!name || name.includes('..') || !file.startsWith(fixtureRoot) || !existsSync(file) || !statSync(file).isFile()) {
-          res.statusCode = 404
-          res.end('not found')
-          return
-        }
-        res.setHeader('Content-Type', fixtureTypes[ext] ?? 'application/octet-stream')
-        res.setHeader('Cache-Control', 'no-cache')
-        createReadStream(file).pipe(res)
-      })
       // Test seam mirroring resetUserStore/resetGalleryStore: the specs
       // mutate the in-memory repos (slug edits, reorders, creates), so each
       // case restores canonical state instead of depending on run order.

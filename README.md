@@ -115,7 +115,7 @@ After delegation has propagated, verify:
 ```sh
 dig +short NS manorama.xyz
 curl -I https://manorama.xyz/
-curl -I https://manorama.xyz/thecontrarian/kashmir
+curl -I https://manorama.xyz/thecontrarian/{gallery-slug}
 ```
 
 The admin, galleries, and quick-add interstitials send `X-Robots-Tag: noindex, nofollow, noarchive`.
