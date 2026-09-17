@@ -21,6 +21,11 @@ type Props = {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
+/** In vertical mode, frames beyond the viewport stay active only up to this
+ *  many past the visible set — enough to not thrash on small scrolls, bounded
+ *  so decoded HEIC blobs get revoked as frames scroll away. */
+const VERTICAL_RETAIN = 6
+
 /** Anonymous per-gallery viewing preferences: mode + border choice are
  *  remembered in localStorage keyed by gallery slug, so a link recipient
  *  keeps their own preference without an account. */
@@ -74,6 +79,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const indexRef = useRef(index)
   const modeRef = useRef(mode)
   const reportedIndexRef = useRef(index)
+  // Seed a small window so the first vertical paint isn't placeholder-only;
+  // the IntersectionObserver takes over immediately after mount.
+  const [verticalActive, setVerticalActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2]))
+  const verticalMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
@@ -648,11 +657,50 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
+  // Vertical mode stacks every frame in document flow, so index windows
+  // mean nothing there — track the real viewport with an observer and keep
+  // only what intersects (with a viewport of preload margin) plus a small
+  // MRU tail of recently visible frames.
+  useEffect(() => {
+    if (mode !== 'vertical' || typeof IntersectionObserver === 'undefined') return
+    const track = trackRef.current
+    if (!track) return
+    const visible = new Set<number>()
+    const observer = new IntersectionObserver((entries) => {
+      let changed = false
+      for (const entry of entries) {
+        const frameIndex = Number((entry.target as HTMLElement).dataset.index ?? 0) - 1
+        if (frameIndex < 0) continue
+        if (entry.isIntersecting) {
+          if (!visible.has(frameIndex)) { visible.add(frameIndex); changed = true }
+        } else if (visible.delete(frameIndex)) changed = true
+      }
+      if (!changed) return
+      const tail = verticalMruRef.current.filter((i) => !visible.has(i))
+      verticalMruRef.current = [...visible, ...tail].slice(0, visible.size + VERTICAL_RETAIN)
+      setVerticalActive(new Set(verticalMruRef.current))
+    }, { rootMargin: '100% 0px' })
+    track.querySelectorAll<HTMLElement>('[data-index]').forEach((frame) => observer.observe(frame))
+    return () => {
+      observer.disconnect()
+      verticalMruRef.current = []
+      setVerticalActive(new Set())
+    }
+  }, [mode, images])
+
+  const isFrameActive = (imageIndex: number) => {
+    if (mode === 'vertical') {
+      return typeof IntersectionObserver === 'undefined'
+        ? Math.abs(imageIndex - index) <= 3
+        : verticalActive.has(imageIndex)
+    }
+    return mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index
+  }
+
   useEffect(() => {
     const keep = new Set<string>()
     images.forEach((image, imageIndex) => {
-      const active = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index)
-      if (!active) return
+      if (!isFrameActive(imageIndex)) return
       keep.add(image.id)
       if (isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
     })
@@ -671,7 +719,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       }
       return next
     })
-  }, [index, mode, images, heicSrc])
+  }, [index, mode, images, heicSrc, verticalActive])
 
   useEffect(() => () => {
     unmountedRef.current = true
@@ -720,7 +768,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           data-track
         >
           {images.map((image, imageIndex) => {
-            const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index)
+            const isActive = isFrameActive(imageIndex)
             const isPortrait = image.height > image.width
             return (
               <figure
