@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { detectSource, embeddedSourceCandidate, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './sources'
+import { canonicalSourceMatches, detectSource, embeddedSourceCandidate, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './sources'
 
 describe('detectSource', () => {
   test('recognizes Dropbox shared folder links', () => {
@@ -42,6 +42,55 @@ describe('scanSource', () => {
   test('rejects iCloud Drive links with the Shared Album guidance', async () => {
     await expect(scanSource('https://www.icloud.com/iclouddrive/03c_T_Sxo0bE6AecC8_Ol21tw#Moral_Polis', {}))
       .rejects.toThrow('iCloud Drive links cannot be read')
+  })
+})
+
+/**
+ * These guard the quick-add revisit fast path in POST /api/galleries: a
+ * true here reopens an existing gallery WITHOUT re-scanning the provider,
+ * so a match must mean "same source AND same access key". A false
+ * negative is harmless (the scanner runs, as it always did); a false
+ * positive would hand back a gallery the pasted link no longer grants.
+ */
+describe('canonicalSourceMatches', () => {
+  test('identical links match, cross-provider links never do', () => {
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC#K', 'https://mega.nz/folder/ABC#K')).toBe(true)
+    expect(canonicalSourceMatches('https://www.dropbox.com/scl/fo/abc/x', 'https://drive.google.com/drive/folders/x')).toBe(false)
+  })
+
+  test('unparseable or non-provider input is never a match', () => {
+    expect(canonicalSourceMatches('not a url', 'https://mega.nz/folder/A#K')).toBe(false)
+    expect(canonicalSourceMatches('', '')).toBe(false)
+    expect(canonicalSourceMatches('https://example.com/a', 'https://example.com/a')).toBe(false)
+  })
+
+  test('iCloud reduces both spellings to the album token', () => {
+    expect(canonicalSourceMatches('https://www.icloud.com/sharedalbum/#TOKEN', 'https://share.icloud.com/photos/TOKEN')).toBe(true)
+    expect(canonicalSourceMatches('https://www.icloud.com/sharedalbum/#TOKEN', 'https://www.icloud.com/sharedalbum/#OTHER')).toBe(false)
+  })
+
+  test('MEGA matches on handle plus fragment key, across host and legacy spellings', () => {
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.co.nz/folder/ABC123#KEY1')).toBe(true)
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/#F!ABC123!KEY1')).toBe(true)
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1/file/XYZ', 'https://mega.nz/folder/ABC123#KEY1')).toBe(true)
+  })
+
+  test('MEGA refuses a different decryption key or a different collection kind', () => {
+    // The key is the authorization — same handle, other key, no reopen.
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/folder/ABC123#KEY2')).toBe(false)
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/collection/ABC123#KEY1')).toBe(false)
+  })
+
+  test('Drive ignores tracking params but honours the resource key', () => {
+    expect(canonicalSourceMatches('https://drive.google.com/drive/folders/FID', 'https://drive.google.com/drive/folders/FID?usp=sharing')).toBe(true)
+    expect(canonicalSourceMatches('https://drive.google.com/drive/folders/FID', 'https://drive.google.com/open?id=FID')).toBe(true)
+    expect(canonicalSourceMatches('https://drive.google.com/drive/folders/FID', 'https://drive.google.com/drive/folders/FID?resourcekey=RK')).toBe(false)
+  })
+
+  test('Dropbox ignores dl and trailing slash but honours rlkey', () => {
+    expect(canonicalSourceMatches('https://www.dropbox.com/scl/fo/abc/x?rlkey=K1', 'https://www.dropbox.com/scl/fo/abc/x?rlkey=K1&dl=0')).toBe(true)
+    expect(canonicalSourceMatches('https://www.dropbox.com/scl/fo/abc/x?rlkey=K1', 'https://www.dropbox.com/scl/fo/abc/x/?rlkey=K1')).toBe(true)
+    expect(canonicalSourceMatches('https://www.dropbox.com/scl/fo/abc/x?rlkey=K1', 'https://www.dropbox.com/scl/fo/abc/x?rlkey=K2')).toBe(false)
   })
 })
 

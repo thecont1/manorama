@@ -1,7 +1,7 @@
 import { scanDropboxFolder } from './dropbox-public'
-import { scanDriveFolder } from './gdrive-public'
+import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
-import { scanMegaSource } from './mega-public'
+import { extractMegaLink, scanMegaSource } from './mega-public'
 import type { GalleryMediaItem } from './imagesource'
 
 /**
@@ -112,37 +112,47 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
   const candidateProvider = detectSource(candidateUrl)
   if (!storedProvider || storedProvider !== candidateProvider) return false
   if (storedSourceUrl === candidateUrl) return true
-  const identity = (input: string): string | null => {
-    let url: URL
-    try {
-      url = new URL(input.trim())
-    } catch {
-      return null
+
+  // A provider's public identity is not always enough to identify the
+  // authorization context. MEGA reuses the folder/collection handle with a
+  // fragment key; Drive resource keys and Dropbox rlkeys similarly affect
+  // access. Reopen only when both identity AND access key match. A false
+  // negative merely causes the normal scanner/canonicalizer to run.
+  switch (storedProvider) {
+    case 'icloud': {
+      const storedToken = extractAlbumToken(storedSourceUrl)
+      const candidateToken = extractAlbumToken(candidateUrl)
+      return Boolean(storedToken && candidateToken && storedToken === candidateToken)
     }
-    switch (storedProvider) {
-      case 'icloud':
-        // Both spellings reduce to the album token.
-        return extractAlbumToken(input)
-      case 'mega': {
-        // mega.nz/folder/{id}#{key} and the legacy #F!{id}!{key}.
-        const modern = url.pathname.match(/^\/(?:folder|collection)\/([^/]+)/)
-        if (modern) return modern[1]
-        const legacy = url.hash.match(/^#[FC]!([^!]+)/)
-        return legacy ? legacy[1] : null
+    case 'mega': {
+      try {
+        const stored = extractMegaLink(storedSourceUrl)
+        const candidate = extractMegaLink(candidateUrl)
+        return Boolean(stored && candidate && stored.kind === candidate.kind && stored.id === candidate.id && stored.key === candidate.key)
+      } catch {
+        return false
       }
-      case 'gdrive': {
-        const folder = url.pathname.match(/\/folders\/([^/?]+)/)
-        if (folder) return folder[1]
-        return url.searchParams.get('id')
+    }
+    case 'gdrive': {
+      try {
+        const stored = extractDriveFolderId(storedSourceUrl)
+        const candidate = extractDriveFolderId(candidateUrl)
+        return Boolean(stored && candidate && stored.id === candidate.id && stored.resourceKey === candidate.resourceKey)
+      } catch {
+        return false
       }
-      case 'dropbox':
-        // Dropbox share paths are the identity; rlkey and dl vary freely.
-        return url.pathname.replace(/\/+$/, '') || null
+    }
+    case 'dropbox': {
+      try {
+        const stored = new URL(storedSourceUrl)
+        const candidate = new URL(candidateUrl)
+        const normalizedPath = (url: URL) => url.pathname.replace(/\/+$/, '')
+        return normalizedPath(stored) === normalizedPath(candidate) && stored.searchParams.get('rlkey') === candidate.searchParams.get('rlkey')
+      } catch {
+        return false
+      }
     }
   }
-  const storedIdentity = identity(storedSourceUrl)
-  const candidateIdentity = identity(candidateUrl)
-  return Boolean(storedIdentity && candidateIdentity && storedIdentity === candidateIdentity)
 }
 
 export const scanSource = async (input: string, env: SourceEnv, fetchImpl: typeof fetch = fetch): Promise<SourceScan> => {
