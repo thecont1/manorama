@@ -162,25 +162,29 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return boundsRef.current
   }
 
-  const reportStripPosition = () => {
-    if (positionFrameRef.current !== null) return
-    positionFrameRef.current = requestAnimationFrame(() => {
-      positionFrameRef.current = null
-    const stage = stageRef.current
-    const track = trackRef.current
-    if (!stage || !track) return
-      // "Active" is the frame holding the stage's left edge — the docked
-      // image under the left-align rule. Nearest-center reporting drifts:
-      // a narrow docked portrait loses to a wide successor's center, which
-      // then makes the next advance skip a frame.
-      const leftEdge = -currentXRef.current
-    const frames = [...track.querySelectorAll<HTMLElement>('[data-index]')]
+  // "Active" is the frame holding the stage's left edge — the docked
+  // image under the left-align rule. Nearest-center reporting drifts:
+  // a narrow docked portrait loses to a wide successor's center, which
+  // then makes the next advance skip a frame.
+  const leftmostFrameIndex = (leftEdge: number) => {
+    const frames = trackRef.current?.querySelectorAll<HTMLElement>('[data-index]') ?? []
     let nearest = 0
     for (const frame of frames) {
       const frameIndex = Number(frame.dataset.index ?? 1) - 1
       if (frame.offsetLeft <= leftEdge + 1) nearest = frameIndex
       else break
     }
+    return nearest
+  }
+
+  const reportStripPosition = () => {
+    if (positionFrameRef.current !== null) return
+    positionFrameRef.current = requestAnimationFrame(() => {
+      positionFrameRef.current = null
+      const stage = stageRef.current
+      const track = trackRef.current
+      if (!stage || !track) return
+      const nearest = leftmostFrameIndex(-currentXRef.current)
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
@@ -788,6 +792,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
+                aria-current={imageIndex === index ? 'true' : undefined}
                 style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 <img
@@ -833,14 +838,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                           if (frame) {
                             const healed = { w: img.naturalWidth, h: img.naturalHeight }
                             setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
-                            if (mode === 'strip') frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                            if (mode === 'strip') {
+                              frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                              // A corrected frame changes track geometry —
+                              // drop the cached bounds, then dock on the frame
+                              // actually holding the stage's left edge. An
+                              // in-flight advance aimed at a now-stale offset
+                              // is superseded by this instant re-dock.
+                              boundsDirtyRef.current = true
+                              requestAnimationFrame(() => {
+                                const docked = leftmostFrameIndex(-currentXRef.current)
+                                reportedIndexRef.current = docked
+                                setIndex(docked)
+                                settleTo(-imageStart(docked), true, true)
+                              })
+                            }
                             frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
                             frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
-                            // A corrected frame changes track geometry —
-                            // drop the cached bounds and re-dock the active
-                            // frame once layout settles.
-                            boundsDirtyRef.current = true
-                            requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true))
                           }
                         }
                       }
