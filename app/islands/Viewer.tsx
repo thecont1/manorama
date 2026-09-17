@@ -92,7 +92,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
-    setMode(loaded.defaultMode)
+    setMode(viewPrefs.mode ?? loaded.defaultMode)
     setShowArrows(loaded.defaultShowArrows)
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
@@ -105,7 +105,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     updateText('[data-curtain-caption]', loaded.caption)
     updateText('[data-curtain-date]', loaded.date)
     updateText('[data-curtain-prompt]', loaded.curtainPrompt)
-  }, [slug, initialSettings])
+  }, [slug, initialSettings, viewPrefs])
 
   useEffect(() => {
     const clearPositionHash = () => {
