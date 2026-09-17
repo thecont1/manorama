@@ -18,6 +18,11 @@ describe('detectSource', () => {
     expect(detectSource('https://share.icloud.com/photos/B0z5qAGN1JIFd3y')).toBe('icloud')
   })
 
+  test('recognizes MEGA shared folder links in both spellings', () => {
+    expect(detectSource('https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA')).toBe('mega')
+    expect(detectSource('https://mega.co.nz/#F!AbCdEf12!a2V5LXNlY3JldA')).toBe('mega')
+  })
+
   test('rejects everything else', () => {
     expect(detectSource('https://photos.google.com/share/abc')).toBeNull()
     expect(detectSource('https://onedrive.live.com/?id=abc')).toBeNull()

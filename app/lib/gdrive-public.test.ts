@@ -56,20 +56,24 @@ describe('scanDriveFolder', () => {
     expect(heic.src).toBe('/api/drive/thumbnail?id=file-2&size=w2048')
   })
 
-  test('serves TIFF files through the JPEG thumbnail rendition, never the original proxy', async () => {
+  test('accepts AVIF and consciously ignores TIFF, PNG, GIF, and video', async () => {
     const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
       if (url.includes('files?q=')) {
         return jsonResponse(listing([
+          { id: 'avif-1', name: 'photo.avif', mimeType: 'image/avif', imageMediaMetadata: { width: 4000, height: 3000 } },
           { id: 'tiff-1', name: 'scan_01.tiff', mimeType: 'image/tiff', imageMediaMetadata: { width: 6000, height: 4000 } },
+          { id: 'png-1', name: 'logo.png', mimeType: 'image/png' },
+          { id: 'gif-1', name: 'anim.gif', mimeType: 'image/gif' },
+          { id: 'vid-1', name: 'clip.mp4', mimeType: 'video/mp4' },
         ]))
       }
       if (url.includes('fields=name')) return jsonResponse({ name: 'Scans' })
       return jsonResponse({}, 404)
     }
     const scan = await scanDriveFolder('https://drive.google.com/drive/folders/1FolderId', env, fetchImpl as typeof fetch)
-    expect(scan.images[0]!.src).toBe('/api/drive/thumbnail?id=tiff-1&size=w2048')
-    expect(scan.images[0]!.src).not.toContain('/api/drive/file')
+    expect(scan.images.map((image) => image.filename)).toEqual(['photo.avif'])
+    expect(scan.images[0]!.src).toBe('/api/drive/file?id=avif-1')
   })
 
   test('threads folder and file resource keys through requests and proxy URLs', async () => {

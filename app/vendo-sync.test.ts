@@ -22,12 +22,13 @@ describe('deterministic Vendo sync', () => {
     expect(second).toBe(first)
   })
 
-  test('generated tools.json is valid JSON with the eleven expected tool names', () => {
+  test('generated tools.json is valid JSON with the thirteen expected tool names', () => {
     const tools = JSON.parse(readTools()) as { format: string; tools: { name: string; risk: string }[] }
     expect(tools.format).toBe('vendo/tools@3')
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
       'host_create_gallery', 'host_delete_gallery', 'host_get_drive_file', 'host_get_drive_thumbnail',
-      'host_get_dropbox_file', 'host_get_dropbox_thumbnail', 'host_get_icloud_image',
+      'host_get_dropbox_file', 'host_get_dropbox_thumbnail', 'host_get_icloud_image', 'host_get_mega_file',
+      'host_get_mega_preview',
       'host_list_galleries', 'host_refresh_gallery', 'host_scan_gallery_source', 'host_update_gallery',
     ])
   })
@@ -47,6 +48,8 @@ describe('deterministic Vendo sync', () => {
       host_get_dropbox_file: 'read',
       host_get_dropbox_thumbnail: 'read',
       host_get_icloud_image: 'read',
+      host_get_mega_file: 'read',
+      host_get_mega_preview: 'read',
       host_list_galleries: 'read',
       host_refresh_gallery: 'write',
       host_scan_gallery_source: 'read',

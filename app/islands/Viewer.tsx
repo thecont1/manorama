@@ -21,22 +21,55 @@ type Props = {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
+/** In vertical mode, frames beyond the viewport stay active only up to this
+ *  many past the visible set — enough to not thrash on small scrolls, bounded
+ *  so decoded HEIC blobs get revoked as frames scroll away. */
+const VERTICAL_RETAIN = 6
+
+/** Anonymous per-gallery viewing preferences: mode + border choice are
+ *  remembered in localStorage keyed by gallery slug, so a link recipient
+ *  keeps their own preference without an account. */
+type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
+const readViewPrefs = (slug: string): ViewPrefs => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
+    return {
+      mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
+      seamMode: stored.seamMode && ['light', 'dark', 'none'].includes(stored.seamMode) ? stored.seamMode : undefined,
+    }
+  } catch {
+    return {}
+  }
+}
+
 export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
-  const [mode, setMode] = useState<Mode>(initialSettings.defaultMode)
+  const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
+  const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
-  const [seamMode, setSeamMode] = useState<SeamMode>('none')
+  const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
+  const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
+  // Decoded pixel truth for frames whose stored dims were wrong (4:3
+  // fallbacks, stale scans). Held in state because hono/jsx rewrites
+  // style.cssText on every render — an imperative aspectRatio write gets
+  // reverted by the next state change unless the prop itself carries it.
+  const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
+  const heicPendingRef = useRef(new Set<string>())
+  const heicUrlsRef = useRef(new Map<string, string>())
+  const unmountedRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
+  const infoModalRef = useRef<HTMLDivElement | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -51,6 +84,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const indexRef = useRef(index)
   const modeRef = useRef(mode)
   const reportedIndexRef = useRef(index)
+  // Seed a small window so the first vertical paint isn't placeholder-only;
+  // the IntersectionObserver takes over immediately after mount.
+  const [verticalActive, setVerticalActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2]))
+  const verticalMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
@@ -60,11 +97,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
+  useEffect(() => {
+    try {
+      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
+    } catch {
+      // Storage can be unavailable (private mode) — preferences are best-effort.
+    }
+  }, [slug, mode, seamMode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
-    setMode(loaded.defaultMode)
+    setMode(viewPrefs.mode ?? loaded.defaultMode)
     setShowArrows(loaded.defaultShowArrows)
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
@@ -77,7 +121,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     updateText('[data-curtain-caption]', loaded.caption)
     updateText('[data-curtain-date]', loaded.date)
     updateText('[data-curtain-prompt]', loaded.curtainPrompt)
-  }, [slug, initialSettings])
+  }, [slug, initialSettings, viewPrefs])
 
   useEffect(() => {
     const clearPositionHash = () => {
@@ -98,6 +142,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
   }, [])
 
+  useEffect(() => {
+    const preventButtonFocus = (event: MouseEvent) => {
+      if ((event.target as HTMLElement).closest('button')) event.preventDefault()
+    }
+    document.addEventListener('mousedown', preventButtonFocus)
+    return () => document.removeEventListener('mousedown', preventButtonFocus)
+  }, [])
+
   const hasMultiple = images.length > 1
   const arrowsVisible = showArrows && mode !== 'vertical' && hasMultiple
 
@@ -110,26 +162,29 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return boundsRef.current
   }
 
+  // "Active" is the frame holding the stage's left edge — the docked
+  // image under the left-align rule. Nearest-center reporting drifts:
+  // a narrow docked portrait loses to a wide successor's center, which
+  // then makes the next advance skip a frame.
+  const leftmostFrameIndex = (leftEdge: number) => {
+    const frames = trackRef.current?.querySelectorAll<HTMLElement>('[data-index]') ?? []
+    let nearest = 0
+    for (const frame of frames) {
+      const frameIndex = Number(frame.dataset.index ?? 1) - 1
+      if (frame.offsetLeft <= leftEdge + 1) nearest = frameIndex
+      else break
+    }
+    return nearest
+  }
+
   const reportStripPosition = () => {
     if (positionFrameRef.current !== null) return
     positionFrameRef.current = requestAnimationFrame(() => {
       positionFrameRef.current = null
-    const stage = stageRef.current
-    const track = trackRef.current
-    if (!stage || !track) return
-      const midpoint = -currentXRef.current + stage.clientWidth / 2
-    const frames = [...track.querySelectorAll<HTMLElement>('[data-index]')]
-    let nearest = 0
-    let nearestDistance = Number.POSITIVE_INFINITY
-    for (const frame of frames) {
-      const frameIndex = Number(frame.dataset.index ?? 1) - 1
-      const center = frame.offsetLeft + frame.offsetWidth / 2
-      const distance = Math.abs(center - midpoint)
-      if (distance < nearestDistance) {
-        nearest = frameIndex
-        nearestDistance = distance
-      }
-    }
+      const stage = stageRef.current
+      const track = trackRef.current
+      if (!stage || !track) return
+      const nearest = leftmostFrameIndex(-currentXRef.current)
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
@@ -187,10 +242,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       return
     }
     const started = performance.now()
-    const duration = 900
+    // Ease-in-out cubic: a quintic ease-out's violent initial velocity
+    // reads as the image snapping into place; a symmetric curve glides.
+    const duration = 1100
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
-      const eased = 1 - Math.pow(1 - progress, 5)
+      const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2
       const next = from + (destination - from) * eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
@@ -230,11 +287,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (mode !== 'strip') { step(direction); return }
+    // Wrap: right arrow at the last image returns to the first, left
+    // arrow at the first image jumps to the last.
+    const scrollX = -currentXRef.current
+    const bounds = getBounds()
+    if (direction === 1 && scrollX >= bounds.max - 1) { goTo(0); return }
+    if (direction === -1 && scrollX <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
     let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${indexRef.current + 1}"]`) ?? null
     let advance: number
     if (direction === 1) {
-      advance = Math.min(viewportWidth, frame?.offsetWidth ?? viewportWidth)
+      // Dock the next image: scroll until the following frame's left edge
+      // reaches the stage's left edge. Inside images wider than the stage
+      // that distance exceeds a viewport, so it pages through in viewport
+      // chunks and docks the next frame on the final step.
+      const target = frame?.nextElementSibling as HTMLElement | null
+      advance = Math.min(viewportWidth, Math.max(0, (target?.offsetLeft ?? scrollX + viewportWidth) - scrollX))
     } else {
       // Moving left: cover the lesser of the viewport width or the part of the
       // active image still hidden to the left of the stage edge. When the
@@ -307,6 +375,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onPointerCancel = (event: PointerEvent) => {
       if (pointerStart?.id === event.pointerId) pointerStart = null
     }
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pointerStart) return
+      const touch = event.touches[0]
+      if (touch && pointerStart.y - touch.clientY >= 32) dismiss()
+    }
     const onClick = () => {
       if (ignoreClick) { ignoreClick = false; return }
       dismiss()
@@ -316,12 +389,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     curtain.addEventListener('pointerdown', onPointerDown)
     curtain.addEventListener('pointerup', onPointerUp)
     curtain.addEventListener('pointercancel', onPointerCancel)
+    curtain.addEventListener('touchmove', onTouchMove, { passive: true })
     return () => {
       curtain.removeEventListener('click', onClick)
       curtain.removeEventListener('keydown', onKey)
       curtain.removeEventListener('pointerdown', onPointerDown)
       curtain.removeEventListener('pointerup', onPointerUp)
       curtain.removeEventListener('pointercancel', onPointerCancel)
+      curtain.removeEventListener('touchmove', onTouchMove)
       if (finishTimer) window.clearTimeout(finishTimer)
     }
   }, [])
@@ -369,7 +444,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (modalOpen || !document.body.classList.contains('gallery-entered')) return
+      if (modalOpen || infoOpen || !document.body.classList.contains('gallery-entered')) return
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -377,7 +452,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, mode, modalOpen, images.length])
+  }, [index, mode, modalOpen, infoOpen, images.length])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -430,17 +505,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current = currentXRef.current
-      dragSamplesRef.current = [{ x: event.clientX, time: performance.now() }]
+      dragSamplesRef.current = [{ x: 0, time: performance.now() }]
       stage.setPointerCapture(event.pointerId)
       stage.classList.add('is-dragging')
     }
     const onPointerMove = (event: PointerEvent) => {
       if (!draggingRef.current) return
-      const dx = event.clientX - lastPointerRef.current.x
+      // Vertical thumb scroll counts toward the strip: swipe up slides
+      // images right-to-left, swipe down slides them left-to-right.
+      const move = event.clientX - lastPointerRef.current.x + event.clientY - lastPointerRef.current.y
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
-      dragTargetXRef.current += dx
+      dragTargetXRef.current += move
       const now = performance.now()
-      dragSamplesRef.current.push({ x: event.clientX, time: now })
+      const previous = dragSamplesRef.current.at(-1)?.x ?? 0
+      dragSamplesRef.current.push({ x: previous + move, time: now })
       dragSamplesRef.current = dragSamplesRef.current.filter((sample) => now - sample.time < 100)
       scheduleDragTarget()
     }
@@ -487,16 +565,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [mode])
 
   useEffect(() => {
-    if (!modalOpen) return
+    if (!modalOpen && !infoOpen) return
+    const modal = modalOpen ? modalRef.current : infoModalRef.current
     previousFocusRef.current = document.activeElement as HTMLElement
     requestAnimationFrame(() => {
-      modalRef.current?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
-      modalRef.current?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
+      modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
+      modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
     })
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); setModalOpen(false); return }
-      if (event.key !== 'Tab' || !modalRef.current) return
-      const focusable = [...modalRef.current.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
+      if (event.key === 'Escape') { event.preventDefault(); setModalOpen(false); setInfoOpen(false); return }
+      if (event.key !== 'Tab' || !modal) return
+      const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
       if (!focusable.length) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
@@ -505,15 +584,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [modalOpen])
+  }, [modalOpen, infoOpen])
 
   useEffect(() => {
-    if (modalOpen) return
+    if (modalOpen || infoOpen) return
     if (previousFocusRef.current) {
       previousFocusRef.current.focus({ preventScroll: true })
       previousFocusRef.current = null
     }
-  }, [modalOpen])
+  }, [modalOpen, infoOpen])
 
   const openCredentials = async () => {
     if (!currentImage) return
@@ -542,9 +621,124 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const openImageProvenance = () => {
-    setModalOpen(true)
+    setInfoOpen(true)
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
   }
+
+  // HEIC originals can't render in a browser, so decode them at full
+  // resolution via libheif WASM — lazily, only when a frame enters the
+  // active window. The 256px JPEG variant shows while decoding.
+  const isHeic = (image: GalleryImage) => /\.hei[cf]$/i.test(image.filename)
+  const storeHeicSrc = (id: string, url: string) => {
+    // A decode finishing after teardown must not retain the blob.
+    if (unmountedRef.current) {
+      URL.revokeObjectURL(url)
+      return
+    }
+    heicUrlsRef.current.set(id, url)
+    setHeicSrc((previous) => ({ ...previous, [id]: url }))
+  }
+
+  const decodeHeic = async (image: GalleryImage) => {
+    if (heicPendingRef.current.has(image.id)) return
+    heicPendingRef.current.add(image.id)
+    let blob: Blob | undefined
+    try {
+      const { default: heic2any } = await import('heic2any')
+      const response = await fetch(image.src)
+      if (!response.ok) throw new Error(`HEIC fetch failed: ${response.status}`)
+      blob = await response.blob()
+      const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
+      // Older gallery records still point at JPEG renditions — a 'ftyp' box
+      // means real HEIC; anything else (JPEG, WebP) renders directly.
+      const isHeicBlob = head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70
+      if (!isHeicBlob) {
+        storeHeicSrc(image.id, URL.createObjectURL(blob))
+        return
+      }
+      const converted = await heic2any({ blob, toType: 'image/jpeg', quality: 0.95 })
+      const out = Array.isArray(converted) ? converted[0] : converted
+      storeHeicSrc(image.id, URL.createObjectURL(out))
+    } catch {
+      // libheif rejects some real HEIFs (10-bit, non-HEVC codecs, truncated
+      // files). Hand the untouched bytes to the browser — Safari renders
+      // HEIC natively; elsewhere the img's onError drops to the preview.
+      storeHeicSrc(image.id, blob ? URL.createObjectURL(blob) : image.src)
+    } finally {
+      // Clear pending so a pruned entry can decode again on re-entry.
+      heicPendingRef.current.delete(image.id)
+    }
+  }
+
+  // Vertical mode stacks every frame in document flow, so index windows
+  // mean nothing there — track the real viewport with an observer and keep
+  // only what intersects (with a viewport of preload margin) plus a small
+  // MRU tail of recently visible frames.
+  useEffect(() => {
+    if (mode !== 'vertical' || typeof IntersectionObserver === 'undefined') return
+    const track = trackRef.current
+    if (!track) return
+    const visible = new Set<number>()
+    const observer = new IntersectionObserver((entries) => {
+      let changed = false
+      for (const entry of entries) {
+        const frameIndex = Number((entry.target as HTMLElement).dataset.index ?? 0) - 1
+        if (frameIndex < 0) continue
+        if (entry.isIntersecting) {
+          if (!visible.has(frameIndex)) { visible.add(frameIndex); changed = true }
+        } else if (visible.delete(frameIndex)) changed = true
+      }
+      if (!changed) return
+      const tail = verticalMruRef.current.filter((i) => !visible.has(i))
+      verticalMruRef.current = [...visible, ...tail].slice(0, visible.size + VERTICAL_RETAIN)
+      setVerticalActive(new Set(verticalMruRef.current))
+    }, { rootMargin: '100% 0px' })
+    track.querySelectorAll<HTMLElement>('[data-index]').forEach((frame) => observer.observe(frame))
+    return () => {
+      observer.disconnect()
+      verticalMruRef.current = []
+      setVerticalActive(new Set())
+    }
+  }, [mode, images])
+
+  const isFrameActive = (imageIndex: number) => {
+    if (mode === 'vertical') {
+      return typeof IntersectionObserver === 'undefined'
+        ? Math.abs(imageIndex - index) <= 3
+        : verticalActive.has(imageIndex)
+    }
+    return mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index
+  }
+
+  useEffect(() => {
+    const keep = new Set<string>()
+    images.forEach((image, imageIndex) => {
+      if (!isFrameActive(imageIndex)) return
+      keep.add(image.id)
+      if (isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
+    })
+    // Decoded blobs are megabytes each — drop entries that leave the
+    // window and revoke their object URLs.
+    setHeicSrc((previous) => {
+      const entries = Object.entries(previous)
+      if (entries.every(([id]) => keep.has(id))) return previous
+      const next: Record<string, string> = {}
+      for (const [id, url] of entries) {
+        if (keep.has(id)) next[id] = url
+        else {
+          heicUrlsRef.current.delete(id)
+          URL.revokeObjectURL(url)
+        }
+      }
+      return next
+    })
+  }, [index, mode, images, heicSrc, verticalActive])
+
+  useEffect(() => () => {
+    unmountedRef.current = true
+    for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
+    heicUrlsRef.current.clear()
+  }, [])
 
   useEffect(() => {
     if (!currentImage || credentialState[currentImage.id] !== 'verified') return
@@ -587,47 +781,109 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           data-track
         >
           {images.map((image, imageIndex) => {
-            const isActive = mode === 'vertical' || (mode === 'strip' ? Math.abs(imageIndex - index) <= 2 : imageIndex === index)
-            const isPortrait = image.height > image.width
+            const isActive = isFrameActive(imageIndex)
+            const healed = healedDims[image.id]
+            const frameW = healed?.w ?? image.width
+            const frameH = healed?.h ?? image.height
+            const isPortrait = frameH > frameW
             return (
               <figure
                 class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
-                style={mode === 'strip' ? { aspectRatio: `${image.width} / ${image.height}` } : undefined}
+                aria-current={imageIndex === index ? 'true' : undefined}
+                style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 <img
-                  src={isActive ? image.src : image.placeholder}
-                  data-full-src={image.src}
-                  data-placeholder-src={image.placeholder}
-                  data-active={isActive ? 'true' : 'false'}
-                  alt={image.alt}
-                  width={image.width}
-                  height={image.height}
+                  class="frame-ph"
+                  src={isActive && isHeic(image) ? image.variants?.[0]?.src ?? image.placeholder : image.placeholder}
+                  alt=""
+                  aria-hidden="true"
+                  width={frameW}
+                  height={frameH}
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
+                {isActive && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
+                  <img
+                    class="frame-img"
+                    src={isHeic(image) ? heicSrc[image.id] : image.src}
+                    data-full-src={image.src}
+                    data-active="true"
+                    alt={image.alt}
+                    width={frameW}
+                    height={frameH}
+                    decoding="async"
+                    loading="eager"
+                    onError={(event: Event) => {
+                      if (!isHeic(image)) return
+                      // The browser couldn't decode the fallback HEIC bytes
+                      // either — swap to the JPEG preview so the frame still
+                      // shows a full-size image, not just the stretched thumb.
+                      const preview = image.variants?.[0]?.src ?? image.placeholder
+                      if (preview && heicSrc[image.id] !== preview) storeHeicSrc(image.id, preview)
+                    }}
+                    onLoad={(event: Event) => {
+                      const img = event.currentTarget as HTMLImageElement
+                      img.classList.add('is-loaded')
+                      // Records can carry guessed dims (4:3 fallback, stale
+                      // scans): once the real pixels decode, reshape the
+                      // frame so geometry always matches the photograph.
+                      if (img.naturalWidth && img.naturalHeight) {
+                        const stored = image.width / image.height
+                        const real = img.naturalWidth / img.naturalHeight
+                        if (Math.abs(real - stored) / stored > 0.02) {
+                          const frame = img.closest<HTMLElement>('.viewer-frame')
+                          if (frame) {
+                            const healed = { w: img.naturalWidth, h: img.naturalHeight }
+                            setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
+                            if (mode === 'strip') {
+                              frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                              // A corrected frame changes track geometry —
+                              // drop the cached bounds, then dock on the frame
+                              // actually holding the stage's left edge. An
+                              // in-flight advance aimed at a now-stale offset
+                              // is superseded by this instant re-dock.
+                              boundsDirtyRef.current = true
+                              requestAnimationFrame(() => {
+                                const docked = leftmostFrameIndex(-currentXRef.current)
+                                reportedIndexRef.current = docked
+                                setIndex(docked)
+                                settleTo(-imageStart(docked), true, true)
+                              })
+                            }
+                            frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
+                            frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
+                          }
+                        }
+                      }
+                    }}
+                  />
+                ) : null}
               </figure>
             )
           })}
         </div>
-        {arrowsVisible ? (
-          <div class="stage-arrows" aria-label="Image navigation">
-            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
-            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
-          </div>
-        ) : null}
+        <div class="stage-arrows" aria-label="Image navigation and information">
+          <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
+          {arrowsVisible ? (
+            <>
+              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
+              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
+            </>
+          ) : null}
+        </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Image information and Content Credentials" onClick={openImageProvenance}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
+      <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={() => setModalOpen(true)}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
 
       <div
         ref={modalRef}
         class="controls-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Image information and Content Credentials"
+        aria-label="Display settings"
         hidden={!modalOpen}
         onClick={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}
       >
@@ -635,59 +891,34 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>Current photograph</h2>
+              <h2>Display settings</h2>
             </div>
-            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setModalOpen(false)}>Close</button>
+            <button data-close class="quiet-button" aria-label="Close display settings" onClick={() => setModalOpen(false)}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="view-mode-heading">
             <h3 id="view-mode-heading">View mode</h3>
             <div class="mode-options" role="radiogroup" aria-label="View mode">
-              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); setModalOpen(false) }} /> <span>Strip</span><small>full-height, continuous</small></label>
+              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); setModalOpen(false) }} /> <span>Horizontal Strip</span><small>full-height, continuous</small></label>
               <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); setModalOpen(false) }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
               <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); setModalOpen(false) }} /> <span>One at a time</span><small>advance per gesture</small></label>
             </div>
           </section>
 
-          {mode === 'strip' ? (
-            <section class="panel-section" aria-labelledby="seam-heading">
-              <h3 id="seam-heading">Separators</h3>
-              <div class="mode-options" role="radiogroup" aria-label="Separators between photographs">
-                <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light ground, dark stripes</small></label>
-                <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark ground, light stripes</small></label>
-                <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
-              </div>
-            </section>
-          ) : null}
+          <section class="panel-section" aria-labelledby="border-heading">
+            <h3 id="border-heading">Borders</h3>
+            <div class="mode-options" role="radiogroup" aria-label="Borders around photographs">
+              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>light border, dark stripes</small></label>
+              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>dark border, light stripes</small></label>
+              <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
+            </div>
+          </section>
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
               {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); setModalOpen(false) }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); setModalOpen(false) }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
             </div>
-          </section>
-
-          <section class="panel-section" aria-labelledby="position-heading" hidden>
-            <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
-            <p class="quiet-copy">Photograph {index + 1} of {images.length}</p>
-          </section>
-
-          <section class="panel-section" aria-labelledby="info-heading" hidden>
-            <h3 id="info-heading">Image info</h3>
-            <dl class="info-grid">
-              <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
-              <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
-              {currentImage?.exif?.camera ? <div><dt>Camera</dt><dd>{currentImage.exif.camera}</dd></div> : null}
-              {currentImage?.exif?.lens ? <div><dt>Lens</dt><dd>{currentImage.exif.lens}</dd></div> : null}
-              {currentImage?.exif?.aperture ? <div><dt>Aperture</dt><dd>{currentImage.exif.aperture}</dd></div> : null}
-              {currentImage?.exif?.iso ? <div><dt>ISO</dt><dd>{currentImage.exif.iso}</dd></div> : null}
-              {currentImage?.exif?.dateOriginal ? <div><dt>Captured</dt><dd>{currentImage.exif.dateOriginal}</dd></div> : null}
-            </dl>
-          </section>
-
-          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading" hidden>
-            <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
-            {!currentImage?.c2pa ? <p class="quiet-copy">This photograph carries no Content Credentials.</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
           </section>
 
           <section class="panel-section" aria-labelledby="about-heading" hidden>
@@ -701,6 +932,49 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
             <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
             <p><kbd>Esc</kbd> close controls</p>
+          </section>
+        </div>
+      </div>
+
+      <div
+        ref={infoModalRef}
+        class="controls-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Image information and Content Credentials"
+        hidden={!infoOpen}
+        onClick={(event) => { if (event.target === event.currentTarget) setInfoOpen(false) }}
+      >
+        <div class="controls-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
+              <h2>Current photograph</h2>
+            </div>
+            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => setInfoOpen(false)}>Close</button>
+          </div>
+
+          <section class="panel-section" aria-labelledby="position-heading">
+            <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
+            <p class="quiet-copy">Photograph {index + 1} of {images.length}</p>
+          </section>
+
+          <section class="panel-section" aria-labelledby="info-heading">
+            <h3 id="info-heading">Image info</h3>
+            <dl class="info-grid">
+              <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
+              <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
+              {currentImage?.exif?.camera ? <div><dt>Camera</dt><dd>{currentImage.exif.camera}</dd></div> : null}
+              {currentImage?.exif?.lens ? <div><dt>Lens</dt><dd>{currentImage.exif.lens}</dd></div> : null}
+              {currentImage?.exif?.aperture ? <div><dt>Aperture</dt><dd>{currentImage.exif.aperture}</dd></div> : null}
+              {currentImage?.exif?.iso ? <div><dt>ISO</dt><dd>{currentImage.exif.iso}</dd></div> : null}
+              {currentImage?.exif?.dateOriginal ? <div><dt>Captured</dt><dd>{currentImage.exif.dateOriginal}</dd></div> : null}
+            </dl>
+          </section>
+
+          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading">
+            <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
+            {!currentImage?.c2pa ? <p class="quiet-copy">This photograph carries no Content Credentials.</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
           </section>
         </div>
       </div>

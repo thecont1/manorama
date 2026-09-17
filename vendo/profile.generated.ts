@@ -28,7 +28,7 @@ export const TOOLS_FILE = {
                 "type": "array"
               },
               "url": {
-                "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL to create the gallery from",
+                "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL to create the gallery from",
                 "type": "string"
               }
             },
@@ -143,7 +143,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -175,7 +175,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_delete_gallery",
@@ -214,7 +214,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_drive_file",
@@ -245,7 +245,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_drive_thumbnail",
@@ -284,7 +284,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_dropbox_file",
@@ -316,7 +316,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -348,7 +348,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_get_icloud_image",
@@ -385,7 +385,87 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+    },
+    {
+      "name": "host_get_mega_file",
+      "description": "Fetch a MEGA image. Fetch an original image from a public MEGA shared folder or collection. The AES-128-CTR ciphertext is fetched from MEGA's CDN and decrypted at proxy time using the node key.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "description": "The public folder handle (either folder or set is required)"
+          },
+          "set": {
+            "type": "string",
+            "description": "The public collection (Set) handle (either folder or set is required)"
+          },
+          "node": {
+            "type": "string",
+            "description": "The file node handle within the folder or collection"
+          },
+          "k": {
+            "type": "string",
+            "description": "The file's node key (base64url), decrypted at scan time from the share key"
+          }
+        },
+        "required": [
+          "node",
+          "k"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_mega_file",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/mega/file"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+    },
+    {
+      "name": "host_get_mega_preview",
+      "description": "Fetch a MEGA image preview. Fetch MEGA's generated JPEG/WebP preview for an image whose original browsers cannot render (HEIC, TIFF). The encrypted file attribute is fetched through MEGA's ufa endpoint and decrypted at proxy time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "description": "The public folder handle (either folder or set is required)"
+          },
+          "set": {
+            "type": "string",
+            "description": "The public collection (Set) handle (either folder or set is required)"
+          },
+          "h": {
+            "type": "string",
+            "description": "The file-attribute handle (base64url) from the node's fa string"
+          },
+          "k": {
+            "type": "string",
+            "description": "The file's node key (base64url), decrypted at scan time from the share key"
+          }
+        },
+        "required": [
+          "h",
+          "k"
+        ]
+      },
+      "risk": "ungraded",
+      "binding": {
+        "kind": "openapi",
+        "operationId": "get_mega_preview",
+        "baseUrl": "https://manorama.xyz",
+        "method": "GET",
+        "path": "/api/mega/preview"
+      },
+      "inputSchemaSource": "declared",
+      "outputSchemaSource": "unknown",
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_list_galleries",
@@ -496,7 +576,7 @@ export const TOOLS_FILE = {
                   "type": "string"
                 },
                 "sourceUrl": {
-                  "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                  "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                   "type": "string"
                 },
                 "title": {
@@ -530,7 +610,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_refresh_gallery",
@@ -648,7 +728,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -680,7 +760,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_scan_gallery_source",
@@ -692,7 +772,7 @@ export const TOOLS_FILE = {
             "additionalProperties": false,
             "properties": {
               "url": {
-                "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL",
+                "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL",
                 "type": "string"
               }
             },
@@ -818,7 +898,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     },
     {
       "name": "host_update_gallery",
@@ -968,7 +1048,7 @@ export const TOOLS_FILE = {
                 "type": "string"
               },
               "sourceUrl": {
-                "description": "Public source URL (Dropbox folder, Google Drive folder, or iCloud shared album) backing this gallery",
+                "description": "Public source URL (Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection) backing this gallery",
                 "type": "string"
               },
               "title": {
@@ -1000,7 +1080,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:f6f5a33e2e39c151d88a0266a40e11926c91b7bff84bb631677bda9b540dc488"
+      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
     }
   ]
 } as {
@@ -1029,6 +1109,9 @@ export const OVERRIDES_FILE = {
     "host_get_icloud_image": {
       "risk": "read"
     },
+    "host_get_mega_file": {
+      "risk": "read"
+    },
     "host_list_galleries": {
       "risk": "read"
     },
@@ -1040,6 +1123,9 @@ export const OVERRIDES_FILE = {
     },
     "host_update_gallery": {
       "risk": "write"
+    },
+    "host_get_mega_preview": {
+      "risk": "read"
     }
   },
   "remix": {

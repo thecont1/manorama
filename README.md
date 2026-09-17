@@ -1,10 +1,10 @@
 # manorama
 
-Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. The current prototype has one owner namespace, `thecontrarian`, and accepts public Dropbox folder, Google Drive folder, and iCloud shared album URLs without asking gallery providers to connect their accounts.
+Manorama is a photography-first publishing experience for sharing beautiful galleries with friends and family. The current prototype has one owner namespace, `thecontrarian`, and accepts public Dropbox folder, Google Drive folder, iCloud shared album, and MEGA folder or collection URLs without asking gallery providers to connect their accounts.
 
 ## Current workflow
 
-Open the noindex admin at `https://manorama.thecontrarian.workers.dev/`. Paste a public, download-enabled Dropbox folder, Google Drive folder ("Anyone with the link"), or iCloud shared album URL and choose **Manorama-fy it!**. Manorama detects the provider from the link, enumerates the shared images using its server-side credentials (Dropbox app credentials, a Drive API key, or none for iCloud), ignores non-image files, loads a low-resolution preview strip, and lets the owner arrange the images before adding the gallery.
+Open the noindex admin at `https://manorama.thecontrarian.workers.dev/`. Paste a public, download-enabled Dropbox folder, Google Drive folder ("Anyone with the link"), iCloud shared album, or MEGA folder/collection URL and choose **Manorama-fy it!**. Manorama detects the provider from the link, enumerates the shared images using its server-side credentials (Dropbox app credentials, a Drive API key, or none for iCloud and MEGA), ignores non-image files, loads a low-resolution preview strip, and lets the owner arrange the images before adding the gallery.
 
 Added galleries are stored as metadata and ordered image manifests. Original image bytes remain with the provider and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama’s reference only; it does not delete anything at the source.
 
@@ -44,7 +44,7 @@ The `Galleries` table uses these fields:
 | `title` | Single line text | Opening curtain and admin title |
 | `caption` | Long text | Opening curtain and admin caption |
 | `date` | Single line text | Optional displayed gallery date |
-| `sourceUrl` | URL or text | Public Dropbox, Google Drive, or iCloud shared album URL |
+| `sourceUrl` | URL or text | Public Dropbox, Google Drive, iCloud shared album, or MEGA folder/collection URL |
 | `createdAt` | Date/text | Recency ordering |
 | `imagesJson` | Long text | Ordered image metadata and transient source references |
 
@@ -78,6 +78,12 @@ Create a Google Cloud project, enable the Google Drive API, and create an API ke
 iCloud shared album links (`icloud.com/sharedalbum/#…` or `share.icloud.com/photos/…`) need no credentials — the album token is the only key. Manorama uses the undocumented `sharedstreams` endpoints that power Apple's own public album web viewer. Two consequences: the endpoint is unsupported and may change without notice, and shared albums serve web-optimized JPEG derivatives (~2048px) rather than originals, so iCloud images are never marked `c2pa`.
 
 iCloud **Drive** share links (`icloud.com/iclouddrive/…`) are a different product: folder contents sit behind authenticated CloudKit sharing and cannot be scanned anonymously, so they are rejected with guidance to use a Photos Shared Album instead.
+
+## MEGA setup
+
+MEGA shared folder links (`mega.nz/folder/{id}#{key}`) and collection links (`mega.nz/collection/{id}#{key}`, MEGA's "Sets") need no credentials — the share key in the link fragment is the decryption key. Manorama enumerates the source through MEGA's public API (`a:'f'` for folders, `a:'aft'` for collections), decrypts node keys and attributes client-side, and decrypts image content at proxy time (`/api/mega/file`) using AES-128-CTR with each file's node key. Formats browsers cannot render (HEIC, HEIF) are served through MEGA's generated JPEG/WebP previews (`/api/mega/preview`); images with no preview are excluded.
+
+Caveats: the API is undocumented; decryption happens per view so large sources mean per-request CPU cost; MEGA's free-tier bandwidth quota (HTTP 509) surfaces as a temporary failure; and the decrypted node key rides in the image proxy URL — equivalent in exposure to the public link itself. MEGA images are decrypted originals, so `c2pa` is preserved.
 
 ## Run locally
 
@@ -139,10 +145,12 @@ During gallery viewing, the stage contains only the quiet Gallery controls dot. 
 | `app/routes/[slug].tsx` | Legacy single-segment redirect into the owner namespace |
 | `app/islands/Admin.tsx` | Shared-link intake, image arrangement, gallery list, inline editing, copy, and delete |
 | `app/islands/Viewer.tsx` | Hydrated strip viewer, modal, modes, gestures, and C2PA trigger |
-| `app/lib/sources.ts` | Source link detection and scanner dispatch (Dropbox, Drive, iCloud) |
+| `app/lib/sources.ts` | Source link detection and scanner dispatch (Dropbox, Drive, iCloud, MEGA) |
 | `app/lib/dropbox-public.ts` | Public shared-link scan, thumbnail, and original delivery helpers |
 | `app/lib/gdrive-public.ts` | Link-shared Drive folder scan and image delivery helpers |
 | `app/lib/icloud-shared.ts` | Public iCloud shared album scan and derivative delivery helpers |
+| `app/lib/mega-public.ts` | Public MEGA folder/collection scan and decrypting file + preview delivery |
+| `app/lib/mega-crypto.ts` | Pure-JS AES-128 (ECB/CBC/CTR/CCM) + AES-GCM TLV for MEGA's client-side encryption |
 | `app/lib/gallery-repository.ts` | Airtable-backed gallery persistence and local fallback |
 | `app/lib/gallery-registry.ts` | Earlier generated registry seam retained for compatibility |
 | `app/lib/gallery-settings.ts` | Per-gallery viewer settings and browser fallback |

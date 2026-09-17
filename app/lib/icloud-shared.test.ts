@@ -28,6 +28,11 @@ describe('extractAlbumToken', () => {
     expect(extractAlbumToken(`https://share.icloud.com/photos/${TOKEN}`)).toBe(TOKEN)
   })
 
+  test('accepts URL-safe base64 tokens with underscores and hyphens', () => {
+    const keyful = 'D2Qv3tFZXL1DdQpxHAcXpw3cqMQCAEQARog37SEKLOdR2VGldxDb_fR8M0bWgl5JpBS53glgiYNxH8'
+    expect(extractAlbumToken(`https://www.icloud.com/sharedalbum/#${keyful}`)).toBe(keyful)
+  })
+
   test('returns null for other iCloud URLs', () => {
     expect(extractAlbumToken('https://www.icloud.com/photos')).toBeNull()
     expect(extractAlbumToken('https://www.icloud.com/sharedalbum/')).toBeNull()

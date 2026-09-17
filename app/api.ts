@@ -3,6 +3,7 @@ import { SourceFetchError } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudImage } from './lib/icloud-shared'
+import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
@@ -246,10 +247,14 @@ export const createManoramaApi = () => {
   api.get('/api/dropbox/thumbnail', async (c) => {
     const sourceUrl = c.req.query('sourceUrl')
     const filename = c.req.query('filename')
-    const size = c.req.query('size') === 'w2048h2048' ? 'w2048h2048' as const : 'w256h256' as const
+    const sizeParam = c.req.query('size')
+    const size = sizeParam === 'w2048h2048' || sizeParam === 'w1024h768' ? sizeParam : 'w256h256' as const
+    // Dropbox offers HEIC renditions only up to w1024h768; clamp so stored
+    // galleries with w2048h2048 preview URLs keep working.
+    const effectiveSize = filename && /\.hei[cf]$/i.test(filename) && size === 'w2048h2048' ? 'w1024h768' as const : size
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
-      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), size), 'private, max-age=300')
+      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'Dropbox thumbnail', `${filename} in ${sourceUrl}`, error)
     }
@@ -286,6 +291,32 @@ export const createManoramaApi = () => {
       return streamResponse(await fetchDriveFile(id, envOf(c), fetch, resourceKey), 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'Google Drive image', id, error)
+    }
+  })
+
+  api.get('/api/mega/file', async (c) => {
+    const folder = c.req.query('folder')
+    const set = c.req.query('set')
+    const node = c.req.query('node')
+    const key = c.req.query('k')
+    if ((!folder && !set) || !node || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    try {
+      return streamResponse(await fetchMegaFile(folder, set, node, key), 'private, max-age=300')
+    } catch (error) {
+      return proxyFailure(c, 'MEGA image', `${node} in ${folder ?? set}`, error)
+    }
+  })
+
+  api.get('/api/mega/preview', async (c) => {
+    const folder = c.req.query('folder')
+    const set = c.req.query('set')
+    const fah = c.req.query('h')
+    const key = c.req.query('k')
+    if ((!folder && !set) || !fah || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    try {
+      return streamResponse(await fetchMegaPreview(folder, set, fah, key), 'private, max-age=300')
+    } catch (error) {
+      return proxyFailure(c, 'MEGA preview', `${fah} in ${folder ?? set}`, error)
     }
   })
 

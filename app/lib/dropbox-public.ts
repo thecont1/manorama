@@ -1,6 +1,11 @@
 import { SourceFetchError, type GalleryImage } from './imagesource'
+import { parseJpegDimensions, probeImageDimensions } from './image-dims'
 
-const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|heic|heif|tiff?)$/i
+export { parseJpegDimensions }
+
+// Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
+// video, and every other file type are consciously ignored at scan.
+const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|avif|hei[cf])$/i
 const HEIC = /\.hei[cf]$/i
 const ALLOWED_HOSTS = new Set(['dropbox.com', 'www.dropbox.com'])
 
@@ -21,9 +26,10 @@ const validateFolderUrl = (input: string) => {
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 const originalProxy = (sourceUrl: string, filename: string) => `/api/dropbox/file?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
 const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
-// HEIC can't render in browsers; Dropbox transcodes to JPEG via the
-// thumbnail endpoint, so the display src is a large JPEG rendition.
-const previewProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w2048h2048`
+// HEIC can't render in browsers. Dropbox caps its JPEG renditions at
+// w1024h768, which reads soft at full bleed — so the display src is the
+// raw original and the viewer decodes it client-side (libheif WASM).
+// The JPEG variant stays for placeholders and the editor rail.
 
 const authHeaders = (env: DropboxEnv) => {
   if (!env.DROPBOX_APP_KEY || !env.DROPBOX_APP_SECRET) throw new Error('Dropbox app credentials are not configured')
@@ -43,10 +49,10 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
   return response.json() as Promise<T>
 }
 
-const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch) => {
+const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit) => {
   const response = await fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
-    headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg) },
+    headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg), ...headers },
   })
   // Dropbox reports a missing path inside a valid shared folder as 409 —
   // for the proxy that is a confirmed miss, not a conflict.
@@ -54,22 +60,11 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
   return response
 }
 
-const parseJpegDimensions = (bytes: Uint8Array) => {
-  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null
-  let offset = 2
-  while (offset + 9 < bytes.length) {
-    if (bytes[offset] !== 0xff) { offset += 1; continue }
-    const marker = bytes[offset + 1]
-    const length = (bytes[offset + 2] << 8) + bytes[offset + 3]
-    if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
-      return { width: (bytes[offset + 7] << 8) + bytes[offset + 8], height: (bytes[offset + 5] << 8) + bytes[offset + 6] }
-    }
-    offset += Math.max(2, length + 2)
-  }
-  return null
-}
-
-const thumbnailDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
+/** Resolution order: JPEG thumbnail probe → ranged fetch of the original's
+ *  head parsed by format → list_folder media_info → 4:3 guess. The head
+ *  probe keeps frames correctly shaped even when Dropbox can't render a
+ *  thumbnail for an accepted format. */
+const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   try {
     const response = await contentRequest('files/get_thumbnail_v2', {
       resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },
@@ -82,7 +77,15 @@ const thumbnailDimensions = async (sourceUrl: string, filename: string, env: Dro
   } catch {
     // A preview is helpful but not required to validate the folder.
   }
-  return { width: fallback?.width || 4, height: fallback?.height || 3 }
+  if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
+  try {
+    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetchImpl, { Range: 'bytes=0-131071' })
+    const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
+    if (dimensions) return dimensions
+  } catch {
+    // Fall through to the 4:3 guess.
+  }
+  return { width: 4, height: 3 }
 }
 
 const collectEntries = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
@@ -120,11 +123,11 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
   const folderName = await sharedLinkName(sourceUrl, env, fetchImpl)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   const images = await Promise.all(entries.map(async (entry, index) => {
-    const dimensions = await thumbnailDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, fetchImpl)
+    const dimensions = await imageDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, fetchImpl)
     return {
       id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
       filename: entry.name,
-      src: HEIC.test(entry.name) ? previewProxy(sourceUrl, entry.name) : originalProxy(sourceUrl, entry.name),
+      src: originalProxy(sourceUrl, entry.name),
       width: dimensions.width,
       height: dimensions.height,
       alt: filenameLabel(entry.name),
@@ -141,7 +144,7 @@ export const fetchDropboxFile = async (sourceUrlInput: string, filename: string,
   return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env)
 }
 
-export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w2048h2048' = 'w256h256') => {
+export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w1024h768' | 'w2048h2048' = 'w256h256') => {
   const sourceUrl = validateFolderUrl(sourceUrlInput)
   return contentRequest('files/get_thumbnail_v2', {
     resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },

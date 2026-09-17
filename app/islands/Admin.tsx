@@ -1,4 +1,4 @@
-import { useRef, useState } from 'hono/jsx'
+import { useEffect, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 
@@ -20,6 +20,10 @@ type GalleryDrag = {
   currentIndex: number
   images: GallerySummary['images']
 }
+type Theme = 'light' | 'dark'
+
+const THEME_KEY = 'manorama:theme'
+const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
 
 const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
 const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) => {
@@ -55,7 +59,9 @@ const friendlySourceError = (error: unknown) => {
   if (/Google Drive folder was not found|could not read that Google Drive/i.test(message)) return 'Manorama could not read that Google Drive folder. Check that it is shared with "Anyone with the link".'
   if (/could not read that iCloud|could not locate that shared album/i.test(message)) return 'Manorama could not read that iCloud album. Check that it is a public Shared Album link.'
   if (/iCloud Drive links cannot be read/i.test(message)) return 'That is an iCloud Drive link, which Apple keeps behind sign-in. In Photos, share a Shared Album instead and paste its public link.'
-  if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, TIFF, or HEIC images and try again.'
+  if (/Use a public MEGA|usable key|MEGA link was not found|could not read that MEGA|MEGA folder was not found/i.test(message)) return 'Paste a public MEGA folder or collection link (mega.nz/folder/… or mega.nz/collection/…) with its #key fragment.'
+  if (/MEGA is rate limiting|bandwidth limit/i.test(message)) return 'MEGA is rate limiting requests — wait a few minutes and try again.'
+  if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, AVIF, HEIC, or HEIF images and try again.'
   if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that link. Check that it is public, downloading is enabled, and the URL points to the folder or album itself.'
   if (/not configured|credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach that service. Please try again later.'
   return 'We could not read that link. Check the URL and try again.'
@@ -65,6 +71,7 @@ const CopyIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y
 const TrashIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 4h4l1 3H9l1-3ZM8 7l.7 13h6.6L16 7M10 10v7M14 10v7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
 const OpenIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M19 13v5.5A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-11A1.5 1.5 0 0 1 6.5 6H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
 const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 16M4 20v-4h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+const SourceIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5v9A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 19 8h-7.5L9.5 5.5A1.5 1.5 0 0 0 8.5 5H5a1.5 1.5 0 0 0-1.5 1.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /><path d="M3.5 8.5h17" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
 
 /** Renders the owner's dashboard for importing, editing, and managing galleries. */
 export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free' }: Props) {
@@ -75,10 +82,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const announce = (message: string) => {
+  // In-progress messages are sticky: they hold until the outcome
+  // announcement replaces them, so the toast never outlives "Working…".
+  const announce = (message: string, sticky = false) => {
     setStatus(message)
     if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setStatus(''), 5000)
+    if (!sticky && message) toastTimer.current = setTimeout(() => setStatus(''), 5000)
   }
   // Flash messages survive the redirect that follows an owner-slug change.
   const flashChecked = useRef(false)
@@ -89,6 +98,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
   const [busy, setBusy] = useState(false)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof localStorage === 'undefined') return 'dark'
+    try {
+      return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+    } catch {
+      return 'dark'
+    }
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'light') root.classList.add('light')
+    else root.classList.remove('light')
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch { /* private browsing */ }
+  }, [theme])
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
@@ -116,7 +142,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     if (busy) return
     setBusy(true)
-    announce('Saving…')
+    announce('Saving…', true)
     try {
       const response = await fetch('/api/account', {
         method: 'PATCH',
@@ -136,7 +162,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
    const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
     if (busy) return
     setBusy(true)
-    announce('Saving order…')
+    announce('Saving order…', true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
         method: 'PATCH',
@@ -237,7 +263,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const url = sourceUrl.trim()
     if (!url) return
     setBusy(true)
-    announce("Manorama-fying…")
+    announce("Manorama-fying…", true)
     try {
       const response = await fetch("/api/galleries", {
         method: "POST",
@@ -284,7 +310,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     saveEditingInFlight.current = true
     setBusy(true)
-    announce('Saving…')
+    announce('Saving…', true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(editing.slug)}`, {
         method: 'PATCH',
@@ -327,7 +353,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const removeGallery = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl || !window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
     setBusy(true)
-    announce('Removing gallery…')
+    announce('Removing gallery…', true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, { method: 'DELETE' })
       const payload = await response.json() as { error?: string }
@@ -344,7 +370,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const refreshGallery = async (gallery: GallerySummary) => {
     if (!gallery.sourceUrl) return
     setBusy(true)
-    announce(`Refreshing “${gallery.title}”…`)
+    announce(`Refreshing “${gallery.title}”…`, true)
     try {
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, { method: 'POST' })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
@@ -413,6 +439,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
           </div>
         </div>
+        <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
+          <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
+        </button>
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
@@ -425,24 +454,24 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           return <p class="admin-limit-count" aria-live="polite">{have} {can}</p>
         })()}
         <form class="gallery-import-form" onSubmit={addGallery}>
-          <label class="admin-field"><span>Public Dropbox, Google Drive, or iCloud link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, or iCloud shared album link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
+          <label class="admin-field"><span>Public Dropbox, Google Drive, iCloud, or MEGA link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, iCloud album, or MEGA link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
-        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, or iCloud.</p>
+        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">
         {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
-          <div class="gallery-card-url-row"><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button></div>
+          <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
               {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable onDragStart={(event: DragEvent) => { setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, image ${imageIndex + 1} of ${gallery.images.length}`}>
-                <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" />
+                <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
               </figure>)}
             </div>
           </div>
-          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title="Refresh from source" aria-label={`Refresh ${gallery.title} from its source link`} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button> : null}</div>
+          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title="Refresh from source" aria-label={`Refresh ${gallery.title} from its source link`} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button> : null}</div>
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
 

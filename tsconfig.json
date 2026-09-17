@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"],
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "noEmit": true
   },
   "include": ["app", "vendo", "vite.config.ts", "build-gallery.mjs"]
