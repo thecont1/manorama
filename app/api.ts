@@ -1,13 +1,14 @@
 import { Hono, type Context } from 'hono'
-import { SourceFetchError } from './lib/imagesource'
+import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
-import { fetchICloudImage } from './lib/icloud-shared'
+import { fetchICloudImage, fetchICloudVideo } from './lib/icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
-import { scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
+import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
-import { OwnerSlugError, updateOwnerSlug } from './lib/user-repository'
+import { OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { ogCardResponse, ogItemKey } from './lib/og-card'
 
 type RequestBody = { url?: string; order?: string[] }
 
@@ -28,6 +29,10 @@ export type RuntimeEnv = {
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
+
+/** The public address of a gallery. Quick-add redirects the visitor here
+ *  the moment a create succeeds (or is found to already exist). */
+const galleryUrlFor = (ownerSlug: string, slug: string) => `/${ownerSlug}/${slug}`
 const dbEnv = (c: { env: unknown }) => c.env as GalleryEnv
 
 const slugify = (value: string) => value
@@ -69,6 +74,25 @@ const streamResponse = (response: Response, cacheControl: string) => {
   headers.set('Cache-Control', cacheControl)
   headers.set('X-Content-Type-Options', 'nosniff')
   return new Response(response.body, { status: 200, headers })
+}
+
+/** Streams a media response preserving range semantics: a 206 keeps its
+ *  status, Content-Range and Content-Length so the browser's media stack
+ *  can seek, and Accept-Ranges advertises the capability on full
+ *  responses too. Used by the video proxy; images stay on the simpler
+ *  always-200 path above. */
+const streamRangeResponse = (response: Response, cacheControl: string) => {
+  const headers = new Headers()
+  headers.set('Content-Type', response.headers.get('Content-Type') || 'application/octet-stream')
+  headers.set('Cache-Control', cacheControl)
+  headers.set('X-Content-Type-Options', 'nosniff')
+  headers.set('Accept-Ranges', response.headers.get('Accept-Ranges') || 'bytes')
+  const contentRange = response.headers.get('Content-Range')
+  if (contentRange) headers.set('Content-Range', contentRange)
+  const contentLength = response.headers.get('Content-Length')
+  if (contentLength) headers.set('Content-Length', contentLength)
+  const status = response.status === 206 ? 206 : 200
+  return new Response(response.body, { status, headers })
 }
 
 /**
@@ -117,10 +141,28 @@ export const createManoramaApi = () => {
       if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= galleryLimit(session.tier)) {
         return c.json({ error: limitMessage }, 403)
       }
+      // Quick-add revisit fast path: when the pasted link canonicalizes to
+      // a gallery this owner already has, reopen it WITHOUT re-scanning
+      // the provider. Without this a revisit pays a full album scan just
+      // to be told 409 — and a provider hiccup would turn a known-good
+      // link into a 422 instead of a redirect.
+      const existingBefore = (await listGalleries(session.dropboxAccountId, dbEnv(c)))
+        .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, payload.url!))
+      if (existingBefore) return c.json({
+        error: 'A gallery from that link already exists',
+        gallery: toSummary(existingBefore),
+        galleryUrl: galleryUrlFor(session.ownerSlug, existingBefore.slug),
+      }, 409)
       const scan = await scanSource(payload.url, envOf(c))
       const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
-      if (sourceUrlMatch) return c.json({ error: 'A gallery from that link already exists' }, 409)
+      // A revisit to /<share-url> must reopen the gallery that link already
+      // produced, so the 409 carries the existing gallery and its address.
+      if (sourceUrlMatch) return c.json({
+        error: 'A gallery from that link already exists',
+        gallery: toSummary(sourceUrlMatch),
+        galleryUrl: galleryUrlFor(session.ownerSlug, sourceUrlMatch.slug),
+      }, 409)
       const orderedImages = payload.order?.length
         ? (() => {
             const seen = new Set<string>()
@@ -152,9 +194,17 @@ export const createManoramaApi = () => {
           createdAt: new Date().toISOString(),
           images: orderedImages,
         }, galleryLimit(session.tier), dbEnv(c))
-        if (result.ok) return c.json({ gallery: toSummary(result.gallery) }, 201)
+        if (result.ok) return c.json({ gallery: toSummary(result.gallery), galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug) }, 201)
         if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
-        if (result.reason === 'duplicate-source') return c.json({ error: 'A gallery from that link already exists' }, 409)
+        if (result.reason === 'duplicate-source') {
+          // Lost the race to a concurrent create of the same link — resolve
+          // the winner so this caller still gets somewhere to go.
+          const existing = (await listGalleries(session.dropboxAccountId, dbEnv(c))).find((item) => item.sourceUrl === scan.sourceUrl)
+          return c.json({
+            error: 'A gallery from that link already exists',
+            ...(existing ? { gallery: toSummary(existing), galleryUrl: galleryUrlFor(session.ownerSlug, existing.slug) } : {}),
+          }, 409)
+        }
         if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
         slug = `${baseSlug}-${suffix}`
         suffix += 1
@@ -329,6 +379,48 @@ export const createManoramaApi = () => {
       return streamResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'iCloud image', `${photo} in ${album}`, error)
+    }
+  })
+
+  /** Video derivatives, Range-forwarded so seeking costs a slice rather
+   *  than the whole clip. Public like the image proxies — a gallery page
+   *  is public, and the derivative URL is as sensitive as the album link
+   *  itself. Never cached: asset URLs expire. */
+  api.get('/api/icloud/video', async (c) => {
+    const album = c.req.query('album')
+    const photo = c.req.query('photo')
+    const checksum = c.req.query('c')
+    if (!album || !photo || !checksum) return c.json({ error: 'Missing iCloud video reference' }, 400)
+    try {
+      const range = c.req.header('Range')
+      return streamRangeResponse(await fetchICloudVideo(album, photo, checksum, range), 'private, no-store')
+    } catch (error) {
+      return proxyFailure(c, 'iCloud video', `${photo} in ${album}`, error)
+    }
+  })
+
+  /**
+   * Per-gallery Open Graph card. Public by necessity: crawlers carry no
+   * cookies, exactly like the image proxies above. `?i=` is the first
+   * item's key — it participates in the cache key only, so a reorder
+   * busts the edge cache without a purge.
+   *
+   * Every failure — unknown owner, missing gallery, empty gallery, a
+   * compositor fault — redirects to the static card so a crawler is
+   * never handed an error page where an image belongs.
+   */
+  api.get('/api/og/:owner/:slug', async (c) => {
+    const fallback = () => c.redirect(new URL('/og-image.png', c.req.url).toString(), 302)
+    try {
+      const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
+      if (!user) return fallback()
+      const gallery = await getGallery(user.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+      const first = gallery?.images?.[0] as GalleryMediaItem | undefined
+      if (!first) return fallback()
+      return await ogCardResponse(first, c.req.url)
+    } catch (error) {
+      console.error('og card failure', { path: c.req.path, error })
+      return fallback()
     }
   })
 

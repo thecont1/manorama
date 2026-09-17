@@ -1,0 +1,125 @@
+/**
+ * Quick-add client. The server rendered either the "working" panel (a
+ * session exists) or the "sign-in" panel; this module does the part only
+ * a browser can.
+ *
+ * THE FRAGMENT PROBLEM: MEGA and iCloud links carry their decryption key
+ * after `#`, and a browser never transmits a fragment. So the server saw
+ * a truncated link. Here the full URL is rebuilt from what the address
+ * bar actually holds — `location.pathname` tail + `search` + `hash` — and
+ * that reconstruction is what gets POSTed, and what rides through OAuth
+ * in `?next=` so the round trip lands back on an identical URL.
+ */
+
+const PENDING_KEY = 'manorama:pending-source'
+const LOOP_GUARD_KEY = 'manorama:quickadd-attempt'
+
+/** Rebuilds the share URL exactly as the visitor pasted it. */
+export const reconstructSourceUrl = (location: { pathname: string; search: string; hash: string }) => {
+  let candidate = location.pathname.replace(/^\/+/, '')
+  try {
+    candidate = decodeURIComponent(candidate)
+  } catch {
+    // A malformed escape stays as-is rather than throwing.
+  }
+  candidate = candidate.replace(/^(https?):\/+/i, '$1://')
+  if (!/^https?:\/\//i.test(candidate)) candidate = `https://${candidate}`
+  // search and hash are already raw — the fragment is the MEGA/iCloud key.
+  return `${candidate}${location.search}${location.hash}`
+}
+
+const statusNode = () => document.querySelector<HTMLElement>('[data-quickadd-status]')
+const setStatus = (message: string) => {
+  const node = statusNode()
+  if (node) node.textContent = message
+}
+
+/** Swaps the working panel for the sign-in panel without a reload — the
+ *  session expired between render and submit. */
+const showSignInPanel = (root: HTMLElement, sourceUrl: string) => {
+  root.dataset.mode = 'signin'
+  const working = root.querySelector<HTMLElement>('[data-panel="working"]')
+  if (working) {
+    working.innerHTML = `
+      <h1 class="quickadd-title">Sign in to open this album</h1>
+      <p class="quickadd-copy">Manorama needs a Dropbox sign-in before it can build your gallery.</p>
+      <a class="landing-signin quickadd-signin" data-quickadd-signin href="/auth/dropbox">Continue with Dropbox</a>
+      <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>`
+    working.dataset.panel = 'signin'
+  }
+  wireSignIn(sourceUrl)
+}
+
+/** Points the sign-in button back at this exact URL, fragment included,
+ *  and stashes the link as a cookie-expiry fallback. */
+const wireSignIn = (sourceUrl: string) => {
+  const button = document.querySelector<HTMLAnchorElement>('[data-quickadd-signin]')
+  if (button) button.href = `/auth/dropbox?next=${encodeURIComponent(location.href)}`
+  try {
+    localStorage.setItem(PENDING_KEY, sourceUrl)
+  } catch {
+    // Private browsing — the OAuth `next` cookie remains the real record.
+  }
+}
+
+const createGallery = async (sourceUrl: string, root: HTMLElement) => {
+  // Loop guard: if a create somehow returns us to this URL again, do not
+  // retry forever.
+  try {
+    const previous = sessionStorage.getItem(LOOP_GUARD_KEY)
+    if (previous === location.href) {
+      setStatus('That link was already attempted. Open your dashboard to see your galleries.')
+      return
+    }
+    sessionStorage.setItem(LOOP_GUARD_KEY, location.href)
+  } catch {
+    // Storage unavailable — proceed without the guard.
+  }
+
+  let response: Response
+  try {
+    response = await fetch('/api/galleries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: sourceUrl }),
+    })
+  } catch {
+    setStatus('Manorama could not reach the server. Check your connection and reload.')
+    return
+  }
+
+  const payload = await response.json().catch(() => ({})) as {
+    galleryUrl?: string
+    gallery?: { slug?: string }
+    error?: string
+  }
+
+  // 201 created, or 409 "already exists" — both know where the gallery
+  // lives, and both should simply open it.
+  if ((response.status === 201 || response.status === 409) && payload.galleryUrl) {
+    try { localStorage.removeItem(PENDING_KEY) } catch { /* best effort */ }
+    location.replace(payload.galleryUrl)
+    return
+  }
+  if (response.status === 401) { showSignInPanel(root, sourceUrl); return }
+  if (response.status === 403) { setStatus(payload.error || 'You are using all of your galleries. Remove one to add another.'); return }
+
+  const { friendlySourceError } = await import('./lib/source-errors')
+  setStatus(friendlySourceError(payload.error))
+}
+
+const start = () => {
+  const root = document.querySelector<HTMLElement>('[data-quickadd]')
+  if (!root) return
+  const sourceUrl = reconstructSourceUrl(location)
+  if (root.dataset.mode === 'create') void createGallery(sourceUrl, root)
+  else wireSignIn(sourceUrl)
+}
+
+// Auto-start only in a browser. The module is imported by tests (and
+// could be pulled into an SSR graph), where touching `document` at import
+// time would throw before anything is even rendered.
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start)
+  else start()
+}

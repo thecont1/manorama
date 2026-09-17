@@ -31,7 +31,7 @@ export default defineConfig(() => ({
           /^\/\.vendo\/.*/,
         ],
       },
-      client: { input: ['/app/client.ts', '/app/vendo-client.tsx', '/app/styles.css'] },
+      client: { input: ['/app/client.ts', '/app/vendo-client.tsx', '/app/quickadd.ts', '/app/styles.css'] },
     }),
     build(),
   ],
