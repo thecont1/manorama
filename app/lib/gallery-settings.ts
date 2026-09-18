@@ -1,4 +1,4 @@
-import type { GalleryImage, GalleryManifest } from './imagesource'
+import type { GalleryMediaItem, GalleryManifest } from './imagesource'
 
 export type ViewerMode = 'strip' | 'vertical' | 'single'
 
@@ -84,7 +84,10 @@ export const clearGallerySettings = (slug: string) => {
   window.localStorage.removeItem(settingsStorageKey(slug))
 }
 
-export const imageWithSettings = (image: GalleryImage, settings: GallerySettings): GalleryImage => ({
+/** Applies the owner's per-item caption/alt overrides. Keyed by `id`, so
+ *  it works identically for images and videos — the spread preserves
+ *  whichever union member came in, `type` discriminant included. */
+export const imageWithSettings = <T extends GalleryMediaItem>(image: T, settings: GallerySettings): T => ({
   ...image,
   alt: settings.imageAlts[image.id] || image.alt,
   caption: settings.imageCaptions[image.id] || undefined,

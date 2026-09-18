@@ -227,6 +227,23 @@ describe('scanMegaFolder', () => {
     await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('No image files')
   })
 
+  test('emits the decrypted preview as the rail variant so admin never loads originals', async () => {
+    const node = fileNode('IMG_0002.jpg', { fa: `1*${FA_HANDLE}` })
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (String(input).includes('cs?')) {
+        if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, node] }])
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+        if (body[0]?.a === 'ufa') return jsonResponse({ p: 'https://cdntest/attr' })
+      }
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
+    const image = scan.images[0]!
+    expect(image.src).toContain('/api/mega/file?')
+    expect(image.variants?.[0]?.src).toContain(`/api/mega/preview?folder=${FOLDER_HANDLE}&h=${FA_HANDLE}&k=`)
+  })
+
   test('accepts AVIF and consciously ignores PNG, GIF, and TIFF', async () => {
     const fetchImpl = async () => jsonResponse([{ f: [
       folderNode,

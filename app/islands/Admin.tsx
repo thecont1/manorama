@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
+import { friendlySourceError } from '../lib/source-errors'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -26,6 +27,18 @@ const THEME_KEY = 'manorama:theme'
 const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
 
 const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
+
+/** Summary items gain `type: 'video'` only for videos — an absent `type`
+ *  is an image, exactly as in the stored manifest. */
+const isVideoPreview = (image: ReorderableGalleryImage): image is ReorderableGalleryImage & { type: 'video'; durationSeconds?: number } =>
+  (image as { type?: string }).type === 'video'
+const itemKind = (image: ReorderableGalleryImage) => isVideoPreview(image) ? 'video' : 'image'
+const videoBadge = (image: ReorderableGalleryImage) => {
+  const seconds = isVideoPreview(image) ? image.durationSeconds : undefined
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '▶'
+  const total = Math.round(seconds)
+  return `▶ ${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
 const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) => {
   const aTime = a.createdAt ? Date.parse(a.createdAt) : 0
   const bTime = b.createdAt ? Date.parse(b.createdAt) : 0
@@ -49,22 +62,6 @@ const scrollToGalleryCard = (slug: string) => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     window.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' })
   })
-}
-
-const friendlySourceError = (error: unknown) => {
-  const message = error instanceof Error ? error.message : ''
-  if (/Use a public Dropbox folder link/i.test(message)) return 'Paste a public Dropbox folder link, not a file link.'
-  if (/Use a public Google Drive folder link/i.test(message)) return 'Paste a Google Drive folder link, not a file link.'
-  if (/Use a public iCloud shared album link/i.test(message)) return 'Paste a public iCloud Shared Album link (icloud.com/sharedalbum or share.icloud.com/photos).'
-  if (/Google Drive folder was not found|could not read that Google Drive/i.test(message)) return 'Manorama could not read that Google Drive folder. Check that it is shared with "Anyone with the link".'
-  if (/could not read that iCloud|could not locate that shared album/i.test(message)) return 'Manorama could not read that iCloud album. Check that it is a public Shared Album link.'
-  if (/iCloud Drive links cannot be read/i.test(message)) return 'That is an iCloud Drive link, which Apple keeps behind sign-in. In Photos, share a Shared Album instead and paste its public link.'
-  if (/Use a public MEGA|usable key|MEGA link was not found|could not read that MEGA|MEGA folder was not found/i.test(message)) return 'Paste a public MEGA folder or collection link (mega.nz/folder/… or mega.nz/collection/…) with its #key fragment.'
-  if (/MEGA is rate limiting|bandwidth limit/i.test(message)) return 'MEGA is rate limiting requests — wait a few minutes and try again.'
-  if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, AVIF, HEIC, or HEIF images and try again.'
-  if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that link. Check that it is public, downloading is enabled, and the URL points to the folder or album itself.'
-  if (/not configured|credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach that service. Please try again later.'
-  return 'We could not read that link. Check the URL and try again.'
 }
 
 const CopyIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
@@ -106,6 +103,25 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       return 'dark'
     }
   })
+
+  // Quick-add resume. The `manorama_oauth_next` cookie is the real record
+  // of an interrupted /<share-url> flow; this is the fallback for when it
+  // expired (10 min) but the visitor did finish signing in. Cleared on
+  // read either way, so it can never fire twice.
+  useEffect(() => {
+    let pending: string | null = null
+    try {
+      pending = localStorage.getItem('manorama:pending-source')
+      if (pending) localStorage.removeItem('manorama:pending-source')
+    } catch {
+      return
+    }
+    if (!pending) return
+    // Already handled by the OAuth `next` redirect if a gallery from this
+    // link exists — addGallery's 409 path reports that harmlessly.
+    setSourceUrl(pending)
+    announce('Your shared link is ready to add — press Manorama-fy to finish.')
+  }, [])
 
   useEffect(() => {
     const root = document.documentElement
@@ -466,8 +482,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
-              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable onDragStart={(event: DragEvent) => { setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, image ${imageIndex + 1} of ${gallery.images.length}`}>
+              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable onDragStart={(event: DragEvent) => { setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
               </figure>)}
             </div>
           </div>

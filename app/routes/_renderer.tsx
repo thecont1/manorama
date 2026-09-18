@@ -24,6 +24,8 @@ export default jsxRenderer(({ children, title, description, ogImage }, c) => {
       <meta property="og:title" content={title ?? 'manorama'} />
       {description ? <meta property="og:description" content={description} /> : null}
       <meta property="og:image" content={absoluteImage} />
+      {/* The default card is a PNG; per-gallery cards are composited JPEG. */}
+      <meta property="og:image:type" content={ogImage ? 'image/jpeg' : 'image/png'} />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
       <meta property="og:url" content={`${origin}${c.req.path}`} />

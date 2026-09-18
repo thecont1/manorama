@@ -16,6 +16,10 @@ export type ImageVariant = {
 }
 
 export type GalleryImage = {
+  /** Absent on every manifest written before video support — an item with
+   *  no `type` IS an image. Never write `type: 'image'` into stored JSON:
+   *  all-photo manifests must stay byte-identical (zero migration). */
+  type?: 'image'
   id: string
   /** Provider-stable item key (Drive file ID, iCloud photo GUID). Ordering
    *  and refresh dedupe use `ref ?? filename` — Dropbox filenames are unique
@@ -34,16 +38,80 @@ export type GalleryImage = {
   variants?: readonly ImageVariant[]
 }
 
+/** A still frame standing in for a video before it decodes. Always a real
+ *  provider derivative (iCloud ships one per video) — never generated. */
+export type VideoPoster = {
+  src: string
+  width: number
+  height: number
+}
+
+/** A WebVTT track. Unpopulated in v1 — iCloud shared albums carry no
+ *  caption assets — but the viewer renders <track> when one appears. */
+export type VideoCaptionTrack = {
+  src: string
+  srclang: string
+  label: string
+  kind?: 'captions' | 'subtitles'
+  default?: boolean
+}
+
+/**
+ * A video slide. Ambient muted-loop is the universal playback model in v1:
+ * there is deliberately no per-item `playback.mode`. `variants` carries the
+ * poster thumbnail so every `variants?.[0]?.src` consumer (the admin rail,
+ * strip previews) keeps working without knowing videos exist.
+ */
+export type VideoItem = {
+  type: 'video'
+  id: string
+  ref?: string
+  filename: string
+  /** Proxy URL for the H.264 MP4 derivative — Range-capable. */
+  src: string
+  mimeType: 'video/mp4'
+  width: number
+  height: number
+  /** Best-effort from the provider record; the viewer falls back to
+   *  `loadedmetadata` when absent. */
+  durationSeconds?: number
+  poster: VideoPoster
+  alt: string
+  caption?: string
+  /** Shared-album derivatives are transcodes; provenance never survives. */
+  c2pa: false
+  placeholder: string
+  variants?: readonly ImageVariant[]
+  // Forward-compatible, unpopulated in v1:
+  sources?: readonly { src: string; mimeType: string }[]
+  captions?: readonly VideoCaptionTrack[]
+  transcript?: string
+  credit?: string
+}
+
+/** The ordered sequence a gallery actually is: images and videos, mixed. */
+export type GalleryMediaItem = GalleryImage | VideoItem
+
+/** The one discriminant check. An absent `type` means image, so this is
+ *  the only safe way to narrow a stored manifest entry. */
+export const isVideoItem = (item: GalleryMediaItem): item is VideoItem =>
+  (item as VideoItem).type === 'video'
+
+/** Poster for videos, the image itself otherwise — the still every
+ *  non-playing surface (OG card, magnifier clone, rail thumb) wants. */
+export const stillSourceOf = (item: GalleryMediaItem): string =>
+  isVideoItem(item) ? item.poster.src : item.src
+
 export type GalleryManifest = {
   slug: string
   title: string
   caption: string
   date: string
-  images: readonly GalleryImage[]
+  images: readonly GalleryMediaItem[]
 }
 
 export interface ImageSource {
-  list(): readonly GalleryImage[]
+  list(): readonly GalleryMediaItem[]
   url(id: string, variant?: number | 'original'): string
 }
 

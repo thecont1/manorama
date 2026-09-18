@@ -813,3 +813,144 @@ html.light .admin-gallery-url:hover, html.light .admin-gallery-url:focus-visible
 html.light .admin-row-action:hover, html.light .admin-row-action:focus-visible { border-color: #000; color: #000; }
 html.light .admin-icon-action:hover, html.light .admin-icon-action:focus-visible { color: #000; }
 html.light .gallery-selector-field option { background: #e9e5dc; }
+
+
+/* ── M magnifier ─────────────────────────────────────────────────────
+   A glass ball that replaces the cursor. Fixed to the viewport and
+   pointer-transparent so it never intercepts a click; the stage hides
+   its own cursor while the lens is up. Decorative by design — the
+   mirrored DOM is aria-hidden, since it duplicates content the page
+   already exposes. */
+.viewer-stage.is-magnified { cursor: none; }
+.viewer-stage.is-magnified * { cursor: none; }
+.magnifier-lens {
+  position: fixed;
+  z-index: 35;
+  width: clamp(180px, 20vmin, 260px);
+  height: clamp(180px, 20vmin, 260px);
+  border-radius: 50%;
+  overflow: hidden;
+  pointer-events: none;
+  background: #0a0a0a;
+  box-shadow:
+    inset 0 0 0 1px rgba(244, 240, 232, .34),
+    inset 0 10px 24px rgba(255, 255, 255, .16),
+    inset 0 -14px 30px rgba(0, 0, 0, .55),
+    0 18px 48px rgba(0, 0, 0, .52);
+  animation: magnifier-in 200ms cubic-bezier(.22, 1, .36, 1);
+}
+.magnifier-lens[hidden] { display: none; }
+/* The rim highlight sells the glass without a second element in the
+   mirrored tree. */
+.magnifier-lens::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(120% 90% at 30% 18%, rgba(255, 255, 255, .20) 0%, rgba(255, 255, 255, 0) 46%);
+  pointer-events: none;
+}
+.magnifier-scroll { position: absolute; inset: 0; overflow: hidden; }
+.magnifier-world { transform-origin: 0 0; will-change: transform; }
+/* The clone must never re-run entrance transitions — it is a mirror. */
+.magnifier-world .frame-img { opacity: 1 !important; transition: none !important; }
+.magnifier-world .video-controls,
+.magnifier-world .video-chip { display: none; }
+@keyframes magnifier-in { from { transform: scale(.86); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+.magnifier-lens.is-instant { animation: none; }
+@media (prefers-reduced-motion: reduce) { .magnifier-lens { animation: none; } }
+
+/* ── Video slides ────────────────────────────────────────────────────
+   A video frame is sized exactly like a photograph: the poster holds the
+   aspect-ratio canvas and the <video> lies over it in the same grid
+   cell, so activation causes no layout jump. */
+.video-slide { grid-area: 1 / 1; display: grid; place-items: center; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.viewer-frame .frame-video {
+  grid-area: 1 / 1;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  /* Crossfade in only once a frame has decoded — no black flash. */
+  opacity: 0;
+  transition: opacity .32s ease;
+}
+.video-slide.is-playing-frame .frame-video { opacity: 1; }
+.video-controls {
+  position: absolute;
+  z-index: 12;
+  left: max(20px, env(safe-area-inset-left));
+  bottom: max(76px, calc(env(safe-area-inset-bottom) + 58px));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.video-control {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(var(--ink), .18);
+  border-radius: 50%;
+  background: rgba(10, 10, 10, .58);
+  color: rgba(var(--ink), .88);
+  font-size: 14px;
+  line-height: 1;
+  opacity: .62;
+  cursor: pointer;
+  transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+.video-control:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .84); }
+.video-control:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 3px; opacity: 1; }
+.video-chip {
+  padding: 5px 10px;
+  border: 1px solid rgba(var(--ink), .14);
+  background: rgba(10, 10, 10, .52);
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.video-unavailable {
+  position: absolute;
+  z-index: 12;
+  margin: 0;
+  padding: 8px 14px;
+  background: rgba(10, 10, 10, .72);
+  color: rgba(var(--ink), .74);
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) { .viewer-frame .frame-video { transition: none; } }
+
+/* Admin rail: a video item keeps the photo thumbnail and gains a badge. */
+.admin-gallery-strip-item { position: relative; }
+.admin-strip-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  background: rgba(10, 10, 10, .74);
+  color: rgba(244, 240, 232, .92);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+
+/* ── Quick-add interstitial ──────────────────────────────────────────
+   The page a pasted share URL lands on: branded, one message, one
+   action. Shares the landing page's sign-in button. */
+.quickadd-page { display: grid; place-items: center; min-height: 100svh; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: rgb(var(--ink)); }
+.quickadd-card { width: min(520px, 100%); text-align: left; }
+.quickadd-logo-wrap { display: inline-flex; align-items: flex-start; margin-bottom: 28px; }
+.quickadd-logo { max-width: 200px; height: auto; }
+.quickadd-title { margin: 0 0 14px; font-size: clamp(26px, 4.4vw, 40px); font-weight: 500; letter-spacing: -.045em; line-height: 1.08; }
+.quickadd-copy { max-width: 42ch; margin: 0 0 22px; color: rgba(var(--ink), .74); font-size: 14px; line-height: 1.65; }
+.quickadd-note:empty { display: none; }
+.quickadd-signin { margin-top: 4px; }
+.quickadd-spinner { margin: 0; color: rgba(var(--ink), .42); font-size: 20px; animation: quickadd-pulse 1.4s ease-in-out infinite; }
+@keyframes quickadd-pulse { 0%, 100% { opacity: .28 } 50% { opacity: .9 } }
+@media (prefers-reduced-motion: reduce) { .quickadd-spinner { animation: none; } }

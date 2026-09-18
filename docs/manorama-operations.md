@@ -30,13 +30,15 @@ Free-tier owners are limited to 3 galleries; creates beyond the limit fail with 
 
 - MEGA links must carry the `#key` fragment — it is the share's decryption key. Manorama decrypts node keys, attributes, and image content client-side (AES-128 ECB/CBC/CTR; Set metadata additionally uses AES-GCM/CCM TLV containers). The decrypted per-file node key travels in the image proxy URL (`?k=`), equivalent in exposure to the public link itself. MEGA serves decrypted originals (`c2pa` preserved); formats browsers cannot render (HEIC, HEIF) are served through MEGA's own generated JPEG/WebP preview via `/api/mega/preview`, and images with no generated preview are excluded. Free-tier MEGA bandwidth limits (HTTP 509) can interrupt image delivery — these surface as 503s; retry later.
 
-- Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG, GIF, TIFF, video, and all non-image files are consciously ignored at scan time.
+- Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG, GIF, TIFF, and all non-image files are consciously ignored at scan time. Video is ignored too, except in iCloud shared albums — see the Video section below.
 
 - Only the top level of a folder is scanned; subfolders are not descended into.
 
 - Files that are not images are ignored, not deleted.
 
-- Video files are ignored today. Do not promise video support.
+- **Video: iCloud shared albums only.** A shared album containing video produces a mixed gallery — photographs and video slides in one ordered sequence. Apple already transcodes shared-album video to H.264 MP4 derivatives with poster stills, so Manorama stores and transcodes nothing; the clip is proxied through `/api/icloud/video` with byte-range forwarding so seeking does not pull the whole file. A video entry missing either its MP4 or its poster derivative is skipped, exactly like a preview-less image.
+
+- Dropbox, Google Drive, and MEGA remain image-only. Video in those folders is still ignored — do not promise it.
 
 ## Slug policy
 
@@ -92,3 +94,35 @@ sets.
 - There is no trash, undo, or retention window. The only recovery path is recreating the gallery from the same source link; title, caption, slug suffix, and custom ordering must be redone by hand.
 
 - Refreshes and reorders are non-destructive to the source but overwrite the stored manifest — see the ordering caveat above.
+
+## Video slides
+
+- **Playback model:** ambient muted loop, and only that. A video starts playing, muted, when it becomes the active slide; leaving the slide pauses it and rewinds to zero, so returning shows the poster again. There is no seek bar, no per-item playback mode, and no speed or fullscreen control in v1.
+
+- **Sound** is off on arrival, always. The megaphone control unmutes, and that choice is viewer-level: every video activated afterwards starts audible until the visitor mutes again or leaves. It is never persisted — a fresh visit is always silent. If a browser refuses to autoplay with sound (Safari does), playback falls back to muted rather than stopping.
+
+- **Reduced motion:** a visitor with `prefers-reduced-motion` gets the poster and an explicit Play button. Nothing autoplays.
+
+- **Loading:** only the active slide has a `<video>` element at all. Adjacent slides are their poster image; non-adjacent ones are not mounted. A gallery of clips therefore costs one video stream, not N.
+
+- **Failure:** an unplayable clip shows its poster plus "Video unavailable" and the sequence keeps its layout. Report these as source-side problems — Apple's derivative URLs expire and are re-resolved per view.
+
+- **Admin rail:** video items show their poster thumbnail with a `▶ m:ss` badge. Drag-reordering, refresh, and deletion work identically to photographs — ordering keys on the same `ref ?? filename` identity.
+
+## Quick-add links (manorama.xyz/<share URL>)
+
+- Pasting a supported share link onto the end of `manorama.xyz/` creates the gallery and opens it. A signed-in owner needs zero clicks; a logged-out visitor gets a branded interstitial with one Continue-with-Dropbox button, and the gallery is created automatically after sign-in.
+
+- **MEGA and iCloud keys live in the URL fragment and never reach the server.** The page reassembles the full link in the browser and carries it through OAuth in `?next=`, so the visitor returns to the identical URL. If a support case involves a quick-add link that lost its key, the cause is almost always a link copied without its `#…` portion.
+
+- Revisiting a link that already produced a gallery reopens that gallery (HTTP 409 with the address) instead of creating a duplicate — and does so without re-scanning the source.
+
+- The free-tier limit still applies: a quick-add beyond 3 galleries reports the limit message rather than creating.
+
+## Social preview cards
+
+- Each gallery serves its own Open Graph image at `/api/og/{owner}/{slug}`: the first frame, cover-cropped to 1200×630, with the wordmark on a translucent pill in the bottom-left. When the first item is a video, its poster is used.
+
+- The `?i=` parameter is the first item's key. Reordering a gallery changes it, which busts the social platforms' edge cache without a manual purge — that is the supported way to refresh a stale card.
+
+- Any failure (unknown gallery, empty gallery, unreachable source, compositor fault) redirects to the static `/og-image.png`. A crawler is never handed an error page where an image belongs.
