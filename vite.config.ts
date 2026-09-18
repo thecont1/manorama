@@ -199,46 +199,18 @@ export default defineConfig(() => ({
           /^\/\.vendo\/.*/,
         ],
       },
-      client: { input: ['/app/client.ts', '/app/vendo-client.tsx', '/app/quickadd.ts', '/app/styles.css'] },
+      client: { input: ['/app/client.ts', '/app/quickadd.ts', '/app/styles.css'] },
     }),
     build(),
   ],
   ssr: {
-    // These dependencies (pulled in through @vendoai/vendo's graph) ship
-    // CommonJS builds that Vite's ESM module runner cannot evaluate
-    // ("module is not defined" / "require is not defined"). Node's native
-    // import handles them via the require condition, and the Cloudflare
-    // Workers build handles CJS fine — only the dev-server SSR path needs
-    // the externalization. Subpath entries also cover nested copies under
-    // other packages' node_modules.
     external: [
-      '@vercel/oidc',
-      '@vercel/oidc/*',
-      'pg',
-      'pg/*',
-      'yaml',
-      'yaml/*',
-      'ajv',
-      'ajv/*',
-      'ajv-formats',
-      'ajv-formats/*',
-      '@modelcontextprotocol/sdk',
-      '@modelcontextprotocol/sdk/*',
       // The OG card compositor loads both lazily inside SSR: jimp's graph
       // has CJS deps and sharp is a native binding — neither can be
       // evaluated by the ESM module runner.
       'jimp',
       'sharp',
     ],
-  },
-  optimizeDeps: {
-    // vendo-client.tsx pulls @vendoai/vendo/react only when the admin page
-    // mounts the launcher, so Vite discovers it mid-session. That triggers
-    // a re-optimization + full reload that locks module serving long enough
-    // to stall a browser's load event — the admin specs' page.goto timed
-    // out on exactly this. Pre-bundling at server start keeps the dep graph
-    // stable for the whole session.
-    include: ['@vendoai/vendo/react', 'react', 'react-dom/client', 'react/jsx-dev-runtime'],
   },
   server: {
     watch: {

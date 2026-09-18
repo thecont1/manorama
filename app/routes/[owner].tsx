@@ -1,6 +1,5 @@
 import { Fragment } from 'hono/jsx'
 import { createRoute } from 'honox/factory'
-import { Script } from 'honox/server'
 import Admin from '../islands/Admin'
 import { listGalleries, toSummary, type GalleryEnv } from '../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../lib/user-repository'
@@ -35,10 +34,9 @@ export default createRoute(async (c) => {
         publicHost={env.PUBLIC_HOST || new URL(c.req.url).host}
         tier={user.tier}
       />
-      {/* The Vendo surface mounts only on this authenticated page, after the
-          admin content: the root element first, then the client script. */}
-      <div id="vendo-root" data-tier={user.tier} />
-      <Script src="/app/vendo-client.tsx" />
+      {/* Vendo is disabled platform-wide for now: no surface mounts here
+          and no agent API is routed. Re-enable by reverting this change —
+          the vendo modules and deps remain. */}
     </Fragment>,
     { title: 'manorama' },
   )

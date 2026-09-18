@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=.env.local vite --host 0.0.0.0",
-    "predev": "vendo sync --no-ai",
     "build": "vite build --mode client && vite build",
-    "prebuild": "vendo sync --strict --no-ai",
     "preview": "bun --env-file=.env.local vite preview --host 0.0.0.0",
     "test": "playwright test",
     "vendo:sync": "vendo sync --no-ai && bun scripts/gen-vendo-profile.ts",
