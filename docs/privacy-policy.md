@@ -8,11 +8,11 @@ Manorama is a photo-gallery app at manorama.xyz. This page explains what we do a
 
 Manorama has three kinds of users. The rules are different for each:
 
-1. **Mister Just Looking** — anyone with a gallery link. No sign-in, no account, no data collected. You open a link, you see photos, that's it. We have no clue who you are. Why not write in to say hello?
+1. **Just Looking** — anyone with a gallery link. No sign-in, no account, no data collected. You open a link, you see photos, that's it. We have no clue who you are. Why not write in to say hello?
 
-2. **Miss Can Touch** — people who create and manage galleries. You sign in with Dropbox, you get up to three galleries, and we keep a small record of who you are so your galleries have a home.
+2. **Can Touch** — people who create and manage galleries. You sign in with Dropbox, you get up to three galleries, and we keep a small record of who you are so your galleries have a home.
 
-3. **Lord Will Pay** (coming soon) — same sign-in, no gallery limit, richer customisation. The account tier column in our database already has a slot for this, but nobody is in it yet.
+3. **Will Pay** (coming soon) — same sign-in, no gallery limit, richer customisation. The account tier column in our database already has a slot for this, but nobody is in it yet.
 
 ## If you're Just Looking: we collect nothing
 
