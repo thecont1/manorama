@@ -231,6 +231,15 @@ export default defineConfig(() => ({
       'sharp',
     ],
   },
+  optimizeDeps: {
+    // vendo-client.tsx pulls @vendoai/vendo/react only when the admin page
+    // mounts the launcher, so Vite discovers it mid-session. That triggers
+    // a re-optimization + full reload that locks module serving long enough
+    // to stall a browser's load event — the admin specs' page.goto timed
+    // out on exactly this. Pre-bundling at server start keeps the dep graph
+    // stable for the whole session.
+    include: ['@vendoai/vendo/react', 'react', 'react-dom/client', 'react/jsx-dev-runtime'],
+  },
   build: {
     target: 'es2022',
     sourcemap: true,
