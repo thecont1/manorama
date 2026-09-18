@@ -11,12 +11,10 @@ describe('Vendo review fixes', () => {
     expect(template).not.toContain('# ANTHROPIC_API_KEY=')
   })
 
-  test('the authenticated admin page loads the Vendo client only after its mount root', () => {
+  test('the authenticated admin page does not mount the disabled Vendo client', () => {
     const ownerPage = readFileSync(`${repoRoot}/app/routes/[owner].tsx`, 'utf8')
-    expect(ownerPage.indexOf('<div id="vendo-root"')).toBeGreaterThan(-1)
-    expect(ownerPage.indexOf('<Script src="/app/vendo-client.tsx"')).toBeGreaterThan(
-      ownerPage.indexOf('<div id="vendo-root"'),
-    )
+    expect(ownerPage).not.toContain('vendo-root')
+    expect(ownerPage).not.toContain('vendo-client')
   })
 
   test('public pages no longer mount the Vendo surface globally', () => {

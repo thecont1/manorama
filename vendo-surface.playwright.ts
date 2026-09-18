@@ -79,7 +79,9 @@ test("anonymous admin request is refused and renders no surface", async ({ page,
   expect(await page.locator("button[data-vendo-launcher]").count()).toBe(0);
 });
 
-test("authenticated admin page shows the Ask Manu launcher and opens the panel", async ({ page }) => {
+// Vendo is disabled platform-wide for now — the admin page mounts no
+// #vendo-root and no client script ships. Re-enable with the wiring.
+test.skip("authenticated admin page shows the Ask Manu launcher and opens the panel", async ({ page }) => {
   await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() });
   const response = await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   // Only skip when the server is explicitly running without the dev Access

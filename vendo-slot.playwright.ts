@@ -45,7 +45,7 @@ test("the retired slot stays absent on the authenticated admin page", async ({ p
   await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() });
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   // The slot itself is gone — the guard is that it never comes back
-  // unnoticed — while the Vendo surface root still mounts.
+  // unnoticed — and with Vendo disabled, the surface root is absent too.
   expect(await page.locator("#vendo-slot-gallery-inventory").count()).toBe(0);
-  await page.locator("#vendo-root").waitFor({ state: "attached" });
+  expect(await page.locator("#vendo-root").count()).toBe(0);
 });

@@ -137,15 +137,15 @@ describe('owner dashboard authentication', () => {
     expect(response.headers.get('location')).toBe('/')
   })
 
-  test('a valid owner session renders the dashboard with the Vendo surface', async () => {
+  test('a valid owner session renders the dashboard without the disabled Vendo surface', async () => {
     const response = await page().request('/test-owner', authed(), env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('Add a gallery')
     expect(html).toContain('Sign out')
-    expect(html).toContain('id="vendo-root"')
-    expect(html.indexOf('/app/vendo-client.tsx')).toBeGreaterThan(html.indexOf('id="vendo-root"'))
+    expect(html).not.toContain('vendo-root')
+    expect(html).not.toContain('vendo-client')
   })
 
   test('a signed-in owner cannot open another owner\'s dashboard', async () => {
