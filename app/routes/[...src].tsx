@@ -59,7 +59,7 @@ export default createRoute(async (c, next) => {
 
           {session ? (
             <div class="quickadd-panel" data-panel="working">
-              <h1 class="quickadd-title">Manorama-fying your {provider} link…</h1>
+              <h1 class="quickadd-title">Manorama-fying your<br />{provider} link…</h1>
               <p class="quickadd-copy" data-quickadd-status role="status" aria-live="polite">Reading the album and building your gallery.</p>
               <p class="quickadd-spinner" aria-hidden="true">◍</p>
             </div>

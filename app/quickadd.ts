@@ -76,22 +76,37 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     // Storage unavailable — proceed without the guard.
   }
 
+  // A big album can legitimately take a while (the scan lists every file
+  // and probes each one on some providers). Say so instead of letting a
+  // patient visitor wonder if the page died — and keep a hard client-side
+  // ceiling so a hung request can never spin forever.
+  const patience = setTimeout(() => setStatus('Still reading — big albums take a little longer.'), 12_000)
+  const stopWaiting = () => clearTimeout(patience)
+
   let response: Response
   try {
     response = await fetch('/api/galleries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: sourceUrl }),
+      signal: AbortSignal.timeout(120_000),
     })
-  } catch {
+  } catch (error) {
+    stopWaiting()
     try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
-    setStatus('Manorama could not reach the server. Check your connection and reload.')
+    setStatus(
+      error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+        ? 'That album is taking a very long time to read — it may be too large. Try again, or split it into smaller folders.'
+        : 'Manorama could not reach the server. Check your connection and reload.',
+    )
     return
   }
+  stopWaiting()
 
   const payload = await response.json().catch(() => ({})) as {
     galleryUrl?: string
     gallery?: { slug?: string }
+    truncated?: { kept: number; total: number }
     error?: string
   }
 
@@ -104,6 +119,14 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     // path from reopening the gallery.
     try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
     try { localStorage.removeItem(PENDING_KEY) } catch { /* best effort */ }
+    if (response.status === 201 && payload.truncated) {
+      // Accept, but never silently: show the truncation note for a beat
+      // before opening the gallery so the owner understands the count.
+      const { kept, total } = payload.truncated
+      setStatus(`That album has ${total.toLocaleString()} items — your gallery keeps the first ${kept.toLocaleString()}.`)
+      setTimeout(() => location.replace(payload.galleryUrl!), 4000)
+      return
+    }
     location.replace(payload.galleryUrl)
     return
   }

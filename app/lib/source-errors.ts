@@ -21,6 +21,7 @@ export const friendlySourceError = (error: unknown) => {
   if (/No photos or videos were found/i.test(message)) return 'No photos or videos were found at that link. Add images or videos to the shared album and try again.'
   if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, AVIF, HEIC, or HEIF images and try again.'
   if (/401|403|409|not_found|access_denied|shared_link/i.test(message)) return 'Manorama could not read that link. Check that it is public, downloading is enabled, and the URL points to the folder or album itself.'
+  if (/taking a very long time|too large/i.test(message)) return 'That album is taking a very long time to read — it may be too large. Try again, or split it into smaller folders.'
   if (/not configured|credentials are not configured/i.test(message)) return 'Manorama is temporarily unable to reach that service. Please try again later.'
   return 'We could not read that link. Check the URL and try again.'
 }
