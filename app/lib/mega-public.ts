@@ -201,6 +201,22 @@ const sniffContentType = (bytes: Uint8Array) =>
       : bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png'
         : 'application/octet-stream'
 
+/** Decrypted file-attribute bytes keyed `fah|nodeKey`. The dims probe
+ *  already pays the ufa resolve + CBC decrypt for every preview at scan
+ *  time; keeping the bytes turns the admin rail's preview requests into
+ *  memory reads instead of ~70 serial multi-second decryptions (which
+ *  starve the dev server's event loop badly enough to stall page loads).
+ *  Bounded: previews run ~300KB, so 200 entries cap near 60MB. */
+const PREVIEW_CACHE_MAX = 200
+const previewCache = new Map<string, Uint8Array>()
+const previewCacheKey = (fah: string, nodeKey: Uint8Array) => `${fah}|${b64uEncode(nodeKey)}`
+const cachePreview = (fah: string, nodeKey: Uint8Array, bytes: Uint8Array) => {
+  const key = previewCacheKey(fah, nodeKey)
+  previewCache.delete(key)
+  previewCache.set(key, bytes)
+  if (previewCache.size > PREVIEW_CACHE_MAX) previewCache.delete(previewCache.keys().next().value!)
+}
+
 /** Fetches + decrypts one file attribute (thumbnail/preview): ufa
  *  resolves the attribute URL, a POST of the raw 8-byte handle returns
  *  {handle:8}{len:4}{CBC-encrypted data} records. */
@@ -232,7 +248,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
  *  head fetch of the original; anything else gets a 4:3 placeholder.
  *  Reported dims are the rendition's — aspect is what matters for
  *  layout, matching the Dropbox thumbnail-dims precedent. */
-const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch) => {
+const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch): Promise<{ width: number; height: number; previewFormat?: string }> => {
   // MEGA throttles bursty ufa/range traffic; one retry after a beat
   // recovers most probes, anything still failing falls back to 4:3.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -240,8 +256,12 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
       const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
       if (fah) {
         const preview = await fetchFileAttribute(auth, fah, nodeKey, fetchImpl)
-        const dimensions = preview ? parsePreviewDimensions(preview) : null
-        if (dimensions) return dimensions
+        if (preview) {
+          // Same fah makeImage emits as the variant — the route reuses it.
+          if (fetchImpl === fetch) cachePreview(fah, nodeKey, preview)
+          const dimensions = parsePreviewDimensions(preview)
+          if (dimensions) return { ...dimensions, previewFormat: sniffContentType(preview) }
+        }
       }
       if (!BROWSER_RENDERABLE.test(name)) return { width: 4, height: 3 }
       const info = await downloadInfo(auth, node.h, fetchImpl)
@@ -266,14 +286,14 @@ const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetc
     const batch = await Promise.all(files.slice(i, i + PROBE_BATCH).map(async (file, j) => {
       const { node, nodeKey, name } = build(file, i + j)
       const dims = await probeDimensions(auth, node, nodeKey, name, fetchImpl)
-      return makeImage(auth, i + j, node, nodeKey, name, dims.width, dims.height)
+      return makeImage(auth, i + j, node, nodeKey, name, dims.width, dims.height, dims.previewFormat)
     }))
     images.push(...batch.filter((image): image is GalleryImage => image !== null))
   }
   return images
 }
 
-const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number): GalleryImage | null => {
+const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number, previewFormat?: string): GalleryImage | null => {
   const renderable = BROWSER_RENDERABLE.test(name)
   const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
   // HEIC/HEIF originals can't render in browsers — route them through
@@ -285,6 +305,12 @@ const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string
     ref: node.h,
     filename: name,
     src: renderable ? fileProxy(auth, node.h, nodeKey) : previewProxy(auth, fah!, nodeKey),
+    // The JPEG/WebP preview doubles as the rail thumbnail: without a
+    // variant, admin's `variants?.[0]?.src ?? src` falls back to the
+    // multi-MB decrypted original per image. Declared width is the
+    // rendition's and format is sniffed when the dims probe read this
+    // preview (the common case), else best-effort.
+    ...(fah ? { variants: [{ width, src: previewProxy(auth, fah, nodeKey), format: previewFormat === 'image/webp' ? 'webp' : 'jpeg' }] } : {}),
     width,
     height,
     alt: filenameLabel(name),
@@ -404,7 +430,11 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
  *  browsers can't render (HEIC, HEIF). */
 export const fetchMegaPreview = async (folder: string | undefined, set: string | undefined, fah: string, keyB64: string, fetchImpl: typeof fetch = fetch) => {
   const nodeKey = b64uDecode(keyB64)
-  const preview = await fetchFileAttribute(megaAuthFromParams(folder, set), fah, nodeKey, fetchImpl)
+  // Cache reads are gated on the real fetch so specs that inject a mocked
+  // fetchImpl still exercise the network path end to end.
+  const cached = fetchImpl === fetch ? previewCache.get(previewCacheKey(fah, nodeKey)) : undefined
+  const preview = cached ?? await fetchFileAttribute(megaAuthFromParams(folder, set), fah, nodeKey, fetchImpl)
   if (!preview) throw new SourceFetchError('That MEGA image preview is unavailable', 404)
-  return new Response(preview, { status: 200, headers: { 'Content-Type': sniffContentType(preview) } })
+  if (!cached && fetchImpl === fetch) cachePreview(fah, nodeKey, preview)
+  return new Response(preview.slice(), { status: 200, headers: { 'Content-Type': sniffContentType(preview) } })
 }
