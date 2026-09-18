@@ -271,7 +271,14 @@ for (const vp of viewports) {
     test("keyboard navigation preserves a clean URL and refresh returns to the first image", async ({
       page,
     }) => {
-      await page.goto(`${GALLERY}?source=gallery#img-2`);
+      // `load` waits on every live provider image the viewer fetches, and
+      // upstream latency is unbounded — a single slow original stalls the
+      // event past the test timeout even though the page is fully usable
+      // (verified: zero pending requests at stall). Sync on
+      // domcontentloaded like the admin specs; the assertions below poll.
+      await page.goto(`${GALLERY}?source=gallery#img-2`, {
+        waitUntil: "domcontentloaded",
+      });
       await expect(page).toHaveURL(GALLERY);
       await page.locator("[data-curtain]").click();
       await expect(page.locator("[data-curtain]")).toBeHidden();
@@ -285,7 +292,7 @@ for (const vp of viewports) {
         `${docked} / ${await imageCount(page)}`,
       );
       await page.keyboard.press("Escape");
-      await page.reload();
+      await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(GALLERY);
       await page.locator("[data-curtain]").click();
       await expect(page.locator("[data-curtain]")).toBeHidden();
