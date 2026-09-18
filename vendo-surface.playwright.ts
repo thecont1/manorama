@@ -73,7 +73,7 @@ test("anonymous admin request is refused and renders no surface", async ({ page,
   expect(response.status()).toBe(302);
   expect(response.headers()["location"]).toBe("/");
 
-  await page.goto(`${BASE}/${OWNER}`);
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle");
   expect(await page.locator("#vendo-root").count()).toBe(0);
   expect(await page.locator("button[data-vendo-launcher]").count()).toBe(0);
@@ -81,7 +81,7 @@ test("anonymous admin request is refused and renders no surface", async ({ page,
 
 test("authenticated admin page shows the Ask Manu launcher and opens the panel", async ({ page }) => {
   await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() });
-  const response = await page.goto(`${BASE}/${OWNER}`);
+  const response = await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   // Only skip when the server is explicitly running without the dev Access
   // fixture (e.g. production behind real Cloudflare Access). Without this
   // flag, a non-200 response is an authentication regression, not a skip.

@@ -43,7 +43,7 @@ test("public pages carry no gallery-inventory slot markup", async ({ page }) => 
 
 test("the retired slot stays absent on the authenticated admin page", async ({ page }) => {
   await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() });
-  await page.goto(`${BASE}/${OWNER}`);
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   // The slot itself is gone — the guard is that it never comes back
   // unnoticed — while the Vendo surface root still mounts.
   expect(await page.locator("#vendo-slot-gallery-inventory").count()).toBe(0);
