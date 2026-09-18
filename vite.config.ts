@@ -240,6 +240,18 @@ export default defineConfig(() => ({
     // stable for the whole session.
     include: ['@vendoai/vendo/react', 'react', 'react-dom/client', 'react/jsx-dev-runtime'],
   },
+  server: {
+    watch: {
+      // HonoX's restartOnAddUnlink calls server.restart() on chokidar
+      // add/unlink events — and those events fire for every watched path,
+      // i.e. the whole project root, not just app/**. Any file created or
+      // deleted here bounces the dev server and wipes the seeded in-memory
+      // galleries for the ~40s live rescan. These tool-managed dirs write
+      // files on their own schedule (vendo's embedded Postgres keeps its
+      // data + WAL under .vendo/data), so keep them out of the watch set.
+      ignored: ['**/.vendo/**', '**/.playwright-mcp/**', '**/.wrangler/**'],
+    },
+  },
   build: {
     target: 'es2022',
     sourcemap: true,
