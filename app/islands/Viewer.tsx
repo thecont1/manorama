@@ -23,6 +23,31 @@ type Props = {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
+/** Newton–Raphson solver for CSS cubic-bezier(x1,y1,x2,y2): given x (time),
+ *  returns y (progress) exactly as a browser transition would compute it. */
+const makeBezier = (x1: number, y1: number, x2: number, y2: number) => {
+  const coeffA = (a1: number, a2: number) => 1 - 3 * a2 + 3 * a1
+  const coeffB = (a1: number, a2: number) => 3 * a2 - 6 * a1
+  const evalAt = (t: number, a1: number, a2: number) =>
+    ((coeffA(a1, a2) * t + coeffB(a1, a2)) * t + 3 * a1) * t
+  const slopeAt = (t: number, a1: number, a2: number) =>
+    3 * coeffA(a1, a2) * t * t + 2 * coeffB(a1, a2) * t + 3 * a1
+  return (x: number) => {
+    let t = x
+    for (let i = 0; i < 4; i += 1) {
+      const slope = slopeAt(t, x1, x2)
+      if (slope === 0) break
+      t -= (evalAt(t, x1, x2) - x) / slope
+    }
+    return evalAt(t, y1, y2)
+  }
+}
+
+/** The app's signature ease — same curve the curtain lift and the
+ *  single-mode crossfade use — so a JS-driven glide feels identical to
+ *  the CSS-animated surfaces. */
+const glideEase = makeBezier(0.22, 1, 0.36, 1)
+
 /** In vertical mode, frames beyond the viewport stay active only up to this
  *  many past the visible set — enough to not thrash on small scrolls, bounded
  *  so decoded HEIC blobs get revoked as frames scroll away. */
@@ -279,15 +304,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       return
     }
     const started = performance.now()
-    // Ease-in-out cubic: a quintic ease-out's violent initial velocity
-    // reads as the image snapping into place; a symmetric curve glides.
-    // Duration scales with travel distance — a full-gallery rewind glides
-    // back deliberately instead of covering tens of thousands of px in
-    // one 1100ms blur.
-    const duration = clamp(Math.abs(destination - from) / 12, 1100, 3600)
+    // Ease-out, not ease-in-out: a symmetric curve's motionless first
+    // third reads as the tap being ignored — the "isn't smooth" complaint.
+    // cubic-bezier(0.22, 1, 0.36, 1) is the app's signature ease (curtain,
+    // single-mode fade): the glide launches on the frame the tap lands and
+    // settles with a long, gentle deceleration. Duration scales with
+    // travel distance — a full-gallery rewind still glides back
+    // deliberately instead of covering tens of thousands of px in a blur.
+    const duration = clamp(Math.abs(destination - from) / 10, 650, 2800)
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
-      const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - Math.pow(-2 * progress + 2, 3) / 2
+      const eased = glideEase(progress)
       // Chase navDestX live: a mid-flight retarget (queued taps, or a
       // healed frame shifting the destination's offset) is absorbed into
       // the remaining travel instead of cancelling the navigation.
