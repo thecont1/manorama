@@ -68,12 +68,58 @@ const proxyFailure = (c: Context, provider: string, reference: string, error: un
   return c.json({ error: `That ${provider} is unavailable` }, status as 400)
 }
 
-const streamResponse = (response: Response, cacheControl: string) => {
+/** Magic-byte image sniffing for proxy responses. Byte 4 'ftyp' covers
+ *  the ISO-BMFF family (avif/avis/heic/heix/mif1/msf1 brands). */
+const sniffImageType = (bytes: Uint8Array) => {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[8] === 0x57 && bytes[9] === 0x45) return 'image/webp'
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png'
+  if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    const brand = String.fromCharCode(...bytes.subarray(8, 12))
+    if (brand === 'avif' || brand === 'avis') return 'image/avif'
+    if (brand === 'heic' || brand === 'heix' || brand === 'mif1' || brand === 'msf1') return 'image/heic'
+  }
+  return null
+}
+
+const streamResponse = async (response: Response, cacheControl: string) => {
   const headers = new Headers()
-  headers.set('Content-Type', response.headers.get('Content-Type') || 'application/octet-stream')
+  let body: ReadableStream | null = response.body
+  let contentType = response.headers.get('Content-Type')
+  // Provider content endpoints label image bytes application/octet-stream
+  // (Dropbox shared-link files always do, decrypted MEGA originals carry
+  // none). Sniff the first chunk so consumers that dispatch on the type —
+  // the in-browser C2PA reader, save-as — see the real format. The chunk is
+  // re-emitted ahead of the remaining stream; no tee, so no copy buffers.
+  if ((!contentType || contentType === 'application/octet-stream') && body) {
+    const reader = body.getReader()
+    const { value: first, done } = await reader.read()
+    contentType = (first && sniffImageType(first)) ?? 'application/octet-stream'
+    body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          if (first) controller.enqueue(first)
+          while (!done) {
+            const { value, done: finished } = await reader.read()
+            if (finished) break
+            controller.enqueue(value)
+          }
+          controller.close()
+        } catch (error) {
+          controller.error(error)
+        } finally {
+          reader.releaseLock()
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason)
+      },
+    })
+  }
+  headers.set('Content-Type', contentType || 'application/octet-stream')
   headers.set('Cache-Control', cacheControl)
   headers.set('X-Content-Type-Options', 'nosniff')
-  return new Response(response.body, { status: 200, headers })
+  return new Response(body, { status: 200, headers })
 }
 
 /** Streams a media response preserving range semantics: a 206 keeps its
