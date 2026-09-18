@@ -49,7 +49,7 @@ Sign-in is Dropbox OAuth (`/auth/dropbox` → callback → HS256 `manorama_sessi
 | `HOST_API_JWT_SECRET` | Signs the `manorama_session` cookie |
 | `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` | Dropbox OAuth and public shared-link ingestion |
 | `GOOGLE_DRIVE_API_KEY` | Public Drive folder ingestion |
-| `VENDO_API_KEY` | Vendo surface on the dashboard (pro tier) |
+| `VENDO_API_KEY` | Unused for now — the Vendo surface is disabled platform-wide |
 
 ## Dropbox setup
 
@@ -91,7 +91,7 @@ Open `http://localhost:5173/` for the landing page. Dev seeding is driven by sam
 | `MANORAMA_DEV_SOURCE_DROPBOX` | `dev-dropbox` |
 | `MANORAMA_DEV_SOURCE_GDRIVE` | `dev-gdrive` |
 
-(`MANORAMA_DEV_VIDEO_URL` is the older name for the iCloud slot and still works.) The plugin also serves `POST /.dev-seed/reset` so tests can restore canonical state, and mints a pro-tier `dbid:AAATESTowner1` so the Vendo surface mounts. A checkout with no source vars seeds the owner and nothing else — everything the suite runs against is a real album fetched from a real provider.
+(`MANORAMA_DEV_VIDEO_URL` is the older name for the iCloud slot and still works.) The plugin also serves `POST /.dev-seed/reset` so tests can restore canonical state, and mints a pro-tier `dbid:AAATESTowner1`. A checkout with no source vars seeds the owner and nothing else — everything the suite runs against is a real album fetched from a real provider.
 
 ## Deploy to Cloudflare
 
@@ -146,7 +146,7 @@ On fine-pointer desktops, `M` summons a glass-ball magnifier that follows the cu
 | `app/routes/[...src].tsx` | Quick-add catch-all — provider-shaped paths only, else `next()` |
 | `app/routes/auth/` | Dropbox OAuth start/callback and logout |
 | `app/routes/privacy.tsx` | Privacy policy |
-| `app/islands/Admin.tsx` | Gallery dashboard: intake, arrangement, inline editing, Vendo surface |
+| `app/islands/Admin.tsx` | Gallery dashboard: intake, arrangement, inline editing |
 | `app/islands/Viewer.tsx` | Hydrated strip viewer: modes, gestures, modals, magnifier, C2PA |
 | `app/islands/VideoSlide.tsx` | Ambient video leaf — mounts `<video>` only while its frame is active |
 | `app/lib/magnifier.ts` | DOM-mirror lens for the `M` magnifier |
@@ -165,6 +165,7 @@ On fine-pointer desktops, `M` summons a glass-ball magnifier that follows the cu
 | `app/lib/imagesource.ts` | `ImageSource` interface, `GalleryMediaItem` union, `BundledSource` adapter |
 | `app/quickadd.ts` | Quick-add client: URL reconstruction, create, sign-in handoff |
 | `vite.config.ts` | Dev-seed plugin (`MANORAMA_DEV_SOURCE_*` scans, `/.dev-seed/reset`) |
+| `vendo/`, `app/vendo-client.tsx`, `.vendo/` | Vendo surface — **disabled platform-wide for now**: no route, no mount, no client bundle; code and `vendo:*` tooling retained for re-enable |
 | `*.playwright.ts` | Playwright acceptance specs (`qa`, `vendo-surface`, `vendo-slot`) |
 | `wrangler.toml` | Worker, `DB` binding, environment variables, custom domain route |
 
