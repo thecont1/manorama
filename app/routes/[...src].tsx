@@ -1,7 +1,30 @@
 import { createRoute } from 'honox/factory'
-import { Script } from 'honox/server'
 import { embeddedSourceCandidate } from '../lib/sources'
 import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
+
+/**
+ * The quick-add script URL, resolved for both dev and production.
+ *
+ * We cannot use honox's `<Script>` here: in production it wraps the tag in
+ * `<HasIslands>`, which emits children only when the rendered page contains
+ * an island component. This page is pure SSR with no islands, so the tag
+ * was silently dropped — the interstitial rendered "Manorama-fying…" and
+ * the client never loaded, leaving the page stuck forever (dev was fine
+ * because dev-mode Script skips the island gate).
+ *
+ * Instead we resolve the hashed asset from the same client manifest glob
+ * `<Script>` uses, and emit a plain `<script>` unconditionally.
+ */
+const quickaddScriptSrc = (() => {
+  if (!import.meta.env.PROD) return '/app/quickadd.ts'
+  const globbed = import.meta.glob<{ default: Record<string, { file: string }> }>(
+    '/dist/.vite/manifest.json',
+    { eager: true },
+  )
+  const manifest = Object.values(globbed)[0]?.default
+  const file = manifest?.['app/quickadd.ts']?.file
+  return file ? `/${file}` : '/app/quickadd.ts'
+})()
 
 /**
  * Quick-add: `manorama.xyz/<a supported share URL>` creates the gallery
@@ -80,7 +103,7 @@ export default createRoute(async (c, next) => {
             </div>
           )}
         </div>
-        <Script src="/app/quickadd.ts" async />
+        <script type="module" async src={quickaddScriptSrc} />
       </main>,
     { title: 'manorama', description: 'Turn a shared album link into a Manorama gallery.' },
   )

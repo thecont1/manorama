@@ -165,4 +165,17 @@ describe('the quick-add catch-all renders for provider links', () => {
     expect(response.status).toBe(200)
     expect(await response.text()).toContain('data-quickadd')
   })
+
+  test('the page always ships its client script — no island gate', async () => {
+    // Regression: honox's <Script> wraps the tag in <HasIslands> in prod,
+    // which emits nothing on a page with no islands — the interstitial sat
+    // on "Manorama-fying…" forever because the client never loaded. The tag
+    // must be unconditional.
+    const app = buildApp()
+    for (const init of [{}, { headers: { Cookie: cookie } }]) {
+      const response = await app.request('/https://mega.nz/folder/AbCdEf12', init, env)
+      const html = await response.text()
+      expect(html.includes('<script') && html.includes('quickadd')).toBe(true)
+    }
+  })
 })
