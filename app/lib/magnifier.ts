@@ -16,6 +16,22 @@
 
 export const MAGNIFIER_SCALE = 3
 
+/**
+ * The zoom actually applied under the cursor: the requested magnification,
+ * but never past the pixels the photograph really has. `natural / rendered`
+ * is how many source pixels back one CSS pixel — magnifying beyond that
+ * ratio is not detail, it is blur. When the source is smaller than the
+ * requested zoom the lens settles at the honest 1:1 sample of the file
+ * instead of upscaling; a floor of 1 keeps it a loupe, never a shrink-ray.
+ * The min over both axes covers object-fit cropping: the constraint is the
+ * axis showing the fewest pixels per CSS pixel.
+ */
+export const lensScale = (naturalW: number, naturalH: number, renderedW: number, renderedH: number): number => {
+  if (!(naturalW > 0) || !(naturalH > 0) || !(renderedW > 0) || !(renderedH > 0)) return MAGNIFIER_SCALE
+  const native = Math.min(naturalW / renderedW, naturalH / renderedH)
+  return Math.min(MAGNIFIER_SCALE, Math.max(1, native))
+}
+
 export type MagnifierHandle = {
   /** Show the lens and start following the pointer. */
   activate: () => void
@@ -98,6 +114,14 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
       if (style) poster.setAttribute('style', style)
       video.replaceWith(poster)
     }
+    // A thumbnail must never be the thing the lens magnifies: where the
+    // live stage has mounted the frame's real image, the clone's
+    // placeholder takes that same already-decoded source rather than
+    // showing a 256px rendition at 3x.
+    for (const ph of Array.from(world.querySelectorAll<HTMLImageElement>('img.frame-ph'))) {
+      const real = ph.closest('.viewer-frame')?.querySelector<HTMLImageElement>('img.frame-img')
+      if (real?.src && ph.src !== real.src) ph.src = real.src
+    }
     // Clones must never be focusable or announced — the lens duplicates
     // content that already exists in the accessibility tree.
     for (const node of Array.from(world.querySelectorAll('[id]'))) node.removeAttribute('id')
@@ -143,8 +167,17 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     lens.style.top = `${pointer.y - radius}px`
     syncGeometry()
     // Put the magnified point at the lens centre: translate so (sx,sy)
-    // scaled by S lands on the radius, then scale.
-    world.style.transform = `translate(${radius - MAGNIFIER_SCALE * sx}px, ${radius - MAGNIFIER_SCALE * sy}px) scale(${MAGNIFIER_SCALE})`
+    // scaled by S lands on the radius, then scale. S is capped at the
+    // native resolution of the image under the cursor — a low-resolution
+    // source gets its honest 1:1 sample rather than an enlarged blur.
+    const underPointer = typeof document.elementFromPoint === 'function'
+      ? document.elementFromPoint(pointer.x, pointer.y)
+      : null
+    const frameEl = underPointer?.closest?.('.viewer-frame') ?? null
+    const img = frameEl?.querySelector<HTMLImageElement>('img.frame-img') ?? null
+    const imgRect = img?.getBoundingClientRect()
+    const scale = lensScale(img?.naturalWidth ?? 0, img?.naturalHeight ?? 0, imgRect?.width ?? 0, imgRect?.height ?? 0)
+    world.style.transform = `translate(${radius - scale * sx}px, ${radius - scale * sy}px) scale(${scale})`
   }
 
   const schedule = () => {

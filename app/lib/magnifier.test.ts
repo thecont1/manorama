@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { attachMagnifier, magnifierSupported, MAGNIFIER_SCALE } from './magnifier'
+import { attachMagnifier, lensScale, magnifierSupported, MAGNIFIER_SCALE } from './magnifier'
 
 /**
  * The magnifier drives real DOM, so it is tested against one. happy-dom
@@ -15,7 +15,10 @@ const installDom = (options: { finePointer: boolean; reducedMotion?: boolean } =
   document.body.innerHTML = `
     <div class="viewer-stage mode-strip seam-none" data-stage>
       <div class="viewer-track" data-track style="transform: translate3d(-120px, 0, 0)">
-        <figure class="viewer-frame" data-index="1"><img class="frame-img" src="/a.jpg" alt="A" /></figure>
+        <figure class="viewer-frame" data-index="1">
+          <img class="frame-ph" src="/a-thumb.jpg" alt="" />
+          <img class="frame-img" src="/a.jpg" alt="A" />
+        </figure>
         <figure class="viewer-frame" data-index="2">
           <img class="frame-ph" src="/poster.jpg" alt="" />
           <video class="frame-video" src="/clip.mp4" poster="/poster.jpg"></video>
@@ -47,6 +50,26 @@ const installDom = (options: { finePointer: boolean; reducedMotion?: boolean } =
 
 const stageOf = (document: { querySelector: (s: string) => unknown }) =>
   document.querySelector('[data-stage]') as unknown as HTMLElement
+
+describe('lensScale', () => {
+  test('full magnification while native pixels remain', () => {
+    // 4000px photo rendered at 500px — 8x of real data, cap at 3.
+    expect(lensScale(4000, 3000, 500, 375)).toBe(MAGNIFIER_SCALE)
+  })
+
+  test('caps at the native 1:1 sample rather than upscaling', () => {
+    // 800px photo rendered at 500px — only 1.6x of real data exists.
+    expect(lensScale(800, 600, 500, 375)).toBe(1.6)
+  })
+
+  test('never shrinks below 1 — it is a loupe, not a shrink-ray', () => {
+    expect(lensScale(300, 200, 600, 400)).toBe(1)
+  })
+
+  test('falls back to full magnification when the image has not decoded', () => {
+    expect(lensScale(0, 0, 500, 375)).toBe(MAGNIFIER_SCALE)
+  })
+})
 
 describe('magnifierSupported', () => {
   test('true for a hovering, precise pointer', () => {
@@ -94,6 +117,16 @@ describe('attachMagnifier', () => {
     expect(stageOf(document).classList.contains('is-magnified')).toBe(true)
     const world = document.querySelector('.magnifier-world') as unknown as HTMLElement
     expect(world.querySelectorAll('.viewer-frame').length).toBe(2)
+    handle.destroy()
+  })
+
+  test('a cloned placeholder upgrades to the frame\u2019s real source, never a thumbnail', () => {
+    const { document } = installDom()
+    const handle = attachMagnifier(stageOf(document))!
+    handle.activate()
+    const world = document.querySelector('.magnifier-world') as unknown as HTMLElement
+    const ph = world.querySelector<HTMLImageElement>('img.frame-ph')!
+    expect(ph.getAttribute('src')).toBe('/a.jpg')
     handle.destroy()
   })
 
