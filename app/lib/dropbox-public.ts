@@ -1,4 +1,4 @@
-import { SourceFetchError, type GalleryImage } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { parseJpegDimensions, probeImageDimensions } from './image-dims'
 
 export { parseJpegDimensions }
@@ -14,7 +14,7 @@ type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
 type SharedLinkMetadata = { name?: string }
 
-export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[] }
+export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
 
 const validateFolderUrl = (input: string) => {
   const url = new URL(input.trim())
@@ -118,8 +118,11 @@ const titleFromEntries = (entries: DropboxEntry[]) => {
 
 export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImpl: typeof fetch = fetch): Promise<DropboxScan> => {
   const sourceUrl = validateFolderUrl(input)
-  const entries = await collectEntries(sourceUrl, env, fetchImpl)
-  if (!entries.length) throw new Error('No image files were found in that public Dropbox folder')
+  const found = await collectEntries(sourceUrl, env, fetchImpl)
+  if (!found.length) throw new Error('No image files were found in that public Dropbox folder')
+  // Cap before the per-item dimension probes — each entry costs one or
+  // two Dropbox requests, so an uncapped folder multiplies into minutes.
+  const entries = found.slice(0, MAX_GALLERY_ITEMS)
   const folderName = await sharedLinkName(sourceUrl, env, fetchImpl)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   const images = await Promise.all(entries.map(async (entry, index) => {
@@ -136,7 +139,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
       variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
     } satisfies GalleryImage
   }))
-  return { sourceUrl, title, images }
+  return { sourceUrl, title, images, ...(found.length > entries.length ? { truncated: found.length } : {}) }
 }
 
 export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv) => {

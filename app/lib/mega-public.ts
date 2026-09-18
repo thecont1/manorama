@@ -1,4 +1,4 @@
-import { SourceFetchError, type GalleryImage } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { parseJpegDimensions, parseWebpDimensions, probeImageDimensions } from './image-dims'
 import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
 
@@ -64,7 +64,7 @@ type MegaSet = {
   at?: string // encrypted TLV attribute container
 }
 
-export type MegaScan = { sourceUrl: string; title: string; images: GalleryImage[] }
+export type MegaScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
 
 export type MegaLink =
   | { kind: 'folder'; id: string; key: string }
@@ -330,7 +330,7 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
   const listing = await megaRequest<{ f?: MegaNode[] }>([{ a: 'f', c: 1, ca: 1, r: 1 }], auth, fetchImpl)
   const nodes = listing.f ?? []
 
-  const files = nodes
+  const found = nodes
     .filter((node) => node.t === 0 && node.p === link.id && node.a && node.k)
     .flatMap((node) => {
       const nodeKey = decryptNodeKey(node.k, shareKey)
@@ -340,7 +340,10 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
       if (!name || !IMAGE_EXTENSIONS.test(name)) return []
       return [{ node, nodeKey, name }]
     })
-  if (!files.length) throw new Error('No image files were found in that public MEGA folder')
+  if (!found.length) throw new Error('No image files were found in that public MEGA folder')
+  // Cap before probeImages — each file costs a decrypt-and-fetch probe
+  // in batches of six, so an uncapped folder multiplies into minutes.
+  const files = found.slice(0, MAX_GALLERY_ITEMS)
 
   // Folder title from the root node's own attributes when decryptable.
   const root = nodes.find((node) => node.h === link.id) ?? nodes.find((node) => node.t === 1)
@@ -349,7 +352,7 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
 
   const images = await probeImages(auth, files, fetchImpl, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
   if (!images.length) throw new Error('No image files were found in that public MEGA folder')
-  return { sourceUrl: canonicalMegaUrl(link), title, images }
+  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
 }
 
 /** Public collections ("Sets") use a different API surface than
@@ -380,7 +383,7 @@ export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch 
   const setName = setAttrs?.get('n')
   if (setName) title = new TextDecoder().decode(setName).trim() || title
 
-  const files = elements.flatMap((element) => {
+  const found = elements.flatMap((element) => {
     if (!element.h || !element.k) return []
     let elementKey: Uint8Array
     try {
@@ -393,16 +396,17 @@ export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch 
     if (!name || !IMAGE_EXTENSIONS.test(name)) return []
     return [{ element, elementKey, meta, name }]
   })
-  if (!files.length) throw new Error('No image files were found in that public MEGA collection')
+  if (!found.length) throw new Error('No image files were found in that public MEGA collection')
 
-  files.sort((a, b) => (a.element.o ?? 0) - (b.element.o ?? 0))
+  found.sort((a, b) => (a.element.o ?? 0) - (b.element.o ?? 0))
+  const files = found.slice(0, MAX_GALLERY_ITEMS)
   const images = await probeImages(auth, files, fetchImpl, ({ element, elementKey, meta, name }) => ({
     node: { h: element.h!, fa: meta?.fa },
     nodeKey: elementKey,
     name,
   }))
   if (!images.length) throw new Error('No image files were found in that public MEGA collection')
-  return { sourceUrl: canonicalMegaUrl(link), title, images }
+  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
 }
 
 export const scanMegaSource = (input: string, fetchImpl: typeof fetch = fetch) => {

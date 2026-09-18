@@ -1,4 +1,4 @@
-import { SourceFetchError, type GalleryImage } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 
 /**
  * Google Drive "anyone with the link" folder scanning. Mirrors the Dropbox
@@ -30,7 +30,7 @@ type DriveFile = {
 }
 type DriveList = { files?: DriveFile[]; nextPageToken?: string }
 
-export type DriveScan = { sourceUrl: string; title: string; images: GalleryImage[] }
+export type DriveScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
 
 /** Extracts the folder ID and optional resource key from the common
  *  sharing URL spellings: drive.google.com/drive/folders/{id},
@@ -97,8 +97,9 @@ const collectFiles = async (folderId: string, folderKey: string | undefined, env
 export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: typeof fetch = fetch): Promise<DriveScan> => {
   const folder = extractDriveFolderId(input)
   if (!folder) throw new Error('Use a public Google Drive folder link')
-  const files = await collectFiles(folder.id, folder.resourceKey, env, fetchImpl)
-  if (!files.length) throw new Error('No image files were found in that public Google Drive folder')
+  const found = await collectFiles(folder.id, folder.resourceKey, env, fetchImpl)
+  if (!found.length) throw new Error('No image files were found in that public Google Drive folder')
+  const files = found.slice(0, MAX_GALLERY_ITEMS)
   const meta = await driveGet<{ name?: string }>(`files/${encodeURIComponent(folder.id)}?fields=name`, env, fetchImpl, [[folder.id, folder.resourceKey]]).catch(() => ({ name: '' }))
   const title = (meta.name ?? '').trim() || 'Untitled gallery'
   const images = files.map((file, index): GalleryImage => {
@@ -121,7 +122,7 @@ export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: 
       variants: [{ width: 256, src: thumbnailProxy(file.id, 'w256', file.resourceKey), format: 'jpeg' }],
     }
   })
-  return { sourceUrl: canonicalDriveUrl(folder.id, folder.resourceKey), title, images }
+  return { sourceUrl: canonicalDriveUrl(folder.id, folder.resourceKey), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
 }
 
 export const fetchDriveFile = async (fileId: string, env: GDriveEnv, fetchImpl: typeof fetch = fetch, resourceKey?: string) => {

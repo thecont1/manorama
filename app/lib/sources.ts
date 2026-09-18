@@ -20,7 +20,7 @@ import type { GalleryMediaItem } from './imagesource'
 
 export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega'
 
-export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[] }
+export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number }
 
 export type SourceEnv = {
   DROPBOX_APP_KEY?: string
@@ -204,7 +204,40 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
   }
 }
 
-export const scanSource = async (input: string, env: SourceEnv, fetchImpl: typeof fetch = fetch): Promise<SourceScan> => {
+/**
+ * Every upstream call a scanner makes rides the injected fetch — this
+ * wrapper gives each request a hard timeout so a stalled provider socket
+ * fails instead of hanging the create request (and the quick-add
+ * interstitial) forever.
+ */
+const SCAN_REQUEST_TIMEOUT_MS = 20_000
+const timedFetch = (fetchImpl: typeof fetch): typeof fetch =>
+  ((input: RequestInfo | URL, init?: RequestInit) =>
+    fetchImpl(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(SCAN_REQUEST_TIMEOUT_MS) })) as typeof fetch
+
+/**
+ * The overall scan deadline — the promise that "this never hangs
+ * indefinitely". Per-request timeouts bound each call, but a pathological
+ * album could still chain many calls; past this point we stop waiting
+ * and report the album as too slow rather than leaving the visitor on a
+ * spinner. The abandoned scan may keep running in the background — it is
+ * read-only and its result is simply discarded.
+ */
+const SCAN_DEADLINE_MS = 90_000
+export const SCAN_TIMEOUT_MESSAGE =
+  'That album is taking a very long time to read — it may be too large. Try again, or split it into smaller folders.'
+const withDeadline = <T>(work: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(SCAN_TIMEOUT_MESSAGE)), SCAN_DEADLINE_MS)
+  })
+  return Promise.race([work.finally(() => clearTimeout(timer)), deadline])
+}
+
+export const scanSource = (input: string, env: SourceEnv, fetchImpl: typeof fetch = fetch): Promise<SourceScan> =>
+  withDeadline(scanSourceUnbounded(input, env, timedFetch(fetchImpl)))
+
+const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typeof fetch): Promise<SourceScan> => {
   const provider = detectSource(input)
   if (!provider) {
     // iCloud Drive links look like album links but enumerate folders only

@@ -1,3 +1,15 @@
+/**
+ * The most media items one gallery may hold. Chosen for the two real
+ * costs of a scan: per-item probes (Dropbox and MEGA fetch dimensions
+ * for every accepted file, iCloud probes video candidates) and the
+ * rendered DOM (the viewer mounts one frame per item — there is no
+ * virtualization). 1000 keeps a scan's probe work bounded and a gallery
+ * page loadable, while covering real albums many times over. Scanners
+ * slice their filtered list to this BEFORE any per-item work and report
+ * the uncapped count via `truncated`.
+ */
+export const MAX_GALLERY_ITEMS = 1000
+
 export type ExifData = {
   dateOriginal?: string
   camera?: string

@@ -240,7 +240,14 @@ export const createManoramaApi = () => {
           createdAt: new Date().toISOString(),
           images: orderedImages,
         }, galleryLimit(session.tier), dbEnv(c))
-        if (result.ok) return c.json({ gallery: toSummary(result.gallery), galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug) }, 201)
+        if (result.ok) return c.json({
+          gallery: toSummary(result.gallery),
+          galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug),
+          // Set when the source album held more than the gallery cap —
+          // quick-add shows the note before redirecting so truncation is
+          // never silent.
+          ...(scan.truncated ? { truncated: { kept: orderedImages.length, total: scan.truncated } } : {}),
+        }, 201)
         if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
         if (result.reason === 'duplicate-source') {
           // Lost the race to a concurrent create of the same link — resolve

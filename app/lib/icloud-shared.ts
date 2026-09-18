@@ -1,4 +1,4 @@
-import { SourceFetchError, type GalleryImage, type GalleryMediaItem, type VideoItem } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem, type VideoItem } from './imagesource'
 
 /**
  * iCloud public Shared Album scanning via the same `sharedstreams`
@@ -58,7 +58,7 @@ type AssetUrls = {
   locations?: Record<string, { scheme?: string; hosts?: string[] }>
 }
 
-export type ICloudScan = { sourceUrl: string; title: string; images: GalleryMediaItem[] }
+export type ICloudScan = { sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number }
 
 /** The album token from either public link spelling:
  *  icloud.com/sharedalbum/#{token} and share.icloud.com/photos/{token}. */
@@ -282,7 +282,11 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
   const token = extractAlbumToken(input)
   if (!token) throw new Error('Use a public iCloud shared album link')
   const stream = await postSharedstreams<StreamResponse>(token, 'webstream', { streamCtag: null }, fetchImpl)
-  const entries = (stream.photos ?? []).filter((photo) => photo.derivatives && Object.keys(photo.derivatives).length)
+  const found = (stream.photos ?? []).filter((photo) => photo.derivatives && Object.keys(photo.derivatives).length)
+  // Cap before the per-item loop — video candidates each cost a HEAD or
+  // ranged probe against Apple's CDN, so an uncapped album multiplies
+  // into minutes.
+  const entries = found.slice(0, MAX_GALLERY_ITEMS)
 
   const items: GalleryMediaItem[] = []
   let index = 0
@@ -351,7 +355,7 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
   }
 
   if (!items.length) throw new Error('No photos or videos were found in that public iCloud album')
-  return { sourceUrl: canonicalICloudUrl(token), title: stream.streamName?.trim() || 'Shared album', images: items }
+  return { sourceUrl: canonicalICloudUrl(token), title: stream.streamName?.trim() || 'Shared album', images: items, ...(found.length > entries.length ? { truncated: found.length } : {}) }
 }
 
 /** Resolves the short-lived CDN URL for one derivative checksum. Asset

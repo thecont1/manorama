@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
+import { MAX_GALLERY_ITEMS } from './imagesource'
 
 const env = { GOOGLE_DRIVE_API_KEY: 'test-key' }
 
@@ -114,6 +115,24 @@ describe('scanDriveFolder', () => {
     const scan = await scanDriveFolder('https://drive.google.com/drive/folders/1FolderId', env, fetchImpl as typeof fetch)
     expect(calls).toBe(2)
     expect(scan.images.map((image) => image.ref)).toEqual(['a', 'b'])
+  })
+
+  test('caps an oversized folder at the gallery limit and reports the total', async () => {
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files?q=')) {
+        return jsonResponse(listing(
+          Array.from({ length: MAX_GALLERY_ITEMS + 7 }, (_, index) => ({
+            id: `file-${index}`, name: `IMG_${index}.jpg`, mimeType: 'image/jpeg', imageMediaMetadata: { width: 4000, height: 3000 },
+          })),
+        ))
+      }
+      if (url.includes('fields=name')) return jsonResponse({ name: 'Huge' })
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanDriveFolder('https://drive.google.com/drive/folders/1FolderId', env, fetchImpl as typeof fetch)
+    expect(scan.images).toHaveLength(MAX_GALLERY_ITEMS)
+    expect(scan.truncated).toBe(MAX_GALLERY_ITEMS + 7)
   })
 
   test('fails friendly when the folder is not link-shared', async () => {

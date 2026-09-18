@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { canonicalSourceMatches, detectSource, embeddedSourceCandidate, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './sources'
+import { MAX_GALLERY_ITEMS } from './imagesource'
 import { friendlySourceError } from './source-errors'
 
 describe('detectSource', () => {
@@ -53,6 +54,37 @@ describe('scanSource', () => {
   test('rejects iCloud Drive links with the Shared Album guidance', async () => {
     await expect(scanSource('https://www.icloud.com/iclouddrive/03c_T_Sxo0bE6AecC8_Ol21tw#Moral_Polis', {}))
       .rejects.toThrow('iCloud Drive links cannot be read')
+  })
+
+  test('carries the scanner truncation report through to the caller', async () => {
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files?q=')) {
+        return new Response(JSON.stringify({
+          files: Array.from({ length: MAX_GALLERY_ITEMS + 3 }, (_, index) => ({
+            id: `f${index}`, name: `${index}.jpg`, mimeType: 'image/jpeg',
+          })),
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ name: 'Big' }), { status: 200 })
+    }
+    const scan = await scanSource('https://drive.google.com/drive/folders/1FolderId', { GOOGLE_DRIVE_API_KEY: 'k' }, fetchImpl as typeof fetch)
+    expect(scan.provider).toBe('gdrive')
+    expect(scan.images).toHaveLength(MAX_GALLERY_ITEMS)
+    expect(scan.truncated).toBe(MAX_GALLERY_ITEMS + 3)
+  })
+
+  test('threads an abort signal into every upstream request so a stall cannot hang forever', async () => {
+    const signals: (AbortSignal | null | undefined)[] = []
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      signals.push(init?.signal)
+      const url = String(input)
+      if (url.includes('files?q=')) return new Response(JSON.stringify({ files: [{ id: 'a', name: 'a.jpg', mimeType: 'image/jpeg' }] }), { status: 200 })
+      return new Response(JSON.stringify({ name: 'Big' }), { status: 200 })
+    }
+    await scanSource('https://drive.google.com/drive/folders/1FolderId', { GOOGLE_DRIVE_API_KEY: 'k' }, fetchImpl as typeof fetch)
+    expect(signals.length).toBeGreaterThan(0)
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true)
   })
 })
 
