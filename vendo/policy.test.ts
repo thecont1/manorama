@@ -13,8 +13,14 @@ const policyFile = JSON.parse(readFileSync(`${repoRoot}/.vendo/policy.json`, 'ut
 
 // The same inline policy the composition passes to guard() — rules and
 // directions come verbatim from .vendo/policy.json, exactly as vendo/server.ts does.
+// The store must be an isolated in-memory one with its schema ensured: a bare
+// createStore() would default to .vendo/data on disk, where an absent freeze
+// control row fails the guard closed ("vendo is frozen") and every check
+// returns block — which is exactly what CI saw on a clean checkout.
+const store = createStore({ dataDir: 'memory://' })
+await store.ensureSchema()
 const policy = createGuard({
-  store: createStore(),
+  store,
   policy: {
     rules: policyFile.rules as never,
     directions: policyFile.directions,
