@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // manorama acceptance spec — the gallery-qa skill, executable.
 // Deps: npm i -D @playwright/test @axe-core/playwright
 // Env: GALLERY_URL (default http://localhost:8787), GALLERY_OWNER, GALLERY_SLUG
