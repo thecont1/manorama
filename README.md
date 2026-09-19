@@ -8,6 +8,8 @@ Sign in at `https://manorama.xyz/` with Dropbox; the landing page forwards you t
 
 Added galleries are stored as metadata and ordered media manifests in D1. Original media bytes remain with the provider and are streamed through same-origin Manorama routes when the public gallery is viewed. Removing a gallery removes Manorama's reference only; it does not delete anything at the source.
 
+Free accounts retain up to 3 editable galleries. Creates beyond that land as temporary `pipeline` galleries — public and listed, but read-only: their cards show a deadline panel with an upgrade link, and title/caption/slug edits, image reordering, and refresh announce the lock instead of acting. Upgrading to pro (up to 99 retained galleries) promotes every still-live pipeline gallery back to editable. Pipeline galleries can still be opened, shared, copied, and deleted. See Gallery retention below.
+
 The dashboard lists link-sourced galleries newest first. Clicking a title or caption opens an inline editor; the slug is editable too, and the public URL follows it. Beneath each title is a full-viewport-width, 100px media rail containing the gallery thumbnails — videos carry a `▶ mm:ss` badge. Items can be dragged into a new position, moved with the keyboard when focused, and panned within the rail using horizontal trackpad/wheel input or touch-style pointer movement. Each gallery row exposes its public URL, a copy action, and a delete action. Gallery links open in a new tab.
 
 ## Quick-add: `manorama.xyz/<share-url>`
@@ -41,6 +43,18 @@ D1 is the production store (`DB` binding, `migrations/`); vite dev and tests use
 | `sourceUrl` | The public provider link |
 | `createdAt` | Recency ordering |
 | `imagesJson` | Ordered media manifest — `image` and `video` items in one union |
+| `retention` | `retained` (editable) or `pipeline` (temporary, read-only) |
+| `expires_at` | Pipeline removal deadline; `NULL` on retained rows |
+
+### Gallery retention
+
+Free accounts keep at most 3 `retained` galleries; further creates insert as `pipeline` rows with `expires_at` exactly 30 days after `created_at`. Paid accounts cap at 99 retained galleries — a create beyond that is a typed `GALLERY_LIMIT` 403. The public cutoff is enforced at read time: once `expires_at` passes, lists and gallery/OG reads hide the row immediately, while stored-record reads keep it reachable for owner deletes and the expiry walk. A daily cron (`17 3 * * *`, 03:17 UTC) physically removes expired rows with a guarded delete — a gallery recreated under the same slug after the scan survives, and manual deletes/upgrades mid-scan are safe skips. Deletion removes only the Manorama row; nothing at the provider is ever touched.
+
+All galleries present before `migrations/0002_gallery_retention.sql` normalize to `retained` with `NULL` expiry — nothing existing goes temporary.
+
+Upgrades run through `setUserTier`, the trusted seam: it writes the tier and promotes every unexpired pipeline gallery (`expires_at > now`, strictly — a deadline equal to now stays expired) in one idempotent batch, so a repeated pro write is safe. Never update the D1 `tier` column alone — that would leave pipeline galleries locked on a pro account. Payment verification is the caller's responsibility; there is no public upgrade API, billing integration, or webhook. Promotion can lift an owner past 99 retained galleries; the cap applies only to subsequent creates.
+
+A gallery's Manorama-owned state is the D1 row only — no per-gallery persisted assets or auxiliary tables exist. Pipeline OG cards are served `Cache-Control: no-store` (composite and fallback alike); retained cards keep the existing day cache. Provider-keyed transient caches and browser-local viewer preferences are unchanged and hold no gallery copies.
 
 Sign-in is Dropbox OAuth (`/auth/dropbox` → callback → HS256 `manorama_session` cookie signed by `HOST_API_JWT_SECRET`). The dashboard route `/{owner}` requires the session to match that owner; anything else redirects to the landing page or 404s. Server-side secrets:
 
@@ -95,9 +109,10 @@ Open `http://localhost:5173/` for the landing page. Dev seeding is driven by sam
 
 ## Deploy to Cloudflare
 
-The repository is one-command deployable to the Worker account:
+The repository is one-command deployable to the Worker account — but the retention migration must be applied to the production database BEFORE the first deploy of a build that expects the columns:
 
 ```sh
+bunx wrangler d1 migrations apply manorama --remote
 bun run deploy
 ```
 

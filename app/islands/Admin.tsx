@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
+import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, paidGalleryLimitError } from '../lib/gallery-policy'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -45,7 +46,7 @@ const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) 
   return bTime - aTime || a.title.localeCompare(b.title)
 })
 
-const FREE_GALLERY_LIMIT = 3
+const isLocked = (gallery: GallerySummary) => gallery.retention === 'pipeline'
 
 /** After a new gallery card mounts, bring it fully into view: centered with
  *  breathing room when it fits, top-parked with a margin when it doesn't.
@@ -86,6 +87,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (toastTimer.current) clearTimeout(toastTimer.current)
     if (!sticky && message) toastTimer.current = setTimeout(() => setStatus(''), 5000)
   }
+  const blockPipelineEdit = (gallery: GallerySummary) => {
+    if (!isLocked(gallery)) return false
+    announce(PIPELINE_LOCK_MESSAGE)
+    return true
+  }
   // Flash messages survive the redirect that follows an owner-slug change.
   const flashChecked = useRef(false)
   if (!flashChecked.current && typeof sessionStorage !== 'undefined') {
@@ -94,6 +100,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (flash) { sessionStorage.removeItem('manorama-toast'); announce(flash) }
   }
   const [busy, setBusy] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(tick)
+  }, [])
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof localStorage === 'undefined') return 'dark'
@@ -176,6 +187,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
    const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
+    if (blockPipelineEdit(gallery)) return
     if (busy) return
     setBusy(true)
     announce('Saving order…', true)
@@ -198,6 +210,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const reorderGallery = (gallery: GallerySummary, from: number, to: number) => {
+    if (blockPipelineEdit(gallery)) return
     if (from === to || to < 0 || to >= gallery.images.length || busy) return
     const images = [...gallery.images]
     const [moved] = images.splice(from, 1)
@@ -208,6 +221,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const startGalleryDrag = (gallery: GallerySummary, index: number, event: PointerEvent) => {
+    if (blockPipelineEdit(gallery)) { event.preventDefault(); return }
     if (busy || (event.pointerType === 'touch' && !event.isPrimary)) return
     const item = event.currentTarget as HTMLElement
     try { item.setPointerCapture(event.pointerId) } catch {}
@@ -218,6 +232,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const moveGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
     const drag = galleryDrag.current
     if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    if (blockPipelineEdit(gallery)) return
     const strip = (event.currentTarget as HTMLElement).parentElement
     if (!strip) return
     const items = Array.from(strip.children) as HTMLElement[]
@@ -241,6 +256,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const finishGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
     const drag = galleryDrag.current
     if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    if (blockPipelineEdit(gallery)) return
     galleryDrag.current = null
     if (drag.currentIndex !== drag.startIndex) void persistGalleryOrder(gallery, drag.images)
   }
@@ -302,6 +318,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
   const beginEditing = (gallery: GallerySummary, field: EditableField) => {
+    if (blockPipelineEdit(gallery)) return
     setEditing({ slug: gallery.slug, field })
     setDraft(gallery[field])
     announce('')
@@ -314,6 +331,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const saveEditing = async () => {
     if (!editing || saveEditingInFlight.current) return
+    const current = galleries.find((item) => item.slug === editing.slug)
+    if (current && blockPipelineEdit(current)) return
     const editingSlug = editing.slug
     const value = draft.trim()
     if (editing.field === 'title' && !value) {
@@ -367,7 +386,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const removeGallery = async (gallery: GallerySummary) => {
-    if (!gallery.sourceUrl || !window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
+    if (!window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
     setBusy(true)
     announce('Removing gallery…', true)
     try {
@@ -384,6 +403,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const refreshGallery = async (gallery: GallerySummary) => {
+    if (blockPipelineEdit(gallery)) return
     if (!gallery.sourceUrl) return
     setBusy(true)
     announce(`Refreshing “${gallery.title}”…`, true)
@@ -426,7 +446,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     const text = gallery[field] || (field === 'caption' ? 'Add a caption' : gallery.title)
     const displayText = text
-    return <button type="button" class={`${className} editable-value${gallery[field] ? '' : ' is-empty'}`} aria-label={`Edit gallery ${field}: ${text}`} onClick={() => beginEditing(gallery, field)}>{displayText}</button>
+    return <button type="button" class={`${className} editable-value${gallery[field] ? '' : ' is-empty'}`} aria-label={`Edit gallery ${field}: ${text}`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : undefined} onClick={() => beginEditing(gallery, field)}>{displayText}</button>
   }
 
   return (
@@ -463,11 +483,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       <section class="gallery-import" aria-labelledby="import-heading">
         <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
         {(() => {
-          const used = galleries.length
-          const remaining = Math.max(0, FREE_GALLERY_LIMIT - used)
-          const have = used === 0 ? 'You have no galleries.' : `You have ${used} ${used === 1 ? 'gallery' : 'galleries'}.`
-          const can = tier === 'pro' ? 'You can add as many as you like.' : remaining === 0 ? 'You have reached the limit.' : `You can add ${remaining} more.`
-          return <p class="admin-limit-count" aria-live="polite">{have} {can}</p>
+          const retained = galleries.filter((gallery) => gallery.retention !== 'pipeline').length
+          return <div class="admin-retention-policy">
+            <p class="admin-limit-count" aria-live="polite">{retained} retained {retained === 1 ? 'gallery' : 'galleries'}{tier === 'pro' ? ` · ${Math.max(0, PAID_RETAINED_LIMIT - retained)} available` : ` · ${Math.max(0, FREE_RETAINED_LIMIT - retained)} editable slots available`}</p>
+            {tier === 'free' ? <p>{FREE_RETENTION_DISCLOSURE}</p> : <p>Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>}
+            {tier === 'pro' && retained >= PAID_RETAINED_LIMIT ? <p>{paidGalleryLimitError().message}</p> : null}
+          </div>
         })()}
         <form class="gallery-import-form" onSubmit={addGallery}>
           <label class="admin-field"><span>Public Dropbox, Google Drive, iCloud, or MEGA link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, iCloud album, or MEGA link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
@@ -477,18 +498,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">
-        {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug}>
+        {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
+          {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
+            <p>Temporary · {Math.max(0, Math.ceil((Date.parse(gallery.expiresAt) - now) / 86_400_000))} days left</p>
+            <p>Expires <time dateTime={gallery.expiresAt}>{gallery.expiresAt.replace('T', ' ').replace('.000Z', ' UTC')}</time>. Permanently removed from Manorama after 30 days unless you upgrade before expiry.</p>
+            <p>{PIPELINE_LOCK_MESSAGE} <a href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade</a></p>
+          </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
-              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable onDragStart={(event: DragEvent) => { setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
+              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery)} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                 {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
               </figure>)}
             </div>
           </div>
-          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title="Refresh from source" aria-label={`Refresh ${gallery.title} from its source link`} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button> : null}</div>
+          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from its source link`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}<button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button></div>
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
 

@@ -779,6 +779,14 @@ body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200
   font-size: 10px;
   letter-spacing: .08em;
 }
+.admin-retention-policy { margin: -18px 0 26px; }
+.admin-retention-policy .admin-limit-count { margin: 0 0 6px; }
+.admin-retention-policy p:not(.admin-limit-count) { margin: 6px 0 0; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; }
+.admin-gallery-retention { grid-column: 1 / -1; margin: 16px 0 4px; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; }
+.admin-gallery-retention p { margin: 4px 0 0; }
+.admin-gallery-retention a { color: rgb(var(--ink)); }
+[aria-disabled="true"].editable-value, .admin-icon-action[aria-disabled="true"], .admin-gallery-strip-item[aria-disabled="true"] { cursor: not-allowed; }
+[aria-disabled="true"].editable-value, .admin-icon-action[aria-disabled="true"] { opacity: .6; }
 
 
 /* Editor theme toggle — sunglasses icon, same technique as robby. */

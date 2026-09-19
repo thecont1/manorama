@@ -41,6 +41,16 @@
         },
         "description": "A backing store is temporarily unavailable"
       },
+      "Forbidden": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Retention policy refused the operation: GALLERY_LIMIT at the retained-gallery cap (with dashboardUrl), or GALLERY_READ_ONLY on a temporary pipeline gallery"
+      },
       "Unprocessable": {
         "content": {
           "application/json": {
@@ -99,6 +109,18 @@
       "Error": {
         "additionalProperties": false,
         "properties": {
+          "code": {
+            "description": "Machine-readable policy refusal code, when the failure is a retention decision",
+            "enum": [
+              "GALLERY_LIMIT",
+              "GALLERY_READ_ONLY"
+            ],
+            "type": "string"
+          },
+          "dashboardUrl": {
+            "description": "Owner dashboard path to redirect to on GALLERY_LIMIT",
+            "type": "string"
+          },
           "error": {
             "description": "Human-readable failure reason",
             "type": "string"
@@ -125,11 +147,27 @@
             "minimum": 0,
             "type": "integer"
           },
+          "expiresAt": {
+            "description": "ISO 8601 removal deadline; set only on pipeline galleries",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "images": {
             "items": {
               "$ref": "#/components/schemas/Image"
             },
             "type": "array"
+          },
+          "retention": {
+            "description": "retained galleries are editable; pipeline galleries are temporary and read-only until upgrade or expiry",
+            "enum": [
+              "retained",
+              "pipeline"
+            ],
+            "type": "string"
           },
           "slug": {
             "description": "Stable URL segment identifying the gallery",
@@ -149,7 +187,9 @@
           "title",
           "caption",
           "imageCount",
-          "images"
+          "images",
+          "retention",
+          "expiresAt"
         ],
         "type": "object"
       },
@@ -173,6 +213,10 @@
         "properties": {
           "gallery": {
             "$ref": "#/components/schemas/Gallery"
+          },
+          "galleryUrl": {
+            "description": "Public path of the gallery, returned on create/409 responses",
+            "type": "string"
           }
         },
         "required": [
@@ -852,6 +896,9 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "422": {
             "$ref": "#/components/responses/Unprocessable"
           }
@@ -989,6 +1036,9 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -1038,6 +1088,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
