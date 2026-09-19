@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
+import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
 
 /**
@@ -90,6 +91,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // style.cssText on every render — an imperative aspectRatio write gets
   // reverted by the next state change unless the prop itself carries it.
   const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: effectiveImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio) })
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
   // resets when the viewer unmounts, so a fresh visit is always quiet.
@@ -489,6 +491,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [mode])
 
   useEffect(() => {
+    const stageElement = stageRef.current
     const onResize = () => {
       if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
       viewportFrameRef.current = requestAnimationFrame(() => {
@@ -497,17 +500,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         if (!stage) return
         const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
         stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
+        const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: effectiveImageDpr(window.devicePixelRatio) }
+        setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
         boundsDirtyRef.current = true
         if (modeRef.current === 'strip') settleTo(-imageStart(indexRef.current), true)
       })
     }
     const visualViewport = window.visualViewport
+    const stageObserver = stageElement && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null
+    if (stageElement) stageObserver?.observe(stageElement)
     onResize()
     window.addEventListener('resize', onResize)
     window.addEventListener('orientationchange', onResize)
     visualViewport?.addEventListener('resize', onResize)
     visualViewport?.addEventListener('scroll', onResize)
     return () => {
+      stageObserver?.disconnect()
       window.removeEventListener('resize', onResize)
       window.removeEventListener('orientationchange', onResize)
       visualViewport?.removeEventListener('resize', onResize)
@@ -515,6 +523,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    boundsDirtyRef.current = true
+    if (modeRef.current !== 'strip') return
+    const frame = requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true, true))
+    return () => cancelAnimationFrame(frame)
+  }, [stageSize, seamMode])
 
   useEffect(() => () => {
     cancelPositionReport()
@@ -945,6 +960,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
+  const seamInset = seamMode === 'none' ? 0 : mode === 'single' ? 4 : 10
+  const seamTop = seamMode === 'none' ? 0 : 5
+
   return (
     <>
       <div
@@ -966,6 +984,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             const frameH = healed?.h ?? image.height
             const isPortrait = frameH > frameW
             const video = isVideoItem(image) ? image : null
+            const staged = video ? null : imageStageSize({
+              mode,
+              naturalWidthPx: frameW,
+              naturalHeightPx: frameH,
+              stageWidthCssPx: stageSize.width - (mode === 'strip' ? 0 : seamInset),
+              stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
+              dpr: stageSize.dpr,
+            })
+            const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
             return (
               <figure
                 class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''} ${video ? 'viewer-frame--video' : ''}`}
@@ -974,7 +1001,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
-                style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : undefined}
+                style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video && staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : undefined}
               >
                 {video ? (
                   <>
@@ -1010,6 +1037,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                   aria-hidden="true"
                   width={frameW}
                   height={frameH}
+                  style={stagedStyle}
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
@@ -1022,6 +1050,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     alt={image.alt}
                     width={frameW}
                     height={frameH}
+                    style={stagedStyle}
                     decoding="async"
                     loading="eager"
                     onError={(event: Event) => {
@@ -1038,46 +1067,42 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                       // Records can carry guessed dims (4:3 fallback, stale
                       // scans): once the real pixels decode, reshape the
                       // frame so geometry always matches the photograph.
-                      if (img.naturalWidth && img.naturalHeight) {
-                        const stored = image.width / image.height
-                        const real = img.naturalWidth / img.naturalHeight
-                        if (Math.abs(real - stored) / stored > 0.02) {
-                          const frame = img.closest<HTMLElement>('.viewer-frame')
-                          if (frame) {
-                            const healed = { w: img.naturalWidth, h: img.naturalHeight }
-                            setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
-                            if (mode === 'strip') {
-                              const oldWidth = frame.offsetWidth
-                              frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-                              // A corrected frame changes track geometry —
-                              // drop the cached bounds, then once layout
-                              // settles either carry an in-flight nav across
-                              // the shift or dock on the frame holding the
-                              // stage's left edge.
-                              boundsDirtyRef.current = true
-                              requestAnimationFrame(() => {
-                                const delta = frame.offsetWidth - oldWidth
-                                if (delta !== 0 && momentumRef.current !== null && navDestXRef.current !== null && frame.offsetLeft < -navDestXRef.current) {
-                                  navDestXRef.current -= delta
-                                }
-                                // An in-flight navigation chases navDestX
-                                // live, so the shift is already absorbed.
-                                // When nothing is animating — idle, or the
-                                // stale window between animation end and the
-                                // position report clearing navDestX — dock
-                                // on the frame actually holding the left
-                                // edge, or the strip is left delta-px off.
-                                if (momentumRef.current !== null && navDestXRef.current !== null) return
-                                navDestXRef.current = null
-                                const docked = leftmostFrameIndex(-currentXRef.current)
-                                reportedIndexRef.current = docked
-                                setIndex(docked)
-                                settleTo(-imageStart(docked), true, true)
-                              })
-                            }
-                            frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
-                            frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
+                      if (img.naturalWidth && img.naturalHeight && (img.naturalWidth !== frameW || img.naturalHeight !== frameH)) {
+                        const frame = img.closest<HTMLElement>('.viewer-frame')
+                        if (frame) {
+                          const healed = { w: img.naturalWidth, h: img.naturalHeight }
+                          setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
+                          if (mode === 'strip') {
+                            const oldWidth = frame.offsetWidth
+                            frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                            // A corrected frame changes track geometry —
+                            // drop the cached bounds, then once layout
+                            // settles either carry an in-flight nav across
+                            // the shift or dock on the frame holding the
+                            // stage's left edge.
+                            boundsDirtyRef.current = true
+                            requestAnimationFrame(() => {
+                              const delta = frame.offsetWidth - oldWidth
+                              if (delta !== 0 && momentumRef.current !== null && navDestXRef.current !== null && frame.offsetLeft < -navDestXRef.current) {
+                                navDestXRef.current -= delta
+                              }
+                              // An in-flight navigation chases navDestX
+                              // live, so the shift is already absorbed.
+                              // When nothing is animating — idle, or the
+                              // stale window between animation end and the
+                              // position report clearing navDestX — dock
+                              // on the frame actually holding the left
+                              // edge, or the strip is left delta-px off.
+                              if (momentumRef.current !== null && navDestXRef.current !== null) return
+                              navDestXRef.current = null
+                              const docked = leftmostFrameIndex(-currentXRef.current)
+                              reportedIndexRef.current = docked
+                              setIndex(docked)
+                              settleTo(-imageStart(docked), true, true)
+                            })
                           }
+                          frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
+                          frame.classList.toggle('viewer-frame--landscape', img.naturalHeight <= img.naturalWidth)
                         }
                       }
                     }}

@@ -18,6 +18,7 @@
 
 :root {
   --ink: 243, 240, 232;
+  --gallery-canvas: #0a0a0a;
   color-scheme: dark;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
   background: #0a0a0a;
@@ -35,7 +36,7 @@ button { color: inherit; }
 
 .gallery-shell, honox-island { display: contents; }
 /* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
-.viewer-stage { position: relative; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: #0a0a0a; outline: none; touch-action: none; cursor: grab; }
+.viewer-stage { position: relative; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
@@ -45,7 +46,7 @@ button { color: inherit; }
 /* The single grid cell must be sized to the frame (minmax(0,100%)), not
    the image: a percentage max-height on a grid item resolves against the
    track, and an auto track is content-sized — the cap would never bite. */
-.viewer-frame { position: relative; display: grid; grid-template: minmax(0, 100%) / 100%; place-items: center; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: #0a0a0a; overflow: visible; }
+.viewer-frame { position: relative; display: grid; grid-template: minmax(0, 100%) / 100%; place-items: center; flex: 0 0 auto; height: 100%; margin: 0; padding: 0; background: var(--gallery-canvas); overflow: visible; }
 /* Never upsize: images shrink to fit the frame but a small image stays
    at its natural size (centred) rather than scaling up soft. The full
    image crossfades over the placeholder layer instead of popping in. */
@@ -81,8 +82,10 @@ button { color: inherit; }
 .seam-dark .viewer-track .viewer-frame video { border-radius: 5px; }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); margin: 0 auto; object-fit: contain; }
-.viewer-track--vertical .viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: #0a0a0a; overflow: hidden; }
-.viewer-track--vertical .viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
+.viewer-track--vertical .viewer-frame:not(.viewer-frame--video) { place-items: center; }
+.viewer-track--vertical .viewer-frame:not(.viewer-frame--video) img { max-height: none; }
+.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: var(--gallery-canvas); overflow: hidden; }
+.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
 .viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); pointer-events: none; }
 .viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { opacity: 1; pointer-events: auto; }
 .viewer-track--single .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
