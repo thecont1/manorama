@@ -145,19 +145,37 @@ describe('owner URL changes', () => {
   })
 })
 
-describe('the free-tier gallery limit', () => {
-  test('a fourth gallery is politely refused', async () => {
+describe('galleries beyond the free allowance', () => {
+  test('a fourth gallery is created as a temporary pipeline gallery', async () => {
     // test-final (from the rename suite) plus these two fills the free
     // allowance; the next create is the fourth.
     await createGallery(TEST_OWNER.dropboxAccountId, { slug: 'filler-two', title: 'Filler Two', caption: '', date: '', images: [] })
     await createGallery(TEST_OWNER.dropboxAccountId, { slug: 'filler-three', title: 'Filler Three', caption: '', date: '', images: [] })
-    const response = await api.request('/api/galleries', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: cookie },
-      body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/fourth' }),
-    }, env)
-    expect(response.status).toBe(403)
-    const payload = await response.json() as { error?: string }
-    expect(payload.error).toContain('all 3')
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: [{ '.tag': 'file', name: 'one.jpg', id: 'id:one', media_info: { metadata: { dimensions: { width: 4, height: 3 } } } }],
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: 'Fourth Album' })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/fourth' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { slug?: string; retention?: string; expiresAt?: string | null } }
+      expect(payload.gallery?.retention).toBe('pipeline')
+      expect(payload.gallery?.expiresAt).toBeTruthy()
+    } finally {
+      globalThis.fetch = realFetch
+    }
   })
 })

@@ -3,6 +3,8 @@ import { createManoramaApi } from './api'
 import openapiDocument from '../openapi.json'
 import type { HonoSessionEnv, SessionEnv } from './lib/dropbox-session'
 import type { RuntimeEnv } from './api'
+import { expirePipelineGalleries } from './lib/gallery-expiry'
+import { deleteExpiredPipelineGallery, listExpiredPipelineGalleries } from './lib/gallery-repository'
 
 type AppEnv = HonoSessionEnv & { Bindings: SessionEnv & RuntimeEnv }
 
@@ -44,4 +46,21 @@ const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
 
 const app = createApp({ init })
 
-export default app
+export default Object.assign(app, {
+  async scheduled(controller: ScheduledController, env: AppEnv['Bindings']) {
+    const now = new Date(controller.scheduledTime).toISOString()
+    if (!env?.DB) throw new Error('Gallery expiry requires the D1 database binding')
+    let counters: { scanned: number; deleted: number; skipped: number; failed: number }
+    try {
+      counters = await expirePipelineGalleries({
+        list: (at, after, limit) => listExpiredPipelineGalleries(at, env, after, limit),
+        remove: (key, at) => deleteExpiredPipelineGallery(key, at, env),
+      }, now)
+    } catch {
+      console.log(JSON.stringify({ event: 'gallery_expiry', at: now, failed: -1 }))
+      throw new Error('Gallery expiry failed')
+    }
+    console.log(JSON.stringify({ event: 'gallery_expiry', at: now, ...counters }))
+    if (counters.failed) throw new Error('Gallery expiry incomplete')
+  },
+})

@@ -31,38 +31,106 @@ describe('formatDuration', () => {
   })
 })
 
+const stubBrowser = (fetchImpl: () => Promise<Response>) => {
+  const store = new Map<string, string>()
+  const globals = globalThis as Record<string, unknown>
+  const status = { textContent: '' }
+  const navigated: string[] = []
+  const previous = {
+    location: globals.location,
+    sessionStorage: globals.sessionStorage,
+    localStorage: globals.localStorage,
+    document: globals.document,
+    fetch: globals.fetch,
+  }
+  globals.location = {
+    href: 'https://manorama.xyz/https://mega.nz/folder/Ab#K',
+    replace: (url: string) => { navigated.push(url) },
+  }
+  globals.sessionStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value) },
+    removeItem: (key: string) => { store.delete(key) },
+  }
+  globals.localStorage = globals.sessionStorage
+  globals.document = { querySelector: (selector: string) => (selector === '[data-quickadd-status]' ? status : null) }
+  globals.fetch = fetchImpl
+  return {
+    status,
+    navigated,
+    store,
+    restore: () => {
+      globals.location = previous.location
+      globals.sessionStorage = previous.sessionStorage
+      globals.localStorage = previous.localStorage
+      globals.document = previous.document
+      globals.fetch = previous.fetch
+    },
+  }
+}
+
 describe('createGallery loop guard', () => {
   test('a failed attempt may be retried after the page reloads', async () => {
     // A guard may prevent redirect loops, but it must not make a transient
     // network/provider failure permanent for the rest of the tab session.
-    const store = new Map<string, string>()
-    const globals = globalThis as Record<string, unknown>
-    const previous = {
-      location: globals.location,
-      sessionStorage: globals.sessionStorage,
-      document: globals.document,
-      fetch: globals.fetch,
-    }
-    globals.location = { href: 'https://manorama.xyz/https://mega.nz/folder/Ab#K', replace: () => {} }
-    globals.sessionStorage = {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => { store.set(key, value) },
-      removeItem: (key: string) => { store.delete(key) },
-    }
-    globals.document = { querySelector: () => null }
-    globals.fetch = async () => new Response(JSON.stringify({ error: 'temporary failure' }), {
+    const stub = stubBrowser(async () => new Response(JSON.stringify({ error: 'temporary failure' }), {
       status: 422,
       headers: { 'Content-Type': 'application/json' },
-    })
+    }))
     const root = { dataset: {} } as HTMLElement
     try {
       await createGallery('https://mega.nz/folder/Ab#K', root)
-      expect(store.has('manorama:quickadd-attempt')).toBe(false)
+      expect(stub.store.has('manorama:quickadd-attempt')).toBe(false)
     } finally {
-      globals.location = previous.location
-      globals.sessionStorage = previous.sessionStorage
-      globals.document = previous.document
-      globals.fetch = previous.fetch
+      stub.restore()
+    }
+  })
+})
+
+describe('createGallery limit handling', () => {
+  const root = () => ({ dataset: {} }) as HTMLElement
+
+  test('a pipeline gallery 201 redirects silently — no quota text, no retention notice', async () => {
+    const stub = stubBrowser(async () => new Response(JSON.stringify({
+      galleryUrl: '/test-owner/fresh-album',
+      gallery: { slug: 'fresh-album', retention: 'pipeline' },
+    }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
+    try {
+      await createGallery('https://mega.nz/folder/Ab#K', root())
+      expect(stub.navigated).toEqual(['/test-owner/fresh-album'])
+      expect(stub.status.textContent).toBe('')
+    } finally {
+      stub.restore()
+    }
+  })
+
+  test('a GALLERY_LIMIT response sends the visitor to their dashboard', async () => {
+    const stub = stubBrowser(async () => new Response(JSON.stringify({
+      code: 'GALLERY_LIMIT',
+      error: 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.',
+      dashboardUrl: '/test-owner',
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }))
+    try {
+      await createGallery('https://mega.nz/folder/Ab#K', root())
+      expect(stub.navigated).toEqual(['/test-owner'])
+      expect(stub.status.textContent).toBe('')
+    } finally {
+      stub.restore()
+    }
+  })
+
+  test('a GALLERY_LIMIT response without a usable target falls back to a generic note', async () => {
+    const stub = stubBrowser(async () => new Response(JSON.stringify({
+      code: 'GALLERY_LIMIT',
+      error: 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.',
+      dashboardUrl: 'https://evil.example.com/steal',
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }))
+    try {
+      await createGallery('https://mega.nz/folder/Ab#K', root())
+      expect(stub.navigated).toEqual([])
+      expect(stub.status.textContent).toBe('Open your dashboard to continue.')
+    } finally {
+      stub.restore()
     }
   })
 })

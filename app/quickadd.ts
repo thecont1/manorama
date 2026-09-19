@@ -104,6 +104,8 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
   stopWaiting()
 
   const payload = await response.json().catch(() => ({})) as {
+    code?: string
+    dashboardUrl?: string
     galleryUrl?: string
     gallery?: { slug?: string }
     truncated?: { kept: number; total: number }
@@ -135,7 +137,16 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
   // transient provider/network failure in the same tab.
   try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
   if (response.status === 401) { showSignInPanel(root, sourceUrl); return }
-  if (response.status === 403) { setStatus(payload.error || 'You are using all of your galleries. Remove one to add another.'); return }
+  if (response.status === 403) {
+    if (payload.code === 'GALLERY_LIMIT') {
+      const target = typeof payload.dashboardUrl === 'string' && /^\/[a-z0-9-]+$/.test(payload.dashboardUrl) ? payload.dashboardUrl : null
+      if (target) { location.replace(target); return }
+      setStatus('Open your dashboard to continue.')
+      return
+    }
+    setStatus(payload.error || 'Open your dashboard to continue.')
+    return
+  }
 
   const { friendlySourceError } = await import('./lib/source-errors')
   setStatus(friendlySourceError(payload.error))
