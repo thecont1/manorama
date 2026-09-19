@@ -25,11 +25,18 @@ export const OG_PILL_PATH = '/og-logo-pill.png'
 /** Static card served when anything at all goes wrong. */
 export const OG_FALLBACK_PATH = '/og-image.png'
 
-/** Pill geometry inside the 1200×630 card: bottom-left, with a margin
- *  that survives the platform crops social networks apply. */
-const PILL_WIDTH = 360
-const PILL_HEIGHT = 96
-const PILL_MARGIN = 48
+/** Pill geometry inside the 1200×630 card: horizontally centered, its
+ *  own center sitting at the middle of the card's top half, at 60%
+ *  opacity — a watermark, not a badge. */
+const PILL_WIDTH = 1080
+const PILL_HEIGHT = 288
+const PILL_LEFT = (OG_WIDTH - PILL_WIDTH) / 2
+const PILL_TOP = Math.round(OG_HEIGHT / 4 - PILL_HEIGHT / 2)
+const PILL_OPACITY = 0.6
+
+/** The photo is brightened 20% so dark frames still read as a card
+ *  thumbnail in chat-app link previews, which downscale aggressively. */
+const PHOTO_BRIGHTNESS = 1.2
 
 /**
  * Cache key for the card: the first item's stable key. Reordering a
@@ -62,7 +69,7 @@ export const ogBaseImageUrl = (item: GalleryMediaItem | undefined): string | nul
 export const absoluteSourceUrl = (source: string, requestUrl: string) =>
   source.startsWith('http') ? source : new URL(source, requestUrl).toString()
 
-type CfImageDraw = { url: string; left?: number; top?: number; width?: number; height?: number }
+type CfImageDraw = { url: string; left?: number; top?: number; width?: number; height?: number; opacity?: number }
 type CfImageOptions = {
   cf?: {
     image?: {
@@ -71,6 +78,7 @@ type CfImageOptions = {
       fit?: string
       format?: string
       quality?: number
+      brightness?: number
       draw?: CfImageDraw[]
     }
   }
@@ -88,13 +96,14 @@ export const renderOgCard = async (
 ): Promise<Response | null> => {
   const draw: CfImageDraw[] = [{
     url: pillUrl,
-    left: PILL_MARGIN,
-    top: OG_HEIGHT - PILL_HEIGHT - PILL_MARGIN,
+    left: PILL_LEFT,
+    top: PILL_TOP,
     width: PILL_WIDTH,
     height: PILL_HEIGHT,
+    opacity: PILL_OPACITY,
   }]
   const options: CfImageOptions = {
-    cf: { image: { width: OG_WIDTH, height: OG_HEIGHT, fit: 'cover', format: 'jpeg', quality: 88, draw } },
+    cf: { image: { width: OG_WIDTH, height: OG_HEIGHT, fit: 'cover', format: 'jpeg', quality: 88, brightness: PHOTO_BRIGHTNESS, draw } },
   }
   let response: Response
   try {
@@ -132,12 +141,14 @@ const compositeWithJimp = async (
       card = await Jimp.fromBuffer(jpeg)
     }
     card.cover({ w: OG_WIDTH, h: OG_HEIGHT })
+    card.brightness(PHOTO_BRIGHTNESS)
     try {
       const pillResponse = await fetchImpl(pillUrl)
       if (pillResponse.ok) {
         const pill = await Jimp.fromBuffer(await pillResponse.arrayBuffer())
         pill.resize({ w: PILL_WIDTH, h: PILL_HEIGHT })
-        card.composite(pill, PILL_MARGIN, OG_HEIGHT - PILL_HEIGHT - PILL_MARGIN)
+        pill.opacity(PILL_OPACITY)
+        card.composite(pill, PILL_LEFT, PILL_TOP)
       }
     } catch {
       // A missing pill degrades to an unbranded card — still better than

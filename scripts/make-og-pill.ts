@@ -12,8 +12,8 @@
 import sharp from 'sharp'
 import { fileURLToPath } from 'node:url'
 
-const WIDTH = 360
-const HEIGHT = 96
+const WIDTH = 1080
+const HEIGHT = 288
 const RADIUS = HEIGHT / 2
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
