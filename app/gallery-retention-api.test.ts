@@ -127,6 +127,32 @@ describe('a pipeline gallery is read-only through the session API', () => {
     }, env)
     expect(again.status).toBe(404)
   })
+
+  test('an expired pipeline gallery is already gone — edits and refresh 404 while delete still works', async () => {
+    await seedGalleries()
+    await createGallery(TEST_OWNER.dropboxAccountId, {
+      slug: 'gone',
+      title: 'Gone',
+      caption: '',
+      date: '',
+      createdAt: new Date(Date.now() - 31 * 86_400_000).toISOString(),
+      images: [image('img-gone')],
+    })
+    const edited = await patch('gone', { title: 'Nope' })
+    expect(edited.status).toBe(404)
+    const refreshed = await api.request('/api/galleries/gone/refresh', {
+      method: 'POST',
+      headers: { Cookie: cookie },
+    }, env)
+    expect(refreshed.status).toBe(404)
+    // The row physically lingers until the daily sweep; the owner can still
+    // remove it outright rather than a READ_ONLY dead end.
+    const deleted = await api.request('/api/galleries/gone', {
+      method: 'DELETE',
+      headers: { Cookie: cookie },
+    }, env)
+    expect(deleted.status).toBe(200)
+  })
 })
 
 describe('a paid owner at the retained cap', () => {

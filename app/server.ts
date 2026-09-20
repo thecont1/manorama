@@ -52,7 +52,7 @@ export default Object.assign(app, {
   async scheduled(controller: ScheduledController, env: AppEnv['Bindings']) {
     const now = new Date(controller.scheduledTime).toISOString()
     if (!env?.DB) throw new Error('Gallery expiry requires the D1 database binding')
-    let counters: { scanned: number; deleted: number; skipped: number; failed: number }
+    let counters: { scanned: number; deleted: number; skipped: number; failed: number; truncated: boolean }
     try {
       counters = await expirePipelineGalleries({
         list: (at, after, limit) => listExpiredPipelineGalleries(at, env, after, limit),
@@ -63,6 +63,6 @@ export default Object.assign(app, {
       throw new Error('Gallery expiry failed')
     }
     console.log(JSON.stringify({ event: 'gallery_expiry', at: now, ...counters }))
-    if (counters.failed) throw new Error('Gallery expiry incomplete')
+    if (counters.failed || counters.truncated) throw new Error('Gallery expiry incomplete')
   },
 })

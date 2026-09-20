@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'hono/jsx'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
-import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, paidGalleryLimitError } from '../lib/gallery-policy'
+import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -449,6 +449,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     return <button type="button" class={`${className} editable-value${gallery[field] ? '' : ' is-empty'}`} aria-label={`Edit gallery ${field}: ${text}`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : undefined} onClick={() => beginEditing(gallery, field)}>{displayText}</button>
   }
 
+  // A card can cross its expiry while the dashboard stays open (the `now`
+  // ticker rerenders every minute): expired pipeline galleries are already
+  // gone logically and drop out of the next fetch, so skip them here too.
+  const liveGalleries = galleries.filter((gallery) => !isGalleryExpired(gallery, new Date(now).toISOString()))
+
   return (
     <main class="admin-page admin-page--selector">
       <header class="admin-header">
@@ -498,7 +503,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </section>
 
       <section class="gallery-list" aria-label="Published galleries">
-        {galleries.length ? <div class="admin-gallery-list">{galleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+        {liveGalleries.length ? <div class="admin-gallery-list">{liveGalleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
           {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
             <p>Temporary · {Math.max(0, Math.ceil((Date.parse(gallery.expiresAt) - now) / 86_400_000))} days left</p>

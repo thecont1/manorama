@@ -14,13 +14,14 @@ const MAX_PAGES = 100
 export async function expirePipelineGalleries(
   repository: ExpiryRepository,
   now: string,
-): Promise<{ scanned: number; deleted: number; skipped: number; failed: number }> {
+): Promise<{ scanned: number; deleted: number; skipped: number; failed: number; truncated: boolean }> {
   let scanned = 0
   let deleted = 0
   let skipped = 0
   let failed = 0
   let after: ExpiredGalleryKey | undefined
-  for (let page = 0; page < MAX_PAGES; page++) {
+  let page = 0
+  for (; page < MAX_PAGES; page++) {
     const keys = await repository.list(now, after, PAGE_SIZE)
     if (keys.length === 0) break
     for (const key of keys) {
@@ -35,5 +36,9 @@ export async function expirePipelineGalleries(
     }
     if (keys.length < PAGE_SIZE) break
   }
-  return { scanned, deleted, skipped, failed }
+  // A run that burns the whole page budget may leave expired rows behind;
+  // probe one key past the cursor so callers can report the run truncated
+  // rather than silently deferring the remainder to the next day.
+  const truncated = page === MAX_PAGES && (await repository.list(now, after, 1)).length > 0
+  return { scanned, deleted, skipped, failed, truncated }
 }

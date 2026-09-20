@@ -6,7 +6,7 @@ import { fetchICloudImage, fetchICloudVideo } from './lib/icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
-import { assertGalleryEditable, GalleryPolicyError, paidGalleryLimitError } from './lib/gallery-policy'
+import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
@@ -51,6 +51,9 @@ const requireEditableGallery = (): MiddlewareHandler<HonoSessionEnv> =>
     const session = c.get('manoramaSession')
     try {
       const gallery = await getStoredGallery(session.dropboxAccountId, c.req.param('slug') ?? '', dbEnv(c))
+      // Expired pipeline rows linger until the daily sweep; logically they
+      // are already gone, so they miss with 404 rather than READ_ONLY.
+      if (gallery && isGalleryExpired(gallery)) return c.json({ error: 'That gallery was not found' }, 404)
       if (gallery) assertGalleryEditable(gallery)
     } catch (error) {
       if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)

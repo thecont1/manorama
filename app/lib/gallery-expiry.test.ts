@@ -58,7 +58,7 @@ describe('expirePipelineGalleries orchestration', () => {
   test('walks every page with a keyset cursor and reports counters', async () => {
     const repo = mockRepository(keys(150))
     const counters = await expirePipelineGalleries(repo, NOW)
-    expect(counters).toEqual({ scanned: 150, deleted: 150, skipped: 0, failed: 0 })
+    expect(counters).toEqual({ scanned: 150, deleted: 150, skipped: 0, failed: 0, truncated: false })
     expect(repo.listCalls).toHaveLength(2)
     expect(repo.listCalls[0]).toBeUndefined()
     expect(repo.listCalls[1]?.slug).toBe('g-99')
@@ -71,7 +71,7 @@ describe('expirePipelineGalleries orchestration', () => {
       return true
     })
     const counters = await expirePipelineGalleries(repo, NOW)
-    expect(counters).toEqual({ scanned: 120, deleted: 119, skipped: 0, failed: 1 })
+    expect(counters).toEqual({ scanned: 120, deleted: 119, skipped: 0, failed: 1, truncated: false })
     expect(repo.removed).toHaveLength(120)
     expect(repo.listCalls[1]?.slug).toBe('g-99')
   })
@@ -79,7 +79,7 @@ describe('expirePipelineGalleries orchestration', () => {
   test('a false remove counts as skipped — the row already left the pipeline', async () => {
     const repo = mockRepository(keys(3), async (item) => item.slug !== 'g-1')
     const counters = await expirePipelineGalleries(repo, NOW)
-    expect(counters).toEqual({ scanned: 3, deleted: 2, skipped: 1, failed: 0 })
+    expect(counters).toEqual({ scanned: 3, deleted: 2, skipped: 1, failed: 0, truncated: false })
   })
 
   test('a list failure propagates — the run reports nothing rather than skipping silently', async () => {
@@ -108,15 +108,16 @@ describe('expirePipelineGalleries orchestration', () => {
       remove: async () => true,
     }
     const counters = await expirePipelineGalleries(repo, NOW)
-    expect(repo.listCalls).toBe(100)
+    expect(repo.listCalls).toBe(101)
     expect(counters.scanned).toBe(10_000)
     expect(counters.deleted).toBe(10_000)
+    expect(counters.truncated).toBe(true)
   })
 
   test('a rerun over a drained repo is a harmless no-op', async () => {
     const repo = mockRepository([])
     const counters = await expirePipelineGalleries(repo, NOW)
-    expect(counters).toEqual({ scanned: 0, deleted: 0, skipped: 0, failed: 0 })
+    expect(counters).toEqual({ scanned: 0, deleted: 0, skipped: 0, failed: 0, truncated: false })
     expect(repo.listCalls).toHaveLength(1)
   })
 })
@@ -190,7 +191,7 @@ for (const backend of BACKENDS) {
         list: (at, after, limit) => listExpiredPipelineGalleries(at, env, after, limit),
         remove: (item, at) => deleteExpiredPipelineGallery(item, at, env),
       }, NOW)
-      expect(counters).toEqual({ scanned: 2, deleted: 2, skipped: 0, failed: 0 })
+      expect(counters).toEqual({ scanned: 2, deleted: 2, skipped: 0, failed: 0, truncated: false })
       expect(await getStoredGallery(OWNER, 'old-1', env)).toBeNull()
       expect(await getStoredGallery(OWNER, 'old-2', env)).toBeNull()
       expect((await getStoredGallery(OWNER, 'fresh-pipe', env))?.retention).toBe('pipeline')
@@ -199,7 +200,7 @@ for (const backend of BACKENDS) {
         list: (at, after, limit) => listExpiredPipelineGalleries(at, env, after, limit),
         remove: (item, at) => deleteExpiredPipelineGallery(item, at, env),
       }, NOW)
-      expect(rerun).toEqual({ scanned: 0, deleted: 0, skipped: 0, failed: 0 })
+      expect(rerun).toEqual({ scanned: 0, deleted: 0, skipped: 0, failed: 0, truncated: false })
     }))
 
     test('the guarded delete refuses retained, upgraded, and not-yet-expired keys', withBackend(async (env) => {
