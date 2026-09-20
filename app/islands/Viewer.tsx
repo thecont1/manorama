@@ -963,8 +963,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
-  const seamInset = seamMode === 'none' ? 0 : mode === 'single' ? 4 : 10
-  const seamTop = seamMode === 'none' ? 0 : 5
+  const seamInset = seamMode === 'none' ? 0 : mode === 'strip' ? 20 : mode === 'vertical' ? 10 : 0
+  const seamTop = seamMode === 'none' || mode === 'single' ? 0 : 10
 
   return (
     <>

@@ -78,11 +78,9 @@ button { color: inherit; }
 .seam-light .viewer-track .viewer-frame,
 .seam-dark .viewer-track .viewer-frame { background: transparent; }
 .mode-strip.seam-light .viewer-frame,
-.mode-strip.seam-dark .viewer-frame { padding: 5px 0 5px 5px; }
+.mode-strip.seam-dark .viewer-frame { padding: 10px 0 10px 10px; }
 .mode-vertical.seam-light .viewer-frame,
-.mode-vertical.seam-dark .viewer-frame { padding: 5px 5px 0; }
-.mode-single.seam-light .viewer-frame,
-.mode-single.seam-dark .viewer-frame { padding: 2px; }
+.mode-vertical.seam-dark .viewer-frame { padding: 10px 5px 0; }
 /* Floating over a field, media softens at the corners. */
 .seam-light .viewer-track .viewer-frame img,
 .seam-light .viewer-track .viewer-frame video,
