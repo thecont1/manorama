@@ -1,3 +1,4 @@
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { probeImageDimensions } from './image-dims'
 import { MAX_GALLERY_ITEMS, type GalleryMediaItem } from './imagesource'
 
@@ -73,16 +74,16 @@ export const normalizeLocalPathString = (input: string): string => {
   let candidate = input.trim()
   if (/^file:\/\//i.test(candidate)) {
     try {
-      candidate = new URL(candidate).pathname
+      // fileURLToPath decodes escapes itself — a further decodeURIComponent
+      // would corrupt names with a literal %.
+      candidate = fileURLToPath(candidate)
     } catch {
       // Malformed file URL — compare the raw string.
     }
   }
-  try {
-    candidate = decodeURIComponent(candidate)
-  } catch {
-    // A stray % stays literal.
-  }
+  // Windows drive paths may arrive slash-prefixed (file:///C:/x or a typed
+  // /C:/x) — strip the lead so path.resolve sees the drive letter.
+  candidate = candidate.replace(/^\/+(?=[A-Za-z]:[\\/])/, '')
   return candidate.replace(/^\/+/, '/').replace(/\/+$/, '')
 }
 
@@ -227,7 +228,7 @@ export const scanLocalFolder = async (input: string) => {
   // Confine media delivery to the real path — the file route realpaths
   // every request, so a symlinked folder must register resolved.
   mediaRoots().add(await fs.realpath(dir).catch(() => dir))
-  return { sourceUrl: `file://${dir}`, title: path.basename(dir), images, truncated }
+  return { sourceUrl: pathToFileURL(dir).href, title: path.basename(dir), images, truncated }
 }
 
 /**
@@ -311,12 +312,13 @@ export const serveLocalMedia = async (url: URL, rangeHeader: string | null): Pro
   })
   const range = rangeHeader?.match(/^bytes=(\d*)-(\d*)$/)
   if (range && (range[1] || range[2])) {
-    let start = range[1] ? Number(range[1]) : Math.max(0, stat.size - Number(range[2]))
-    let end = range[1] && range[2] ? Number(range[2]) : stat.size - 1
-    if (start >= stat.size) {
-      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } })
+    const start = range[1] ? Number(range[1]) : Math.max(0, stat.size - Number(range[2]))
+    const end = Math.min(range[1] && range[2] ? Number(range[2]) : stat.size - 1, stat.size - 1)
+    const unsatisfiable = () =>
+      new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } })
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start || start >= stat.size) {
+      return unsatisfiable()
     }
-    end = Math.min(end, stat.size - 1)
     headers.set('Content-Range', `bytes ${start}-${end}/${stat.size}`)
     headers.set('Content-Length', String(end - start + 1))
     const stream = createReadStream(filePath, { start, end })

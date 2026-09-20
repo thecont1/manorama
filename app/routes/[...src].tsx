@@ -96,8 +96,9 @@ export default createRoute(async (c, next) => {
             <div class="quickadd-panel" data-panel="signin">
               <h1 class="quickadd-title">Open this {provider} album as a gallery</h1>
               <p class="quickadd-copy">
-                Sign in and Manorama will turn that link into a gallery you can share.
-                We only ever read public links.
+                {detected.provider === 'local'
+                  ? 'Sign in and the dev server will read that folder straight off this machine — nothing is uploaded.'
+                  : 'Sign in and Manorama will turn that link into a gallery you can share. We only ever read public links.'}
               </p>
               <a class="landing-signin quickadd-signin" data-quickadd-signin href={detected.provider === 'local' ? '/.dev-seed/login' : '/auth/dropbox'}>
                 {detected.provider === 'local' ? (

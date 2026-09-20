@@ -174,8 +174,13 @@ const manoramaDevSeed = (): Plugin => {
             let target = '/thecontrarian'
             if (next) {
               try {
-                const parsed = new URL(next, 'http://localhost')
-                if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+                // Relative `next` resolves against this request's origin, and
+                // the origin must match exactly — host AND port — so a
+                // crafted link can't bounce the dev login at another
+                // localhost service.
+                const origin = `http://${req.headers.host ?? 'localhost'}`
+                const parsed = new URL(next, origin)
+                if (parsed.origin === origin) {
                   // Absolute form: a quick-add `next` carries the folder path
                   // verbatim, so its pathname may begin with `//` — a bare
                   // path Location would read as a network-path reference and
