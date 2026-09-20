@@ -1,6 +1,7 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
+import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
 import { extractMegaLink, scanMegaSource } from './mega-public'
 import type { GalleryMediaItem } from './imagesource'
 
@@ -18,7 +19,7 @@ import type { GalleryMediaItem } from './imagesource'
  * the link fragment). There are no per-user source tokens.
  */
 
-export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega'
+export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'local'
 
 export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number }
 
@@ -32,6 +33,9 @@ export const UNRECOGNIZED_LINK_MESSAGE =
   'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection link'
 
 export const detectSource = (input: string): SourceProvider | null => {
+  // Dev-only local folders: absolute paths and file:// URLs. The flag is
+  // set by the vite dev plugin, so a production build can never claim one.
+  if (localSourcesEnabled() && isLocalPathInput(input)) return 'local'
   let url: URL
   try {
     url = new URL(input.trim())
@@ -84,6 +88,10 @@ const isShareResource = (url: URL, provider: SourceProvider): boolean => {
       // A percent-escape can survive an undecodable path, so allow it.
       if (/^\/(?:folder|collection)\/[0-9A-Za-z_%-]+(?:\/|$)/.test(url.pathname)) return true
       return /^#(?:F|C)!/i.test(url.hash)
+    case 'local':
+      // Local folders are claimed by the dev route's filesystem check, not
+      // by URL shape — an embedded file path is never a share resource.
+      return false
   }
 }
 
@@ -201,6 +209,8 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
         return false
       }
     }
+    case 'local':
+      return normalizeLocalPathString(storedSourceUrl) === normalizeLocalPathString(candidateUrl)
   }
 }
 
@@ -255,5 +265,7 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
       return { provider, ...(await scanICloudAlbum(input, fetchImpl)) }
     case 'mega':
       return { provider, ...(await scanMegaSource(input, fetchImpl)) }
+    case 'local':
+      return { provider, ...(await scanLocalFolder(input)) }
   }
 }

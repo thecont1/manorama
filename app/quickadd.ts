@@ -28,6 +28,11 @@ export const reconstructSourceUrl = (location: { pathname: string; search: strin
   return `${candidate}${location.search}${location.hash}`
 }
 
+/** Local-folder variant (dev only): the path IS the source, so it goes
+ *  back out as a file:// URL — `//Users/x` collapses to `/Users/x`. */
+export const reconstructLocalSourceUrl = (location: { pathname: string; search: string; hash: string }) =>
+  `file://${location.pathname.replace(/^\/+/, '/')}`
+
 const statusNode = () => document.querySelector<HTMLElement>('[data-quickadd-status]')
 const setStatus = (message: string) => {
   const node = statusNode()
@@ -40,10 +45,11 @@ const showSignInPanel = (root: HTMLElement, sourceUrl: string) => {
   root.dataset.mode = 'signin'
   const working = root.querySelector<HTMLElement>('[data-panel="working"]')
   if (working) {
+    const local = root.dataset.provider === 'local'
     working.innerHTML = `
       <h1 class="quickadd-title">Sign in to open this album</h1>
-      <p class="quickadd-copy">Manorama needs a Dropbox sign-in before it can build your gallery.</p>
-      <a class="landing-signin quickadd-signin" data-quickadd-signin href="/auth/dropbox">Continue with Dropbox</a>
+      <p class="quickadd-copy">${local ? 'This dev server can sign you in locally before it builds your gallery.' : 'Manorama needs a Dropbox sign-in before it can build your gallery.'}</p>
+      <a class="landing-signin quickadd-signin" data-quickadd-signin href="${local ? '/.dev-seed/login' : '/auth/dropbox'}">${local ? 'Sign in (dev)' : 'Continue with Dropbox'}</a>
       <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>`
     working.dataset.panel = 'signin'
   }
@@ -54,7 +60,11 @@ const showSignInPanel = (root: HTMLElement, sourceUrl: string) => {
  *  and stashes the link as a cookie-expiry fallback. */
 const wireSignIn = (sourceUrl: string) => {
   const button = document.querySelector<HTMLAnchorElement>('[data-quickadd-signin]')
-  if (button) button.href = `/auth/dropbox?next=${encodeURIComponent(location.href)}`
+  // The server chose the sign-in endpoint — Dropbox OAuth normally, the
+  // dev login for local-folder quick-adds — so keep its href and just
+  // attach the return address.
+  const base = button?.getAttribute('href') ?? '/auth/dropbox'
+  if (button) button.href = `${base}?next=${encodeURIComponent(location.href)}`
   try {
     localStorage.setItem(PENDING_KEY, sourceUrl)
   } catch {
@@ -158,7 +168,9 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
 const start = () => {
   const root = document.querySelector<HTMLElement>('[data-quickadd]')
   if (!root) return
-  const sourceUrl = reconstructSourceUrl(location)
+  const sourceUrl = root.dataset.provider === 'local'
+    ? reconstructLocalSourceUrl(location)
+    : reconstructSourceUrl(location)
   if (root.dataset.mode === 'create') void createGallery(sourceUrl, root)
   else wireSignIn(sourceUrl)
 }

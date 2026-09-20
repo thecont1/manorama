@@ -5,6 +5,7 @@ import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudImage, fetchICloudVideo } from './lib/icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
+import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
@@ -467,6 +468,17 @@ export const createManoramaApi = () => {
     } catch (error) {
       return proxyFailure(c, 'iCloud video', `${photo} in ${album}`, error)
     }
+  })
+
+  /**
+   * Dev-only local-folder media. Registered unconditionally so the route
+   * table is identical across environments; the flag check inside makes it
+   * a 404 outside `bun run dev`, and serveLocalMedia confines reads to
+   * directories scanned this session anyway.
+   */
+  api.get('/api/local/file', async (c) => {
+    if (!localSourcesEnabled()) return c.json({ error: 'That file is unavailable' }, 404)
+    return serveLocalMedia(new URL(c.req.url), c.req.header('Range') ?? null)
   })
 
   /**

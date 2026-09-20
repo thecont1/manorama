@@ -149,6 +149,54 @@ const manoramaDevSeed = (): Plugin => {
     name: 'manorama-dev-seed',
     apply: 'serve',
     configureServer(server) {
+      // Turns on the local-folder source (app/lib/local-source.ts): quick-add
+      // `localhost:5173//Users/…/album`, `file://` and absolute-path pastes in
+      // the dashboard, and the /api/local/file media route. The flag lives on
+      // the globalThis the SSR graph shares; `apply: 'serve'` means no build
+      // can ever see it set.
+      ;(globalThis as { __manoramaLocalSources?: boolean }).__manoramaLocalSources = true
+
+      // Dev sign-in for the seeded owner — the quick-add interstitial points
+      // here for local folders, so a folder path becomes a gallery without a
+      // Dropbox round-trip. Mints the same manorama_session cookie OAuth
+      // would, then returns to `next`.
+      server.middlewares.use('/.dev-seed/login', (req, res) => {
+        seeded
+          .then(async () => {
+            const secret = process.env.HOST_API_JWT_SECRET?.trim()
+            if (!secret) throw new Error('HOST_API_JWT_SECRET is not set')
+            const session = await server.ssrLoadModule('/app/lib/dropbox-session.ts') as unknown as typeof import('./app/lib/dropbox-session')
+            const token = await session.createSessionToken('dbid:AAATESTowner1', secret)
+            const query = req.url?.split('?')[1] ?? ''
+            const next = new URLSearchParams(query).get('next')
+            // Return to same-origin paths only; a full quick-add URL
+            // (location.href) parses to localhost and is accepted.
+            let target = '/thecontrarian'
+            if (next) {
+              try {
+                const parsed = new URL(next, 'http://localhost')
+                if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+                  // Absolute form: a quick-add `next` carries the folder path
+                  // verbatim, so its pathname may begin with `//` — a bare
+                  // path Location would read as a network-path reference and
+                  // send the browser to a foreign host.
+                  target = parsed.href
+                }
+              } catch {
+                if (next.startsWith('/') && !next.startsWith('//')) target = next
+              }
+            }
+            res.statusCode = 302
+            res.setHeader('Set-Cookie', `manorama_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`)
+            res.setHeader('Location', target)
+            res.end()
+          })
+          .catch((error) => {
+            res.statusCode = 500
+            res.end(String(error))
+          })
+      })
+
       // Test seam mirroring resetUserStore/resetGalleryStore: the specs
       // mutate the in-memory repos (slug edits, reorders, creates), so each
       // case restores canonical state instead of depending on run order.

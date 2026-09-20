@@ -107,6 +107,12 @@ Open `http://localhost:5173/` for the landing page. Dev seeding is driven by sam
 
 (`MANORAMA_DEV_VIDEO_URL` is the older name for the iCloud slot and still works.) The plugin also serves `POST /.dev-seed/reset` so tests can restore canonical state, and mints a pro-tier `dbid:AAATESTowner1`. A checkout with no source vars seeds the owner and nothing else — everything the suite runs against is a real album fetched from a real provider.
 
+### Local folders
+
+In dev only, quick-add accepts a folder straight off disk: append an absolute path to the dev origin — `localhost:5173//Users/you/photos/album` — and the catch-all claims it when the path resolves to a real directory. Signed out, the interstitial's **Sign in (dev)** button mints a session for the seeded owner via `/.dev-seed/login` (no Dropbox round-trip); signed in, the gallery is created immediately. The dashboard paste box accepts `file:///…` and bare absolute paths too.
+
+Local items stream through `/api/local/file?path=…`, which is confined to directories scanned during the dev session and an image/video extension allowlist; `&w=` serves sharp-resized WebP thumbnails. The whole feature is gated behind a flag the `apply: 'serve'` plugin sets on `globalThis` — production builds can never claim a local path, and the route 404s. Media stays in place: nothing is copied or uploaded.
+
 ## Deploy to Cloudflare
 
 The repository is one-command deployable to the Worker account — but the retention migration must be applied to the production database BEFORE the first deploy of a build that expects the columns:

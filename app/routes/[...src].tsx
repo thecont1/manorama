@@ -1,5 +1,6 @@
 import { createRoute } from 'honox/factory'
 import { embeddedSourceCandidate } from '../lib/sources'
+import { localFolderCandidate } from '../lib/local-source'
 import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
 
 /**
@@ -50,6 +51,7 @@ const PROVIDER_LABEL: Record<string, string> = {
   gdrive: 'Google Drive',
   icloud: 'iCloud',
   mega: 'MEGA',
+  local: 'local folder',
 }
 
 // createRoute IS the handler array honox expects (factory.createHandlers),
@@ -61,6 +63,10 @@ export default createRoute(async (c, next) => {
     // fall through to a 404. The fragment is still absent by definition;
     // the client reconstructs that.
     const detected = embeddedSourceCandidate(c.req.path + new URL(c.req.url).search)
+      // Dev-only: an absolute path on this machine (`localhost:5173//Users/…`)
+      // claims the interstitial when it resolves to a real directory. The flag
+      // behind localFolderCandidate exists only under `bun run dev`.
+      ?? await localFolderCandidate(c.req.path)
     // Not a share link: hand the request to the real routes. Gallery and
     // owner slugs are [a-z0-9-] with no dot, so they can never match a
     // provider host.
@@ -93,11 +99,17 @@ export default createRoute(async (c, next) => {
                 Sign in and Manorama will turn that link into a gallery you can share.
                 We only ever read public links.
               </p>
-              <a class="landing-signin quickadd-signin" data-quickadd-signin href="/auth/dropbox">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z" fill="currentColor" />
-                </svg>
-                Continue with Dropbox
+              <a class="landing-signin quickadd-signin" data-quickadd-signin href={detected.provider === 'local' ? '/.dev-seed/login' : '/auth/dropbox'}>
+                {detected.provider === 'local' ? (
+                  'Sign in (dev)'
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z" fill="currentColor" />
+                    </svg>
+                    Continue with Dropbox
+                  </>
+                )}
               </a>
               <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>
             </div>
