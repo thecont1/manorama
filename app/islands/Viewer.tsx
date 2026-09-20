@@ -95,6 +95,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
+  // One-at-a-time sweep: the outgoing frame stays mounted and fully
+  // opaque while the incoming frame wipes over it behind an opaque
+  // canvas card — no transparency ever lands on the striped field.
+  const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
+  const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
+  const sweepTimerRef = useRef<number | null>(null)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
   // style.cssText on every render — an imperative aspectRatio write gets
@@ -350,7 +356,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const next = clamp(nextIndex, 0, images.length - 1)
     cancelPositionReport()
     reportedIndexRef.current = next
-    setIndex(next)
+    if (mode === 'single' && next !== index && !instant) {
+      const dir = next > index ? 'fwd' : 'back'
+      const beginSweep = () => {
+        if (unmountedRef.current) return
+        setLeavingIndex(index)
+        setIndex(next)
+        if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
+        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 800)
+      }
+      if (dir !== sweepDir) {
+        // Hidden frames carry the sweep's start clip. A direction change
+        // must reach the DOM a commit before the entering frame begins
+        // its transition — transitions interpolate from the previously
+        // resolved style, so a same-commit flip would wipe backwards.
+        setSweepDir(dir)
+        requestAnimationFrame(beginSweep)
+      } else {
+        beginSweep()
+      }
+    } else {
+      setIndex(next)
+    }
     if (mode === 'strip') {
       navDestXRef.current = -imageStart(next)
       settleTo(navDestXRef.current, instant)
@@ -975,6 +1002,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => () => {
     unmountedRef.current = true
+    if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
@@ -1022,9 +1050,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
+          data-sweep-dir={mode === 'single' ? sweepDir : undefined}
         >
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
+            // Single mode also keeps the outgoing frame's media mounted
+            // through the sweep, and pre-mounts the immediate neighbours
+            // so a step starts from decoded pixels, not a fetch.
+            const mountsMedia = isActive || (mode === 'single' && (imageIndex === leavingIndex || Math.abs(imageIndex - index) <= 1))
             const healed = healedDims[image.id]
             const frameW = healed?.w ?? image.width
             const frameH = healed?.h ?? image.height
@@ -1041,12 +1074,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
             return (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''} ${video ? 'viewer-frame--video' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
+                aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
                 style={mode === 'strip' ? staged && staged.width > 0 && (healed || staged.height >= stageSize.height - seamInset - 0.5) ? { width: `${staged.width + seamTop}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 {video ? (
@@ -1086,12 +1120,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
-                {isActive && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
+                {mountsMedia && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
                   <img
                     class="frame-img"
                     src={isHeic(image) ? heicSrc[image.id] : image.src}
                     data-full-src={image.src}
-                    data-active="true"
+                    data-active={isActive ? 'true' : undefined}
                     alt={image.alt}
                     width={frameW}
                     height={frameH}

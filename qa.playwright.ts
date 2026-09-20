@@ -797,6 +797,43 @@ for (const vp of viewports) {
       expect(boxes[1].bottom).toBeGreaterThan(stage.bottom - 100);
     });
 
+    test("one-at-a-time steps sweep the next photograph over the current one", async ({
+      page,
+    }) => {
+      // The sweep is motion — opt back out of the suite-wide
+      // reduced-motion emulation so the transition actually runs. The
+      // mode comes from persisted prefs, not the bobbing settings tab,
+      // which is intentionally click-unstable under no-preference.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await page.context().addInitScript(
+        (slug) =>
+          window.localStorage.setItem(
+            `manorama:view:${slug}`,
+            JSON.stringify({ mode: "single", seamMode: "dark" }),
+          ),
+        SLUG,
+      );
+      await dismissCurtain(page);
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      await expect(page.locator("[data-stage]")).toHaveClass(/seam-dark/);
+      await page.keyboard.press("ArrowRight");
+      // Mid-sweep the outgoing frame is still mounted and fully painted
+      // while the incoming one wipes in behind an opaque canvas card —
+      // nothing translucent ever sits over the field's stripes.
+      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
+      await expect(page.locator(".viewer-frame--leaving")).toHaveCount(1);
+      await expect(page.locator(".viewer-frame--leaving")).toHaveCSS("opacity", "1");
+      const cardOpaque = await page
+        .locator(".viewer-frame--entering")
+        .evaluate((el) => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)");
+      expect(cardOpaque).toBe(true);
+      await expect(page.locator("[data-track]")).toHaveAttribute("data-sweep-dir", "fwd");
+      // Settles back into one clean frame on the new index.
+      await expect(page.locator(".viewer-frame--leaving")).toHaveCount(0, { timeout: 3000 });
+      await expect(page.locator(".viewer-frame--entering")).toHaveCount(0);
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "2");
+    });
+
     test("vertical view complements Strip without pairing or altering source proportions", async ({
       page,
     }) => {
