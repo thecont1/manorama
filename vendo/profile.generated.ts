@@ -61,6 +61,14 @@ export const TOOLS_FILE = {
                 "minimum": 0,
                 "type": "integer"
               },
+              "expiresAt": {
+                "description": "ISO 8601 removal deadline; set only on pipeline galleries",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "images": {
                 "items": {
                   "properties": {
@@ -137,6 +145,14 @@ export const TOOLS_FILE = {
                 },
                 "type": "array"
               },
+              "retention": {
+                "description": "retained galleries are editable; pipeline galleries are temporary and read-only until upgrade or expiry",
+                "enum": [
+                  "retained",
+                  "pipeline"
+                ],
+                "type": "string"
+              },
               "slug": {
                 "description": "Stable URL segment identifying the gallery",
                 "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
@@ -155,9 +171,15 @@ export const TOOLS_FILE = {
               "title",
               "caption",
               "imageCount",
-              "images"
+              "images",
+              "retention",
+              "expiresAt"
             ],
             "type": "object"
+          },
+          "galleryUrl": {
+            "description": "Public path of the gallery, returned on create/409 responses",
+            "type": "string"
           }
         },
         "required": [
@@ -175,7 +197,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_delete_gallery",
@@ -214,7 +236,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_drive_file",
@@ -245,7 +267,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_drive_thumbnail",
@@ -284,7 +306,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_dropbox_file",
@@ -316,7 +338,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -348,7 +370,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_icloud_image",
@@ -385,7 +407,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_mega_file",
@@ -425,7 +447,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_get_mega_preview",
@@ -465,7 +487,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_list_galleries",
@@ -493,6 +515,14 @@ export const TOOLS_FILE = {
                 "imageCount": {
                   "minimum": 0,
                   "type": "integer"
+                },
+                "expiresAt": {
+                  "description": "ISO 8601 removal deadline; set only on pipeline galleries",
+                  "format": "date-time",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "images": {
                   "items": {
@@ -570,6 +600,14 @@ export const TOOLS_FILE = {
                   },
                   "type": "array"
                 },
+                "retention": {
+                  "description": "retained galleries are editable; pipeline galleries are temporary and read-only until upgrade or expiry",
+                  "enum": [
+                    "retained",
+                    "pipeline"
+                  ],
+                  "type": "string"
+                },
                 "slug": {
                   "description": "Stable URL segment identifying the gallery",
                   "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
@@ -588,7 +626,9 @@ export const TOOLS_FILE = {
                 "title",
                 "caption",
                 "imageCount",
-                "images"
+                "images",
+                "retention",
+                "expiresAt"
               ],
               "type": "object"
             },
@@ -610,7 +650,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_refresh_gallery",
@@ -645,6 +685,14 @@ export const TOOLS_FILE = {
               "imageCount": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "expiresAt": {
+                "description": "ISO 8601 removal deadline; set only on pipeline galleries",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "images": {
                 "items": {
@@ -722,6 +770,14 @@ export const TOOLS_FILE = {
                 },
                 "type": "array"
               },
+              "retention": {
+                "description": "retained galleries are editable; pipeline galleries are temporary and read-only until upgrade or expiry",
+                "enum": [
+                  "retained",
+                  "pipeline"
+                ],
+                "type": "string"
+              },
               "slug": {
                 "description": "Stable URL segment identifying the gallery",
                 "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
@@ -740,9 +796,15 @@ export const TOOLS_FILE = {
               "title",
               "caption",
               "imageCount",
-              "images"
+              "images",
+              "retention",
+              "expiresAt"
             ],
             "type": "object"
+          },
+          "galleryUrl": {
+            "description": "Public path of the gallery, returned on create/409 responses",
+            "type": "string"
           }
         },
         "required": [
@@ -760,7 +822,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_scan_gallery_source",
@@ -898,7 +960,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     },
     {
       "name": "host_update_gallery",
@@ -965,6 +1027,14 @@ export const TOOLS_FILE = {
               "imageCount": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "expiresAt": {
+                "description": "ISO 8601 removal deadline; set only on pipeline galleries",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "images": {
                 "items": {
@@ -1042,6 +1112,14 @@ export const TOOLS_FILE = {
                 },
                 "type": "array"
               },
+              "retention": {
+                "description": "retained galleries are editable; pipeline galleries are temporary and read-only until upgrade or expiry",
+                "enum": [
+                  "retained",
+                  "pipeline"
+                ],
+                "type": "string"
+              },
               "slug": {
                 "description": "Stable URL segment identifying the gallery",
                 "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
@@ -1060,9 +1138,15 @@ export const TOOLS_FILE = {
               "title",
               "caption",
               "imageCount",
-              "images"
+              "images",
+              "retention",
+              "expiresAt"
             ],
             "type": "object"
+          },
+          "galleryUrl": {
+            "description": "Public path of the gallery, returned on create/409 responses",
+            "type": "string"
           }
         },
         "required": [
@@ -1080,7 +1164,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:67daf334e24ba78c11d3416c64a016492303d9f20c62bd6a3e445437c06d2b42"
+      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
     }
   ]
 } as {

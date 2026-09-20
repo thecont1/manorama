@@ -53,6 +53,31 @@ describe('OpenAPI contract: static spec', () => {
     expect(Object.keys((resolved as { properties: Record<string, unknown> }).properties)).toContain('newSlug')
   })
 
+  test('the Gallery schema requires retention and expiresAt', () => {
+    const gallery = spec.components.schemas.Gallery as { properties: Record<string, Record<string, unknown>>; required: string[] }
+    expect(gallery.required).toContain('retention')
+    expect(gallery.required).toContain('expiresAt')
+    expect(gallery.properties.retention.enum).toEqual(['retained', 'pipeline'])
+    expect(gallery.properties.expiresAt.format).toBe('date-time')
+  })
+
+  test('the Error schema carries the policy codes and dashboardUrl', () => {
+    const error = spec.components.schemas.Error as { properties: Record<string, Record<string, unknown>> }
+    expect(error.properties.code.enum).toEqual(['GALLERY_LIMIT', 'GALLERY_READ_ONLY'])
+    expect(error.properties.dashboardUrl.type).toBe('string')
+  })
+
+  test('mutation operations document the 403 policy refusal', () => {
+    for (const op of [
+      spec.paths['/api/galleries'].post,
+      spec.paths['/api/galleries/{slug}'].patch,
+      spec.paths['/api/galleries/{slug}/refresh'].post,
+    ]) {
+      const responses = (op as { responses: Record<string, { $ref?: string }> }).responses
+      expect(responses['403']?.$ref).toBe('#/components/responses/Forbidden')
+    }
+  })
+
   test('operationIds match the Vendo tool bindings', () => {
     // The generated catalog prefixes tool names with host_ but preserves the
     // contract's operationId in each binding — that is the alignment that matters.

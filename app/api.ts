@@ -1,11 +1,12 @@
-import { Hono, type Context } from 'hono'
+import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudImage, fetchICloudVideo } from './lib/icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
-import { createGalleryWithinLimit, deleteGallery, getGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, countGalleries, type GalleryEnv } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
+import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
@@ -43,10 +44,23 @@ const slugify = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
 
-/** Free tier caps at 3 galleries; pro is unlimited. The check is one seam. */
-const FREE_GALLERY_LIMIT = 3
-const galleryLimit = (tier: 'free' | 'pro') => tier === 'pro' ? Number.MAX_SAFE_INTEGER : FREE_GALLERY_LIMIT
-const limitMessage = `You're using all ${FREE_GALLERY_LIMIT} of your galleries. Remove one to add another — or write to us about keeping more.`
+/** Rejects editorial requests for pipeline galleries before their handlers
+ *  run. Missing galleries continue to the handler so it can return 404. */
+const requireEditableGallery = (): MiddlewareHandler<HonoSessionEnv> =>
+  async (c, next) => {
+    const session = c.get('manoramaSession')
+    try {
+      const gallery = await getStoredGallery(session.dropboxAccountId, c.req.param('slug') ?? '', dbEnv(c))
+      // Expired pipeline rows linger until the daily sweep; logically they
+      // are already gone, so they miss with 404 rather than READ_ONLY.
+      if (gallery && isGalleryExpired(gallery)) return c.json({ error: 'That gallery was not found' }, 404)
+      if (gallery) assertGalleryEditable(gallery)
+    } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      return c.json({ error: 'That gallery is temporarily unavailable' }, 503)
+    }
+    await next()
+  }
 
 /** Typographic quotes on save: straight quotes typed into the editor come
  *  out curly. Other special characters already pass through untouched. */
@@ -182,11 +196,6 @@ export const createManoramaApi = () => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     try {
-      // Best-effort fast reject at the limit; the atomic check below is
-      // the real guard against concurrent requests.
-      if (await countGalleries(session.dropboxAccountId, dbEnv(c)) >= galleryLimit(session.tier)) {
-        return c.json({ error: limitMessage }, 403)
-      }
       // Quick-add revisit fast path: when the pasted link canonicalizes to
       // a gallery this owner already has, reopen it WITHOUT re-scanning
       // the provider. Without this a revisit pays a full album scan just
@@ -227,6 +236,8 @@ export const createManoramaApi = () => {
         slug = `${baseSlug}-${suffix}`
         suffix += 1
       }
+      // Best-effort fast reject at the limit; the atomic check below is
+      // the real guard against concurrent requests.
       // Atomic limit check + insert: concurrent requests cannot both
       // pass the count and exceed the limit. Retry on slug conflict
       // (a concurrent create may have grabbed the same slug).
@@ -239,7 +250,7 @@ export const createManoramaApi = () => {
           sourceUrl: scan.sourceUrl,
           createdAt: new Date().toISOString(),
           images: orderedImages,
-        }, galleryLimit(session.tier), dbEnv(c))
+        }, dbEnv(c))
         if (result.ok) return c.json({
           gallery: toSummary(result.gallery),
           galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug),
@@ -248,7 +259,10 @@ export const createManoramaApi = () => {
           // never silent.
           ...(scan.truncated ? { truncated: { kept: orderedImages.length, total: scan.truncated } } : {}),
         }, 201)
-        if (result.reason === 'limit') return c.json({ error: limitMessage }, 403)
+        if (result.reason === 'limit') {
+          const error = paidGalleryLimitError()
+          return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
+        }
         if (result.reason === 'duplicate-source') {
           // Lost the race to a concurrent create of the same link — resolve
           // the winner so this caller still gets somewhere to go.
@@ -263,11 +277,12 @@ export const createManoramaApi = () => {
         suffix += 1
       }
     } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be added' }, 422)
     }
   })
 
-  api.patch('/api/galleries/:slug', async (c) => {
+  api.patch('/api/galleries/:slug', requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     // Body `slug` is intentionally not read: the URL slug is the resource
     // identity; a rename arrives only as `newSlug`.
@@ -288,6 +303,7 @@ export const createManoramaApi = () => {
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(gallery) })
     } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be updated' }, 422)
     }
   })
@@ -303,7 +319,7 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries/:slug/refresh', async (c) => {
+  api.post('/api/galleries/:slug/refresh', requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     try {
       const gallery = await getGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
@@ -326,6 +342,7 @@ export const createManoramaApi = () => {
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be refreshed' }, 422)
     }
   })
@@ -464,16 +481,24 @@ export const createManoramaApi = () => {
    */
   api.get('/api/og/:owner/:slug', async (c) => {
     const fallback = () => c.redirect(new URL('/og-image.png', c.req.url).toString(), 302)
+    const noStore = (response: Response) => {
+      const res = new Response(response.body, response)
+      res.headers.set('Cache-Control', 'no-store')
+      return res
+    }
     try {
       const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
-      if (!user) return fallback()
+      if (!user) return noStore(fallback())
       const gallery = await getGallery(user.dropboxAccountId, c.req.param('slug'), dbEnv(c))
       const first = gallery?.images?.[0] as GalleryMediaItem | undefined
-      if (!first) return fallback()
-      return await ogCardResponse(first, c.req.url)
+      const pipeline = gallery?.retention === 'pipeline'
+      if (!first) return noStore(fallback())
+      const response = await ogCardResponse(first, c.req.url)
+      if (!pipeline) return response
+      return noStore(response)
     } catch (error) {
       console.error('og card failure', { path: c.req.path, error })
-      return fallback()
+      return noStore(fallback())
     }
   })
 

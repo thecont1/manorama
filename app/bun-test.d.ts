@@ -11,22 +11,31 @@ declare module 'bun:test' {
   const describe: (name: string, fn: () => void) => void
   const test: (name: string, fn: TestFn, timeout?: number) => void
   const beforeAll: (fn: TestFn) => void
+  const beforeEach: (fn: TestFn) => void
+  const afterAll: (fn: TestFn) => void
+  const afterEach: (fn: TestFn) => void
   const expect: <T>(actual: T) => Matchers<T>
   interface Matchers<T> {
     toEqual(expected: unknown): void
     toBe(expected: unknown): void
     toBeNull(): void
     toContain(expected: unknown): void
+    toContainEqual(expected: unknown): void
     toBeGreaterThan(expected: number): void
     toBeGreaterThanOrEqual(expected: number): void
     toBeLessThan(expected: number): void
+    toBeLessThanOrEqual(expected: number): void
     toMatch(expected: unknown): void
+    toMatchObject(expected: unknown): void
+    toBeInstanceOf(expected: unknown): void
+    toHaveProperty(path: string, expected?: unknown): void
     toBeUndefined(): void
     toBeDefined(): void
     toBeTruthy(): void
     toBeFalsy(): void
     toHaveLength(expected: number): void
     toThrow(expected?: unknown): void
+    readonly resolves: Matchers<unknown>
     readonly rejects: Matchers<unknown>
     readonly not: Matchers<T>
   }

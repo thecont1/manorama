@@ -177,23 +177,36 @@ export const getUserByOwnerSlug = async (
 
 export class OwnerSlugError extends Error {}
 
-/** Promotes or demotes an account's tier. There is no self-serve billing
- *  seam yet — upgrades land through this (or a manual D1 update) only.
- *  Sign-in never writes tier: upsertUser keeps whatever is stored. */
+/** Promotes or demotes an account's tier. Promotion also converts every
+ *  unexpired pipeline gallery to retained and clears its deadline. There is no
+ *  self-serve billing seam yet — upgrades land through this (or a manual D1
+ *  update) only. Sign-in never writes tier: upsertUser keeps what is stored. */
 export const setUserTier = async (
   dropboxAccountId: string,
   tier: 'free' | 'pro',
   env?: UserRepositoryEnv,
+  now = new Date().toISOString(),
 ): Promise<UserRecord | null> => {
   const current = await getUserByDropboxId(dropboxAccountId, env)
   if (!current) return null
   if (d1Configured(env)) {
-    await env.DB.prepare(
-      `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
-    ).bind(tier, dropboxAccountId).run()
+    if (tier === 'pro') {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE users SET tier = ?, updated_at = ? WHERE dropbox_account_id = ?`).bind(tier, now, dropboxAccountId),
+        env.DB.prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`).bind(dropboxAccountId, now),
+      ])
+    } else {
+      await env.DB.prepare(
+        `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
+      ).bind(tier, dropboxAccountId).run()
+    }
     return { ...current, tier }
   }
-  current.tier = tier
+  if (tier === 'pro') {
+    const { promotePipelineGalleries } = await import('./gallery-repository')
+    current.tier = tier
+    await promotePipelineGalleries(dropboxAccountId, now, env)
+  } else current.tier = tier
   return { ...current }
 }
 

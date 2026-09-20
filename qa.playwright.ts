@@ -15,9 +15,13 @@
 // no such user and refuses the admin tests loudly.
 
 import { test as base, expect } from "@playwright/test";
+import type { APIRequestContext, PlaywrightWorkerArgs } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
+import { deflateSync } from "node:zlib";
 import { SignJWT } from "jose";
+
+type PlaywrightApi = PlaywrightWorkerArgs["playwright"];
 
 const DEV_ACCOUNT = "dbid:AAATESTowner1";
 
@@ -714,6 +718,9 @@ for (const vp of viewports) {
     test("vertical view complements Strip without pairing or altering source proportions", async ({
       page,
     }) => {
+      // The walk decodes real provider originals — multi-MB fetches through
+      // the proxy — so the per-frame wait needs headroom beyond 30s.
+      test.setTimeout(120000);
       await dismissCurtain(page);
       await expect(page.locator('[data-portrait-pair="true"]')).toHaveCount(0);
       // The radios are visually hidden inside their labels — drive the
@@ -731,7 +738,7 @@ for (const vp of viewports) {
       const samples: Record<
         string,
         {
-          stageWidth: number; stageHeight: number;
+          stageWidth: number; stageHeight: number; dpr: number;
           width: number; height: number;
           naturalWidth: number; naturalHeight: number;
           sourceRatio: number; renderedRatio: number;
@@ -747,15 +754,29 @@ for (const vp of viewports) {
             frame?.querySelector<HTMLImageElement>("img.frame-img");
           if (!frame || !image) return null;
           try {
-            await image.decode();
+            await Promise.race([
+              image.decode(),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("decode timeout")), 8000),
+              ),
+            ]);
           } catch {
             return null;
           }
+          // decode() resolves before the onLoad heal that corrects staged
+          // geometry when stored dims disagree with the real file — wait two
+          // frames so the measurement sees the settled size.
+          await new Promise((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => setTimeout(resolve, 60)),
+            ),
+          );
           const rect = image.getBoundingClientRect();
           return {
             orientation: frame.dataset.orientation!,
             stageWidth: stage.clientWidth,
             stageHeight: stage.clientHeight,
+            dpr: window.devicePixelRatio,
             width: rect.width,
             height: rect.height,
             naturalWidth: image.naturalWidth,
@@ -776,24 +797,31 @@ for (const vp of viewports) {
         landscape: samples.landscape!,
         portrait: samples.portrait!,
       };
-      // Landscapes go to stage width, bounded by stage height (object-fit
-      // contain) and never upsized past natural width.
+      // Vertical scroll fits width-first: display width is the stage width
+      // bounded by natural pixels at the effective DPR (capped at 2), and
+      // height follows the source ratio — tall frames run long instead of
+      // shrinking to the viewport.
+      const effectiveDpr = Math.min(geometry.landscape.dpr || 1, 2);
       const landscapeTarget = Math.min(
         geometry.stageWidth,
-        geometry.stageHeight * geometry.landscape.sourceRatio,
-        geometry.landscape.naturalWidth,
+        geometry.landscape.naturalWidth / effectiveDpr,
       );
       expect(
         Math.abs(geometry.landscape.width - landscapeTarget),
       ).toBeLessThanOrEqual(1);
-      const portraitHeightTarget = Math.min(
-        geometry.stageHeight,
-        geometry.stageWidth / geometry.portrait.sourceRatio,
-        geometry.portrait.naturalHeight,
+      expect(
+        Math.abs(geometry.landscape.height - landscapeTarget / geometry.landscape.sourceRatio),
+      ).toBeLessThanOrEqual(2);
+      const portraitTarget = Math.min(
+        geometry.stageWidth,
+        geometry.portrait.naturalWidth / effectiveDpr,
       );
       expect(
-        Math.abs(geometry.portrait.height - portraitHeightTarget),
+        Math.abs(geometry.portrait.width - portraitTarget),
       ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(geometry.portrait.height - portraitTarget / geometry.portrait.sourceRatio),
+      ).toBeLessThanOrEqual(2);
       expect(
         Math.abs(
           geometry.landscape.renderedRatio - geometry.landscape.sourceRatio,
@@ -1054,6 +1082,11 @@ test("admin gallery images reorder with a real pointer drag", async ({
   });
   await expect(items.nth(0)).toBeInViewport();
   await expect(items.nth(1)).toBeInViewport();
+  // Item width comes from the decoded thumbnail's aspect — a lazy provider
+  // thumb that has not arrived yet leaves the figure 0px wide and the drag
+  // lands on the strip container instead of the item.
+  await expect(items.nth(0).locator("img")).toHaveClass(/is-loaded/, { timeout: 30000 });
+  await expect(items.nth(1).locator("img")).toHaveClass(/is-loaded/, { timeout: 30000 });
   const sourceBox = await items.nth(1).boundingBox();
   const targetBox = await items.nth(0).boundingBox();
   expect(sourceBox).not.toBeNull();
@@ -1534,5 +1567,348 @@ test.describe("per-gallery social cards", () => {
   test("an unknown gallery still yields the fallback card", async ({ request }) => {
     const response = await request.get(`${BASE}/api/og/${OWNER}/definitely-not-a-gallery`, { maxRedirects: 0 });
     expect([302, 200]).toContain(response.status());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retention policy + density-aware staging.
+//
+// These specs run against the second seeded owner (`dbid:AAATESTretention`,
+// slug `retention-qa`, free tier, zero galleries after every reset) so their
+// gallery counts never depend on which MANORAMA_DEV_SOURCE_* vars are set.
+// Galleries are created through the `/.dev-seed/spawn` seam, which goes
+// through the same createGalleryWithinLimit policy as the real API, and
+// expired through `/.dev-seed/expire`, which runs the real expiry service.
+// ---------------------------------------------------------------------------
+
+const RETENTION_ACCOUNT = "dbid:AAATESTretention";
+const RETENTION_OWNER = "retention-qa";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Minimal hand-rolled PNG: solid-colour 8-bit RGBA at exact dimensions, so
+// staged-sizing specs decode real pixels with a known natural size — no
+// provider fetch, no shared fixture file.
+const pngCrcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+const pngCrc32 = (buffer: Buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = pngCrcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const pngChunk = (type: string, data: Buffer) => {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const typed = Buffer.concat([Buffer.from(type), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(pngCrc32(typed));
+  return Buffer.concat([length, typed, crc]);
+};
+
+const testPng = (width: number, height: number) => {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const stride = 1 + width * 4;
+  const raw = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y += 1) {
+    const row = y * stride;
+    for (let x = 0; x < width; x += 1) {
+      const px = row + 1 + x * 4;
+      raw[px] = 88;
+      raw[px + 1] = 64;
+      raw[px + 2] = 128;
+      raw[px + 3] = 255;
+    }
+  }
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+  return `data:image/png;base64,${png.toString("base64")}`;
+};
+
+const fixtureImage = (id: string, width: number, height: number) => ({
+  id,
+  filename: `${id}.png`,
+  src: testPng(width, height),
+  width,
+  height,
+  alt: `${id} test image`,
+  c2pa: false,
+  placeholder: testPng(8, Math.max(1, Math.round((8 * height) / width))),
+});
+
+const retentionApi = async (playwright: PlaywrightApi): Promise<APIRequestContext> =>
+  playwright.request.newContext({
+    extraHTTPHeaders: { Cookie: await sessionCookie(RETENTION_ACCOUNT) },
+  });
+
+type Spawned = { ok: boolean; slug?: string; retention?: string; expiresAt?: string | null; reason?: string };
+
+const spawnGalleries = async (
+  request: APIRequestContext,
+  galleries: { slug: string; createdAt?: string; images?: unknown[] }[],
+): Promise<Spawned[]> => {
+  const response = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: { accountId: RETENTION_ACCOUNT, galleries },
+  });
+  expect(response.status(), "dev-seed spawn").toBe(200);
+  return ((await response.json()) as { results: Spawned[] }).results;
+};
+
+const setRetentionTier = async (request: APIRequestContext, tier: "free" | "pro") => {
+  const response = await request.post(`${BASE}/.dev-seed/tier`, {
+    data: { accountId: RETENTION_ACCOUNT, tier },
+  });
+  expect(response.status()).toBe(200);
+};
+
+const runExpiry = async (request: APIRequestContext) => {
+  const response = await request.post(`${BASE}/.dev-seed/expire`, { data: {} });
+  expect(response.status()).toBe(200);
+  return (await response.json()) as { scanned: number; deleted: number; skipped: number; failed: number };
+};
+
+const slugs = (...names: string[]) => names.map((slug) => ({ slug }));
+
+test.describe("retention policy", () => {
+  test("a free account retains three galleries and overflow turns temporary", async ({ playwright }) => {
+    const request = await retentionApi(playwright);
+    const results = await spawnGalleries(request, slugs("ret-a", "ret-b", "ret-c", "ret-d"));
+    expect(results.slice(0, 3).map((r) => r.retention)).toEqual(["retained", "retained", "retained"]);
+    expect(results.slice(0, 3).every((r) => r.expiresAt === null)).toBe(true);
+    expect(results[3].retention).toBe("pipeline");
+    const expiresIn = Date.parse(results[3].expiresAt!) - Date.now();
+    expect(expiresIn).toBeGreaterThan(29 * DAY_MS);
+    expect(expiresIn).toBeLessThan(31 * DAY_MS);
+    const listed = (await (await request.get(`${BASE}/api/galleries`)).json()).galleries;
+    expect(listed.filter((g: { retention?: string }) => g.retention === "retained")).toHaveLength(3);
+    const temp = listed.find((g: { slug: string }) => g.slug === "ret-d");
+    expect(temp.retention).toBe("pipeline");
+    expect(temp.expiresAt).toBeTruthy();
+    await request.dispose();
+  });
+
+  test("temporary galleries stay public and deletable but reject every edit", async ({ playwright }) => {
+    const request = await retentionApi(playwright);
+    await spawnGalleries(request, slugs("lk-a", "lk-b", "lk-c", "lk-d"));
+    const patch = await request.patch(`${BASE}/api/galleries/lk-d`, { data: { title: "renamed" } });
+    expect(patch.status()).toBe(403);
+    expect((await patch.json()).code).toBe("GALLERY_READ_ONLY");
+    const refresh = await request.post(`${BASE}/api/galleries/lk-d/refresh`);
+    expect(refresh.status()).toBe(403);
+    const publicPage = await request.get(`${BASE}/${RETENTION_OWNER}/lk-d`);
+    expect(publicPage.status()).toBe(200);
+    const deleted = await request.delete(`${BASE}/api/galleries/lk-d`);
+    expect(deleted.status()).toBe(200);
+    const gone = await request.get(`${BASE}/${RETENTION_OWNER}/lk-d`);
+    expect(gone.status()).toBe(404);
+    await request.dispose();
+  });
+
+  test("upgrade promotes temporary galleries and unlocks edits, safely on retries", async ({ playwright }) => {
+    const request = await retentionApi(playwright);
+    await spawnGalleries(request, slugs("up-a", "up-b", "up-c", "up-d"));
+    await setRetentionTier(request, "pro");
+    const listed = (await (await request.get(`${BASE}/api/galleries`)).json()).galleries;
+    const upgraded = listed.find((g: { slug: string }) => g.slug === "up-d");
+    expect(upgraded.retention).toBe("retained");
+    expect(upgraded.expiresAt).toBeNull();
+    const patch = await request.patch(`${BASE}/api/galleries/up-d`, { data: { title: "unlocked" } });
+    expect(patch.status()).toBe(200);
+    await setRetentionTier(request, "pro");
+    const again = await request.patch(`${BASE}/api/galleries/up-d`, { data: { caption: "still editable" } });
+    expect(again.status()).toBe(200);
+    await request.dispose();
+  });
+
+  test("the daily expiry deletes only expired temporary galleries and reruns harmlessly", async ({ playwright }) => {
+    const request = await retentionApi(playwright);
+    await spawnGalleries(request, [
+      { slug: "ex-a" },
+      { slug: "ex-b" },
+      { slug: "ex-c" },
+      { slug: "ex-old", createdAt: new Date(Date.now() - 31 * DAY_MS).toISOString() },
+      { slug: "ex-fresh" },
+    ]);
+    const counters = await runExpiry(request);
+    expect(counters.deleted).toBe(1);
+    const oldPage = await request.get(`${BASE}/${RETENTION_OWNER}/ex-old`);
+    expect(oldPage.status()).toBe(404);
+    const freshPage = await request.get(`${BASE}/${RETENTION_OWNER}/ex-fresh`);
+    expect(freshPage.status()).toBe(200);
+    expect((await runExpiry(request)).deleted).toBe(0);
+    await request.dispose();
+  });
+
+  test("a paid account stops at ninety-nine retained galleries", async ({ playwright }) => {
+    const request = await retentionApi(playwright);
+    await setRetentionTier(request, "pro");
+    const batch = await spawnGalleries(request, slugs(...Array.from({ length: 99 }, (_, i) => `cap-${i}`)));
+    expect(batch.every((r) => r.ok && r.retention === "retained")).toBe(true);
+    const over = await spawnGalleries(request, slugs("cap-99"));
+    expect(over[0]).toMatchObject({ ok: false, reason: "limit" });
+    await request.dispose();
+  });
+
+  test("the dashboard labels temporary galleries and keeps delete available", async ({ playwright, browser }) => {
+    const request = await retentionApi(playwright);
+    await spawnGalleries(request, slugs("ui-a", "ui-b", "ui-c", "ui-d"));
+    await request.dispose();
+    const context = await browser.newContext({
+      extraHTTPHeaders: { Cookie: await sessionCookie(RETENTION_ACCOUNT) },
+    });
+    const page = await context.newPage();
+    await page.goto(`${BASE}/${RETENTION_OWNER}`);
+    await expect(page.getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
+    const card = page.locator('[data-gallery-card="ui-d"]');
+    await expect(card).toContainText("Temporary ·");
+    await expect(card.locator('a[href^="mailto:"]', { hasText: "Upgrade" })).toBeVisible();
+    expect(await card.locator('[aria-disabled="true"]').count()).toBeGreaterThan(0);
+    await expect(card.getByLabel("Delete ui-d")).toBeEnabled();
+    await expect(page.locator('[data-gallery-card="ui-a"] [aria-disabled="true"]')).toHaveCount(0);
+    await context.close();
+  });
+});
+
+test.describe("density-aware staging", () => {
+  const densityGallery = async (
+    playwright: PlaywrightApi,
+    slug: string,
+    images: { id: string; w: number; h: number }[],
+  ) => {
+    const request = await retentionApi(playwright);
+    await spawnGalleries(request, [
+      { slug, images: images.map(({ id, w, h }) => fixtureImage(id, w, h)) },
+    ]);
+    await request.dispose();
+    return `${BASE}/${RETENTION_OWNER}/${slug}`;
+  };
+
+  test("strip fits height-first and caps the effective pixel ratio at 2", async ({ playwright, browser }) => {
+    const url = await densityGallery(playwright, "d-strip", [
+      { id: "wide", w: 2400, h: 1600 },
+      { id: "tall", w: 1600, h: 2400 },
+      { id: "sq", w: 1600, h: 1600 },
+    ]);
+    const cases = [
+      { dpr: 1, w: 1350, h: 900 },
+      { dpr: 2, w: 1200, h: 800 },
+      { dpr: 3, w: 1200, h: 800 },
+    ];
+    for (const expected of cases) {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: expected.dpr,
+      });
+      const page = await context.newPage();
+      await dismissCurtain(page, url);
+      const img = page.locator("[aria-current='true'] .frame-img");
+      await expect(img).toBeVisible();
+      const box = await img.boundingBox();
+      expect(Math.abs(box!.width - expected.w)).toBeLessThan(2);
+      expect(Math.abs(box!.height - expected.h)).toBeLessThan(2);
+      await context.close();
+    }
+  });
+
+  test("vertical fits width-first and portraits run long without cropping", async ({ playwright, browser }) => {
+    const url = await densityGallery(playwright, "d-vert", [
+      { id: "tall", w: 1600, h: 2400 },
+      { id: "wide", w: 2400, h: 1600 },
+    ]);
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      deviceScaleFactor: 2,
+    });
+    const page = await context.newPage();
+    await page.addInitScript((slug) => {
+      window.localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode: "vertical" }));
+    }, "d-vert");
+    await dismissCurtain(page, url);
+    const img = page.locator("[aria-current='true'] .frame-img");
+    await expect(img).toBeVisible();
+    const box = await img.boundingBox();
+    expect(Math.abs(box!.width - 800)).toBeLessThan(2);
+    expect(Math.abs(box!.height - 1200)).toBeLessThan(2);
+    await context.close();
+  });
+
+  test("a small image stays small and centred on the plain canvas", async ({ playwright, browser }) => {
+    const url = await densityGallery(playwright, "d-tiny", [{ id: "tiny", w: 120, h: 80 }]);
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      deviceScaleFactor: 1,
+    });
+    const page = await context.newPage();
+    await dismissCurtain(page, url);
+    const frame = page.locator("[aria-current='true']");
+    const img = frame.locator(".frame-img");
+    await expect(img).toBeVisible();
+    const box = await img.boundingBox();
+    const frameBox = await frame.boundingBox();
+    expect(Math.abs(box!.width - 120)).toBeLessThan(2);
+    expect(Math.abs(box!.height - 80)).toBeLessThan(2);
+    expect(frameBox!.width).toBeGreaterThan(box!.width * 4);
+    expect(Math.abs(box!.x + box!.width / 2 - (frameBox!.x + frameBox!.width / 2))).toBeLessThan(2);
+    expect(Math.abs(box!.y + box!.height / 2 - (frameBox!.y + frameBox!.height / 2))).toBeLessThan(2);
+    const canvas = await page.locator("[data-stage]").evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(canvas).toBe("rgb(10, 10, 10)");
+    await context.close();
+  });
+
+  test("matching manifest dimensions produce no layout shift", async ({ playwright, browser }) => {
+    const url = await densityGallery(playwright, "d-cls", [
+      { id: "a", w: 2000, h: 1333 },
+      { id: "b", w: 1800, h: 1200 },
+    ]);
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await dismissCurtain(page, url);
+    const cls = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          let cls = 0;
+          new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              const shift = entry as PerformanceEntry & { hadRecentInput?: boolean; value?: number };
+              if (!shift.hadRecentInput) cls += shift.value ?? 0;
+            }
+          }).observe({ type: "layout-shift", buffered: true });
+          setTimeout(() => resolve(cls), 2000);
+        }),
+    );
+    expect(cls).toBeLessThan(0.02);
+    await context.close();
+  });
+
+  test("only the active window mounts full-size media", async ({ playwright, browser }) => {
+    const url = await densityGallery(
+      playwright,
+      "d-window",
+      Array.from({ length: 12 }, (_, i) => ({ id: `w${i}`, w: 1600, h: 1200 })),
+    );
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await dismissCurtain(page, url);
+    await expect(page.locator(".frame-ph")).toHaveCount(12);
+    await expect(page.locator(".frame-img")).toHaveCount(4);
+    for (let i = 0; i < 4; i += 1) await advanceToNextImage(page);
+    await waitForTrackSettled(page);
+    await expect(page.locator(".frame-img")).toHaveCount(7);
+    await context.close();
   });
 });

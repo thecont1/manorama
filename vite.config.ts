@@ -3,32 +3,17 @@ import adapter from '@hono/vite-dev-server/node'
 import honox from 'honox/vite'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 
-/**
- * Dev-only gallery seeding for `bun run dev`.
- *
- * With no D1 binding the user/gallery repositories fall back to in-memory
- * Maps that boot empty, and Dropbox OAuth is the only in-band way to mint
- * a user — so the Playwright suite (and manual QA) has nothing to run
- * against. This plugin seeds that store through `server.ssrLoadModule`,
- * which resolves the SAME module instances the dev server's SSR graph
- * uses.
- *
- * `apply: 'serve'` means the production Worker bundle never sees any of
- * this — the seeded data exists only in vite dev.
- *
- * Seeds:
- *  - user `dbid:AAATESTowner1` → owner slug `thecontrarian` (the spec's
- *    default GALLERY_OWNER)
- *  - one gallery per MANORAMA_DEV_SOURCE_<PROVIDER> var set in
- *    .env.local, live-scanned at boot: ICLOUD → mixed-album (the video
- *    gallery GALLERY_VIDEO_SLUG points at), MEGA → dev-mega, DROPBOX →
- *    dev-dropbox, GDRIVE → dev-gdrive. MANORAMA_DEV_VIDEO_URL predates
- *    the per-provider names and still fills the iCloud slot.
- *
- * There is no bundled sample data: a checkout with no source vars seeds
- * an owner and nothing else, so anything the suite runs against is a real
- * album fetched from a real provider.
- */
+/** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
+const DEV_SPAWN_IMAGE = {
+  id: 'dev-spawn-pixel',
+  filename: 'dev-spawn-pixel.png',
+  src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  width: 1,
+  height: 1,
+  alt: 'dev seed pixel',
+  c2pa: false,
+  placeholder: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+}
 
 /** Env-var name → seeded slug for live-scanned dev galleries. */
 const DEV_SEED_SOURCES: { env: string; slug: string }[] = [
@@ -37,6 +22,21 @@ const DEV_SEED_SOURCES: { env: string; slug: string }[] = [
   { env: 'MANORAMA_DEV_SOURCE_DROPBOX', slug: 'dev-dropbox' },
   { env: 'MANORAMA_DEV_SOURCE_GDRIVE', slug: 'dev-gdrive' },
 ]
+
+/**
+ * Provides dev-only gallery fixtures and retention actions for `bun run dev`.
+ *
+ * With no D1 binding the user/gallery repositories fall back to in-memory
+ * Maps that boot empty, and Dropbox OAuth is the only in-band way to mint
+ * a user. This plugin seeds the same module instances used by the dev server's
+ * SSR graph and exposes reset, tier, spawn, and expiry endpoints for QA.
+ *
+ * `apply: 'serve'` keeps the plugin and its data out of production builds.
+ * It seeds the pro `thecontrarian` owner, an isolated free `retention-qa`
+ * owner, and one live-scanned gallery for each configured
+ * MANORAMA_DEV_SOURCE_<PROVIDER> value. With no source variables, it seeds
+ * only the two owners and no galleries.
+ */
 const manoramaDevSeed = (): Plugin => {
   type UserRepo = typeof import('./app/lib/user-repository')
   type GalleryRepo = typeof import('./app/lib/gallery-repository')
@@ -63,6 +63,14 @@ const manoramaDevSeed = (): Plugin => {
     // Pro: the admin page mounts the real Vendo surface only for pro tier,
     // and the vendo-surface spec drives that launcher.
     await users.setUserTier(owner.dropboxAccountId, 'pro')
+    // A second free-tier owner (slug `retention-qa`, no galleries) gives
+    // the retention/density specs an isolated account whose gallery count
+    // never depends on which provider vars happen to be set.
+    await users.upsertUser({
+      dropboxAccountId: 'dbid:AAATESTretention',
+      displayName: 'Retention QA',
+      email: 'retention-qa@manorama.xyz',
+    })
     for (const { ownerId, gallery } of pristine) {
       await galleries.createGallery(ownerId, structuredClone(gallery))
     }
@@ -161,6 +169,82 @@ const manoramaDevSeed = (): Plugin => {
             res.end(String(error))
           })
       })
+
+      const readJson = (req: import('node:http').IncomingMessage) => new Promise<Record<string, unknown>>((resolve, reject) => {
+        let data = ''
+        req.on('data', (chunk) => { data += chunk })
+        req.on('end', () => {
+          try { resolve(data ? JSON.parse(data) as Record<string, unknown> : {}) }
+          catch (error) { reject(error) }
+        })
+        req.on('error', reject)
+      })
+      const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
+        res.statusCode = status
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify(body))
+      }
+      const devAction = (handler: (body: Record<string, unknown>) => Promise<unknown>) =>
+        (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          if (req.method !== 'POST') {
+            res.statusCode = 405
+            res.end()
+            return
+          }
+          seeded
+            .then(() => readJson(req))
+            .then(handler)
+            .then((body) => sendJson(res, 200, body))
+            .catch((error) => sendJson(res, 500, { error: String(error) }))
+        }
+
+      // Retention spec seams: flip a seeded account's tier through the real
+      // setUserTier upgrade path, create manifest-only galleries through the
+      // shared createGalleryWithinLimit policy (no provider scan), and run
+      // the real expiry service — all against the in-memory repositories.
+      server.middlewares.use('/.dev-seed/tier', devAction(async (body) => {
+        if (!users) throw new Error('dev-seed modules not loaded')
+        const accountId = typeof body.accountId === 'string' ? body.accountId : 'dbid:AAATESTowner1'
+        const tier = body.tier === 'pro' ? 'pro' : 'free'
+        const user = await users.setUserTier(accountId, tier)
+        return { tier: user?.tier ?? null }
+      }))
+      server.middlewares.use('/.dev-seed/spawn', devAction(async (body) => {
+        if (!galleries) throw new Error('dev-seed modules not loaded')
+        const accountId = typeof body.accountId === 'string' ? body.accountId : 'dbid:AAATESTowner1'
+        const items = Array.isArray(body.galleries) ? body.galleries : []
+        const results: Record<string, unknown>[] = []
+        for (const item of items) {
+          const entry = item as { slug?: unknown; createdAt?: unknown; images?: unknown }
+          if (typeof entry?.slug !== 'string' || !entry.slug) {
+            results.push({ ok: false, reason: 'invalid' })
+            continue
+          }
+          const result = await galleries.createGalleryWithinLimit(accountId, {
+            slug: entry.slug,
+            title: entry.slug,
+            caption: '',
+            date: '',
+            sourceUrl: `dev-seed://spawn/${entry.slug}`,
+            createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
+            images: (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images'],
+          } as GalleryRecord)
+          results.push(result.ok
+            ? { ok: true, slug: entry.slug, retention: result.gallery.retention ?? 'retained', expiresAt: result.gallery.expiresAt ?? null }
+            : { ok: false, slug: entry.slug, reason: result.reason })
+        }
+        return { results }
+      }))
+      server.middlewares.use('/.dev-seed/expire', devAction(async (body) => {
+        const repo = galleries
+        if (!repo) throw new Error('dev-seed modules not loaded')
+        const expiry = await server.ssrLoadModule('/app/lib/gallery-expiry.ts') as unknown as typeof import('./app/lib/gallery-expiry')
+        const now = typeof body.now === 'string' ? body.now : new Date().toISOString()
+        return expiry.expirePipelineGalleries({
+          list: (at, after, limit) => repo.listExpiredPipelineGalleries(at, undefined, after, limit),
+          remove: (key, at) => repo.deleteExpiredPipelineGallery(key, at),
+        }, now)
+      }))
       server.httpServer?.once('listening', () => {
         seeded = seed(server).catch((error) => {
           console.warn('[dev-seed] seeding failed:', error)
