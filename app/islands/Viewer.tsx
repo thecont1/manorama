@@ -842,9 +842,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
   }
 
-  // The external viewer fetches the file itself, so only absolute http(s)
-  // sources can travel — data/blob stubs and local files keep the
-  // in-gallery sheet, and so do videos (the viewer speaks stills).
+  /** The external viewer fetches the file itself, so only absolute http(s)
+   *  sources can travel — data/blob stubs and local files keep the
+   *  in-gallery sheet, and so do videos (the viewer speaks stills). */
   const openCurrentImageInfo = () => {
     if (!currentImage) return
     const absolute = new URL(currentImage.src, window.location.href).href

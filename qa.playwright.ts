@@ -101,7 +101,7 @@ async function imageCount(page: import("@playwright/test").Page) {
   return page.locator("[data-track] [data-index]").count();
 }
 
-// The info sheet nests one level deep: display settings → Image information.
+/** Opens the info sheet nested under display settings. */
 async function openInfoDialog(page: import("@playwright/test").Page) {
   await page
     .getByRole("button", { name: "Display settings", exact: true })
@@ -111,8 +111,7 @@ async function openInfoDialog(page: import("@playwright/test").Page) {
     .click();
 }
 
-// Touch-primary devices hide the nav buttons by default; specs that need
-// them switch them on through display settings first.
+/** Enables navigation arrows through display settings when they are hidden. */
 async function ensureNavArrows(page: import("@playwright/test").Page) {
   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
     await page
