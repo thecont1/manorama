@@ -41,6 +41,20 @@ const makeBezier = (x1: number, y1: number, x2: number, y2: number) => {
  *  the CSS-animated surfaces. */
 const glideEase = makeBezier(0.22, 1, 0.36, 1)
 
+/** The standalone C2PA viewer is a sibling homebrand: `I` deep-links the
+ *  current photograph into it (`?uri=<absolute url>`), where the full
+ *  EXIF/IPTC/C2PA readout lives without interrupting the strip. */
+const C2PA_VIEWER_URL = 'https://c2pa.thecontrarian.in/'
+
+/** Touch-primary devices hide the nav buttons by default; the settings
+ *  toggle still brings them back. SSR cannot know the pointer — the gate
+ *  runs in the mount effect, never in initial state, so hydration and
+ *  server markup agree. */
+const coarsePointer = () =>
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(pointer: coarse)').matches
+
 /** In vertical mode, frames beyond the viewport stay active only up to this
  *  many past the visible set — enough to not thrash on small scrolls, bounded
  *  so decoded HEIC blobs get revoked as frames scroll away. */
@@ -165,7 +179,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
     setMode(viewPrefs.mode ?? loaded.defaultMode)
-    setShowArrows(loaded.defaultShowArrows)
+    setShowArrows(loaded.defaultShowArrows && !coarsePointer())
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
     const updateText = (selector: string, value: string) => {
@@ -626,6 +640,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // transitions would leave a window where M/Esc presses vanish.
   }, [magnifierAvailable])
 
+  // `I` is the magnifier's companion key: the stage keeps no button for it.
+  // Same gates as the nav keys — no repeat spam (each press is a new tab),
+  // never stolen from a text field, inert behind the curtain or a modal.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+      if (event.key !== 'i' && event.key !== 'I') return
+      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      event.preventDefault()
+      openCurrentImageInfo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [index, images.length])
+
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
@@ -763,7 +794,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     if (!modalOpen && !infoOpen) return
     const modal = modalOpen ? modalRef.current : infoModalRef.current
-    previousFocusRef.current = document.activeElement as HTMLElement
+    // Settings → info is a nested open: keep the first invoker so closing
+    // the sheet returns focus to the logo, not a now-hidden panel button.
+    if (previousFocusRef.current === null) previousFocusRef.current = document.activeElement as HTMLElement
     requestAnimationFrame(() => {
       modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
       modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
@@ -807,6 +840,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const openImageProvenance = () => {
     openImageInfo()
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
+  }
+
+  // The external viewer fetches the file itself, so only absolute http(s)
+  // sources can travel — data/blob stubs and local files keep the
+  // in-gallery sheet, and so do videos (the viewer speaks stills).
+  const openCurrentImageInfo = () => {
+    if (!currentImage) return
+    const absolute = new URL(currentImage.src, window.location.href).href
+    if (currentIsVideo || !/^https?:/i.test(absolute)) { openImageProvenance(); return }
+    window.open(`${C2PA_VIEWER_URL}?uri=${encodeURIComponent(absolute)}`, '_blank', 'noopener')
   }
 
   // HEIC originals can't render in a browser, so decode them at full
@@ -1130,15 +1173,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         </div>
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. */}
-        <div class="stage-arrows" data-magnifier-ignore aria-label="Image navigation and information">
-          <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
-          {arrowsVisible ? (
-            <>
-              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
-              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
-            </>
-          ) : null}
-        </div>
+        {arrowsVisible ? (
+          <div class="stage-arrows" data-magnifier-ignore role="group" aria-label="Image navigation">
+            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
+            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
+          </div>
+        ) : null}
       </div>
 
       <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
@@ -1182,6 +1222,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
+              <button type="button" class="panel-action" onClick={() => { setModalOpen(false); openImageProvenance() }}>Image information</button>
               {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
             </div>
@@ -1201,6 +1242,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 on a touch device, so the row only exists where the key
                 actually works. */}
             {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
+            <p><kbd>I</kbd> open image info in the c2pa viewer (new tab)</p>
             <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
