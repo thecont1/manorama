@@ -30,6 +30,18 @@ import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
  * album fetched from a real provider.
  */
 
+/** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
+const DEV_SPAWN_IMAGE = {
+  id: 'dev-spawn-pixel',
+  filename: 'dev-spawn-pixel.png',
+  src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  width: 1,
+  height: 1,
+  alt: 'dev seed pixel',
+  c2pa: false,
+  placeholder: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+}
+
 /** Env-var name → seeded slug for live-scanned dev galleries. */
 const DEV_SEED_SOURCES: { env: string; slug: string }[] = [
   { env: 'MANORAMA_DEV_SOURCE_ICLOUD', slug: 'mixed-album' },
@@ -63,6 +75,14 @@ const manoramaDevSeed = (): Plugin => {
     // Pro: the admin page mounts the real Vendo surface only for pro tier,
     // and the vendo-surface spec drives that launcher.
     await users.setUserTier(owner.dropboxAccountId, 'pro')
+    // A second free-tier owner (slug `retention-qa`, no galleries) gives
+    // the retention/density specs an isolated account whose gallery count
+    // never depends on which provider vars happen to be set.
+    await users.upsertUser({
+      dropboxAccountId: 'dbid:AAATESTretention',
+      displayName: 'Retention QA',
+      email: 'retention-qa@manorama.xyz',
+    })
     for (const { ownerId, gallery } of pristine) {
       await galleries.createGallery(ownerId, structuredClone(gallery))
     }
@@ -161,6 +181,82 @@ const manoramaDevSeed = (): Plugin => {
             res.end(String(error))
           })
       })
+
+      const readJson = (req: import('node:http').IncomingMessage) => new Promise<Record<string, unknown>>((resolve, reject) => {
+        let data = ''
+        req.on('data', (chunk) => { data += chunk })
+        req.on('end', () => {
+          try { resolve(data ? JSON.parse(data) as Record<string, unknown> : {}) }
+          catch (error) { reject(error) }
+        })
+        req.on('error', reject)
+      })
+      const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
+        res.statusCode = status
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify(body))
+      }
+      const devAction = (handler: (body: Record<string, unknown>) => Promise<unknown>) =>
+        (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          if (req.method !== 'POST') {
+            res.statusCode = 405
+            res.end()
+            return
+          }
+          seeded
+            .then(() => readJson(req))
+            .then(handler)
+            .then((body) => sendJson(res, 200, body))
+            .catch((error) => sendJson(res, 500, { error: String(error) }))
+        }
+
+      // Retention spec seams: flip a seeded account's tier through the real
+      // setUserTier upgrade path, create manifest-only galleries through the
+      // shared createGalleryWithinLimit policy (no provider scan), and run
+      // the real expiry service — all against the in-memory repositories.
+      server.middlewares.use('/.dev-seed/tier', devAction(async (body) => {
+        if (!users) throw new Error('dev-seed modules not loaded')
+        const accountId = typeof body.accountId === 'string' ? body.accountId : 'dbid:AAATESTowner1'
+        const tier = body.tier === 'pro' ? 'pro' : 'free'
+        const user = await users.setUserTier(accountId, tier)
+        return { tier: user?.tier ?? null }
+      }))
+      server.middlewares.use('/.dev-seed/spawn', devAction(async (body) => {
+        if (!galleries) throw new Error('dev-seed modules not loaded')
+        const accountId = typeof body.accountId === 'string' ? body.accountId : 'dbid:AAATESTowner1'
+        const items = Array.isArray(body.galleries) ? body.galleries : []
+        const results: Record<string, unknown>[] = []
+        for (const item of items) {
+          const entry = item as { slug?: unknown; createdAt?: unknown; images?: unknown }
+          if (typeof entry?.slug !== 'string' || !entry.slug) {
+            results.push({ ok: false, reason: 'invalid' })
+            continue
+          }
+          const result = await galleries.createGalleryWithinLimit(accountId, {
+            slug: entry.slug,
+            title: entry.slug,
+            caption: '',
+            date: '',
+            sourceUrl: `dev-seed://spawn/${entry.slug}`,
+            createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
+            images: (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images'],
+          } as GalleryRecord)
+          results.push(result.ok
+            ? { ok: true, slug: entry.slug, retention: result.gallery.retention ?? 'retained', expiresAt: result.gallery.expiresAt ?? null }
+            : { ok: false, slug: entry.slug, reason: result.reason })
+        }
+        return { results }
+      }))
+      server.middlewares.use('/.dev-seed/expire', devAction(async (body) => {
+        const repo = galleries
+        if (!repo) throw new Error('dev-seed modules not loaded')
+        const expiry = await server.ssrLoadModule('/app/lib/gallery-expiry.ts') as unknown as typeof import('./app/lib/gallery-expiry')
+        const now = typeof body.now === 'string' ? body.now : new Date().toISOString()
+        return expiry.expirePipelineGalleries({
+          list: (at, after, limit) => repo.listExpiredPipelineGalleries(at, undefined, after, limit),
+          remove: (key, at) => repo.deleteExpiredPipelineGallery(key, at),
+        }, now)
+      }))
       server.httpServer?.once('listening', () => {
         seeded = seed(server).catch((error) => {
           console.warn('[dev-seed] seeding failed:', error)
