@@ -1798,16 +1798,18 @@ test.describe("density-aware staging", () => {
     return `${BASE}/${RETENTION_OWNER}/${slug}`;
   };
 
-  test("strip fits height-first and caps the effective pixel ratio at 2", async ({ playwright, browser }) => {
+  test("strip fits height-first at any density and never exceeds natural pixels", async ({ playwright, browser }) => {
     const url = await densityGallery(playwright, "d-strip", [
       { id: "wide", w: 2400, h: 1600 },
       { id: "tall", w: 1600, h: 2400 },
       { id: "sq", w: 1600, h: 1600 },
     ]);
+    // The photostrip must read edge-to-edge: height-first fill holds at
+    // every DPR — the only ceiling is the source's own pixel count.
     const cases = [
       { dpr: 1, w: 1350, h: 900 },
-      { dpr: 2, w: 1200, h: 800 },
-      { dpr: 3, w: 1200, h: 800 },
+      { dpr: 2, w: 1350, h: 900 },
+      { dpr: 3, w: 1350, h: 900 },
     ];
     for (const expected of cases) {
       const context = await browser.newContext({
@@ -1862,6 +1864,8 @@ test.describe("density-aware staging", () => {
     const frameBox = await frame.boundingBox();
     expect(Math.abs(box!.width - 120)).toBeLessThan(2);
     expect(Math.abs(box!.height - 80)).toBeLessThan(2);
+    // A source shorter than the stage can't abut its neighbours — it stays
+    // centred inside the aspect frame rather than upscaling.
     expect(frameBox!.width).toBeGreaterThan(box!.width * 4);
     expect(Math.abs(box!.x + box!.width / 2 - (frameBox!.x + frameBox!.width / 2))).toBeLessThan(2);
     expect(Math.abs(box!.y + box!.height / 2 - (frameBox!.y + frameBox!.height / 2))).toBeLessThan(2);

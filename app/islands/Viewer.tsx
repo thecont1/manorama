@@ -1004,7 +1004,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
-                style={mode === 'strip' ? staged && staged.width > 0 ? { width: `${staged.width + seamTop}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
+                style={mode === 'strip' ? staged && staged.width > 0 && (healed || staged.height >= stageSize.height - seamInset - 0.5) ? { width: `${staged.width + seamTop}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 {video ? (
                   <>
