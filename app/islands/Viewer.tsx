@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
@@ -490,20 +490,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (mode === 'vertical') requestAnimationFrame(() => document.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
   }, [mode])
 
+  const applyStageMetrics = () => {
+    const stage = stageRef.current
+    if (!stage) return
+    const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
+    stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
+    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: effectiveImageDpr(window.devicePixelRatio) }
+    setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
+    boundsDirtyRef.current = true
+    if (modeRef.current === 'strip') settleTo(-imageStart(indexRef.current), true)
+  }
+
+  useLayoutEffect(() => {
+    applyStageMetrics()
+  }, [])
+
   useEffect(() => {
     const stageElement = stageRef.current
     const onResize = () => {
       if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
       viewportFrameRef.current = requestAnimationFrame(() => {
         viewportFrameRef.current = null
-        const stage = stageRef.current
-        if (!stage) return
-        const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
-        stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
-        const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: effectiveImageDpr(window.devicePixelRatio) }
-        setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
-        boundsDirtyRef.current = true
-        if (modeRef.current === 'strip') settleTo(-imageStart(indexRef.current), true)
+        applyStageMetrics()
       })
     }
     const visualViewport = window.visualViewport
@@ -1001,7 +1009,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
-                style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video && staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : undefined}
+                style={mode === 'strip' ? { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 {video ? (
                   <>
@@ -1037,7 +1045,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                   aria-hidden="true"
                   width={frameW}
                   height={frameH}
-                  style={stagedStyle}
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
