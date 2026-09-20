@@ -117,6 +117,7 @@ const sortRecent = (galleries: GalleryRecord[]) => galleries.sort((a, b) => {
   return bTime - aTime || a.title.localeCompare(b.title)
 })
 
+/** Lists an owner's retained and unexpired pipeline galleries, newest first. */
 export const listGalleries = async (ownerId: string, env?: GalleryEnv): Promise<GalleryRecord[]> => {
   const now = new Date().toISOString()
   if (d1Configured(env)) {
@@ -136,6 +137,7 @@ export const listGalleries = async (ownerId: string, env?: GalleryEnv): Promise<
   )
 }
 
+/** Finds a visible gallery, treating an expired pipeline gallery as missing. */
 export const getGallery = async (ownerId: string, slug: string, env?: GalleryEnv): Promise<GalleryRecord | null> => {
   const now = new Date().toISOString()
   if (d1Configured(env)) {
@@ -152,6 +154,7 @@ export const getGallery = async (ownerId: string, slug: string, env?: GalleryEnv
   return isGalleryExpired(gallery, now) ? null : gallery
 }
 
+/** Reads a stored gallery without applying the pipeline-expiration filter. */
 export const getStoredGallery = async (ownerId: string, slug: string, env?: GalleryEnv): Promise<GalleryRecord | null> => {
   if (d1Configured(env)) {
     const row = await env.DB
@@ -168,11 +171,12 @@ export type CreateWithinLimitResult =
   | { readonly ok: true; readonly gallery: GalleryRecord }
   | { readonly ok: false; readonly reason: 'limit' | 'conflict' | 'duplicate-source' }
 
-/** Atomically checks the free-tier limit and inserts the gallery in one D1
- *  statement, so concurrent requests cannot both pass the count check and
- *  exceed the limit. Returns `conflict` when the (owner_id, slug) key
- *  already exists, or `duplicate-source` when the (owner_id, source_url)
- *  unique index already holds that Dropbox folder. */
+/** Applies the account's retention policy and inserts the gallery atomically.
+ *  Free accounts retain their first three galleries and receive 30-day
+ *  pipeline galleries thereafter; paid accounts retain galleries up to the
+ *  99-gallery cap. Returns `conflict` for an occupied owner/slug pair,
+ *  `duplicate-source` for a reused owner/source URL, or `limit` at the paid
+ *  cap. */
 export const createGalleryWithinLimit = async (
   ownerId: string,
   gallery: GalleryRecord,
@@ -226,6 +230,8 @@ export const createGalleryWithinLimit = async (
   return { ok: true, gallery: stored }
 }
 
+/** Creates a gallery under the retention policy. Throws a typed limit error at
+ *  the paid cap and an Error when the owner already uses its slug or source. */
 export const createGallery = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv): Promise<GalleryRecord> => {
   const result = await createGalleryWithinLimit(ownerId, gallery, env)
   if (result.ok) return result.gallery
@@ -235,7 +241,8 @@ export const createGallery = async (ownerId: string, gallery: GalleryRecord, env
 }
 
 /** Updates an existing gallery row in place via an atomic D1 UPDATE (no
- *  create-then-delete). Returns null when no row matches. */
+ *  create-then-delete). Returns null when no row matches and throws a typed
+ *  read-only error for pipeline galleries. */
 export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv): Promise<GalleryRecord | null> => {
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, gallery.slug, env)
@@ -265,7 +272,8 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
 
 /** Updates only the images_json column of an existing gallery, leaving
  *  metadata (title, caption, date) untouched. Used by the refresh flow so
- *  a concurrent metadata change is not overwritten with stale read data. */
+ *  a concurrent metadata change is not overwritten with stale read data.
+ *  Throws a typed read-only error for pipeline galleries. */
 export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
   const imagesJson = JSON.stringify(images)
   if (d1Configured(env)) {
@@ -287,6 +295,8 @@ export const updateGalleryImages = async (ownerId: string, slug: string, images:
   return updated
 }
 
+/** Applies supplied title or caption fields to a retained gallery. Returns null
+ *  when the gallery is missing and throws a typed error when it is read-only. */
 export const updateGalleryMetadata = async (ownerId: string, slug: string, patch: { title?: string; caption?: string }, env?: GalleryEnv): Promise<GalleryRecord | null> => {
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, slug, env)
@@ -318,6 +328,8 @@ export const updateGalleryMetadata = async (ownerId: string, slug: string, patch
   return updated
 }
 
+/** Renames a retained gallery. Returns null when it is missing and throws when
+ *  the gallery is read-only or the owner already uses the target slug. */
 export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug: string, env?: GalleryEnv): Promise<GalleryRecord | null> => {
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, slug, env)
@@ -355,6 +367,8 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
  *  gallery orders and dedupes through exactly one key path. */
 const imageKey = (image: GalleryMediaItem) => image.ref ?? image.filename
 
+/** Reorders known items by provider key, appending omitted items in their
+ *  existing order. Throws a typed read-only error for pipeline galleries. */
 export const updateGalleryOrder = async (ownerId: string, slug: string, order: string[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
   const reorder = (current: GalleryRecord) => {
     const byKey = new Map(current.images.map((image) => [imageKey(image), image]))
@@ -407,6 +421,7 @@ export const deleteGallery = async (ownerId: string, slug: string, env?: Gallery
   return ownerStore(ownerId).delete(slug)
 }
 
+/** Counts retained galleries only; pipeline galleries do not consume the cap. */
 export const countGalleries = async (ownerId: string, env?: GalleryEnv): Promise<number> => {
   if (d1Configured(env)) {
     const row = await env.DB
@@ -418,6 +433,8 @@ export const countGalleries = async (ownerId: string, env?: GalleryEnv): Promise
   return [...ownerStore(ownerId).values()].filter((gallery) => retentionOf(gallery) === 'retained').length
 }
 
+/** Promotes every unexpired pipeline gallery for an owner and clears its
+ *  deadline. Returns the number promoted; repeated calls are idempotent. */
 export const promotePipelineGalleries = async (ownerId: string, now: string, env?: GalleryEnv): Promise<number> => {
   if (d1Configured(env)) {
     const result = await env.DB.prepare(
@@ -449,6 +466,8 @@ const compareExpiryKeys = (a: ExpiredGalleryKey, b: ExpiredGalleryKey) =>
             : a.slug > b.slug ? 1
               : 0
 
+/** Lists expired pipeline keys in expiration/owner/slug order for keyset
+ *  pagination. The optional cursor is exclusive. */
 export const listExpiredPipelineGalleries = async (
   now: string,
   env?: GalleryEnv,
@@ -478,6 +497,8 @@ export const listExpiredPipelineGalleries = async (
   return rest.slice(0, limit)
 }
 
+/** Deletes a scanned expiry candidate only if it is still a pipeline gallery
+ *  with the same deadline and is expired at `now`. Returns whether it deleted. */
 export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: string, env?: GalleryEnv): Promise<boolean> => {
   if (d1Configured(env)) {
     const result = await env.DB.prepare(

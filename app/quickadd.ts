@@ -62,6 +62,9 @@ const wireSignIn = (sourceUrl: string) => {
   }
 }
 
+/** Submits a pasted source link, reports terminal errors in the quick-add
+ *  panel, and redirects successful or duplicate responses. A paid-limit
+ *  response redirects only when it supplies a safe dashboard path. */
 export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
   // Loop guard: if a create somehow returns us to this URL again, do not
   // retry forever.

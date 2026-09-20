@@ -177,9 +177,10 @@ export const getUserByOwnerSlug = async (
 
 export class OwnerSlugError extends Error {}
 
-/** Promotes or demotes an account's tier. There is no self-serve billing
- *  seam yet — upgrades land through this (or a manual D1 update) only.
- *  Sign-in never writes tier: upsertUser keeps whatever is stored. */
+/** Promotes or demotes an account's tier. Promotion also converts every
+ *  unexpired pipeline gallery to retained and clears its deadline. There is no
+ *  self-serve billing seam yet — upgrades land through this (or a manual D1
+ *  update) only. Sign-in never writes tier: upsertUser keeps what is stored. */
 export const setUserTier = async (
   dropboxAccountId: string,
   tier: 'free' | 'pro',

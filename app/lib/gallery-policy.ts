@@ -8,7 +8,9 @@ export class GalleryPolicyError extends Error {
   constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY', message: string) { super(message); this.name = 'GalleryPolicyError' }
 }
 export const paidGalleryLimitError = () => new GalleryPolicyError('GALLERY_LIMIT', 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.')
+/** Throws a typed read-only error when a pipeline gallery is edited. */
 export const assertGalleryEditable = (gallery: { retention?: GalleryRetention }) => {
   if (gallery.retention === 'pipeline') throw new GalleryPolicyError('GALLERY_READ_ONLY', PIPELINE_LOCK_MESSAGE)
 }
+/** Reports whether a pipeline gallery has reached its expiration instant. */
 export const isGalleryExpired = (gallery: { retention?: GalleryRetention; expiresAt?: string | null }, now = new Date().toISOString()) => gallery.retention === 'pipeline' && Boolean(gallery.expiresAt && gallery.expiresAt <= now)

@@ -5,14 +5,6 @@ import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../li
 import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
 
-/**
- * Strip invariant: each frame derives its width from the source aspect ratio at
- * full stage height. Vertical mode complements it by fitting landscapes to
- * width and portraits to visible height; no mode changes a source aspect ratio.
- * above or below a photograph. Its height follows the visible browser viewport
- * after orientation or browser-chrome changes. Pointer input is coalesced once per frame into one continuous canvas; Strip-only release glide is brief and never snaps to an image.
- */
-
 type Mode = 'strip' | 'vertical' | 'single'
 type SeamMode = 'light' | 'dark' | 'none'
 type DragSample = { x: number; time: number }
@@ -70,6 +62,9 @@ const readViewPrefs = (slug: string): ViewPrefs => {
   }
 }
 
+/** Renders a gallery in strip, vertical, or single-image mode. Still images
+ *  preserve their aspect ratio, fit height-first in strip mode, width-first in
+ *  vertical mode, and within both axes in single mode without upscaling. */
 export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])

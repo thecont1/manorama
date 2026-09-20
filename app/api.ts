@@ -44,6 +44,8 @@ const slugify = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
 
+/** Rejects editorial requests for pipeline galleries before their handlers
+ *  run. Missing galleries continue to the handler so it can return 404. */
 const requireEditableGallery = (): MiddlewareHandler<HonoSessionEnv> =>
   async (c, next) => {
     const session = c.get('manoramaSession')
@@ -56,8 +58,6 @@ const requireEditableGallery = (): MiddlewareHandler<HonoSessionEnv> =>
     }
     await next()
   }
-
-/** Free tier caps at 3 galleries; pro is unlimited. The check is one seam. */
 
 /** Typographic quotes on save: straight quotes typed into the editor come
  *  out curly. Other special characters already pass through untouched. */

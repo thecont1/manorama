@@ -8,6 +8,9 @@ type ExpiryRepository = {
 const PAGE_SIZE = 100
 const MAX_PAGES = 100
 
+/** Removes expired pipeline galleries in bounded keyset pages. Individual
+ *  removal failures are counted and do not stop later entries; list failures
+ *  reject the run because its coverage is unknown. */
 export async function expirePipelineGalleries(
   repository: ExpiryRepository,
   now: string,

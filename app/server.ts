@@ -47,6 +47,8 @@ const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
 const app = createApp({ init })
 
 export default Object.assign(app, {
+  /** Runs the bounded gallery-expiry job and logs its counters. Throws when the
+   *  database binding is absent, listing fails, or any removal throws. */
   async scheduled(controller: ScheduledController, env: AppEnv['Bindings']) {
     const now = new Date(controller.scheduledTime).toISOString()
     if (!env?.DB) throw new Error('Gallery expiry requires the D1 database binding')

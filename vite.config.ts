@@ -3,33 +3,6 @@ import adapter from '@hono/vite-dev-server/node'
 import honox from 'honox/vite'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 
-/**
- * Dev-only gallery seeding for `bun run dev`.
- *
- * With no D1 binding the user/gallery repositories fall back to in-memory
- * Maps that boot empty, and Dropbox OAuth is the only in-band way to mint
- * a user — so the Playwright suite (and manual QA) has nothing to run
- * against. This plugin seeds that store through `server.ssrLoadModule`,
- * which resolves the SAME module instances the dev server's SSR graph
- * uses.
- *
- * `apply: 'serve'` means the production Worker bundle never sees any of
- * this — the seeded data exists only in vite dev.
- *
- * Seeds:
- *  - user `dbid:AAATESTowner1` → owner slug `thecontrarian` (the spec's
- *    default GALLERY_OWNER)
- *  - one gallery per MANORAMA_DEV_SOURCE_<PROVIDER> var set in
- *    .env.local, live-scanned at boot: ICLOUD → mixed-album (the video
- *    gallery GALLERY_VIDEO_SLUG points at), MEGA → dev-mega, DROPBOX →
- *    dev-dropbox, GDRIVE → dev-gdrive. MANORAMA_DEV_VIDEO_URL predates
- *    the per-provider names and still fills the iCloud slot.
- *
- * There is no bundled sample data: a checkout with no source vars seeds
- * an owner and nothing else, so anything the suite runs against is a real
- * album fetched from a real provider.
- */
-
 /** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
 const DEV_SPAWN_IMAGE = {
   id: 'dev-spawn-pixel',
@@ -49,6 +22,21 @@ const DEV_SEED_SOURCES: { env: string; slug: string }[] = [
   { env: 'MANORAMA_DEV_SOURCE_DROPBOX', slug: 'dev-dropbox' },
   { env: 'MANORAMA_DEV_SOURCE_GDRIVE', slug: 'dev-gdrive' },
 ]
+
+/**
+ * Provides dev-only gallery fixtures and retention actions for `bun run dev`.
+ *
+ * With no D1 binding the user/gallery repositories fall back to in-memory
+ * Maps that boot empty, and Dropbox OAuth is the only in-band way to mint
+ * a user. This plugin seeds the same module instances used by the dev server's
+ * SSR graph and exposes reset, tier, spawn, and expiry endpoints for QA.
+ *
+ * `apply: 'serve'` keeps the plugin and its data out of production builds.
+ * It seeds the pro `thecontrarian` owner, an isolated free `retention-qa`
+ * owner, and one live-scanned gallery for each configured
+ * MANORAMA_DEV_SOURCE_<PROVIDER> value. With no source variables, it seeds
+ * only the two owners and no galleries.
+ */
 const manoramaDevSeed = (): Plugin => {
   type UserRepo = typeof import('./app/lib/user-repository')
   type GalleryRepo = typeof import('./app/lib/gallery-repository')
