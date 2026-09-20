@@ -55,6 +55,13 @@ button { color: inherit; }
    overflowing onto neighbouring frames (overflow: visible). Never crops. */
 .viewer-frame img { grid-area: 1 / 1; min-width: 0; min-height: 0; display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; background: transparent; }
 .viewer-frame .frame-ph { width: 100%; height: 100%; object-fit: contain; }
+/* The scanned placeholder is a flat SVG card, not a preview: when the
+   staged image is smaller than its frame (the no-upscale cap) the card
+   would paint a solid slab around it. Only real sources — video posters,
+   HEIC previews, the magnifier's swapped-in frame image — may paint;
+   the SVG stub keeps its box for layout but stays invisible so the
+   striped field or canvas owns the gap. */
+.viewer-frame .frame-ph[src^="data:image/svg+xml"] { visibility: hidden; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
 
@@ -456,8 +463,11 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .control-logo { width: clamp(150px, 18vw, 210px); height: clamp(50px, 6vw, 70px); padding: 8px 10px; border: 1px solid rgba(var(--ink), .14); border-radius: 0; background: rgba(10, 10, 10, .45); box-shadow: 3px 3px 0 #ff4da6; opacity: .3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200ms backwards; }
 .control-logo::before { display: none; }
-.control-logo .brand-mark-wrap { display: block; width: 100%; height: 100%; }
-.control-logo img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; opacity: .9; }
+/* The wrap must hug the painted wordmark, not the button's content box:
+   the image is height-bound (contain), so a 100%-wide wrap would anchor
+   .brand-tld's right:8.39% to empty space and push ".xyz" past "ma". */
+.control-logo .brand-mark-wrap { display: block; width: auto; height: 100%; }
+.control-logo img { display: block; width: auto; height: 100%; object-fit: contain; object-position: center; opacity: .9; }
 @keyframes control-logo-intro {
   0% { opacity: 1; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
   55% { opacity: 1; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
