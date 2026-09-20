@@ -303,6 +303,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         body: JSON.stringify({ url }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      // 409 "already exists" still carries the gallery — that is a
+      // successful reopen, not a scan failure: keep the card, point at it,
+      // and say so instead of showing a could-not-read error.
+      if (response.status === 409 && payload.gallery) {
+        setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
+        setSourceUrl("")
+        scrollToGalleryCard(payload.gallery.slug)
+        announce(payload.error || 'That link is already one of your galleries.')
+        return
+      }
       if (!response.ok || !payload.gallery) {
         if (response.status === 403) { announce(payload.error || "That gallery could not be added"); return }
         throw new Error(payload.error || "That gallery could not be added")
