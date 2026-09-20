@@ -117,7 +117,7 @@ button { color: inherit; }
 .curtain:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -8px; }
 
 .stage-arrows { position: fixed; z-index: 10; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
-.stage-arrows button { pointer-events: auto; width: clamp(38px, 6.3svh, 59px); height: clamp(38px, 6.3svh, 59px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(14px, 2.4svh, 22px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+.stage-arrows button { pointer-events: auto; width: clamp(44px, 6.3svh, 59px); height: clamp(44px, 6.3svh, 59px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(14px, 2.4svh, 22px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
@@ -461,32 +461,37 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-brand-logo-button .brand-tld { bottom: 0.85em; font-size: clamp(18px, 2vw, 29px); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
-/* The brand is a peeking tab, not a banner: it rests half-hidden below
-   the stage edge — only the top ~60% of the wordmark shows — and bobs
-   gently to stay discoverable. Hover or keyboard focus raises it whole;
-   the click opens display settings as before. */
-.control-logo { bottom: 0; width: clamp(96px, 11vw, 132px); height: clamp(38px, 4.4vw, 52px); padding: 5px 8px; border: 1px solid rgba(var(--ink), .14); border-bottom: 0; border-radius: 9px 9px 0 0; background: rgba(10, 10, 10, .5); box-shadow: 3px 3px 0 #ff4da6; opacity: .5; overflow: hidden; display: flex; align-items: flex-start; justify-content: center; transform: translateX(-50%) translateY(40%); }
-body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200ms backwards; }
+/* The brand is a peeking tab, not a banner — but the BUTTON is only the
+   hit area: a 44px strip fully inside the viewport bottom. The painted
+   card (.brand-mark-wrap) carries the tab chrome and does the peeking —
+   ~40% below the stage edge so just the top ~60% of the wordmark shows —
+   plus the gentle bob that keeps it discoverable. Keeping the transform
+   off the button means the clickable box never moves. Hover or keyboard
+   focus raises the card whole; the click opens display settings. */
+.control-logo { bottom: 0; width: clamp(96px, 11vw, 132px); height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; opacity: 1; overflow: visible; display: flex; align-items: flex-end; justify-content: center; transform: translateX(-50%); }
+body.gallery-entered .control-logo .brand-mark-wrap { animation: control-logo-intro 4.5s ease 200ms backwards; }
 @media (prefers-reduced-motion: no-preference) {
-  body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200ms backwards, logo-tab-bob 5.6s ease-in-out 4.9s infinite; }
+  body.gallery-entered .control-logo .brand-mark-wrap { animation: control-logo-intro 4.5s ease 200ms backwards, logo-tab-bob 5.6s ease-in-out 4.9s infinite; }
 }
 .control-logo::before { display: none; }
-/* The wrap must hug the painted wordmark, not the button's content box:
-   the image is height-bound (contain), so a 100%-wide wrap would anchor
-   .brand-tld's right:8.39% to empty space and push ".xyz" past "ma". */
-.control-logo .brand-mark-wrap { display: block; width: auto; height: 100%; }
+/* The wrap is the painted tab — it must hug the wordmark, not the
+   button's content box: the image is height-bound (contain), so a
+   100%-wide wrap would anchor .brand-tld's right:8.39% to empty space
+   and push ".xyz" past "ma". */
+.control-logo .brand-mark-wrap { display: block; width: auto; height: clamp(46px, 4.8vw, 58px); margin: 0 auto; padding: 5px 8px; border: 1px solid rgba(var(--ink), .14); border-bottom: 0; border-radius: 9px 9px 0 0; background: rgba(10, 10, 10, .5); box-shadow: 3px 3px 0 #ff4da6; opacity: .5; overflow: hidden; transform: translateY(40%); transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, opacity 180ms ease; }
 .control-logo img { display: block; width: auto; height: 100%; object-fit: contain; object-position: center; opacity: .9; }
 @keyframes control-logo-intro {
-  0% { opacity: 1; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
-  55% { opacity: 1; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
-  100% { opacity: .5; border: 1px solid rgba(var(--ink), .14); border-bottom: 0; background: rgba(10, 10, 10, .5); }
+  0% { opacity: 1; border-color: rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
+  55% { opacity: 1; border-color: rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
+  100% { opacity: .5; border-color: rgba(var(--ink), .14); background: rgba(10, 10, 10, .5); }
 }
 @keyframes logo-tab-bob {
-  0%, 100% { transform: translateX(-50%) translateY(40%); }
-  50% { transform: translateX(-50%) translateY(31%); }
+  0%, 100% { transform: translateY(40%); }
+  50% { transform: translateY(31%); }
 }
-.control-logo:hover { opacity: .95; border: 1px solid rgba(var(--ink), .9); border-bottom: 0; background: rgba(10, 10, 10, .7); transform: translateX(-50%) translateY(0); animation: none; }
-.control-logo:focus-visible { outline: none; opacity: .95; transform: translateX(-50%) translateY(0); animation: none; }
+.control-logo:hover .brand-mark-wrap { opacity: .95; border-color: rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); transform: translateY(0); animation: none; }
+.control-logo:focus-visible { outline: none; }
+.control-logo:focus-visible .brand-mark-wrap { opacity: .95; border-color: rgba(var(--ink), .9); transform: translateY(0); animation: none; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
   .admin-brand-logo { width: min(300px, 80vw); }

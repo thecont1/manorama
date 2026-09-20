@@ -271,26 +271,34 @@ for (const vp of viewports) {
       const geometry = await page
         .getByRole("button", { name: "Display settings", exact: true })
         .evaluate((button) => {
-          const rect = button.getBoundingClientRect();
+          // The button is the static in-viewport hit area; the painted
+          // card inside it does the peeking below the fold.
+          const hit = button.getBoundingClientRect();
+          const card = button
+            .querySelector(".brand-mark-wrap")!
+            .getBoundingClientRect();
           const stage = document
             .querySelector("[data-stage]")!
             .getBoundingClientRect();
           return {
-            belowFold: rect.bottom - stage.bottom,
+            belowFold: card.bottom - stage.bottom,
             centreDelta: Math.abs(
-              rect.left + rect.width / 2 - (stage.left + stage.width / 2),
+              card.left + card.width / 2 - (stage.left + stage.width / 2),
             ),
-            visibleFraction: (stage.bottom - rect.top) / rect.height,
-            height: rect.height,
-            width: rect.width,
+            visibleFraction: (stage.bottom - card.top) / card.height,
+            hitHeight: hit.height,
+            hitBelowFold: hit.bottom - stage.bottom,
           };
         });
-      // The tab sits centred on the stage's bottom edge, ~40% hidden below
-      // the fold so only the top ~60% of the wordmark shows at rest.
+      // The card sits centred on the stage's bottom edge, ~40% hidden
+      // below the fold — only the top ~60% of the wordmark shows at rest —
+      // while the button itself keeps a full 44px+ hit area on screen.
       expect(geometry.centreDelta).toBeLessThanOrEqual(1);
       expect(geometry.belowFold).toBeGreaterThan(0);
       expect(geometry.visibleFraction).toBeGreaterThanOrEqual(0.5);
       expect(geometry.visibleFraction).toBeLessThanOrEqual(0.7);
+      expect(geometry.hitHeight).toBeGreaterThanOrEqual(44);
+      expect(geometry.hitBelowFold).toBeLessThanOrEqual(0);
       // The centred logo opens display settings; the info sheet nests
       // inside it ("Image information").
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
@@ -1099,19 +1107,24 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await dismissCurtain(page);
-  const tab = page.getByRole("button", {
-    name: "Display settings",
-    exact: true,
-  });
-  const anim = await tab.evaluate(
+  const card = page.locator(".control-logo .brand-mark-wrap");
+  const anim = await card.evaluate(
     (el) => getComputedStyle(el).animationName,
   );
   expect(anim).toContain("logo-tab-bob");
-  // The bob's travel is a few px — present, never a distraction.
-  const before = await tab.boundingBox();
+  // The card's bob is a few px — present, never a distraction — and the
+  // button's own box stays put so the control is always click-stable.
+  const buttonBox = await page
+    .getByRole("button", { name: "Display settings", exact: true })
+    .boundingBox();
+  const before = await card.boundingBox();
   await page.waitForTimeout(900);
-  const after = await tab.boundingBox();
+  const after = await card.boundingBox();
+  const buttonBox2 = await page
+    .getByRole("button", { name: "Display settings", exact: true })
+    .boundingBox();
   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(10);
+  expect(buttonBox2?.y).toBe(buttonBox?.y);
 });
 
 test("credentialed image validates through the browser reader", async ({
