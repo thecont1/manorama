@@ -16,12 +16,12 @@
 
 import { test as base, expect } from "@playwright/test";
 import type { APIRequestContext, PlaywrightWorkerArgs } from "@playwright/test";
-
-type PlaywrightApi = PlaywrightWorkerArgs["playwright"];
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { SignJWT } from "jose";
+
+type PlaywrightApi = PlaywrightWorkerArgs["playwright"];
 
 const DEV_ACCOUNT = "dbid:AAATESTowner1";
 
