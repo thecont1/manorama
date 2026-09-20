@@ -211,6 +211,49 @@ for (const backend of BACKENDS) {
       expect(await getStoredGallery(OWNER, 'fresh-pipe', env)).not.toBeNull()
     }))
 
+    test('keyset pages are stable when expiry timestamps collide across owners and slugs', withBackend(async (env) => {
+      const ownerA = 'dbid:AAATESTexpiry-a'
+      const ownerZ = 'dbid:AAATESTexpiry-z'
+      await upsertUser({ dropboxAccountId: ownerA, displayName: 'Expiry Owner A' }, env)
+      await upsertUser({ dropboxAccountId: ownerZ, displayName: 'Expiry Owner Z' }, env)
+
+      for (const ownerId of [ownerA, ownerZ]) {
+        for (let index = 0; index < 3; index += 1) {
+          const result = await createGalleryWithinLimit(ownerId, {
+            slug: `kept-${index}`, title: `kept-${index}`, caption: '', date: '', images: [image],
+          }, env)
+          expect(result.ok && result.gallery.retention === 'retained').toBe(true)
+        }
+      }
+
+      const boundaryCreated = new Date(Date.parse(NOW) - PIPELINE_LIFETIME_MS).toISOString()
+      const earlierCreated = new Date(Date.parse(boundaryCreated) - 1).toISOString()
+      for (const [ownerId, slug, createdAt] of [
+        [ownerZ, 'first', earlierCreated],
+        [ownerZ, 'z-last', boundaryCreated],
+        [ownerA, 'b-middle', boundaryCreated],
+        [ownerA, 'a-middle', boundaryCreated],
+      ] as const) {
+        const result = await createGalleryWithinLimit(ownerId, {
+          slug, title: slug, caption: '', date: '', createdAt, images: [image],
+        }, env)
+        expect(result.ok && result.gallery.retention === 'pipeline').toBe(true)
+      }
+
+      const firstPage = await listExpiredPipelineGalleries(NOW, env, undefined, 2)
+      expect(firstPage).toEqual([
+        key('first', '2026-09-30T23:59:59.999Z', ownerZ),
+        key('a-middle', NOW, ownerA),
+      ])
+
+      const secondPage = await listExpiredPipelineGalleries(NOW, env, firstPage[1], 2)
+      expect(secondPage).toEqual([
+        key('b-middle', NOW, ownerA),
+        key('z-last', NOW, ownerZ),
+      ])
+      expect(await listExpiredPipelineGalleries(NOW, env, secondPage[1], 2)).toEqual([])
+    }))
+
     test('an upgrade between scan and delete turns the removal into a skip', withBackend(async (env) => {
       for (let index = 0; index < 3; index += 1) {
         await createGalleryWithinLimit(OWNER, {

@@ -248,6 +248,25 @@ for (const backend of BACKENDS) {
       expect(stored?.expiresAt).toBeTruthy()
     }))
 
+    test('downgrading keeps existing galleries retained and pipelines the next create', withBackend(backend, async (b) => {
+      await b.seedUser('pro')
+      await b.seedRetained(4)
+
+      const downgraded = await setUserTier(OWNER, 'free', b.env)
+
+      expect(downgraded?.tier).toBe('free')
+      const existing = await listGalleries(OWNER, b.env)
+      expect(existing).toHaveLength(4)
+      expect(existing.every((gallery) => gallery.retention === 'retained' && gallery.expiresAt === null)).toBe(true)
+
+      const result = await createGalleryWithinLimit(OWNER, galleryRecord('after-downgrade'), b.env)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.gallery.retention).toBe('pipeline')
+        expect(result.gallery.expiresAt).toBeTruthy()
+      }
+    }))
+
     test('duplicate slugs and duplicate sources fail the same on both stores', withBackend(backend, async (b) => {
       await b.seedUser('free')
       const sourceUrl = 'https://www.dropbox.com/scl/fo/album'
