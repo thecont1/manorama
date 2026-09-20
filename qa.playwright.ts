@@ -15,7 +15,9 @@
 // no such user and refuses the admin tests loudly.
 
 import { test as base, expect } from "@playwright/test";
-import type { APIRequestContext, Playwright } from "@playwright/test";
+import type { APIRequestContext, PlaywrightWorkerArgs } from "@playwright/test";
+
+type PlaywrightApi = PlaywrightWorkerArgs["playwright"];
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
@@ -1649,7 +1651,7 @@ const fixtureImage = (id: string, width: number, height: number) => ({
   placeholder: testPng(8, Math.max(1, Math.round((8 * height) / width))),
 });
 
-const retentionApi = async (playwright: Playwright): Promise<APIRequestContext> =>
+const retentionApi = async (playwright: PlaywrightApi): Promise<APIRequestContext> =>
   playwright.request.newContext({
     extraHTTPHeaders: { Cookie: await sessionCookie(RETENTION_ACCOUNT) },
   });
@@ -1784,7 +1786,7 @@ test.describe("retention policy", () => {
 
 test.describe("density-aware staging", () => {
   const densityGallery = async (
-    playwright: Playwright,
+    playwright: PlaywrightApi,
     slug: string,
     images: { id: string; w: number; h: number }[],
   ) => {
