@@ -3,9 +3,9 @@
 // Deps: npm i -D @playwright/test @axe-core/playwright
 // Env: GALLERY_URL (default http://localhost:8787), GALLERY_OWNER, GALLERY_SLUG
 // Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow].
-// The stage carries no info button: `I` deep-links into the standalone C2PA
-// viewer, while `⇧I` opens the in-gallery sheet (also the `I` fallback for
-// sources the viewer can't fetch).
+// The stage carries no info button: `I` opens the in-gallery sheet, while
+// `⇧I` deep-links into the standalone C2PA viewer (falling back to the
+// in-gallery sheet for sources the viewer can't fetch).
 // The info modal has aria-label "Image information and Content Credentials".
 //
 // The admin surface requires a Manorama session — Dropbox sign-in mints an
@@ -102,9 +102,9 @@ async function imageCount(page: import("@playwright/test").Page) {
   return page.locator("[data-track] [data-index]").count();
 }
 
-/** Opens the in-gallery info sheet via its ⇧I shortcut. */
+/** Opens the in-gallery info sheet via its I shortcut. */
 async function openInfoDialog(page: import("@playwright/test").Page) {
-  await page.keyboard.press("Shift+I");
+  await page.keyboard.press("i");
 }
 
 /** Enables navigation arrows through display settings when they are hidden. */
@@ -261,8 +261,18 @@ for (const vp of viewports) {
     test("logo tab peeks centred below the stage edge and opens its panels", async ({
       page,
     }) => {
-      // Freeze the bob so the resting geometry is deterministic.
+      // Freeze the bob and skip the reveal intro so the resting state is
+      // deterministic — this spec asserts the settled contract, not the
+      // 4.5s fade-in.
       await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.addInitScript(() => {
+        addEventListener("DOMContentLoaded", () => {
+          const style = document.createElement("style");
+          style.textContent =
+            ".control-logo .brand-mark-wrap { animation: none !important; }";
+          document.head.appendChild(style);
+        });
+      });
       await dismissCurtain(page);
       const geometry = await page
         .getByRole("button", { name: "Display settings", exact: true })
@@ -295,8 +305,43 @@ for (const vp of viewports) {
       expect(geometry.visibleFraction).toBeLessThanOrEqual(0.7);
       expect(geometry.hitHeight).toBeGreaterThanOrEqual(44);
       expect(geometry.hitBelowFold).toBeLessThanOrEqual(0);
+      // The pill is nearly invisible at rest: low wrap opacity, no chrome
+      // painted by the button itself (the ::before pill carries it).
+      const rest = await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .evaluate((button) => {
+          const wrap = button.querySelector(".brand-mark-wrap")!;
+          const wrapCss = getComputedStyle(wrap);
+          const pill = getComputedStyle(wrap, "::before");
+          return {
+            opacity: parseFloat(wrapCss.opacity),
+            pillRadius: pill.borderTopLeftRadius,
+            buttonBg: getComputedStyle(button).backgroundColor,
+          };
+        });
+      expect(rest.opacity).toBeLessThanOrEqual(0.4);
+      expect(rest.pillRadius).toBe("999px");
+      expect(rest.buttonBg).toBe("rgba(0, 0, 0, 0)");
+      // Pointer approaching the fold raises the pill whole and brightens
+      // it — the hit-extender means the mouse only has to come near.
+      const card = page.locator(".control-logo .brand-mark-wrap");
+      const resting = await card.boundingBox();
+      const stageBottom = (await page.locator("[data-stage]").boundingBox())!.y +
+        (await page.locator("[data-stage]").boundingBox())!.height;
+      await page.mouse.move(
+        (resting!.x + resting!.width / 2),
+        stageBottom - 60,
+      );
+      await page.waitForTimeout(400);
+      const raised = await card.boundingBox();
+      const raisedOpacity = await card.evaluate(
+        (el) => parseFloat(getComputedStyle(el).opacity),
+      );
+      expect(raised!.y).toBeLessThan(resting!.y - 20);
+      expect(raisedOpacity).toBeGreaterThanOrEqual(0.9);
       // The centred logo opens display settings; the info sheet answers
-      // ⇧I (and plain `I` when the external viewer can't fetch the source).
+      // plain `I` (⇧I fetches the external C2PA viewer instead).
+      await page.mouse.move(200, 200);
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
       await expect(
         page.getByRole("dialog", { name: /display settings/i }),
@@ -666,9 +711,9 @@ for (const vp of viewports) {
       });
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
       // the focus-restore path is exercised the way a keyboard user hits
-      // it: focus the logo, open the info sheet with ⇧I, then dismiss.
+      // it: focus the logo, open the info sheet with I, then dismiss.
       await settingsButton.focus();
-      await page.keyboard.press("Shift+I");
+      await page.keyboard.press("i");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
       // The provenance dialog carries the frame's own sections; view modes
@@ -692,23 +737,6 @@ for (const vp of viewports) {
       await expect(modal).toBeVisible();
       await modal.click({ position: { x: 4, y: 4 } });
       await expect(modal).not.toBeVisible();
-    });
-
-    test("display settings can recall the opening curtain", async ({ page }) => {
-      await dismissCurtain(page);
-      await expect(page.locator("body")).toHaveClass(/gallery-entered/);
-      await page
-        .getByRole("button", { name: "Display settings", exact: true })
-        .click();
-      await page
-        .getByRole("button", { name: /recall the opening curtain/i })
-        .click();
-      // The curtain comes back over the stage and re-arms its dismissal.
-      await expect(page.locator("[data-curtain]")).toBeVisible();
-      await expect(page.locator("body")).not.toHaveClass(/gallery-entered/);
-      await page.locator("[data-curtain]").click();
-      await expect(page.locator("[data-curtain]")).toBeHidden();
-      await expect(page.locator("body")).toHaveClass(/gallery-entered/);
     });
 
     test("fullscreen is offered only where element fullscreen is supported", async ({
@@ -1068,7 +1096,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   await expect(page).toHaveURL(GALLERY);
 });
 
-test("`I` deep-links the current image into the standalone C2PA viewer", async ({
+test("`⇧I` deep-links the current image into the standalone C2PA viewer", async ({
   page,
   context,
   request,
@@ -1106,7 +1134,7 @@ test("`I` deep-links the current image into the standalone C2PA viewer", async (
   await dismissCurtain(page, `${BASE}/retention-qa/info-qa`);
   const [popup] = await Promise.all([
     context.waitForEvent("page"),
-    page.keyboard.press("i"),
+    page.keyboard.press("Shift+I"),
   ]);
   await expect
     .poll(() => popup.url())
@@ -1121,7 +1149,7 @@ test("`I` deep-links the current image into the standalone C2PA viewer", async (
   await expect(page).toHaveURL(`${BASE}/retention-qa/info-qa`);
 });
 
-test("`I` falls back to the in-gallery sheet when the viewer cannot fetch the source", async ({
+test("`⇧I` falls back to the in-gallery sheet when the viewer cannot fetch the source", async ({
   page,
   request,
 }) => {
@@ -1157,7 +1185,7 @@ test("`I` falls back to the in-gallery sheet when the viewer cannot fetch the so
   expect(spawn.ok()).toBe(true);
   await dismissCurtain(page, `${BASE}/retention-qa/info-qa-data`);
   // A data: URI cannot travel to the external viewer — the sheet opens in place.
-  await page.keyboard.press("i");
+  await page.keyboard.press("Shift+I");
   await expect(
     page.getByRole("dialog", { name: CONTROL_NAME }),
   ).toBeVisible();

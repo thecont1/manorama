@@ -683,11 +683,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (event.key !== 'i' && event.key !== 'I') return
       if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
-      // ⇧I skips the external viewer and opens the in-gallery sheet
-      // directly — it stays the fallback for sources the viewer can't
-      // fetch, and a deliberate choice for everything else.
-      if (event.shiftKey) openImageProvenance()
-      else openCurrentImageInfo()
+      // I opens the in-gallery info sheet directly; ⇧I jumps to the
+      // standalone C2PA viewer instead (falling back to the sheet for
+      // sources it cannot fetch).
+      if (event.shiftKey) openCurrentImageInfo()
+      else openImageProvenance()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1075,18 +1075,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (summary && credentialStores[currentImage.id]) summary.manifestStore = credentialStores[currentImage.id]
   }, [credentialState, credentialStores, currentImage?.id])
 
-  const recallCurtain = () => {
-    const curtain = document.querySelector<HTMLElement>('[data-curtain]')
-    if (curtain) {
-      curtain.classList.remove('is-lifting')
-      curtain.hidden = false
-      curtain.removeAttribute('aria-hidden')
-      document.body.classList.remove('gallery-entered')
-      setGalleryEntered(false)
-    }
-    closeModals()
-  }
-
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen()
@@ -1326,7 +1314,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <div class="panel-actions">
               {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
-              {galleryEntered ? <button type="button" class="panel-action" onClick={recallCurtain}>Recall the opening curtain</button> : null}
             </div>
           </section>
 
@@ -1343,7 +1330,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 on a touch device, so the row only exists where the key
                 actually works. */}
             {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
-            <p><kbd>I</kbd> image info in the c2pa viewer (new tab) — <kbd>⇧I</kbd> opens the in-gallery sheet</p>
+            <p><kbd>I</kbd> image info — <kbd>⇧I</kbd> opens the standalone c2pa viewer (new tab)</p>
             <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
