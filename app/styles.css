@@ -144,6 +144,11 @@ button { color: inherit; }
 @media (pointer: coarse) {
   .stage-arrows { left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); justify-content: space-between; }
 }
+/* Vertical scroll stacks ↑ over ↓ at the bottom-right corner instead —
+   a width-fit feed reads top-to-bottom, so vertical travel docks right.
+   align-items pins the buttons right even inside the coarse-pointer
+   full-width container above. */
+.stage-arrows--vertical { flex-direction: column; align-items: flex-end; }
 
 .controls-modal { position: fixed; z-index: 40; inset: 0; overflow: auto; display: grid; place-items: start center; padding: clamp(22px, 5vw, 72px); background: rgba(17, 20, 19, .73); backdrop-filter: blur(18px) saturate(.75); }
 .controls-modal[hidden] { display: none; }
@@ -178,8 +183,10 @@ button { color: inherit; }
 .info-grid div { min-width: 0; }
 .info-grid dt { margin-bottom: 5px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 .info-grid dd { margin: 0; overflow-wrap: anywhere; color: rgba(var(--ink), .82); font-size: 12px; }
-.shortcuts { display: grid; gap: 10px; }
-.shortcuts p { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; }
+.shortcuts h3 { grid-column: 1 / -1; }
+.shortcuts p { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+@media (max-width: 560px) { .shortcuts { grid-template-columns: 1fr; } }
 kbd { border: 1px solid rgba(var(--ink), .23); padding: 3px 5px; color: rgba(var(--ink), .76); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 cai-manifest-summary { display: block; margin-top: 16px; }
 

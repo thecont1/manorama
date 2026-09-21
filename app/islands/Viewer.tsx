@@ -55,6 +55,15 @@ const coarsePointer = () =>
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches
 
+/** Keystrokes belong to the viewer unless focus sits in a text-entry
+ *  field. Non-text inputs (radio, checkbox, range, …) never receive
+ *  typed characters, so letting shortcuts through keeps I/M/Esc alive
+ *  right after a mode radio is clicked. */
+const isTypingTarget = (el: HTMLElement | null) =>
+  !!el && (el.isContentEditable || /^(textarea|select)$/i.test(el.tagName) ||
+    (/^input$/i.test(el.tagName) &&
+      !/^(button|checkbox|radio|range|file|image|submit|reset|color|hidden)$/i.test((el as HTMLInputElement).type)))
+
 /** In vertical mode, frames beyond the viewport stay active only up to this
  *  many past the visible set — enough to not thrash on small scrolls, bounded
  *  so decoded HEIC blobs get revoked as frames scroll away. */
@@ -88,6 +97,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
+  // Vertical scroll keeps arrows off by default regardless of the
+  // gallery-wide setting — the feed scrolls natively, so they're only
+  // ever an opt-in.
+  const [showArrowsVertical, setShowArrowsVertical] = useState(false)
   const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
@@ -232,7 +245,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [])
 
   const hasMultiple = images.length > 1
-  const arrowsVisible = showArrows && mode !== 'vertical' && hasMultiple
+  const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
+  const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
     if (!boundsDirtyRef.current) return boundsRef.current
@@ -392,11 +406,29 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
+  // Vertical arrows step relative to what is actually on screen — free
+  // scrolling leaves `index` stale, so measure the frames directly.
+  // Down docks the first frame starting below the top edge; up docks the
+  // straddling frame (or the one before it when already aligned).
+  const verticalStep = (direction: -1 | 1) => {
+    const stageTop = stageRef.current?.getBoundingClientRect().top ?? 0
+    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index]') ?? [])]
+    if (direction === 1) {
+      const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
+      goTo(next ? Number(next.dataset.index) - 1 : images.length - 1)
+      return
+    }
+    const above = frames.filter((f) => f.getBoundingClientRect().top < stageTop - 8)
+    goTo(above.length ? Number(above[above.length - 1].dataset.index) - 1 : 0)
+  }
+
   const step = (direction: -1 | 1) => {
     if (!hasMultiple) return
     if (mode === 'strip') {
       const next = clamp(index + direction, 0, images.length - 1)
       goTo(next)
+    } else if (mode === 'vertical') {
+      verticalStep(direction)
     } else {
       goTo(index + direction)
     }
@@ -591,6 +623,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         closeModals()
         return
       }
+      if (isTypingTarget(event.target as HTMLElement | null)) return
       if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
@@ -649,7 +682,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
       // Never steal a keystroke from a text field.
-      if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+      if (isTypingTarget(target)) return
       if (event.key === 'Escape') {
         if (anyModalOpenRef.current) return
         if (!magnifierRef.current?.isActive()) return
@@ -679,7 +712,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
-      if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+      if (isTypingTarget(target)) return
       if (event.key !== 'i' && event.key !== 'I') return
       if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
@@ -1264,9 +1297,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. */}
         {arrowsVisible ? (
-          <div class="stage-arrows" data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
-            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
+          <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''}`} data-magnifier-ignore role="group" aria-label="Image navigation">
+            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
+            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
           </div>
         ) : null}
       </div>
@@ -1312,7 +1345,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
-              {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
+              <button type="button" class="panel-action" onClick={() => { if (mode === 'vertical') setShowArrowsVertical(!showArrowsVertical); else setShowArrows(!showArrows); closeModals() }}>{arrowsOn ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
             </div>
           </section>
@@ -1330,7 +1363,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 on a touch device, so the row only exists where the key
                 actually works. */}
             {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
-            <p><kbd>I</kbd> image info — <kbd>⇧I</kbd> opens the standalone c2pa viewer (new tab)</p>
+            <p><kbd>I</kbd> image info</p>
+            <p><kbd>⇧I</kbd> standalone c2pa viewer (new tab)</p>
             <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>

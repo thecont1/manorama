@@ -757,7 +757,7 @@ for (const vp of viewports) {
       ).toHaveCount(supported ? 1 : 0);
     });
 
-    test("arrows are strip and single-mode only, and navigate one-at-a-time mode", async ({
+    test("arrows are opt-in for vertical, on elsewhere, and navigate", async ({
       page,
     }) => {
       await dismissCurtain(page);
@@ -775,7 +775,8 @@ for (const vp of viewports) {
         .getByRole("button", { name: /show navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
-      // Vertical suppresses them outright — the toggle itself leaves.
+      // Vertical keeps the toggle but defaults arrows off — the feed
+      // scrolls natively, so they appear only on request.
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -783,10 +784,64 @@ for (const vp of viewports) {
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
-      await expect(
-        page.getByRole("button", { name: /navigation arrows/i }),
-      ).toHaveCount(0);
-      await page.keyboard.press("Escape");
+      await page
+        .getByRole("button", { name: /show navigation arrows/i })
+        .click();
+      await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+      // Enabled vertical arrows stack ↑ over ↓ at the bottom-right.
+      await expect(page.locator("[data-nav-arrow]").first()).toHaveText("↑");
+      await expect(page.locator("[data-nav-arrow]").last()).toHaveText("↓");
+      const arrowsBox = await page
+        .locator("[data-nav-arrow]")
+        .evaluateAll((els) => {
+          const stage = document
+            .querySelector("[data-stage]")!
+            .getBoundingClientRect();
+          return els.map((el) => {
+            const r = el.getBoundingClientRect();
+            return {
+              top: r.top,
+              rightDelta: stage.right - r.right,
+              bottomDelta: stage.bottom - r.bottom,
+            };
+          });
+        });
+      // Second button sits below the first (a column), both docked to
+      // the stage's right edge with the last one near the bottom corner.
+      expect(arrowsBox[1].top).toBeGreaterThan(arrowsBox[0].top + 20);
+      expect(arrowsBox[0].rightDelta).toBeLessThan(48);
+      expect(arrowsBox[1].rightDelta).toBeLessThan(48);
+      expect(arrowsBox[1].bottomDelta).toBeLessThan(48);
+      // ↓ docks the next photograph at the feed's top edge — stepped
+      // from the on-screen position, not a stale index — and ↑ returns.
+      const stageTop = () =>
+        page
+          .locator("[data-stage]")
+          .evaluate((el) => el.getBoundingClientRect().top);
+      const frameTop = (n: number) =>
+        page
+          .locator(`[data-index='${n}']`)
+          .evaluate((el) => el.getBoundingClientRect().top);
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await expect
+        .poll(async () => Math.abs((await frameTop(2)) - (await stageTop())), {
+          timeout: 4000,
+        })
+        .toBeLessThan(24);
+      await page
+        .getByRole("button", { name: /previous photograph/i })
+        .click();
+      await expect
+        .poll(async () => Math.abs((await frameTop(1)) - (await stageTop())), {
+          timeout: 4000,
+        })
+        .toBeLessThan(24);
+      // Hiding again restores the quiet default.
+      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page
+        .getByRole("button", { name: /hide navigation arrows/i })
+        .click();
+      await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       // Single mode brings them back, stepping one image at a time.
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
       await page
