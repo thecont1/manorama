@@ -550,6 +550,9 @@ for (const vp of viewports) {
     test("drag pans the canvas one-to-one and glides briefly without snapping", async ({
       page,
     }) => {
+      // Glide only exists where motion is allowed — the suite-wide
+      // reduced-motion fixture would correctly zero it.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       await dismissCurtain(page);
       const x0 = await page.evaluate(
         () =>
@@ -693,6 +696,9 @@ for (const vp of viewports) {
       page,
     }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
+      // Glide only exists where motion is allowed; emulation persists
+      // across this spec's per-measure reloads.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       const measure = async (pause: number) => {
         await page.goto(GALLERY);
         await page.locator("[data-curtain]").click();

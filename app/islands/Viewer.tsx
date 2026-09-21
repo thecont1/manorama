@@ -1376,17 +1376,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               }
                               // An in-flight navigation chases navDestX
                               // live, so the shift is already absorbed.
-                              // When nothing is animating — idle, or the
-                              // stale window between animation end and the
-                              // position report clearing navDestX — dock
-                              // on the frame actually holding the left
-                              // edge, or the strip is left delta-px off.
                               if (momentumRef.current !== null && navDestXRef.current !== null) return
                               navDestXRef.current = null
-                              const docked = leftmostFrameIndex(-currentXRef.current)
-                              reportedIndexRef.current = docked
-                              setIndex(docked)
-                              settleTo(-imageStart(docked), true, true)
+                              // The healed frame sat left of the stage
+                              // edge — its growth shoved the held pixels
+                              // right. Pull the transform back by the same
+                              // delta so the strip stays pixel-stable:
+                              // no docking, no snap — idle, dragged, or
+                              // gliding alike. A frame still ahead of the
+                              // edge shifts nothing held.
+                              if (delta === 0 || frame.offsetLeft >= -currentXRef.current) return
+                              renderX(currentXRef.current - delta)
+                              if (draggingRef.current) dragTargetXRef.current -= delta
                             })
                           }
                           frame.classList.toggle('viewer-frame--portrait', img.naturalHeight > img.naturalWidth)
