@@ -530,7 +530,11 @@ body:has(.viewer-stage.mode-vertical) .control-logo .brand-mark-wrap { margin: 0
    a class rather than a hit-extending pseudo-element. */
 .control-logo:hover { background: transparent; border-color: transparent; transform: translateX(-50%); }
 body:has(.viewer-stage.mode-vertical) .control-logo:hover { transform: none; }
-.control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opacity: .97; transform: translateY(-22%); animation: none; }
+/* The `body` prefix matches body.gallery-entered's specificity (0,3,1):
+   at equal weight this later rule wins, so `animation: none` actually
+   cancels the bob — otherwise the bob's keyframe transform out-specifies
+   the raise and the pill only rises during the intro's first seconds. */
+body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opacity: .97; transform: translateY(-22%); animation: none; }
 .control-logo:focus-visible { outline: none; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }

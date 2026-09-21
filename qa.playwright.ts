@@ -810,8 +810,31 @@ for (const vp of viewports) {
       });
       expect(result.elapsed).toBeLessThan(1000);
       expect(result.trackLeft).toBeLessThan(0);
-      // The strip keeps a ±3 decoded window around the current frame.
-      expect(result.activeImages).toBeLessThanOrEqual(7);
+      // The strip keeps a ±3 decoded window around the current frame
+      // plus a bounded MRU tail of recently-left frames (≤ 6) — 13 max.
+      expect(result.activeImages).toBeLessThanOrEqual(13);
+    });
+
+    test("strip retains recently-panned frames beyond its decoded window", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const count = () =>
+        page.locator('[data-track] img[data-active="true"]').count();
+      // At rest only the ±3 window is decoded.
+      await expect.poll(count).toBeLessThanOrEqual(7);
+      // A long pan leaves frames behind the window still mounted — the
+      // retention tail — while the whole set stays bounded.
+      await page.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>("[data-stage]")!;
+        for (let n = 0; n < 120; n += 1) {
+          stage.dispatchEvent(
+            new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 48 }),
+          );
+        }
+      });
+      await expect.poll(count).toBeGreaterThan(7);
+      expect(await count()).toBeLessThanOrEqual(13);
     });
 
     test("modal contains every control and dismisses three ways", async ({
@@ -1475,6 +1498,38 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
     .boundingBox();
   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(14);
   expect(buttonBox2?.y).toBe(buttonBox?.y);
+});
+
+test("the pill still rises under the resting bob (no-preference motion)", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await dismissCurtain(page);
+  // Wait past the bob's 4.9s delay: once it runs, its keyframe transform
+  // competes with the raise — the raise rule must cancel it (animation:
+  // none) or the pill only ever rose during the intro's first seconds.
+  await page.waitForTimeout(5600);
+  const card = page.locator(".control-logo .brand-mark-wrap");
+  const stageBox = (await page.locator("[data-stage]").boundingBox())!;
+  await page.mouse.move(
+    stageBox.x + stageBox.width / 2,
+    stageBox.y + stageBox.height - 110,
+  );
+  const read = () =>
+    card.evaluate((el) => {
+      const css = getComputedStyle(el);
+      return {
+        translateY: new DOMMatrixReadOnly(css.transform).m42,
+        opacity: parseFloat(css.opacity),
+        animation: css.animationName,
+      };
+    });
+  // Opacity is the last transition to settle — waiting on it means the
+  // raise is fully applied.
+  await expect.poll(async () => (await read()).opacity).toBeGreaterThanOrEqual(0.9);
+  const raised = await read();
+  expect(raised.translateY).toBeLessThan(0);
+  expect(raised.animation).toBe("none");
 });
 
 test("credentialed image validates through the browser reader", async ({

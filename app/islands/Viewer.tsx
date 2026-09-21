@@ -69,6 +69,15 @@ const isTypingTarget = (el: HTMLElement | null) =>
  *  so decoded HEIC blobs get revoked as frames scroll away. */
 const VERTICAL_RETAIN = 6
 
+/** Strip mode's decoded window: frames within this many of the leftmost
+ *  visible frame mount eagerly. */
+const STRIP_WINDOW = 3
+
+/** Frames that just left the strip window stay mounted for this many more
+ *  index changes — panning back and forth doesn't re-mount and re-fetch —
+ *  bounded so decoded HEIC blobs still get revoked once out of play. */
+const STRIP_RETAIN = 6
+
 /** Anonymous per-gallery viewing preferences: mode + background choice are
  *  remembered in localStorage keyed by gallery slug, so a link recipient
  *  keeps their own preference without an account. */
@@ -177,6 +186,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // the IntersectionObserver takes over immediately after mount.
   const [verticalActive, setVerticalActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2]))
   const verticalMruRef = useRef<number[]>([])
+  const [stripActive, setStripActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2, 3]))
+  const stripMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
@@ -1107,12 +1118,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [mode, images])
 
+  // Strip's decoded window slides with `index`; a bounded MRU tail of
+  // frames that just left it stays mounted so quick pans back don't
+  // re-mount and re-fetch. Bounded so eager media and decoded HEIC blobs
+  // still get released once truly out of play.
+  useEffect(() => {
+    if (mode !== 'strip') {
+      stripMruRef.current = []
+      return
+    }
+    const base = new Set<number>()
+    for (let i = Math.max(0, index - STRIP_WINDOW); i <= Math.min(images.length - 1, index + STRIP_WINDOW); i += 1) base.add(i)
+    const tail = stripMruRef.current.filter((i) => !base.has(i))
+    stripMruRef.current = [...base, ...tail].slice(0, base.size + STRIP_RETAIN)
+    setStripActive(new Set(stripMruRef.current))
+  }, [index, mode, images.length])
+
   /**
    * The ONE frame that may own a media element. `isFrameActive` is a
-   * window (±3 in strip mode) — correct for images, wrong for video: it
-   * would mount up to seven <video> elements, each fetching metadata.
-   * A video mounts only on the current slide; every other frame, adjacent
-   * or not, is its poster image alone.
+   * window (plus retention, in strip mode) — correct for images, wrong
+   * for video: it would mount a <video> per retained frame, each
+   * fetching metadata. A video mounts only on the current slide; every
+   * other frame, adjacent or not, is its poster image alone.
    */
   const isVideoSlideActive = (imageIndex: number) =>
     galleryEntered && !modalOpen && !infoOpen && imageIndex === index && isFrameActive(imageIndex)
@@ -1123,7 +1150,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         ? Math.abs(imageIndex - index) <= 3
         : verticalActive.has(imageIndex)
     }
-    return mode === 'strip' ? Math.abs(imageIndex - index) <= 3 : imageIndex === index
+    return mode === 'strip' ? stripActive.has(imageIndex) : imageIndex === index
   }
 
   useEffect(() => {
@@ -1148,7 +1175,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       }
       return next
     })
-  }, [index, mode, images, heicSrc, verticalActive])
+  }, [index, mode, images, heicSrc, verticalActive, stripActive])
 
   useEffect(() => () => {
     unmountedRef.current = true
