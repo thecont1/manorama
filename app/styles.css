@@ -40,7 +40,7 @@ button { color: inherit; }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
-.viewer-track { display: flex; flex-wrap: nowrap; width: max-content; height: 100%; gap: 0; will-change: transform; }
+.viewer-track { display: flex; flex-wrap: nowrap; align-items: center; width: max-content; height: 100%; gap: 0; will-change: transform; }
 .viewer-track--vertical { display: block; width: 100%; height: auto; transform: none !important; }
 .viewer-track--single { width: 100%; transform: none !important; position: relative; }
 /* The single grid cell must be sized to the frame (minmax(0,100%)), not
