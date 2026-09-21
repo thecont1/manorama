@@ -1324,13 +1324,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <div class="panel-actions">
               {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
+              {galleryEntered ? <button type="button" class="panel-action" onClick={recallCurtain}>Recall the opening curtain</button> : null}
             </div>
           </section>
 
           <section class="panel-section" aria-labelledby="about-heading" hidden>
             <h3 id="about-heading">About this gallery</h3>
             <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
-            <button class="text-button" onClick={recallCurtain}>Recall the opening curtain</button>
           </section>
 
           <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">

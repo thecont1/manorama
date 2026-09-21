@@ -694,6 +694,23 @@ for (const vp of viewports) {
       await expect(modal).not.toBeVisible();
     });
 
+    test("display settings can recall the opening curtain", async ({ page }) => {
+      await dismissCurtain(page);
+      await expect(page.locator("body")).toHaveClass(/gallery-entered/);
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: /recall the opening curtain/i })
+        .click();
+      // The curtain comes back over the stage and re-arms its dismissal.
+      await expect(page.locator("[data-curtain]")).toBeVisible();
+      await expect(page.locator("body")).not.toHaveClass(/gallery-entered/);
+      await page.locator("[data-curtain]").click();
+      await expect(page.locator("[data-curtain]")).toBeHidden();
+      await expect(page.locator("body")).toHaveClass(/gallery-entered/);
+    });
+
     test("fullscreen is offered only where element fullscreen is supported", async ({
       page,
     }) => {
