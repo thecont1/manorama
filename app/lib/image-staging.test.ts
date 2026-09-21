@@ -34,13 +34,15 @@ describe('effectiveImageDpr', () => {
 })
 
 describe('imageStageSize in strip mode fits height-first', () => {
-  // The photostrip ignores density: neighbours must abut edge-to-edge, so
-  // the only ceiling is the source's own pixel count.
+  // The photostrip fills height-first and abuts edge-to-edge, but the
+  // same device-pixel budget as every other mode applies: a source short
+  // on pixels renders at natural/dpr rather than fabricating them.
   for (const dpr of DPRS) {
+    const eff = Math.min(dpr, 2)
     for (const [name, w, h] of SHAPES) {
       test(`${name} ${w}x${h} at ${dpr}x`, () => {
         const result = size('strip', w, h, dpr)
-        const expectedHeight = Math.min(STAGE.stageHeightCssPx, h)
+        const expectedHeight = Math.min(STAGE.stageHeightCssPx, h / eff)
         near(result.height, expectedHeight)
         near(result.width, expectedHeight * (w / h))
       })
@@ -95,9 +97,9 @@ describe('imageStageSize in single mode contains both axes', () => {
 
 describe('imageStageSize never upscales', () => {
   test('display px multiplied by effective dpr stays within natural px', () => {
-    // Strict device-pixel parity holds for vertical and single; the strip
-    // trades it for edge-to-edge contact and only stays within natural px.
-    for (const mode of ['vertical', 'single'] as const) {
+    // Strict device-pixel parity holds in every mode: the strip keeps its
+    // edge-to-edge contact but never claims pixels the source lacks.
+    for (const mode of MODES) {
       for (const dpr of DPRS) {
         const eff = Math.min(dpr, 2)
         for (const [, w, h] of SHAPES) {

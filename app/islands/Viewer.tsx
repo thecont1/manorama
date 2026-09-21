@@ -1143,7 +1143,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
                 aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
-                style={mode === 'strip' ? staged && staged.width > 0 && (healed || staged.height >= stageSize.height - seamInset - 0.5) ? { width: `${staged.width + seamTop}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
+                style={mode === 'strip' ? staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width + seamTop}px`, height: `${staged.height + seamInset}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 {video ? (
                   <>
@@ -1219,9 +1219,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                           setHealedDims((previous) => previous[image.id]?.w === healed.w && previous[image.id]?.h === healed.h ? previous : { ...previous, [image.id]: healed })
                           if (mode === 'strip') {
                             const oldWidth = frame.offsetWidth
-                            frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
                             // The strip frame hugs the staged image, so the
-                            // heal must land the new width now — before the
+                            // heal must land the new dims now — before the
                             // rAF delta measures the track shift.
                             const restaged = imageStageSize({
                               mode: 'strip',
@@ -1231,7 +1230,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               stageHeightCssPx: stageSize.height - seamInset,
                               dpr: stageSize.dpr,
                             })
-                            if (restaged.width > 0) frame.style.width = `${restaged.width + seamTop}px`
+                            if (restaged.width > 0) {
+                              frame.style.width = `${restaged.width + seamTop}px`
+                              frame.style.height = `${restaged.height + seamInset}px`
+                            }
                             // A corrected frame changes track geometry —
                             // drop the cached bounds, then once layout
                             // settles either carry an in-flight nav across

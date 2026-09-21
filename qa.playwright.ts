@@ -989,8 +989,22 @@ for (const vp of viewports) {
       expect(advance).toBeLessThanOrEqual(viewportWidth + 1);
     });
 
-    test("no layout shift while images load", async ({ page }) => {
-      await dismissCurtain(page);
+    test("no layout shift while images load", async ({ page, playwright }) => {
+      // Runs on a spawned gallery whose manifest dims match the real
+      // pixels: frames are born at their final geometry, so nothing
+      // reflows. (Thumbnail-probed manifests self-correct on decode —
+      // that reflow is the heal doing its job, not layout instability.)
+      const request = await retentionApi(playwright);
+      await spawnGalleries(request, [
+        {
+          slug: `cls-${vp.name}`,
+          images: ["cls-a", "cls-b", "cls-c"].map((id, i) =>
+            fixtureImage(id, 2400 - i * 200, 1600),
+          ),
+        },
+      ]);
+      await request.dispose();
+      await dismissCurtain(page, `${BASE}/${RETENTION_OWNER}/cls-${vp.name}`);
       const cls = await page.evaluate(
         () =>
           new Promise<number>((resolve) => {
@@ -2140,18 +2154,20 @@ test.describe("density-aware staging", () => {
     return `${BASE}/${RETENTION_OWNER}/${slug}`;
   };
 
-  test("strip fits height-first at any density and never exceeds natural pixels", async ({ playwright, browser }) => {
+  test("strip fits height-first but never invents pixels — low-res floats shorter", async ({ playwright, browser }) => {
     const url = await densityGallery(playwright, "d-strip", [
       { id: "wide", w: 2400, h: 1600 },
       { id: "tall", w: 1600, h: 2400 },
       { id: "sq", w: 1600, h: 1600 },
     ]);
-    // The photostrip must read edge-to-edge: height-first fill holds at
-    // every DPR — the only ceiling is the source's own pixel count.
+    // The photostrip fills height-first only while the source has the
+    // pixels for it at this density: 2400×1600 can feed 900 CSS px at
+    // DPR 1 but not DPR 2 (needs 1800 natural px), so it lands at 800 —
+    // every displayed pixel is real. DPR 3 caps to 2, so it matches.
     const cases = [
       { dpr: 1, w: 1350, h: 900 },
-      { dpr: 2, w: 1350, h: 900 },
-      { dpr: 3, w: 1350, h: 900 },
+      { dpr: 2, w: 1200, h: 800 },
+      { dpr: 3, w: 1200, h: 800 },
     ];
     for (const expected of cases) {
       const context = await browser.newContext({
@@ -2165,6 +2181,14 @@ test.describe("density-aware staging", () => {
       const box = await img.boundingBox();
       expect(Math.abs(box!.width - expected.w)).toBeLessThan(2);
       expect(Math.abs(box!.height - expected.h)).toBeLessThan(2);
+      // A source with enough pixels still fills the stage — mixed-res
+      // folders blend: 1600×2400 has 2400 px for the 1800 DPR-2 asks.
+      if (expected.dpr === 2) {
+        const tall = page.locator("[data-image-id='tall'] .frame-img");
+        await expect(tall).toBeVisible();
+        const tallBox = await tall.boundingBox();
+        expect(Math.abs(tallBox!.height - 900)).toBeLessThan(2);
+      }
       await context.close();
     }
   });
@@ -2191,8 +2215,11 @@ test.describe("density-aware staging", () => {
     await context.close();
   });
 
-  test("a small image stays small and centred on the plain canvas", async ({ playwright, browser }) => {
-    const url = await densityGallery(playwright, "d-tiny", [{ id: "tiny", w: 120, h: 80 }]);
+  test("small images stay small, centred, and abut their neighbours", async ({ playwright, browser }) => {
+    const url = await densityGallery(playwright, "d-tiny", [
+      { id: "tiny", w: 120, h: 80 },
+      { id: "tiny2", w: 160, h: 100 },
+    ]);
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       deviceScaleFactor: 1,
@@ -2206,11 +2233,17 @@ test.describe("density-aware staging", () => {
     const frameBox = await frame.boundingBox();
     expect(Math.abs(box!.width - 120)).toBeLessThan(2);
     expect(Math.abs(box!.height - 80)).toBeLessThan(2);
-    // A source shorter than the stage can't abut its neighbours — it stays
-    // centred inside the aspect frame rather than upscaling.
-    expect(frameBox!.width).toBeGreaterThan(box!.width * 4);
+    // The frame hugs the staged image — undersized sources keep honest
+    // pixels AND the strip stays continuous, so neighbours still abut.
+    expect(Math.abs(frameBox!.width - box!.width)).toBeLessThan(2);
+    expect(Math.abs(frameBox!.height - box!.height)).toBeLessThan(2);
+    const stageBox = await page.locator("[data-stage]").boundingBox();
     expect(Math.abs(box!.x + box!.width / 2 - (frameBox!.x + frameBox!.width / 2))).toBeLessThan(2);
-    expect(Math.abs(box!.y + box!.height / 2 - (frameBox!.y + frameBox!.height / 2))).toBeLessThan(2);
+    expect(Math.abs(box!.y + box!.height / 2 - (stageBox!.y + stageBox!.height / 2))).toBeLessThan(2);
+    // The next frame starts where this one ends — no one-image-per-page gap.
+    const next = page.locator("[data-image-id='tiny2']");
+    const nextBox = await next.boundingBox();
+    expect(Math.abs(nextBox!.x - (frameBox!.x + frameBox!.width))).toBeLessThan(2);
     const canvas = await page.locator("[data-stage]").evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(canvas).toBe("rgb(10, 10, 10)");
     await context.close();

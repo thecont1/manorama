@@ -1,8 +1,10 @@
 import { isVideoItem, type GalleryMediaItem } from './imagesource'
 
 /**
- * Per-gallery Open Graph cards: the gallery's first frame, cover-cropped
- * to 1200×630 with the Manorama wordmark composited over it.
+ * Per-gallery Open Graph cards: the gallery's first frame fitted whole
+ * inside 1200×630 on the dark gallery canvas — never cropped, so heads
+ * at the top of a frame survive — with the Manorama wordmark composited
+ * strictly centered over it.
  *
  * Two compositors, one contract:
  *  - **`cf.image.draw`** on Cloudflare, where image transformations do the
@@ -25,13 +27,12 @@ export const OG_PILL_PATH = '/og-logo-pill.png'
 /** Static card served when anything at all goes wrong. */
 export const OG_FALLBACK_PATH = '/og-image.png'
 
-/** Pill geometry inside the 1200×630 card: horizontally centered, its
- *  own center sitting at the middle of the card's top half, at 60%
- *  opacity — a watermark, not a badge. */
-const PILL_WIDTH = 1080
-const PILL_HEIGHT = 288
+/** Pill geometry inside the 1200×630 card: strictly centered on both
+ *  axes, at 60% opacity — a watermark, not a badge. */
+const PILL_WIDTH = 756
+const PILL_HEIGHT = 202
 const PILL_LEFT = (OG_WIDTH - PILL_WIDTH) / 2
-const PILL_TOP = Math.round(OG_HEIGHT / 4 - PILL_HEIGHT / 2)
+const PILL_TOP = Math.round((OG_HEIGHT - PILL_HEIGHT) / 2)
 const PILL_OPACITY = 0.6
 
 /** The photo is brightened 20% so dark frames still read as a card
@@ -79,6 +80,7 @@ type CfImageOptions = {
       format?: string
       quality?: number
       brightness?: number
+      background?: string
       draw?: CfImageDraw[]
     }
   }
@@ -103,7 +105,7 @@ export const renderOgCard = async (
     opacity: PILL_OPACITY,
   }]
   const options: CfImageOptions = {
-    cf: { image: { width: OG_WIDTH, height: OG_HEIGHT, fit: 'cover', format: 'jpeg', quality: 88, brightness: PHOTO_BRIGHTNESS, draw } },
+    cf: { image: { width: OG_WIDTH, height: OG_HEIGHT, fit: 'pad', background: '#0a0a0a', format: 'jpeg', quality: 88, brightness: PHOTO_BRIGHTNESS, draw } },
   }
   let response: Response
   try {
@@ -140,8 +142,14 @@ const compositeWithJimp = async (
       const jpeg = await sharp(Buffer.from(photoBytes)).jpeg({ quality: 92 }).toBuffer()
       card = await Jimp.fromBuffer(jpeg)
     }
-    card.cover({ w: OG_WIDTH, h: OG_HEIGHT })
+    // Fit the whole photograph inside the card — never cropped, so a
+    // head at the top of the frame survives. The dark remainder matches
+    // the gallery canvas.
+    card.scaleToFit({ w: OG_WIDTH, h: OG_HEIGHT })
     card.brightness(PHOTO_BRIGHTNESS)
+    const canvas = new Jimp({ width: OG_WIDTH, height: OG_HEIGHT, color: 0x0a0a0aff })
+    canvas.composite(card, Math.round((OG_WIDTH - card.bitmap.width) / 2), Math.round((OG_HEIGHT - card.bitmap.height) / 2))
+    card = canvas
     try {
       const pillResponse = await fetchImpl(pillUrl)
       if (pillResponse.ok) {
