@@ -2,8 +2,11 @@
 // manorama acceptance spec — the gallery-qa skill, executable.
 // Deps: npm i -D @playwright/test @axe-core/playwright
 // Env: GALLERY_URL (default http://localhost:8787), GALLERY_OWNER, GALLERY_SLUG
-// Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow],
-// Square button has aria-label "Image information and Content Credentials", modal has role="dialog".
+// Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow].
+// The stage carries no info button: `I` deep-links into the standalone C2PA
+// viewer, while `⇧I` opens the in-gallery sheet (also the `I` fallback for
+// sources the viewer can't fetch).
+// The info modal has aria-label "Image information and Content Credentials".
 //
 // The admin surface requires a Manorama session — Dropbox sign-in mints an
 // HS256 `manorama_session` cookie (app/lib/dropbox-session.ts). Every context
@@ -87,13 +90,33 @@ async function dismissCurtain(
 // The admin specs mutate the seeded in-memory repositories (slug edits,
 // reorders, creates). The dev seed plugin's reset seam restores canonical
 // state so a case's outcome never depends on what ran before it.
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ request, page }) => {
+  // Reduced motion keeps the bobbing logo tab click-stable for every spec;
+  // the bob itself is verified under no-preference in its own test.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   const reset = await request.post(`${BASE}/.dev-seed/reset`);
   expect(reset.status(), "dev seed reset — is this `bun run dev`?").toBe(204);
 });
 
 async function imageCount(page: import("@playwright/test").Page) {
   return page.locator("[data-track] [data-index]").count();
+}
+
+/** Opens the in-gallery info sheet via its ⇧I shortcut. */
+async function openInfoDialog(page: import("@playwright/test").Page) {
+  await page.keyboard.press("Shift+I");
+}
+
+/** Enables navigation arrows through display settings when they are hidden. */
+async function ensureNavArrows(page: import("@playwright/test").Page) {
+  if ((await page.locator("[data-nav-arrow]").count()) === 0) {
+    await page
+      .getByRole("button", { name: "Display settings", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: /show navigation arrows/i })
+      .click();
+  }
 }
 
 // Arrow-key strip advances dock the next frame's left edge, and the
@@ -235,38 +258,51 @@ for (const vp of viewports) {
       expect(visible).toEqual(["Display settings"]); // design rules, Rule 1
     });
 
-    test("logo control is centred at the stage bottom and opens its panels", async ({
+    test("logo tab peeks centred below the stage edge and opens its panels", async ({
       page,
     }) => {
+      // Freeze the bob so the resting geometry is deterministic.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await dismissCurtain(page);
       const geometry = await page
         .getByRole("button", { name: "Display settings", exact: true })
         .evaluate((button) => {
-          const rect = button.getBoundingClientRect();
+          // The button is the static in-viewport hit area; the painted
+          // card inside it does the peeking below the fold.
+          const hit = button.getBoundingClientRect();
+          const card = button
+            .querySelector(".brand-mark-wrap")!
+            .getBoundingClientRect();
           const stage = document
             .querySelector("[data-stage]")!
             .getBoundingClientRect();
           return {
-            bottomGap: stage.bottom - rect.bottom,
+            belowFold: card.bottom - stage.bottom,
             centreDelta: Math.abs(
-              rect.left + rect.width / 2 - (stage.left + stage.width / 2),
+              card.left + card.width / 2 - (stage.left + stage.width / 2),
             ),
-            height: rect.height,
-            width: rect.width,
+            visibleFraction: (stage.bottom - card.top) / card.height,
+            hitHeight: hit.height,
+            hitBelowFold: hit.bottom - stage.bottom,
           };
         });
-      // The mark is a wide banner pill (clamp-sized), centred under the
-      // stage — the old square-button geometry is retired.
+      // The card sits centred on the stage's bottom edge, ~40% hidden
+      // below the fold — only the top ~60% of the wordmark shows at rest —
+      // while the button itself keeps a full 44px+ hit area on screen.
       expect(geometry.centreDelta).toBeLessThanOrEqual(1);
-      expect(geometry.bottomGap).toBeGreaterThanOrEqual(10);
-      // The centred logo opens display settings; provenance lives behind
-      // the quiet "i" beside the stage arrows.
+      expect(geometry.belowFold).toBeGreaterThan(0);
+      expect(geometry.visibleFraction).toBeGreaterThanOrEqual(0.5);
+      expect(geometry.visibleFraction).toBeLessThanOrEqual(0.7);
+      expect(geometry.hitHeight).toBeGreaterThanOrEqual(44);
+      expect(geometry.hitBelowFold).toBeLessThanOrEqual(0);
+      // The centred logo opens display settings; the info sheet answers
+      // ⇧I (and plain `I` when the external viewer can't fetch the source).
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
       await expect(
         page.getByRole("dialog", { name: /display settings/i }),
       ).toBeVisible();
       await page.keyboard.press("Escape");
-      await page.getByRole("button", { name: CONTROL_NAME }).click();
+      await openInfoDialog(page);
       const info = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(info).toBeVisible();
       await expect(info.locator("[data-c2pa-panel]")).toBeInViewport();
@@ -291,7 +327,7 @@ for (const vp of viewports) {
       const docked = await page
         .locator("[aria-current='true']")
         .getAttribute("data-index");
-      await page.getByRole("button", { name: CONTROL_NAME }).click();
+      await openInfoDialog(page);
       await expect(page.locator(".position-value")).toHaveText(
         `${docked} / ${await imageCount(page)}`,
       );
@@ -300,7 +336,7 @@ for (const vp of viewports) {
       await expect(page).toHaveURL(GALLERY);
       await page.locator("[data-curtain]").click();
       await expect(page.locator("[data-curtain]")).toBeHidden();
-      await page.getByRole("button", { name: CONTROL_NAME }).click();
+      await openInfoDialog(page);
       await expect(page.locator(".position-value")).toHaveText(
         `1 / ${await imageCount(page)}`,
       );
@@ -624,12 +660,15 @@ for (const vp of viewports) {
       page,
     }) => {
       await dismissCurtain(page);
-      const infoButton = page.getByRole("button", { name: CONTROL_NAME });
+      const settingsButton = page.getByRole("button", {
+        name: "Display settings",
+        exact: true,
+      });
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
       // the focus-restore path is exercised the way a keyboard user hits
-      // it: focus the control, open with Enter.
-      await infoButton.focus();
-      await page.keyboard.press("Enter");
+      // it: focus the logo, open the info sheet with ⇧I, then dismiss.
+      await settingsButton.focus();
+      await page.keyboard.press("Shift+I");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
       // The provenance dialog carries the frame's own sections; view modes
@@ -639,20 +678,37 @@ for (const vp of viewports) {
       }
       await page.keyboard.press("Escape");
       await expect(modal).not.toBeVisible();
-      // focus returns to the provenance control that invoked it
-      await expect(infoButton).toBeFocused();
+      // focus returns to the stage control that opened the chain
+      await expect(settingsButton).toBeFocused();
       // Second dismissal path: the panel's close control.
-      await infoButton.click();
+      await openInfoDialog(page);
       await expect(modal).toBeVisible();
       await modal
         .getByRole("button", { name: /close image information/i })
         .click();
       await expect(modal).not.toBeVisible();
       // Third: the backdrop itself (target === currentTarget).
-      await infoButton.click();
+      await openInfoDialog(page);
       await expect(modal).toBeVisible();
       await modal.click({ position: { x: 4, y: 4 } });
       await expect(modal).not.toBeVisible();
+    });
+
+    test("display settings can recall the opening curtain", async ({ page }) => {
+      await dismissCurtain(page);
+      await expect(page.locator("body")).toHaveClass(/gallery-entered/);
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: /recall the opening curtain/i })
+        .click();
+      // The curtain comes back over the stage and re-arms its dismissal.
+      await expect(page.locator("[data-curtain]")).toBeVisible();
+      await expect(page.locator("body")).not.toHaveClass(/gallery-entered/);
+      await page.locator("[data-curtain]").click();
+      await expect(page.locator("[data-curtain]")).toBeHidden();
+      await expect(page.locator("body")).toHaveClass(/gallery-entered/);
     });
 
     test("fullscreen is offered only where element fullscreen is supported", async ({
@@ -677,7 +733,9 @@ for (const vp of viewports) {
       page,
     }) => {
       await dismissCurtain(page);
-      // Arrows ship on in strip mode; the toggle is a display-settings action.
+      // Arrows ship on in strip mode except on coarse pointers, where the
+      // toggle in display settings brings them back.
+      await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
       await page
@@ -709,10 +767,81 @@ for (const vp of viewports) {
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await page.getByRole("button", { name: /next photograph/i }).click();
-      await page.getByRole("button", { name: CONTROL_NAME }).click();
+      await openInfoDialog(page);
       await expect(page.locator(".position-value")).toHaveText(
         `2 / ${await imageCount(page)}`,
       );
+    });
+
+    test("touch pointers start without nav buttons; enabled arrows dock at the bottom corners", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const coarse = await page.evaluate(() =>
+        matchMedia("(pointer: coarse)").matches,
+      );
+      if (!coarse) {
+        // Fine pointers keep the old default: arrows on, clustered.
+        await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+        return;
+      }
+      await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await ensureNavArrows(page);
+      const stage = await page
+        .locator("[data-stage]")
+        .evaluate((el) => el.getBoundingClientRect());
+      const boxes = await page
+        .locator("[data-nav-arrow]")
+        .evaluateAll((els) =>
+          els.map((el) => {
+            const r = el.getBoundingClientRect();
+            return { left: r.left, right: r.right, bottom: r.bottom };
+          }),
+        );
+      // ← hugs the bottom-left corner, → the bottom-right.
+      expect(boxes[0].left).toBeLessThan(stage.left + stage.width * 0.3);
+      expect(boxes[1].right).toBeGreaterThan(
+        stage.right - stage.width * 0.3,
+      );
+      expect(boxes[0].bottom).toBeGreaterThan(stage.bottom - 100);
+      expect(boxes[1].bottom).toBeGreaterThan(stage.bottom - 100);
+    });
+
+    test("one-at-a-time steps sweep the next photograph over the current one", async ({
+      page,
+    }) => {
+      // The sweep is motion — opt back out of the suite-wide
+      // reduced-motion emulation so the transition actually runs. The
+      // mode comes from persisted prefs, not the bobbing settings tab,
+      // which is intentionally click-unstable under no-preference.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await page.context().addInitScript(
+        (slug) =>
+          window.localStorage.setItem(
+            `manorama:view:${slug}`,
+            JSON.stringify({ mode: "single", seamMode: "dark" }),
+          ),
+        SLUG,
+      );
+      await dismissCurtain(page);
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      await expect(page.locator("[data-stage]")).toHaveClass(/seam-dark/);
+      await page.keyboard.press("ArrowRight");
+      // Mid-sweep the outgoing frame is still mounted and fully painted
+      // while the incoming one wipes in behind an opaque canvas card —
+      // nothing translucent ever sits over the field's stripes.
+      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
+      await expect(page.locator(".viewer-frame--leaving")).toHaveCount(1);
+      await expect(page.locator(".viewer-frame--leaving")).toHaveCSS("opacity", "1");
+      const cardOpaque = await page
+        .locator(".viewer-frame--entering")
+        .evaluate((el) => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)");
+      expect(cardOpaque).toBe(true);
+      await expect(page.locator("[data-track]")).toHaveAttribute("data-sweep-dir", "fwd");
+      // Settles back into one clean frame on the new index.
+      await expect(page.locator(".viewer-frame--leaving")).toHaveCount(0, { timeout: 3000 });
+      await expect(page.locator(".viewer-frame--entering")).toHaveCount(0);
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "2");
     });
 
     test("vertical view complements Strip without pairing or altering source proportions", async ({
@@ -838,7 +967,8 @@ for (const vp of viewports) {
       page,
     }) => {
       await dismissCurtain(page);
-      // Arrows ship on by default — nothing to enable first.
+      // Hidden by default on coarse pointers — enable where the run needs them.
+      await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       const before = await page
         .locator("[data-track]")
@@ -878,7 +1008,7 @@ for (const vp of viewports) {
     test("accessibility: axe clean on stage and modal", async ({ page }) => {
       await dismissCurtain(page);
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-      await page.getByRole("button", { name: CONTROL_NAME }).click();
+      await openInfoDialog(page);
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     });
 
@@ -886,7 +1016,7 @@ for (const vp of viewports) {
       page,
     }) => {
       await dismissCurtain(page);
-      await page.getByRole("button", { name: CONTROL_NAME }).click();
+      await openInfoDialog(page);
       const panel = page.getByRole("dialog").locator("[data-c2pa-panel]");
       await expect(panel).toBeVisible();
       await expect(panel).not.toContainText(/error/i);
@@ -911,7 +1041,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
     .locator(".mode-options label", { hasText: /vertical scroll/i })
     .click();
   await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
-  await page.getByRole("button", { name: CONTROL_NAME }).click();
+  await openInfoDialog(page);
   await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Display settings", exact: true }).click();
@@ -919,9 +1049,221 @@ test("alternate modes switch instantly and preserve the current image", async ({
     .locator(".mode-options label", { hasText: /one at a time/i })
     .click();
   await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
-  await page.getByRole("button", { name: CONTROL_NAME }).click();
+  await openInfoDialog(page);
   await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
   await expect(page).toHaveURL(GALLERY);
+});
+
+test("`I` deep-links the current image into the standalone C2PA viewer", async ({
+  page,
+  context,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "info-qa",
+          layout: "strip",
+          images: [
+            {
+              id: "i0",
+              filename: "a.jpg",
+              src: "/api/test/a.jpg",
+              width: 800,
+              height: 600,
+              alt: "a",
+            },
+            {
+              id: "i1",
+              filename: "b.jpg",
+              src: "/api/test/b.jpg",
+              width: 800,
+              height: 600,
+              alt: "b",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+  await dismissCurtain(page, `${BASE}/retention-qa/info-qa`);
+  const [popup] = await Promise.all([
+    context.waitForEvent("page"),
+    page.keyboard.press("i"),
+  ]);
+  await expect
+    .poll(() => popup.url())
+    .toMatch(/^https:\/\/c2pa\.thecontrarian\.in\/\?uri=/);
+  // The deep link carries the absolute image URL — relative proxy srcs are
+  // resolved against the gallery origin before encoding.
+  expect(decodeURIComponent(popup.url())).toContain(
+    `${BASE}/api/test/a.jpg`,
+  );
+  await popup.close();
+  // The gallery itself never navigated.
+  await expect(page).toHaveURL(`${BASE}/retention-qa/info-qa`);
+});
+
+test("`I` falls back to the in-gallery sheet when the viewer cannot fetch the source", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "info-qa-data",
+          layout: "strip",
+          images: [
+            {
+              id: "d0",
+              filename: "a.jpg",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "a",
+            },
+            {
+              id: "d1",
+              filename: "b.jpg",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "b",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+  await dismissCurtain(page, `${BASE}/retention-qa/info-qa-data`);
+  // A data: URI cannot travel to the external viewer — the sheet opens in place.
+  await page.keyboard.press("i");
+  await expect(
+    page.getByRole("dialog", { name: CONTROL_NAME }),
+  ).toBeVisible();
+});
+
+test("the info sheet shows the photograph's caption", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "caption-qa",
+          images: [
+            {
+              id: "c-a",
+              filename: "a.png",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "a",
+              caption: "Caption A",
+            },
+            {
+              id: "c-b",
+              filename: "b.png",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "b",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+  await dismissCurtain(page, `${BASE}/retention-qa/caption-qa`);
+  await openInfoDialog(page);
+  const modal = page.getByRole("dialog", { name: CONTROL_NAME });
+  await expect(modal).toBeVisible();
+  await expect(modal.getByText("Caption A")).toBeVisible();
+  // Uncaptioned items simply omit the row — advance and confirm.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ArrowRight");
+  await openInfoDialog(page);
+  await expect(
+    modal.getByRole("term", { name: /^caption$/i }),
+  ).toHaveCount(0);
+});
+
+test("a stalled image re-requests itself instead of staying blank", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "watchdog-qa",
+          images: [
+            {
+              id: "w-ok",
+              filename: "a.png",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "a",
+            },
+            {
+              id: "w-dead",
+              filename: "dead.png",
+              src: "/api/test/definitely-missing.png",
+              width: 800,
+              height: 600,
+              alt: "dead",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+  await dismissCurtain(page, `${BASE}/retention-qa/watchdog-qa`);
+  // The dead source errors on arrival; the watchdog's fast-path re-requests
+  // it cache-busted — no gesture, no reload button.
+  const dead = page.locator("[data-image-id='w-dead'] .frame-img");
+  await expect(dead).toHaveAttribute("src", /mreload=1/, { timeout: 20000 });
+  // The healthy neighbour is never touched.
+  await expect(
+    page.locator("[data-image-id='w-ok'] .frame-img"),
+  ).not.toHaveAttribute("src", /mreload/);
+});
+
+test("the logo tab bobs subtly at rest (no-preference motion)", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await dismissCurtain(page);
+  const card = page.locator(".control-logo .brand-mark-wrap");
+  const anim = await card.evaluate(
+    (el) => getComputedStyle(el).animationName,
+  );
+  expect(anim).toContain("logo-tab-bob");
+  // The card's bob is a few px — present, never a distraction — and the
+  // button's own box stays put so the control is always click-stable.
+  const buttonBox = await page
+    .getByRole("button", { name: "Display settings", exact: true })
+    .boundingBox();
+  const before = await card.boundingBox();
+  await page.waitForTimeout(900);
+  const after = await card.boundingBox();
+  const buttonBox2 = await page
+    .getByRole("button", { name: "Display settings", exact: true })
+    .boundingBox();
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(10);
+  expect(buttonBox2?.y).toBe(buttonBox?.y);
 });
 
 test("credentialed image validates through the browser reader", async ({
@@ -935,7 +1277,7 @@ test("credentialed image validates through the browser reader", async ({
   // the spec walks forward to the first credentialed frame instead of
   // assuming a fixed index. A gallery with none is a skip, not a failure.
   for (let i = 0; i < Math.min(total, 8); i++) {
-    await page.getByRole("button", { name: CONTROL_NAME }).click();
+    await openInfoDialog(page);
     await expect(panel).toBeVisible();
     if (await panel.getByText(/no content credentials/i).count()) {
       await page.keyboard.press("Escape");

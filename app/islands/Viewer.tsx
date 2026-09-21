@@ -41,6 +41,20 @@ const makeBezier = (x1: number, y1: number, x2: number, y2: number) => {
  *  the CSS-animated surfaces. */
 const glideEase = makeBezier(0.22, 1, 0.36, 1)
 
+/** The standalone C2PA viewer is a sibling homebrand: `I` deep-links the
+ *  current photograph into it (`?uri=<absolute url>`), where the full
+ *  EXIF/IPTC/C2PA readout lives without interrupting the strip. */
+const C2PA_VIEWER_URL = 'https://c2pa.thecontrarian.in/'
+
+/** Touch-primary devices hide the nav buttons by default; the settings
+ *  toggle still brings them back. SSR cannot know the pointer — the gate
+ *  runs in the mount effect, never in initial state, so hydration and
+ *  server markup agree. */
+const coarsePointer = () =>
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(pointer: coarse)').matches
+
 /** In vertical mode, frames beyond the viewport stay active only up to this
  *  many past the visible set — enough to not thrash on small scrolls, bounded
  *  so decoded HEIC blobs get revoked as frames scroll away. */
@@ -81,11 +95,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
+  // One-at-a-time sweep: the outgoing frame stays mounted and fully
+  // opaque while the incoming frame wipes over it behind an opaque
+  // canvas card — no transparency ever lands on the striped field.
+  const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
+  const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
+  const sweepTimerRef = useRef<number | null>(null)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
   // style.cssText on every render — an imperative aspectRatio write gets
   // reverted by the next state change unless the prop itself carries it.
   const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
+  // Image watchdog bookkeeping: a mounted original that stays undecoded
+  // past the stall window gets re-requested (cache-busted) instead of
+  // sitting blank. Bounded per image; the retry rewrites src directly.
+  const watchdogSeenRef = useRef(new WeakMap<HTMLImageElement, number>())
+  const watchdogAttemptsRef = useRef<Record<string, number>>({})
   const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: effectiveImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio) })
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
@@ -165,7 +190,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
     setMode(viewPrefs.mode ?? loaded.defaultMode)
-    setShowArrows(loaded.defaultShowArrows)
+    setShowArrows(loaded.defaultShowArrows && !coarsePointer())
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
     const updateText = (selector: string, value: string) => {
@@ -336,7 +361,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const next = clamp(nextIndex, 0, images.length - 1)
     cancelPositionReport()
     reportedIndexRef.current = next
-    setIndex(next)
+    if (mode === 'single' && next !== index && !instant) {
+      const dir = next > index ? 'fwd' : 'back'
+      const beginSweep = () => {
+        if (unmountedRef.current) return
+        setLeavingIndex(index)
+        setIndex(next)
+        if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
+        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 800)
+      }
+      if (dir !== sweepDir) {
+        // Hidden frames carry the sweep's start clip. A direction change
+        // must reach the DOM a commit before the entering frame begins
+        // its transition — transitions interpolate from the previously
+        // resolved style, so a same-commit flip would wipe backwards.
+        setSweepDir(dir)
+        requestAnimationFrame(beginSweep)
+      } else {
+        beginSweep()
+      }
+    } else {
+      setIndex(next)
+    }
     if (mode === 'strip') {
       navDestXRef.current = -imageStart(next)
       settleTo(navDestXRef.current, instant)
@@ -626,6 +672,27 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // transitions would leave a window where M/Esc presses vanish.
   }, [magnifierAvailable])
 
+  // `I` is the magnifier's companion key: the stage keeps no button for it.
+  // Same gates as the nav keys — no repeat spam (each press is a new tab),
+  // never stolen from a text field, inert behind the curtain or a modal.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) return
+      if (event.key !== 'i' && event.key !== 'I') return
+      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      event.preventDefault()
+      // ⇧I skips the external viewer and opens the in-gallery sheet
+      // directly — it stays the fallback for sources the viewer can't
+      // fetch, and a deliberate choice for everything else.
+      if (event.shiftKey) openImageProvenance()
+      else openCurrentImageInfo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [index, images.length])
+
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
@@ -763,7 +830,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     if (!modalOpen && !infoOpen) return
     const modal = modalOpen ? modalRef.current : infoModalRef.current
-    previousFocusRef.current = document.activeElement as HTMLElement
+    // Settings → info is a nested open: keep the first invoker so closing
+    // the sheet returns focus to the logo, not a now-hidden panel button.
+    if (previousFocusRef.current === null) previousFocusRef.current = document.activeElement as HTMLElement
     requestAnimationFrame(() => {
       modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
       modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
@@ -807,6 +876,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const openImageProvenance = () => {
     openImageInfo()
     if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
+  }
+
+  /** The external viewer fetches the file itself, so only absolute http(s)
+   *  sources can travel — data/blob stubs and local files keep the
+   *  in-gallery sheet, and so do videos (the viewer speaks stills). */
+  const openCurrentImageInfo = () => {
+    if (!currentImage) return
+    const absolute = new URL(currentImage.src, window.location.href).href
+    if (currentIsVideo || !/^https?:/i.test(absolute)) { openImageProvenance(); return }
+    window.open(`${C2PA_VIEWER_URL}?uri=${encodeURIComponent(absolute)}`, '_blank', 'noopener')
   }
 
   // HEIC originals can't render in a browser, so decode them at full
@@ -932,9 +1011,63 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => () => {
     unmountedRef.current = true
+    if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
+
+  // The watchdog's job: a mounted image that still hasn't decoded well
+  // after it should have arrived is stalled or broken — re-request it
+  // rather than leaving a blank frame. Two bounds keep it honest:
+  // MAX_ATTEMPTS per image, and never while bytes are still moving
+  // (Resource Timing exposes an in-flight fetch — a slow original is a
+  // download, not a stall). data:/blob: bytes are final — nothing to
+  // re-fetch — and lazy images are skipped until the browser asks.
+  useEffect(() => {
+    if (!galleryEntered) return
+    const STALL_MS = 9000
+    const MAX_ATTEMPTS = 2
+    const tick = () => {
+      const track = trackRef.current
+      if (!track || navigator.onLine === false) return
+      const now = performance.now()
+      track.querySelectorAll<HTMLImageElement>('img.frame-img, img.frame-ph').forEach((img) => {
+        if (img.loading === 'lazy') return
+        if (img.complete && img.naturalWidth > 0) {
+          watchdogSeenRef.current.delete(img)
+          return
+        }
+        const seen = watchdogSeenRef.current.get(img)
+        if (seen === undefined) {
+          watchdogSeenRef.current.set(img, now)
+          return
+        }
+        if (now - seen < STALL_MS) return
+        const href = img.currentSrc || img.src
+        const entries = performance.getEntriesByName(href) as PerformanceResourceTiming[]
+        const latest = entries[entries.length - 1]
+        if (latest && latest.responseStart > 0 && latest.responseEnd === 0) return
+        const id = img.closest<HTMLElement>('.viewer-frame')?.dataset.imageId
+        const src = img.getAttribute('src') ?? ''
+        const retryable = /^https?:\/\//i.test(src) || src.startsWith('/')
+        const attempts = id ? (watchdogAttemptsRef.current[id] ?? 0) : MAX_ATTEMPTS
+        if (!id || !retryable || attempts >= MAX_ATTEMPTS) {
+          // Park it — a permanently dead image shouldn't re-arm forever.
+          watchdogSeenRef.current.set(img, Number.POSITIVE_INFINITY)
+          return
+        }
+        watchdogAttemptsRef.current[id] = attempts + 1
+        watchdogSeenRef.current.delete(img)
+        // Re-request imperatively: a bumped prop would route through the
+        // vnode diff, but the stash can point at a detached node after
+        // remounts — the live element is what needs the new fetch.
+        const clean = src.replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
+        img.src = `${clean}${clean.includes('?') ? '&' : '?'}mreload=${attempts + 1}`
+      })
+    }
+    const interval = window.setInterval(tick, 2500)
+    return () => window.clearInterval(interval)
+  }, [galleryEntered])
 
   useEffect(() => {
     if (!currentImage || credentialState[currentImage.id] !== 'verified') return
@@ -963,8 +1096,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
-  const seamInset = seamMode === 'none' ? 0 : mode === 'single' ? 4 : 10
-  const seamTop = seamMode === 'none' ? 0 : 5
+  const seamInset = seamMode === 'none' ? 0 : mode === 'strip' ? 20 : mode === 'vertical' ? 10 : 0
+  const seamTop = seamMode === 'none' || mode === 'single' ? 0 : 10
 
   return (
     <>
@@ -979,9 +1112,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
+          data-sweep-dir={mode === 'single' ? sweepDir : undefined}
         >
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
+            // Single mode also keeps the outgoing frame's media mounted
+            // through the sweep, and pre-mounts the immediate neighbours
+            // so a step starts from decoded pixels, not a fetch.
+            const mountsMedia = isActive || (mode === 'single' && (imageIndex === leavingIndex || Math.abs(imageIndex - index) <= 1))
             const healed = healedDims[image.id]
             const frameW = healed?.w ?? image.width
             const frameH = healed?.h ?? image.height
@@ -998,12 +1136,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
             return (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' && imageIndex !== index ? 'viewer-frame--hidden' : ''} ${video ? 'viewer-frame--video' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
+                aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
                 style={mode === 'strip' ? staged && staged.width > 0 && (healed || staged.height >= stageSize.height - seamInset - 0.5) ? { width: `${staged.width + seamTop}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
               >
                 {video ? (
@@ -1043,12 +1182,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
-                {isActive && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
+                {mountsMedia && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
                   <img
                     class="frame-img"
                     src={isHeic(image) ? heicSrc[image.id] : image.src}
                     data-full-src={image.src}
-                    data-active="true"
+                    data-active={isActive ? 'true' : undefined}
                     alt={image.alt}
                     width={frameW}
                     height={frameH}
@@ -1056,6 +1195,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     decoding="async"
                     loading="eager"
                     onError={(event: Event) => {
+                      // A hard failure is already "stuck" — flag it so
+                      // the watchdog re-requests on its next pass rather
+                      // than waiting out the full stall window.
+                      watchdogSeenRef.current.set(event.currentTarget as HTMLImageElement, 0)
                       if (!isHeic(image)) return
                       // The browser couldn't decode the fallback HEIC bytes
                       // either — swap to the JPEG preview so the frame still
@@ -1130,15 +1273,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         </div>
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. */}
-        <div class="stage-arrows" data-magnifier-ignore aria-label="Image navigation and information">
-          <button class="stage-info" aria-label="Image information and Content Credentials" title="Image information" onClick={openImageProvenance}>i</button>
-          {arrowsVisible ? (
-            <>
-              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
-              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
-            </>
-          ) : null}
-        </div>
+        {arrowsVisible ? (
+          <div class="stage-arrows" data-magnifier-ignore role="group" aria-label="Image navigation">
+            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>←</button>
+            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>→</button>
+          </div>
+        ) : null}
       </div>
 
       <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
@@ -1184,13 +1324,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <div class="panel-actions">
               {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
+              {galleryEntered ? <button type="button" class="panel-action" onClick={recallCurtain}>Recall the opening curtain</button> : null}
             </div>
           </section>
 
           <section class="panel-section" aria-labelledby="about-heading" hidden>
             <h3 id="about-heading">About this gallery</h3>
             <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
-            <button class="text-button" onClick={recallCurtain}>Recall the opening curtain</button>
           </section>
 
           <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
@@ -1201,6 +1341,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 on a touch device, so the row only exists where the key
                 actually works. */}
             {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
+            <p><kbd>I</kbd> image info in the c2pa viewer (new tab) — <kbd>⇧I</kbd> opens the in-gallery sheet</p>
             <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
@@ -1235,6 +1376,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <dl class="info-grid">
               <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
               <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
+              {currentImage?.caption ? <div><dt>Caption</dt><dd>{currentImage.caption}</dd></div> : null}
               {currentVideo ? <div><dt>Type</dt><dd>Video ({currentVideo.mimeType})</dd></div> : null}
               {currentVideo?.durationSeconds ? <div><dt>Duration</dt><dd>{formatDuration(currentVideo.durationSeconds)}</dd></div> : null}
               {currentExif?.camera ? <div><dt>Camera</dt><dd>{currentExif.camera}</dd></div> : null}

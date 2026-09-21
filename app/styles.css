@@ -78,11 +78,9 @@ button { color: inherit; }
 .seam-light .viewer-track .viewer-frame,
 .seam-dark .viewer-track .viewer-frame { background: transparent; }
 .mode-strip.seam-light .viewer-frame,
-.mode-strip.seam-dark .viewer-frame { padding: 5px 0 5px 5px; }
+.mode-strip.seam-dark .viewer-frame { padding: 10px 0 10px 10px; }
 .mode-vertical.seam-light .viewer-frame,
-.mode-vertical.seam-dark .viewer-frame { padding: 5px 5px 0; }
-.mode-single.seam-light .viewer-frame,
-.mode-single.seam-dark .viewer-frame { padding: 2px; }
+.mode-vertical.seam-dark .viewer-frame { padding: 10px 5px 0; }
 /* Floating over a field, media softens at the corners. */
 .seam-light .viewer-track .viewer-frame img,
 .seam-light .viewer-track .viewer-frame video,
@@ -96,9 +94,27 @@ button { color: inherit; }
 .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: var(--gallery-canvas); overflow: hidden; }
 .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
 .viewer-track--single .viewer-frame .frame-ph { width: 100%; height: 100%; }
-.viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); pointer-events: none; }
+.viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), background-color 400ms ease; pointer-events: none; clip-path: inset(0); }
 .viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { opacity: 1; pointer-events: auto; }
 .viewer-track--single .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+/* The one-at-a-time change is a sweep, not a crossfade: the incoming
+   photograph rides in on a directional wipe behind an opaque canvas
+   card — forward steps reveal from the right edge, back steps from the
+   left. The outgoing photograph stays fully painted underneath until
+   the sweep lands, so no transparency ever ghosts the striped field
+   through an image; afterwards the card's background eases back to
+   transparent and the field settles around the new photograph. */
+.viewer-track--single[data-sweep-dir='fwd'] .viewer-frame--hidden { clip-path: inset(0 0 0 100%); }
+.viewer-track--single[data-sweep-dir='back'] .viewer-frame--hidden { clip-path: inset(0 100% 0 0); }
+.viewer-track--single .viewer-frame--leaving { z-index: 1; }
+.viewer-track--single .viewer-frame.viewer-frame--entering { z-index: 2; opacity: 1; background-color: var(--gallery-canvas); clip-path: inset(0); transition: clip-path 700ms cubic-bezier(0.22, 1, 0.36, 1); }
+.viewer-track--single .viewer-frame--entering .frame-img { animation: single-sweep-img 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.viewer-track--single .viewer-frame--entering::after { content: ''; position: absolute; top: 0; bottom: 0; width: 24%; opacity: 0; background: linear-gradient(to right, transparent, rgba(255, 255, 255, .1), transparent); pointer-events: none; }
+.viewer-track--single[data-sweep-dir='fwd'] .viewer-frame--entering::after { animation: single-sheen-fwd 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.viewer-track--single[data-sweep-dir='back'] .viewer-frame--entering::after { animation: single-sheen-back 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes single-sweep-img { 0% { opacity: 0; transform: scale(1.045); } 45% { opacity: 1; } 100% { opacity: 1; transform: scale(1); } }
+@keyframes single-sheen-fwd { 0% { left: 100%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: -24%; opacity: 0; } }
+@keyframes single-sheen-back { 0% { left: -24%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
 
 /* The client’s future square mark lives here; it remains the sole stage control and opens provenance plus current-image information. */
 .control-logo { position: fixed; z-index: 20; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 0; display: grid; place-items: center; background: transparent; opacity: .46; cursor: pointer; transform: translateX(-50%); transition: opacity 180ms ease, background 180ms ease, border-color 180ms ease, transform 180ms ease; }
@@ -118,12 +134,16 @@ button { color: inherit; }
 .curtain-prompt { margin-top: 22vh; color: rgba(var(--ink), .42); }
 .curtain:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -8px; }
 
-.stage-arrows { position: fixed; z-index: 10; right: max(24px, env(safe-area-inset-right)); bottom: max(76px, calc(env(safe-area-inset-bottom) + 58px)); display: flex; gap: 8px; }
-.stage-arrows button { width: clamp(54px, 9svh, 84px); height: clamp(54px, 9svh, 84px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(20px, 3.4svh, 32px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
-.stage-arrows .stage-info { font-family: 'Playfair', 'Bricolate Grotesque', Georgia, serif; font-style: italic; }
+.stage-arrows { position: fixed; z-index: 10; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
+.stage-arrows button { pointer-events: auto; width: clamp(44px, 6.3svh, 59px); height: clamp(44px, 6.3svh, 59px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(14px, 2.4svh, 22px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
+/* On touch the enabled arrows dock at the viewport's bottom corners —
+   reach with either thumb, out of the photograph's way. */
+@media (pointer: coarse) {
+  .stage-arrows { left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); justify-content: space-between; }
+}
 
 .controls-modal { position: fixed; z-index: 40; inset: 0; overflow: auto; display: grid; place-items: start center; padding: clamp(22px, 5vw, 72px); background: rgba(17, 20, 19, .73); backdrop-filter: blur(18px) saturate(.75); }
 .controls-modal[hidden] { display: none; }
@@ -164,7 +184,6 @@ kbd { border: 1px solid rgba(var(--ink), .23); padding: 3px 5px; color: rgba(var
 cai-manifest-summary { display: block; margin-top: 16px; }
 
 @media (max-width: 640px) {
-  .control-logo { bottom: max(14px, env(safe-area-inset-bottom)); }
   .curtain { padding: 28px; }
   .curtain h1 { font-size: clamp(46px, 15vw, 76px); }
   .curtain-prompt { margin-top: 18vh; }
@@ -460,21 +479,38 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-brand-logo-button .brand-tld { bottom: 0.85em; font-size: clamp(18px, 2vw, 29px); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolate Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
-.control-logo { width: clamp(150px, 18vw, 210px); height: clamp(50px, 6vw, 70px); padding: 8px 10px; border: 1px solid rgba(var(--ink), .14); border-radius: 0; background: rgba(10, 10, 10, .45); box-shadow: 3px 3px 0 #ff4da6; opacity: .3; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200ms backwards; }
+/* The brand is a peeking wordmark, not a banner — but the BUTTON is
+   only the hit area: a 44px strip fully inside the viewport bottom.
+   The painted mark (.brand-mark-wrap) does the peeking — ~40% below the
+   stage edge so just the top ~60% of the wordmark floats at the fold —
+   plus the gentle bob that keeps it discoverable. No card, no chrome:
+   just the mark itself. Keeping the transform off the button means the
+   clickable box never moves. Hover or keyboard focus raises the mark
+   whole; the click opens display settings. */
+.control-logo { bottom: 0; width: clamp(160px, 18vw, 240px); height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; opacity: 1; overflow: visible; display: flex; align-items: flex-end; justify-content: center; transform: translateX(-50%); }
+body.gallery-entered .control-logo .brand-mark-wrap { animation: control-logo-intro 4.5s ease 200ms backwards; }
+@media (prefers-reduced-motion: no-preference) {
+  body.gallery-entered .control-logo .brand-mark-wrap { animation: control-logo-intro 4.5s ease 200ms backwards, logo-tab-bob 5.6s ease-in-out 4.9s infinite; }
+}
 .control-logo::before { display: none; }
-/* The wrap must hug the painted wordmark, not the button's content box:
-   the image is height-bound (contain), so a 100%-wide wrap would anchor
-   .brand-tld's right:8.39% to empty space and push ".xyz" past "ma". */
-.control-logo .brand-mark-wrap { display: block; width: auto; height: 100%; }
+/* The wrap is the painted mark — it must hug the wordmark, not the
+   button's content box: the image is height-bound (contain), so a
+   100%-wide wrap would anchor .brand-tld's right:8.39% to empty space
+   and push ".xyz" past "ma". */
+.control-logo .brand-mark-wrap { display: block; width: auto; height: clamp(92px, 9.6vw, 116px); margin: 0 auto; padding: 0; border: 0; background: transparent; box-shadow: none; opacity: .55; transform: translateY(40%); transition: transform 180ms ease, opacity 180ms ease; }
 .control-logo img { display: block; width: auto; height: 100%; object-fit: contain; object-position: center; opacity: .9; }
 @keyframes control-logo-intro {
-  0% { opacity: 1; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
-  55% { opacity: 1; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); }
-  100% { opacity: .3; border: 1px solid rgba(var(--ink), .14); background: rgba(10, 10, 10, .45); }
+  0% { opacity: 1; }
+  55% { opacity: 1; }
+  100% { opacity: .55; }
 }
-.control-logo:hover { opacity: .85; border: 1px solid rgba(var(--ink), .9); background: rgba(10, 10, 10, .7); transform: translateX(-50%) scale(1.03); animation: none; }
-.control-logo:focus-visible { outline: none; opacity: .75; }
+@keyframes logo-tab-bob {
+  0%, 100% { transform: translateY(40%); }
+  50% { transform: translateY(31%); }
+}
+.control-logo:hover .brand-mark-wrap { opacity: .95; transform: translateY(0); animation: none; }
+.control-logo:focus-visible { outline: none; }
+.control-logo:focus-visible .brand-mark-wrap { opacity: .95; transform: translateY(0); animation: none; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
   .admin-brand-logo { width: min(300px, 80vw); }
@@ -562,7 +598,7 @@ body.gallery-entered .control-logo { animation: control-logo-intro 4.5s ease 200
   letter-spacing: .01em;
   pointer-events: none;
 }
-.control-logo .brand-tld { right: 8.39%; bottom: 0.5em; font-size: clamp(9px, 1.1vw, 12px); font-weight: 800; }
+.control-logo .brand-tld { right: 8.39%; bottom: 0.5em; font-size: clamp(18px, 2.2vw, 24px); font-weight: 800; }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }
