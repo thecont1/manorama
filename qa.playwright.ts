@@ -296,13 +296,13 @@ for (const vp of viewports) {
             hitBelowFold: hit.bottom - stage.bottom,
           };
         });
-      // The card sits centred on the stage's bottom edge, ~40% hidden
-      // below the fold — only the top ~60% of the wordmark shows at rest —
+      // The card sits centred on the stage's bottom edge, ~60% hidden
+      // below the fold — only the top ~40% of the wordmark shows at rest —
       // while the button itself keeps a full 44px+ hit area on screen.
       expect(geometry.centreDelta).toBeLessThanOrEqual(1);
       expect(geometry.belowFold).toBeGreaterThan(0);
-      expect(geometry.visibleFraction).toBeGreaterThanOrEqual(0.5);
-      expect(geometry.visibleFraction).toBeLessThanOrEqual(0.7);
+      expect(geometry.visibleFraction).toBeGreaterThanOrEqual(0.3);
+      expect(geometry.visibleFraction).toBeLessThanOrEqual(0.5);
       expect(geometry.hitHeight).toBeGreaterThanOrEqual(44);
       expect(geometry.hitBelowFold).toBeLessThanOrEqual(0);
       // The pill is nearly invisible at rest: low wrap opacity, no chrome
@@ -322,22 +322,27 @@ for (const vp of viewports) {
       expect(rest.opacity).toBeLessThanOrEqual(0.4);
       expect(rest.pillRadius).toBe("999px");
       expect(rest.buttonBg).toBe("rgba(0, 0, 0, 0)");
-      // Pointer approaching the fold raises the pill whole and brightens
-      // it — the hit-extender means the mouse only has to come near.
+      // Pointer approaching the fold — within ~100px of the strip —
+      // makes the pill jump up clear of the viewport bottom and
+      // brighten; a pointermove listener toggles .is-near, so the button's
+      // hit box stays exactly its visible strip.
       const card = page.locator(".control-logo .brand-mark-wrap");
       const resting = await card.boundingBox();
       const stageBottom = (await page.locator("[data-stage]").boundingBox())!.y +
         (await page.locator("[data-stage]").boundingBox())!.height;
       await page.mouse.move(
         (resting!.x + resting!.width / 2),
-        stageBottom - 60,
+        stageBottom - 110,
       );
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(500);
       const raised = await card.boundingBox();
       const raisedOpacity = await card.evaluate(
         (el) => parseFloat(getComputedStyle(el).opacity),
       );
+      // Clear of the fold: the raised pill's bottom edge floats above
+      // the viewport bottom, well clear of its resting depth.
       expect(raised!.y).toBeLessThan(resting!.y - 20);
+      expect(raised!.y + raised!.height).toBeLessThanOrEqual(stageBottom + 1);
       expect(raisedOpacity).toBeGreaterThanOrEqual(0.9);
       // The centred logo opens display settings; the info sheet answers
       // plain `I` (⇧I fetches the external C2PA viewer instead).
@@ -346,6 +351,28 @@ for (const vp of viewports) {
       await expect(
         page.getByRole("dialog", { name: /display settings/i }),
       ).toBeVisible();
+      // Vertical scroll fills the width edge-to-edge — the pill docks at
+      // the bottom-left corner, the spot least likely to cover a photo.
+      await page
+        .locator(".mode-options label", { hasText: /vertical scroll/i })
+        .click();
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      const docked = await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .evaluate((button) => {
+          const hit = button.getBoundingClientRect();
+          const stage = document
+            .querySelector("[data-stage]")!
+            .getBoundingClientRect();
+          return {
+            leftDelta: hit.left - stage.left,
+            centreDelta: Math.abs(
+              hit.left + hit.width / 2 - (stage.left + stage.width / 2),
+            ),
+          };
+        });
+      expect(docked.leftDelta).toBeLessThan(32);
+      expect(docked.centreDelta).toBeGreaterThan(60);
       await page.keyboard.press("Escape");
       await openInfoDialog(page);
       const info = page.getByRole("dialog", { name: CONTROL_NAME });
@@ -546,10 +573,90 @@ for (const vp of viewports) {
       expect(xAfterRelease - xDuringDrag).toBeGreaterThanOrEqual(-160);
     });
 
+    test("the pill's wake zone neither swallows drags nor clicks", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      // The brand pill's ~100px wake radius is measured in JS — the
+      // stage underneath must still drag and click honestly. Guards the
+      // regression where an invisible ::before hit-extender on the
+      // button ate pointerdown and opened settings on plain clicks.
+      const button = page.getByRole("button", {
+        name: "Display settings",
+        exact: true,
+      });
+      const box = (await button.boundingBox())!;
+      // Inside the ~100px wake radius but beside the pill — the risen
+      // pill itself is a real click target, so the honest stage test is
+      // the zone around it, not on it.
+      const zoneX = box.x - 60;
+      const zoneY = box.y + box.height / 2;
+      const trackLeft = () =>
+        page.evaluate(
+          () =>
+            document.querySelector("[data-track]")!.getBoundingClientRect().left,
+        );
+      const x0 = await trackLeft();
+      await page.mouse.move(zoneX, zoneY);
+      await page.mouse.down();
+      await page.mouse.move(zoneX - 140, zoneY, { steps: 8 });
+      expect(Math.abs((await trackLeft()) - x0 + 140)).toBeLessThanOrEqual(3);
+      await page.mouse.up();
+      await page.mouse.click(zoneX, zoneY);
+      await expect(page.locator(".controls-modal:visible")).toHaveCount(0);
+      // The risen pill is drag-transparent: pressing it and moving pans
+      // the strip, while a press released in place opens settings.
+      await page.mouse.move(box.x + box.width / 2, box.y - 40);
+      await page.waitForTimeout(500);
+      const pill = await page
+        .locator(".control-logo .brand-mark-wrap")
+        .boundingBox();
+      const px = pill!.x + pill!.width / 2;
+      const py = pill!.y + pill!.height / 2;
+      const x2 = await trackLeft();
+      await page.mouse.move(px, py);
+      await page.mouse.down();
+      await page.mouse.move(px - 120, py, { steps: 6 });
+      expect(Math.abs((await trackLeft()) - x2 + 120)).toBeLessThanOrEqual(3);
+      await page.mouse.up();
+      await page.mouse.move(px, py);
+      await page.mouse.down();
+      await page.mouse.up();
+      await expect(page.locator(".controls-modal:visible")).toHaveCount(1);
+    });
+
+    test("vertical scroll answers a mouse drag", async ({ page }) => {
+      await dismissCurtain(page);
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .locator(".mode-options label", { hasText: /vertical scroll/i })
+        .click();
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      const stage = page.locator("[data-stage]");
+      await page.mouse.move(vp.width / 2, vp.height - 200);
+      await page.mouse.down();
+      await page.mouse.move(vp.width / 2, vp.height - 360, { steps: 8 });
+      await page.mouse.up();
+      await expect
+        .poll(() => stage.evaluate((el) => el.scrollTop))
+        .toBeGreaterThan(60);
+      // Dragging back down returns toward the feed top.
+      await page.mouse.move(vp.width / 2, vp.height - 360);
+      await page.mouse.down();
+      await page.mouse.move(vp.width / 2, vp.height - 200, { steps: 8 });
+      await page.mouse.up();
+      await expect
+        .poll(() => stage.evaluate((el) => el.scrollTop))
+        .toBeLessThan(60);
+    });
+
     test("touch swipe moves directly and floats farther without snapping", async ({
       page,
     }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       await dismissCurtain(page);
       const client = await page.context().newCDPSession(page);
       const start = await page
@@ -1348,8 +1455,9 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
     (el) => getComputedStyle(el).animationName,
   );
   expect(anim).toContain("logo-tab-bob");
-  // The card's bob is a few px — present, never a distraction — and the
-  // button's own box stays put so the control is always click-stable.
+  // The card's bob is a gentle ~10px swell — present, never a
+  // distraction — and the button's own box stays put so the control is
+  // always click-stable.
   const buttonBox = await page
     .getByRole("button", { name: "Display settings", exact: true })
     .boundingBox();
@@ -1359,7 +1467,7 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
   const buttonBox2 = await page
     .getByRole("button", { name: "Display settings", exact: true })
     .boundingBox();
-  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(10);
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(14);
   expect(buttonBox2?.y).toBe(buttonBox?.y);
 });
 

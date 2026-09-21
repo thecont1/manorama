@@ -777,9 +777,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     const stage = stageRef.current
+    const logo = dotRef.current
     if (!stage) return
-    const onPointerDown = (event: PointerEvent) => {
-      if (mode !== 'strip' || (event.target as HTMLElement).closest('button')) return
+    // A press landing on the brand pill is a drag candidate: the pill
+    // floats over the stage, so it captures the pointer onto the stage
+    // and pans with the strip. A release that never travelled still
+    // counts as the pill's click (pointer capture suppresses the
+    // button's own click event, so the press is replayed here).
+    let logoPress: { x: number; y: number } | null = null
+    const beginDrag = (event: PointerEvent) => {
       stopMomentum()
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
@@ -787,6 +793,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       dragSamplesRef.current = [{ x: 0, time: performance.now() }]
       stage.setPointerCapture(event.pointerId)
       stage.classList.add('is-dragging')
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (mode !== 'strip' || (event.target as HTMLElement).closest('button')) return
+      beginDrag(event)
+    }
+    const onLogoDown = (event: PointerEvent) => {
+      if (mode !== 'strip') return
+      logoPress = { x: event.clientX, y: event.clientY }
+      beginDrag(event)
     }
     const onPointerMove = (event: PointerEvent) => {
       if (!draggingRef.current) return
@@ -807,6 +822,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       draggingRef.current = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
+      if (logoPress) {
+        const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
+        logoPress = null
+        if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
+        return
+      }
       if (event.type === 'pointercancel' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
       const samples = dragSamplesRef.current
       const first = samples[0]
@@ -833,13 +854,100 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
+    logo?.addEventListener('pointerdown', onLogoDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
+      logo?.removeEventListener('pointerdown', onLogoDown)
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
+    }
+  }, [mode])
+
+  // Pointer proximity wakes the brand pill — a ~100px box around the
+  // strip measured on pointermove, toggled as a class. Deliberately not
+  // a CSS hit-extender: inflating the button's box would swallow stage
+  // drags and clicks that should belong to the photographs.
+  useEffect(() => {
+    const button = dotRef.current
+    if (!button) return
+    const RANGE = 100
+    const onMove = (event: PointerEvent) => {
+      const r = button.getBoundingClientRect()
+      button.classList.toggle(
+        'is-near',
+        event.clientX > r.left - RANGE && event.clientX < r.right + RANGE &&
+        event.clientY > r.top - RANGE && event.clientY < r.bottom + RANGE,
+      )
+    }
+    const off = () => button.classList.remove('is-near')
+    window.addEventListener('pointermove', onMove, { passive: true })
+    document.documentElement.addEventListener('mouseleave', off)
+    window.addEventListener('blur', off)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      document.documentElement.removeEventListener('mouseleave', off)
+      window.removeEventListener('blur', off)
+    }
+  }, [])
+
+  // Vertical mode scrolls natively for touch and wheel; map a mouse or
+  // pen drag onto scrollTop so the feed answers a grabbed drag too. The
+  // brand pill plays along — a press on it drags the feed, and a
+  // release without travel still lands as its click.
+  useEffect(() => {
+    const stage = stageRef.current
+    const logo = dotRef.current
+    if (!stage || mode !== 'vertical') return
+    let dragging = false
+    let lastY = 0
+    let logoPress: { x: number; y: number } | null = null
+    const beginDrag = (event: PointerEvent) => {
+      dragging = true
+      lastY = event.clientY
+      stage.setPointerCapture(event.pointerId)
+      stage.classList.add('is-dragging')
+      event.preventDefault()
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return
+      if ((event.target as HTMLElement).closest('button')) return
+      beginDrag(event)
+    }
+    const onLogoDown = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return
+      logoPress = { x: event.clientX, y: event.clientY }
+      beginDrag(event)
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragging) return
+      stage.scrollTop += lastY - event.clientY
+      lastY = event.clientY
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!dragging) return
+      dragging = false
+      stage.releasePointerCapture?.(event.pointerId)
+      stage.classList.remove('is-dragging')
+      if (logoPress) {
+        const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
+        logoPress = null
+        if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
+      }
+    }
+    stage.addEventListener('pointerdown', onPointerDown)
+    stage.addEventListener('pointermove', onPointerMove)
+    stage.addEventListener('pointerup', onPointerUp)
+    stage.addEventListener('pointercancel', onPointerUp)
+    logo?.addEventListener('pointerdown', onLogoDown)
+    return () => {
+      stage.removeEventListener('pointerdown', onPointerDown)
+      stage.removeEventListener('pointermove', onPointerMove)
+      stage.removeEventListener('pointerup', onPointerUp)
+      stage.removeEventListener('pointercancel', onPointerUp)
+      logo?.removeEventListener('pointerdown', onLogoDown)
     }
   }, [mode])
 
