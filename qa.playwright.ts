@@ -3,8 +3,9 @@
 // Deps: npm i -D @playwright/test @axe-core/playwright
 // Env: GALLERY_URL (default http://localhost:8787), GALLERY_OWNER, GALLERY_SLUG
 // Selector conventions expected in the app: [data-curtain], [data-stage], [data-nav-arrow].
-// The stage carries no info button: the sheet opens from display settings
-// ("Image information"), and `I` deep-links into the standalone C2PA viewer.
+// The stage carries no info button: `I` deep-links into the standalone C2PA
+// viewer, while `⇧I` opens the in-gallery sheet (also the `I` fallback for
+// sources the viewer can't fetch).
 // The info modal has aria-label "Image information and Content Credentials".
 //
 // The admin surface requires a Manorama session — Dropbox sign-in mints an
@@ -101,14 +102,9 @@ async function imageCount(page: import("@playwright/test").Page) {
   return page.locator("[data-track] [data-index]").count();
 }
 
-/** Opens the info sheet nested under display settings. */
+/** Opens the in-gallery info sheet via its ⇧I shortcut. */
 async function openInfoDialog(page: import("@playwright/test").Page) {
-  await page
-    .getByRole("button", { name: "Display settings", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: /^image information$/i })
-    .click();
+  await page.keyboard.press("Shift+I");
 }
 
 /** Enables navigation arrows through display settings when they are hidden. */
@@ -299,8 +295,8 @@ for (const vp of viewports) {
       expect(geometry.visibleFraction).toBeLessThanOrEqual(0.7);
       expect(geometry.hitHeight).toBeGreaterThanOrEqual(44);
       expect(geometry.hitBelowFold).toBeLessThanOrEqual(0);
-      // The centred logo opens display settings; the info sheet nests
-      // inside it ("Image information").
+      // The centred logo opens display settings; the info sheet answers
+      // ⇧I (and plain `I` when the external viewer can't fetch the source).
       await page.getByRole("button", { name: "Display settings", exact: true }).click();
       await expect(
         page.getByRole("dialog", { name: /display settings/i }),
@@ -670,12 +666,9 @@ for (const vp of viewports) {
       });
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
       // the focus-restore path is exercised the way a keyboard user hits
-      // it: focus the logo, open with Enter, then pick the info action.
+      // it: focus the logo, open the info sheet with ⇧I, then dismiss.
       await settingsButton.focus();
-      await page.keyboard.press("Enter");
-      await page
-        .getByRole("button", { name: /^image information$/i })
-        .click();
+      await page.keyboard.press("Shift+I");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
       // The provenance dialog carries the frame's own sections; view modes
@@ -1137,6 +1130,50 @@ test("`I` falls back to the in-gallery sheet when the viewer cannot fetch the so
   await expect(
     page.getByRole("dialog", { name: CONTROL_NAME }),
   ).toBeVisible();
+});
+
+test("a stalled image re-requests itself instead of staying blank", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "watchdog-qa",
+          images: [
+            {
+              id: "w-ok",
+              filename: "a.png",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "a",
+            },
+            {
+              id: "w-dead",
+              filename: "dead.png",
+              src: "/api/test/definitely-missing.png",
+              width: 800,
+              height: 600,
+              alt: "dead",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+  await dismissCurtain(page, `${BASE}/retention-qa/watchdog-qa`);
+  // The dead source errors on arrival; the watchdog's fast-path re-requests
+  // it cache-busted — no gesture, no reload button.
+  const dead = page.locator("[data-image-id='w-dead'] .frame-img");
+  await expect(dead).toHaveAttribute("src", /mreload=1/, { timeout: 20000 });
+  // The healthy neighbour is never touched.
+  await expect(
+    page.locator("[data-image-id='w-ok'] .frame-img"),
+  ).not.toHaveAttribute("src", /mreload/);
 });
 
 test("the logo tab bobs subtly at rest (no-preference motion)", async ({

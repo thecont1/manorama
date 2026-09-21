@@ -106,6 +106,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // style.cssText on every render — an imperative aspectRatio write gets
   // reverted by the next state change unless the prop itself carries it.
   const [healedDims, setHealedDims] = useState<Record<string, { w: number; h: number }>>({})
+  // Image watchdog bookkeeping: a mounted original that stays undecoded
+  // past the stall window gets re-requested (cache-busted) instead of
+  // sitting blank. Bounded per image; the retry rewrites src directly.
+  const watchdogSeenRef = useRef(new WeakMap<HTMLImageElement, number>())
+  const watchdogAttemptsRef = useRef<Record<string, number>>({})
   const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: effectiveImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio) })
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
@@ -678,7 +683,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (event.key !== 'i' && event.key !== 'I') return
       if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
-      openCurrentImageInfo()
+      // ⇧I skips the external viewer and opens the in-gallery sheet
+      // directly — it stays the fallback for sources the viewer can't
+      // fetch, and a deliberate choice for everything else.
+      if (event.shiftKey) openImageProvenance()
+      else openCurrentImageInfo()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1007,6 +1016,59 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     heicUrlsRef.current.clear()
   }, [])
 
+  // The watchdog's job: a mounted image that still hasn't decoded well
+  // after it should have arrived is stalled or broken — re-request it
+  // rather than leaving a blank frame. Two bounds keep it honest:
+  // MAX_ATTEMPTS per image, and never while bytes are still moving
+  // (Resource Timing exposes an in-flight fetch — a slow original is a
+  // download, not a stall). data:/blob: bytes are final — nothing to
+  // re-fetch — and lazy images are skipped until the browser asks.
+  useEffect(() => {
+    if (!galleryEntered) return
+    const STALL_MS = 9000
+    const MAX_ATTEMPTS = 2
+    const tick = () => {
+      const track = trackRef.current
+      if (!track || navigator.onLine === false) return
+      const now = performance.now()
+      track.querySelectorAll<HTMLImageElement>('img.frame-img, img.frame-ph').forEach((img) => {
+        if (img.loading === 'lazy') return
+        if (img.complete && img.naturalWidth > 0) {
+          watchdogSeenRef.current.delete(img)
+          return
+        }
+        const seen = watchdogSeenRef.current.get(img)
+        if (seen === undefined) {
+          watchdogSeenRef.current.set(img, now)
+          return
+        }
+        if (now - seen < STALL_MS) return
+        const href = img.currentSrc || img.src
+        const entries = performance.getEntriesByName(href) as PerformanceResourceTiming[]
+        const latest = entries[entries.length - 1]
+        if (latest && latest.responseStart > 0 && latest.responseEnd === 0) return
+        const id = img.closest<HTMLElement>('.viewer-frame')?.dataset.imageId
+        const src = img.getAttribute('src') ?? ''
+        const retryable = /^https?:\/\//i.test(src) || src.startsWith('/')
+        const attempts = id ? (watchdogAttemptsRef.current[id] ?? 0) : MAX_ATTEMPTS
+        if (!id || !retryable || attempts >= MAX_ATTEMPTS) {
+          // Park it — a permanently dead image shouldn't re-arm forever.
+          watchdogSeenRef.current.set(img, Number.POSITIVE_INFINITY)
+          return
+        }
+        watchdogAttemptsRef.current[id] = attempts + 1
+        watchdogSeenRef.current.delete(img)
+        // Re-request imperatively: a bumped prop would route through the
+        // vnode diff, but the stash can point at a detached node after
+        // remounts — the live element is what needs the new fetch.
+        const clean = src.replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
+        img.src = `${clean}${clean.includes('?') ? '&' : '?'}mreload=${attempts + 1}`
+      })
+    }
+    const interval = window.setInterval(tick, 2500)
+    return () => window.clearInterval(interval)
+  }, [galleryEntered])
+
   useEffect(() => {
     if (!currentImage || credentialState[currentImage.id] !== 'verified') return
     const summary = document.querySelector('cai-manifest-summary') as HTMLElement & { manifestStore?: unknown } | null
@@ -1133,6 +1195,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     decoding="async"
                     loading="eager"
                     onError={(event: Event) => {
+                      // A hard failure is already "stuck" — flag it so
+                      // the watchdog re-requests on its next pass rather
+                      // than waiting out the full stall window.
+                      watchdogSeenRef.current.set(event.currentTarget as HTMLImageElement, 0)
                       if (!isHeic(image)) return
                       // The browser couldn't decode the fallback HEIC bytes
                       // either — swap to the JPEG preview so the frame still
@@ -1256,7 +1322,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section compact-section" aria-label="Display options">
             <div class="panel-actions">
-              <button type="button" class="panel-action" onClick={() => { setModalOpen(false); openImageProvenance() }}>Image information</button>
               {mode === 'vertical' ? null : <button type="button" class="panel-action" onClick={() => { setShowArrows(!showArrows); closeModals() }}>{showArrows ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>}
               {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
             </div>
@@ -1276,7 +1341,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 on a touch device, so the row only exists where the key
                 actually works. */}
             {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
-            <p><kbd>I</kbd> open image info in the c2pa viewer (new tab)</p>
+            <p><kbd>I</kbd> image info in the c2pa viewer (new tab) — <kbd>⇧I</kbd> opens the in-gallery sheet</p>
             <p><kbd>Esc</kbd> close controls</p>
           </section>
         </div>
