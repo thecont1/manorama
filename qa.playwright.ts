@@ -2140,18 +2140,20 @@ test.describe("density-aware staging", () => {
     return `${BASE}/${RETENTION_OWNER}/${slug}`;
   };
 
-  test("strip fits height-first at any density and never exceeds natural pixels", async ({ playwright, browser }) => {
+  test("strip fits height-first but never invents pixels — low-res floats shorter", async ({ playwright, browser }) => {
     const url = await densityGallery(playwright, "d-strip", [
       { id: "wide", w: 2400, h: 1600 },
       { id: "tall", w: 1600, h: 2400 },
       { id: "sq", w: 1600, h: 1600 },
     ]);
-    // The photostrip must read edge-to-edge: height-first fill holds at
-    // every DPR — the only ceiling is the source's own pixel count.
+    // The photostrip fills height-first only while the source has the
+    // pixels for it at this density: 2400×1600 can feed 900 CSS px at
+    // DPR 1 but not DPR 2 (needs 1800 natural px), so it lands at 800 —
+    // every displayed pixel is real. DPR 3 caps to 2, so it matches.
     const cases = [
       { dpr: 1, w: 1350, h: 900 },
-      { dpr: 2, w: 1350, h: 900 },
-      { dpr: 3, w: 1350, h: 900 },
+      { dpr: 2, w: 1200, h: 800 },
+      { dpr: 3, w: 1200, h: 800 },
     ];
     for (const expected of cases) {
       const context = await browser.newContext({
@@ -2165,6 +2167,14 @@ test.describe("density-aware staging", () => {
       const box = await img.boundingBox();
       expect(Math.abs(box!.width - expected.w)).toBeLessThan(2);
       expect(Math.abs(box!.height - expected.h)).toBeLessThan(2);
+      // A source with enough pixels still fills the stage — mixed-res
+      // folders blend: 1600×2400 has 2400 px for the 1800 DPR-2 asks.
+      if (expected.dpr === 2) {
+        const tall = page.locator("[data-image-id='tall'] .frame-img");
+        await expect(tall).toBeVisible();
+        const tallBox = await tall.boundingBox();
+        expect(Math.abs(tallBox!.height - 900)).toBeLessThan(2);
+      }
       await context.close();
     }
   });

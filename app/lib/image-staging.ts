@@ -19,10 +19,13 @@ export const imageStageSize = (input: {
   const stageHeight = Math.max(0, Number.isFinite(input.stageHeightCssPx) ? input.stageHeightCssPx : 0)
   const dpr = effectiveImageDpr(input.dpr)
   if (!(w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h))) return { width: 0, height: 0 }
-  // Strip is a photostrip: neighbours must abut, so the only ceiling is
-  // natural pixels — a source shorter than the stage stays small rather
-  // than upscaling. Vertical and single keep the strict 1/dpr cap.
-  const scale = mode === 'strip' ? Math.min(stageHeight / h, 1)
+  // Strip is still a photostrip — neighbours abut edge-to-edge — but it
+  // honors the same device-pixel budget as every other mode: a source
+  // without the pixels for a full-height render at this density floats
+  // shorter and centred rather than fabricating pixels. Hi-res sources
+  // are unaffected (stageHeight/h is already the tighter bound), so a
+  // mixed folder blends seamlessly.
+  const scale = mode === 'strip' ? Math.min(stageHeight / h, 1 / dpr)
     : mode === 'vertical' ? Math.min(stageWidth / w, 1 / dpr)
     : Math.min(stageWidth / w, stageHeight / h, 1 / dpr)
   return { width: w * scale, height: h * scale }
