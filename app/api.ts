@@ -11,8 +11,9 @@ import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGaller
 import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
+import { randomGalleryName } from './lib/gallery-name'
 
-type RequestBody = { url?: string; order?: string[] }
+type RequestBody = { url?: string; order?: string[]; quick?: boolean }
 
 export type RuntimeEnv = {
   AIRTABLE_PAT?: string
@@ -230,7 +231,12 @@ export const createManoramaApi = () => {
               .concat(scan.images.filter((image) => !seen.has(image.ref ?? image.filename)))
           })()
         : scan.images
-      const baseSlug = slugify(scan.title)
+      // Quick-add (the manorama.xyz/<share-url> shortcut) names the
+      // gallery itself: three random hyphenated words, which also makes
+      // the slug read like the title. Dashboard creates keep the scanned
+      // folder name — the owner chose it on the provider side.
+      const title = payload.quick ? randomGalleryName() : smartQuotes(scan.title)
+      const baseSlug = slugify(title)
       let slug = baseSlug
       let suffix = 2
       while (galleries.some((item) => item.slug === slug)) {
@@ -245,7 +251,7 @@ export const createManoramaApi = () => {
       for (let attempt = 0; ; attempt++) {
         const result = await createGalleryWithinLimit(session.dropboxAccountId, {
           slug,
-          title: smartQuotes(scan.title),
+          title,
           caption: '',
           date: '',
           sourceUrl: scan.sourceUrl,

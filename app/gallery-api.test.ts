@@ -179,3 +179,58 @@ describe('galleries beyond the free allowance', () => {
     }
   })
 })
+
+describe('quick-add naming', () => {
+  const stubScan = (name: string) => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: [{ '.tag': 'file', name: 'one.jpg', id: 'id:one', media_info: { metadata: { dimensions: { width: 4, height: 3 } } } }],
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    return () => { globalThis.fetch = realFetch }
+  }
+
+  test('a quick create names the gallery three hyphenated words', async () => {
+    const restore = stubScan('Camera Roll Dump')
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/quick-one', quick: true }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { slug?: string; title?: string } }
+      // The folder name is ignored entirely — title AND slug carry the
+      // generated words, so the shared URL reads like the title.
+      expect(payload.gallery?.title).toMatch(/^[a-z]+(-[a-z]+){2}$/)
+      expect(payload.gallery?.slug).toMatch(new RegExp(`^${payload.gallery!.title!}(-\\d+)?$`))
+    } finally {
+      restore()
+    }
+  })
+
+  test('a dashboard create keeps the scanned folder name', async () => {
+    const restore = stubScan('Family Album')
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/dash-one' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { slug?: string; title?: string } }
+      expect(payload.gallery?.title).toBe('Family Album')
+      expect(payload.gallery?.slug).toBe('family-album')
+    } finally {
+      restore()
+    }
+  })
+})

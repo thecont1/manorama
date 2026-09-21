@@ -101,7 +101,7 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     response = await fetch('/api/galleries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: sourceUrl }),
+      body: JSON.stringify({ url: sourceUrl, quick: true }),
       signal: AbortSignal.timeout(120_000),
     })
   } catch (error) {
