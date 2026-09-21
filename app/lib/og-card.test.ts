@@ -39,15 +39,24 @@ describe('the jimp fallback compositor', () => {
     expect(meta.height).toBe(OG_HEIGHT)
   })
 
-  test('cover-crops a portrait source to the landscape card without letterboxing', async () => {
+  test('fits a portrait source whole inside the card on the dark canvas', async () => {
     const response = await renderOgCard(
       'https://example.test/photo.jpg',
       'https://example.test/pill.png',
       imageFetch(await jpegBytes(800, 1400), await pngPill()),
     )
-    const meta = await sharp(Buffer.from(await response!.arrayBuffer())).metadata()
+    const output = Buffer.from(await response!.arrayBuffer())
+    const meta = await sharp(output).metadata()
     expect(meta.width).toBe(OG_WIDTH)
     expect(meta.height).toBe(OG_HEIGHT)
+    // Pillarboxed, not cropped: the dark canvas fills the sides and the
+    // photo fills the height, so nothing at the top of the frame is cut.
+    const band = await sharp(output).extract({ left: 10, top: 300, width: 20, height: 20 }).raw().toBuffer()
+    for (const channel of band) expect(channel).toBeLessThan(30)
+    const photo = await sharp(output).extract({ left: 590, top: 540, width: 20, height: 20 }).raw().toBuffer()
+    let green = 0
+    for (let i = 1; i < photo.length; i += 3) green += photo[i]
+    expect(green / (photo.length / 3)).toBeGreaterThan(60)
   })
 
   test('passes an edge-transformed response straight through', async () => {
@@ -56,6 +65,23 @@ describe('the jimp fallback compositor', () => {
     })) as unknown as typeof fetch
     const response = await renderOgCard('https://example.test/photo.jpg', 'https://example.test/pill.png', transformed)
     expect(await response!.text()).toBe('edge-bytes')
+  })
+
+  test('asks the edge for a padded fit with the pill strictly centered', async () => {
+    let cfImage: { fit?: string; draw?: Array<{ left: number; top: number; width: number; height: number }> } | undefined
+    const capture = (async (_input: Parameters<typeof fetch>[0], init?: { cf?: { image?: typeof cfImage } }) => {
+      cfImage = init?.cf?.image
+      return new Response('edge-bytes', { headers: { 'Content-Type': 'image/jpeg', 'cf-resized': 'internal stats' } })
+    }) as unknown as typeof fetch
+    await renderOgCard('https://example.test/photo.jpg', 'https://example.test/pill.png', capture)
+    // pad = contain on a fixed canvas — the whole frame survives.
+    expect(cfImage?.fit).toBe('pad')
+    expect(cfImage?.draw).toHaveLength(1)
+    const pill = cfImage!.draw![0]
+    expect(pill.width).toBe(756)
+    expect(pill.height).toBe(202)
+    expect(pill.left).toBe((OG_WIDTH - 756) / 2)
+    expect(pill.top).toBe(Math.round((OG_HEIGHT - 202) / 2))
   })
 
   test('still produces a card when the pill asset is missing', async () => {
