@@ -1376,6 +1376,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <dl class="info-grid">
               <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
               <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
+              {currentImage?.caption ? <div><dt>Caption</dt><dd>{currentImage.caption}</dd></div> : null}
               {currentVideo ? <div><dt>Type</dt><dd>Video ({currentVideo.mimeType})</dd></div> : null}
               {currentVideo?.durationSeconds ? <div><dt>Duration</dt><dd>{formatDuration(currentVideo.durationSeconds)}</dd></div> : null}
               {currentExif?.camera ? <div><dt>Camera</dt><dd>{currentExif.camera}</dd></div> : null}

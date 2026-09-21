@@ -1149,6 +1149,54 @@ test("`I` falls back to the in-gallery sheet when the viewer cannot fetch the so
   ).toBeVisible();
 });
 
+test("the info sheet shows the photograph's caption", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "caption-qa",
+          images: [
+            {
+              id: "c-a",
+              filename: "a.png",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "a",
+              caption: "Caption A",
+            },
+            {
+              id: "c-b",
+              filename: "b.png",
+              src: testPng(800, 600),
+              width: 800,
+              height: 600,
+              alt: "b",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+  await dismissCurtain(page, `${BASE}/retention-qa/caption-qa`);
+  await openInfoDialog(page);
+  const modal = page.getByRole("dialog", { name: CONTROL_NAME });
+  await expect(modal).toBeVisible();
+  await expect(modal.getByText("Caption A")).toBeVisible();
+  // Uncaptioned items simply omit the row — advance and confirm.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ArrowRight");
+  await openInfoDialog(page);
+  await expect(
+    modal.getByRole("term", { name: /^caption$/i }),
+  ).toHaveCount(0);
+});
+
 test("a stalled image re-requests itself instead of staying blank", async ({
   page,
   request,
