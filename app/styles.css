@@ -990,6 +990,34 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
   transition: opacity .32s ease;
 }
 .video-slide.is-playing-frame .frame-video { opacity: 1; }
+
+/* ── Desktop video size caps ──────────────────────────────────────────
+   A video is held to 70% of stage height in the horizontal strip and 60%
+   of stage width in vertical scroll (desktop only — the cap is applied in
+   JS, which also decides what "desktop" means; these rules just place the
+   capped box). The frame keeps its full extent so the smaller media sits
+   centred in it rather than hugging an edge. */
+.viewer-frame--video-capped { place-items: center; overflow: visible; }
+.viewer-frame--video-capped .frame-ph,
+.viewer-frame--video-capped .video-slide,
+.viewer-frame--video-capped .frame-video {
+  /* The inline width/height from the parent wins; these keep the poster,
+     the slide and the <video> in one identical box. */
+  align-self: center;
+  justify-self: center;
+  object-fit: contain;
+}
+/* Vertical mode otherwise stretches video frames to the full stage
+   height; a capped clip must keep the height its aspect ratio earns. */
+.viewer-track--vertical .viewer-frame--video-capped,
+.viewer-track--vertical .viewer-frame--video-capped.viewer-frame--portrait {
+  height: auto;
+  overflow: visible;
+}
+.viewer-track--vertical .viewer-frame--video-capped .frame-ph,
+.viewer-track--vertical .viewer-frame--video-capped.viewer-frame--portrait img {
+  max-height: none;
+}
 .video-controls {
   position: absolute;
   z-index: 12;

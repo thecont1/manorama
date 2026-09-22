@@ -28,6 +28,10 @@ type Props = {
   prefersReducedMotion: boolean
   onToggleSound: (soundOn: boolean) => void
   onPlaybackEvent?: (event: 'playing' | 'paused' | 'error' | 'blocked') => void
+  /** Explicit media box, set when the desktop video size cap applies. The
+   *  slide and its `<video>` must match the poster exactly, so the parent
+   *  hands the same dimensions to both. Undefined means "fill the frame". */
+  boxStyle?: { width: string; height: string }
 }
 
 /** `VIDEO · 1:37`. Falls back to a bare label until a duration is known. */
@@ -39,7 +43,7 @@ export const formatDuration = (seconds: number | undefined) => {
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
-export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, onToggleSound, onPlaybackEvent }: Props) {
+export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, onToggleSound, onPlaybackEvent, boxStyle }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasDecodedFrame, setHasDecodedFrame] = useState(false)
@@ -137,7 +141,7 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
   }
 
   return (
-    <div class={`video-slide ${hasDecodedFrame ? 'is-playing-frame' : ''}`} data-video-slide>
+    <div class={`video-slide ${hasDecodedFrame ? 'is-playing-frame' : ''}`} data-video-slide style={boxStyle}>
       <video
         ref={videoRef}
         class="frame-video"

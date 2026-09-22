@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
-import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
+import { effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
@@ -57,6 +57,12 @@ const coarsePointer = () =>
   typeof window !== 'undefined' &&
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches
+
+/** The video size caps are a desktop rule: a phone keeps the full-bleed
+ *  clip. "Desktop" here means a real pointer on a screen wide enough for
+ *  the restraint to read as composition rather than a bug — the same
+ *  720px line the stylesheet already treats as the mobile breakpoint. */
+const DESKTOP_VIDEO_QUERY = '(min-width: 721px) and (pointer: fine)'
 
 /** Keystrokes belong to the viewer unless focus sits in a text-entry
  *  field. Non-text inputs (radio, checkbox, range, …) never receive
@@ -151,6 +157,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [magnifierActive, setMagnifierActive] = useState(false)
   const [magnifierAvailable, setMagnifierAvailable] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
+  // Desktop gates the video size caps. False during SSR and the hydration
+  // render so server and client markup agree; the mount effect reconciles.
+  const [isDesktop, setIsDesktop] = useState(false)
   // Network quality, for the "stay a still image on a poor connection"
   // rule. Starts undefined so SSR and the hydration render agree (the
   // server has no navigator); the mount effect reconciles it.
@@ -691,6 +700,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => query.removeEventListener?.('change', sync)
   }, [])
 
+  // Desktop/mobile, tracked live: resizing across the breakpoint (or
+  // dragging the window to another display) must re-apply or release the
+  // video size caps rather than leave a stale first-paint decision.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(DESKTOP_VIDEO_QUERY)
+    const sync = () => setIsDesktop(query.matches)
+    sync()
+    query.addEventListener?.('change', sync)
+    return () => query.removeEventListener?.('change', sync)
+  }, [])
 
   // Network quality, tracked live: a visitor who walks out of wifi onto a
   // weak cell link should see the clips fall back to their stills rather
@@ -1354,17 +1374,53 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
               dpr: stageSize.dpr,
             })
+            // Desktop restrains video: 70% of stage height in the strip,
+            // 60% of stage width in vertical scroll. `capped: false` means
+            // the rule does not apply (mobile, single mode, unmeasured
+            // stage) and the frame keeps its previous full-bleed sizing.
+            const stagedVideo = video ? videoStageSize({
+              mode,
+              naturalWidthPx: frameW,
+              naturalHeightPx: frameH,
+              stageWidthCssPx: stageSize.width - (mode === 'strip' ? 0 : seamInset),
+              stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
+              isDesktop,
+            }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
+            // A capped video gets an explicit box. Strip frames are laid
+            // out edge-to-edge, so the frame keeps full stage height and
+            // only the media inside it shrinks — that is what centres the
+            // clip vertically instead of leaving it top-aligned above a
+            // gap. Vertical frames are full-width rows, so the row height
+            // follows the capped media height.
+            const cappedVideo = stagedVideo?.capped && stagedVideo.width > 0 && stagedVideo.height > 0 ? stagedVideo : null
+            const frameStyle = mode === 'strip'
+              ? cappedVideo
+                ? { width: `${cappedVideo.width + seamTop}px`, height: '100%' }
+                : staged && staged.width > 0 && staged.height > 0
+                  ? { width: `${staged.width + seamTop}px`, height: `${staged.height + seamInset}px` }
+                  : { aspectRatio: `${frameW} / ${frameH}` }
+              : mode === 'vertical'
+                ? video
+                  ? cappedVideo
+                    ? { width: '100%', height: `${cappedVideo.height + seamTop}px` }
+                    : undefined
+                  : staged && staged.height > 0
+                    ? { width: '100%', height: `${staged.height + seamTop}px` }
+                    : { width: '100%', aspectRatio: `${frameW} / ${frameH}` }
+                : undefined
+            // The media box inside a capped frame.
+            const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             return (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
                 aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
-                style={mode === 'strip' ? staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width + seamTop}px`, height: `${staged.height + seamInset}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
+                style={frameStyle}
               >
                 {video ? (
                   <>
@@ -1381,6 +1437,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                       height={frameH}
                       decoding="async"
                       loading={isActive ? 'eager' : 'lazy'}
+                      style={cappedMediaStyle}
                     />
                     {isVideoSlideActive(imageIndex) ? (
                       <VideoSlide
@@ -1389,6 +1446,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                         soundOn={soundOn}
                         prefersReducedMotion={reducedMotion}
                         onToggleSound={setSoundOn}
+                        boxStyle={cappedMediaStyle}
                       />
                     ) : null}
                   </>
