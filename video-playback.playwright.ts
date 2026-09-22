@@ -60,6 +60,17 @@ test('a loaded video is already running, not parked waiting for its turn', async
   await enterGallery(page)
   await waitForMotion(page)
 
+  // Poll until every mounted clip is present-and-playing — the first
+  // clip to advance its clock proves motion, but a sibling mounted in
+  // the same tick can still be mid-startup; the final assertion below
+  // must not race it.
+  await expect(async () => {
+    const all = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('video')).map((v) => ({ present: true, paused: v.paused })))
+    expect(all.length).toBeGreaterThan(0)
+    expect(all.every((v) => !v.paused)).toBe(true)
+  }).toPass({ timeout: 45000 })
+
   const state = await page.evaluate(() => Array.from(document.querySelectorAll('video')).map((v) => ({
     paused: v.paused,
     currentTime: v.currentTime,

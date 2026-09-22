@@ -1425,21 +1425,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 {video ? (
                   <>
                     {/* The poster holds the frame's aspect-ratio canvas and
-                        stays the accessible still for every frame that is
-                        not the one on screen — including mounted, silently
-                        looping neighbours. */}
+                        stays the accessible still for every frame whose
+                        video is not mounted — including neighbours that
+                        ARE mounted but silently looping behind the active
+                        clip. An active slide whose video is unmounted
+                        (reduced motion, slow connection, blocked by a
+                        modal) keeps its poster exposed with video.alt so
+                        the slide is never left without a name. */}
+                    {(() => {
+                    const videoMounted = isVideoSlideActive(imageIndex)
+                    return <>
                     <img
                       class="frame-ph"
                       src={video.poster.src}
-                      alt={imageIndex === index ? '' : video.alt}
-                      aria-hidden={imageIndex === index ? 'true' : undefined}
+                      alt={videoMounted && imageIndex === index ? '' : video.alt}
+                      aria-hidden={videoMounted && imageIndex === index ? 'true' : undefined}
                       width={frameW}
                       height={frameH}
                       decoding="async"
                       loading={isActive ? 'eager' : 'lazy'}
                       style={cappedMediaStyle}
                     />
-                    {isVideoSlideActive(imageIndex) ? (
+                    {videoMounted ? (
                       <VideoSlide
                         item={video}
                         isActive={imageIndex === index}
@@ -1449,6 +1456,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                         boxStyle={cappedMediaStyle}
                       />
                     ) : null}
+                    </>
+                    })()}
                   </>
                 ) : (
                 <>

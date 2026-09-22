@@ -45,6 +45,10 @@ export const formatDuration = (seconds: number | undefined) => {
 
 export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, onToggleSound, onPlaybackEvent, boxStyle }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  // Whether the clip was actually running when the document last became
+  // hidden — visibilitychange resumes only what was playing, never a
+  // clip that was mounted-but-paused.
+  const wasPlayingRef = useRef(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasDecodedFrame, setHasDecodedFrame] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -88,11 +92,15 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     const video = videoRef.current
     if (!video) return
     video.muted = !videoAudibleFor({ isActive, soundOn })
-    if (!shouldAutoplayVideo({
+    const autoplay = shouldAutoplayVideo({
       prefersReducedMotion,
       connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
       documentHidden: typeof document !== 'undefined' && document.hidden,
-    })) return
+    })
+    // Autoplay being disallowed — including the moment reduced motion
+    // turns on mid-session — must also stop any playback already running,
+    // not merely skip the play attempt.
+    if (!autoplay) { video.pause(); return }
     void attemptPlay()
   }, [prefersReducedMotion])
 
@@ -113,11 +121,24 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     const onVisibility = () => {
       const video = videoRef.current
       if (!video) return
-      if (document.hidden) { video.pause(); return }
-      if (shouldAutoplayVideo({
-        prefersReducedMotion,
-        connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
-      })) void attemptPlay()
+      if (document.hidden) {
+        // Remember whether this clip was actually running so the
+        // visibilitychange handler can decide on return whether the
+        // poster (already painted) should resume behind the motion.
+        wasPlayingRef.current = !video.paused
+        video.pause()
+        return
+      }
+      // Only resume playback that existed before the hide — a clip
+      // mounted-but-paused (reduced motion, blocked autoplay) must
+      // not be startled into motion on tab return.
+      if (
+        wasPlayingRef.current &&
+        shouldAutoplayVideo({
+          prefersReducedMotion,
+          connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
+        })
+      ) void attemptPlay()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
