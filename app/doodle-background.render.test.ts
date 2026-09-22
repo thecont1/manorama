@@ -62,6 +62,10 @@ describe('SeededDoodleBackground markup', () => {
     expect(render({ url: '/mahesh/kashi' })).toBe(render({ url: '/mahesh/kashi' }))
   })
 
+  test('the root svg uses slice scaling so a tall virtual canvas has no side gutters', () => {
+    expect(render({ url: '/a' })).toContain('preserveAspectRatio="xMidYMin slice"')
+  })
+
   test('a different url renders different markup', () => {
     expect(render({ url: '/mahesh/kashi' })).not.toBe(render({ url: '/mahesh/goa' }))
   })

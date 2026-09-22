@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { SignJWT } from 'jose'
+import { seedFromUrl } from './app/lib/doodle-background'
 
 /**
  * End-to-end proof for the seeded doodle background, against the real
@@ -13,6 +16,19 @@ import { expect, test, type Page } from '@playwright/test'
 const BASE = process.env.DOODLE_BASE_URL ?? 'http://127.0.0.1:5173'
 const ALBUM_A = `${BASE}/thecontrarian/mixed-album`
 const ALBUM_B = `${BASE}/thecontrarian/dev-mega`
+const DEV_ACCOUNT = 'dbid:AAATESTowner1'
+const devEnv = (() => {
+  const env: Record<string, string> = {}
+  try {
+    for (const line of readFileSync(new URL('./.env.local', import.meta.url), 'utf8').split('\n')) {
+      const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim())
+      if (match) env[match[1]] = match[2].replace(/^"(.*)"$/, '$1')
+    }
+  } catch {
+    // .env.local exists only in a dev checkout.
+  }
+  return env
+})()
 
 // Each case loads a real gallery (and the first one pays for Vite's
 // cold on-demand transform), so the default 30s is too tight.
@@ -51,6 +67,39 @@ const openSettings = async (page: Page) => {
   await logo.waitFor({ state: 'visible', timeout: 30000 })
   await logo.click()
   await expect(page.locator('[data-doodle-toggle]')).toBeVisible()
+}
+
+const sessionCookie = async () => {
+  const secret = process.env.HOST_API_JWT_SECRET ?? devEnv.HOST_API_JWT_SECRET ?? ''
+  if (!secret) throw new Error('HOST_API_JWT_SECRET is required for dashboard doodle tests')
+  const token = await new SignJWT({ sub: DEV_ACCOUNT })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('2h')
+    .sign(new TextEncoder().encode(secret))
+  return `manorama_session=${token}`
+}
+
+const openDashboard = async (page: Page) => {
+  await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() })
+  await page.goto(`${BASE}/thecontrarian`)
+  await expect(page.locator('.admin-page')).toBeVisible()
+  // `.admin-page` is server-rendered, so its presence proves nothing about
+  // the island being live. Wait for the control itself to exist; the actual
+  // hydration race is absorbed by clickUntil, which retries a dropped click.
+  // Deliberately no `networkidle` here — the dashboard polls on an interval,
+  // so it never goes idle and the wait would eat the whole test budget.
+  await page.locator('.admin-background-toggle').waitFor({ state: 'visible', timeout: 30000 })
+}
+
+/** Clicks an island control that may still be hydrating: a click landing on
+ *  pre-hydration markup is silently dropped, so retry until the expected
+ *  state actually lands rather than asserting once against a lost event. */
+const clickUntil = async (page: Page, click: () => Promise<void>, expected: string) => {
+  await expect(async () => {
+    if (await page.locator(expected).count() === 0) await click()
+    await expect(page.locator(expected)).toHaveCount(1, { timeout: 2000 })
+  }).toPass({ timeout: 30000 })
 }
 
 const toggleDoodle = async (page: Page) => {
@@ -231,6 +280,41 @@ test('the field paints visible glyphs and yields a screenshot', async ({ page })
   })
   await page.waitForTimeout(300)
   await page.screenshot({ path: 'test-results/doodle-layer-blank.png' })
+})
+
+test('the dashboard gallery grid shares and controls the background preference', async ({ page }) => {
+  // Start from a known flat preference, then verify the owner grid can turn
+  // the layer on and that the public album inherits the same app-wide flag.
+  await page.goto(BASE)
+  await page.evaluate(() => localStorage.setItem('manorama:background', 'flat'))
+  await openDashboard(page)
+
+  const toggle = page.getByRole('button', { name: 'Use doodle background' })
+  await expect(toggle).toBeVisible()
+  await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
+  await clickUntil(page, () => toggle.click(), '.admin-page.has-doodle')
+  await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
+  const dashboardSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
+
+  await gotoGallery(page, ALBUM_A)
+  await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
+  const albumSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
+  expect(albumSeed).not.toBe(dashboardSeed)
+})
+
+test('history navigation changes the seed while transient query changes do not', async ({ page }) => {
+  await gotoGallery(page, ALBUM_A)
+  await openSettings(page)
+  await toggleDoodle(page)
+  const firstSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
+
+  const modeSeed = seedFromUrl('/thecontrarian/mixed-album?mode=single')
+  await page.evaluate(() => history.pushState({}, '', '/thecontrarian/mixed-album?mode=single'))
+  await expect(page.locator('[data-doodle-bg]')).toHaveAttribute('data-doodle-seed', String(modeSeed))
+  expect(String(modeSeed)).not.toBe(firstSeed)
+
+  await page.evaluate(() => history.replaceState({}, '', '/thecontrarian/mixed-album?mode=single&t=123&scroll=900'))
+  await expect(page.locator('[data-doodle-bg]')).toHaveAttribute('data-doodle-seed', String(modeSeed))
 })
 
 test('the field survives a resize without a reload', async ({ page }) => {

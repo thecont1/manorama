@@ -55,15 +55,23 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
     const sync = () => setHref(window.location.pathname + window.location.search)
     sync()
     window.addEventListener('popstate', sync)
-    window.addEventListener('hashchange', sync)
+    // Native history methods do not emit popstate, so patch them once per
+    // mounted layer and restore them on cleanup. This keeps SPA-style
+    // pushState/replaceState navigation deterministic too.
+    const pushState = window.history.pushState
+    const replaceState = window.history.replaceState
+    window.history.pushState = function (...args) { pushState.apply(this, args); sync() }
+    window.history.replaceState = function (...args) { replaceState.apply(this, args); sync() }
     return () => {
       window.removeEventListener('popstate', sync)
-      window.removeEventListener('hashchange', sync)
+      window.history.pushState = pushState
+      window.history.replaceState = replaceState
     }
   }, [url])
 
-  // Debounced resize. Comparison happens against the *quantized* size, so
-  // a URL-bar collapse or a one-pixel nudge never triggers a rebuild.
+  // Debounced resize. Compare the actual layout inputs — quantized canvas
+  // dimensions plus responsive cell size — so crossing a cell breakpoint
+  // (for example 899→900px) rebuilds even if the width stays in one bucket.
   useEffect(() => {
     if (typeof window === 'undefined') return
     setViewport(viewportNow())
@@ -74,7 +82,8 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
         const next = viewportNow()
         setViewport((prev) =>
           quantizeViewport(prev.width) === quantizeViewport(next.width) &&
-          quantizeViewport(prev.height) === quantizeViewport(next.height)
+          quantizeViewport(prev.height) === quantizeViewport(next.height) &&
+          responsiveCell(prev.width) === responsiveCell(next.width)
             ? prev
             : next)
       }, RESIZE_DEBOUNCE_MS)
@@ -94,9 +103,10 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
   // unrelated parent re-render.
   const cols = quantizeViewport(viewport.width)
   const rowsPx = quantizeViewport(viewport.height) * CANVAS_SCALE
+  const cell = responsiveCell(viewport.width)
   const layout = useMemo(
-    () => (enabled ? buildDoodleLayout(seed, { width: cols, height: rowsPx, cell: responsiveCell(viewport.width), maxIcons }) : null),
-    [enabled, seed, cols, rowsPx, maxIcons],
+    () => (enabled ? buildDoodleLayout(seed, { width: cols, height: rowsPx, cell, maxIcons }) : null),
+    [enabled, seed, cols, rowsPx, cell, maxIcons],
   )
 
   if (!enabled || !layout || layout.placements.length === 0) return null

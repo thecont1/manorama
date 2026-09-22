@@ -60,6 +60,15 @@ describe('normalizeSeedUrl', () => {
     expect(normalizeSeedUrl('/a?x=1&y=2')).toBe(normalizeSeedUrl('/a?y=2&x=1'))
   })
 
+  test('canonical encoding keeps structurally different queries distinct', () => {
+    expect(normalizeSeedUrl('/a?x=a%26y%3Db')).toBe('/a?x=a%26y%3Db')
+    expect(normalizeSeedUrl('/a?x=a%26y%3Db')).not.toBe(normalizeSeedUrl('/a?x=a&y=b'))
+  })
+
+  test('repeated keys normalize independent of their input order', () => {
+    expect(normalizeSeedUrl('/a?tag=z&tag=a')).toBe(normalizeSeedUrl('/a?tag=a&tag=z'))
+  })
+
   test('a malformed url still yields a stable string instead of throwing', () => {
     const weird = normalizeSeedUrl('/a/%E0%A4%A?q=1#z')
     expect(typeof weird).toBe('string')

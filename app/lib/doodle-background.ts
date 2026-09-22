@@ -152,18 +152,22 @@ export const normalizeSeedUrl = (input: string | null | undefined): string => {
   // Trailing slashes are the same view; the root stays "/".
   pathname = pathname.replace(/\/+$/, '') || '/'
 
-  const kept: string[] = []
+  const kept: [string, string][] = []
   try {
     const params = new URLSearchParams(search)
     params.forEach((value, key) => {
-      if (!isTransient(key)) kept.push(`${key}=${value}`)
+      if (!isTransient(key)) kept.push([key, value])
     })
   } catch {
     // Unparseable query: the pathname alone still seeds deterministically.
   }
-  kept.sort()
+  kept.sort(([keyA, valueA], [keyB, valueB]) => keyA.localeCompare(keyB) || valueA.localeCompare(valueB))
 
-  return kept.length ? `${pathname}?${kept.join('&')}` : pathname
+  // URLSearchParams supplies an unambiguous canonical encoding. Joining
+  // raw key/value strings would make `/a?x=a%26y%3Db` collide with
+  // `/a?x=a&y=b`, despite those being distinct relevant queries.
+  const canonical = new URLSearchParams(kept).toString()
+  return canonical ? `${pathname}?${canonical}` : pathname
 }
 
 /**

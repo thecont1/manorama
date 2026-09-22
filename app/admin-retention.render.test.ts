@@ -73,6 +73,13 @@ const seedPipelineOwner = async () => {
 }
 
 describe('the dashboard renders retention state', () => {
+  test('the owner grid ships an accessible background preference control', async () => {
+    const html = await renderDashboard(async () => {})
+    expect(html).toContain('aria-label="Display preferences"')
+    expect(html).toContain('aria-label="Use doodle background"')
+    expect(html).toContain('aria-pressed="false"')
+  })
+
   test('a pipeline card locks every edit surface and explains the deadline', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     expect(html).toContain('data-retention="pipeline"')

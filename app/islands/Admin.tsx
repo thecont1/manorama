@@ -3,6 +3,8 @@ import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
+import SeededDoodleBackground from './SeededDoodleBackground'
+import { BACKGROUND_EVENT, backgroundEnabled, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -26,6 +28,7 @@ type Theme = 'light' | 'dark'
 
 const THEME_KEY = 'manorama:theme'
 const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+const setDoodlePreference = (enabled: boolean) => saveBackgroundPreference(enabled ? 'doodle' : 'flat')
 
 const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
 
@@ -114,6 +117,20 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       return 'dark'
     }
   })
+  // App-wide display chrome, shared with the public viewer. Start flat for
+  // SSR/hydration, then reconcile the persisted preference on mount.
+  const [doodle, setDoodle] = useState(false)
+
+  useEffect(() => {
+    setDoodle(backgroundEnabled(loadBackgroundPreference()))
+    const sync = () => setDoodle(backgroundEnabled(loadBackgroundPreference()))
+    window.addEventListener('storage', sync)
+    window.addEventListener(BACKGROUND_EVENT, sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener(BACKGROUND_EVENT, sync)
+    }
+  }, [])
 
   // Quick-add resume. The `manorama_oauth_next` cookie is the real record
   // of an interrupted /<share-url> flow; this is the fallback for when it
@@ -465,7 +482,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const liveGalleries = galleries.filter((gallery) => !isGalleryExpired(gallery, new Date(now).toISOString()))
 
   return (
-    <main class="admin-page admin-page--selector">
+    <>
+      <SeededDoodleBackground enabled={doodle} />
+      <main class={`admin-page admin-page--selector${doodle ? ' has-doodle' : ''}`}>
       <header class="admin-header">
         <div>
           <form method="post" action="/auth/logout" class="admin-brand-form">
@@ -490,9 +509,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
           </div>
         </div>
-        <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
-          <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
-        </button>
+        <div class="admin-display-toggles" aria-label="Display preferences">
+          <button type="button" class="admin-background-toggle" onClick={() => { const next = !doodle; setDoodle(next); setDoodlePreference(next) }} aria-label={doodle ? 'Use flat background' : 'Use doodle background'} aria-pressed={doodle} title={doodle ? 'Use flat background' : 'Use doodle background'}>
+            <span aria-hidden="true">{doodle ? '▦' : '□'}</span>
+          </button>
+          <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
+            <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
+          </button>
+        </div>
       </header>
 
       <section class="gallery-import" aria-labelledby="import-heading">
@@ -538,6 +562,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         <a class="site-footer-link" href="/privacy">Privacy Policy</a>
         <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
       </footer>
-    </main>
+      </main>
+    </>
   )
 }
