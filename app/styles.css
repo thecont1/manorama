@@ -160,6 +160,14 @@ button { color: inherit; }
   user-select: none;
   -webkit-user-select: none;
 }
+/* Hover wakes the bubble on mouse pointers only — on touch it stays
+   inert so it never eats a drag that starts on top of it. The tally
+   grows the pill leftward: right: 100% anchors its right edge. */
+@media (hover: hover) and (pointer: fine) {
+  .stage-seq { pointer-events: auto; cursor: default; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+  .stage-seq:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
+  .stage-seq:hover::after { content: ' of ' attr(data-total); }
+}
 /* No buttons to flank: the bubble claims the corner outright. */
 .stage-arrows--bare .stage-seq { right: 0; top: auto; bottom: 0; transform: none; margin-right: 0; }
 /* On touch the enabled arrows split to opposite corners — the bubble

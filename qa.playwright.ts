@@ -1047,6 +1047,22 @@ for (const vp of viewports) {
       const coarse = await page.evaluate(() =>
         matchMedia("(pointer: coarse)").matches,
       );
+      if (!coarse) {
+        // Hovering the bubble lights it and expands the count into the
+        // full tally — "2 of 30". The total rides a ::after, so read the
+        // computed content rather than textContent.
+        await seq.hover();
+        const lit = await seq.evaluate((el) => ({
+          opacity: getComputedStyle(el).opacity,
+          events: getComputedStyle(el).pointerEvents,
+          tally: getComputedStyle(el, "::after").content,
+        }));
+        expect(lit.opacity).toBe("1");
+        expect(lit.events).toBe("auto");
+        expect(lit.tally).toBe(`" of ${await imageCount(page)}"`);
+        await page.mouse.move(0, 0);
+        await expect(seq).toHaveText("2");
+      }
       await ensureNavArrows(page);
       const nextArrow = page.getByRole("button", {
         name: /next photograph/i,
