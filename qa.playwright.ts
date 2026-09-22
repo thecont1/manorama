@@ -228,6 +228,45 @@ for (const vp of viewports) {
       hasTouch: vp.hasTouch,
     });
 
+    test("the G selector shows every photograph and jumps on click", async ({ page }) => {
+      await dismissCurtain(page)
+      const count = await imageCount(page)
+      await page.keyboard.press("g")
+      const strip = page.locator(".viewer-filmstrip")
+      await expect(strip).toBeVisible()
+      const box = await strip.boundingBox()
+      expect(box).not.toBeNull()
+      expect(Math.abs((box!.y + box!.height / 2) - vp.height / 2)).toBeLessThan(3)
+      await expect(strip.locator("[data-grid-item]")).toHaveCount(count)
+      await expect(strip.locator("[aria-current='true']")).toHaveCount(1)
+      await strip.locator("[data-grid-item]").nth(Math.min(2, count - 1)).click()
+      await expect(strip).toBeHidden()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(Math.min(2, count - 1) + 1))
+    })
+
+    test("drag-scrolling the selector doesn't navigate; Escape and scrim dismiss", async ({ page }) => {
+      await dismissCurtain(page)
+      const before = await page.locator("[data-track] [aria-current='true']").getAttribute("data-index")
+      await page.keyboard.press("g")
+      const frame = page.locator(".viewer-filmstrip-frame")
+      const frameBox = await frame.boundingBox()
+      expect(frameBox).not.toBeNull()
+      const initial = await frame.evaluate((node) => node.scrollLeft)
+      await page.mouse.move(frameBox!.x + frameBox!.width * .7, frameBox!.y + frameBox!.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(frameBox!.x + frameBox!.width * .2, frameBox!.y + frameBox!.height / 2, { steps: 5 })
+      await page.mouse.up()
+      await expect.poll(() => frame.evaluate((node) => node.scrollLeft)).not.toBe(initial)
+      await expect(frame).toBeVisible()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", before!)
+      await page.keyboard.press("Escape")
+      await expect(frame).toBeHidden()
+      await page.keyboard.press("g")
+      await expect(frame).toBeVisible()
+      await page.locator(".filmstrip-scrim").click({ position: { x: 5, y: 5 } })
+      await expect(frame).toBeHidden()
+    })
+
     test("exactly one visible control during viewing", async ({ page }) => {
       await dismissCurtain(page);
       const visible = await page.evaluate(() => {

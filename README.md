@@ -53,4 +53,6 @@ Originals are never persisted — media streams through Manorama at view time an
 
 ---
 
+`G` raises a thumbnail filmstrip mid-screen — drag to browse, click to jump to that photograph.
+
 *For developers: architecture, media pipeline, the viewer contract, and deployment live in [TECH-SPEC.md](TECH-SPEC.md).*

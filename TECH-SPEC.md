@@ -111,6 +111,8 @@ Video slides are ambient: the active slide mounts the only `<video>` element —
 
 On fine-pointer desktops, `M` summons a glass-ball magnifier that follows the cursor over the stage at 3× (a decorative DOM mirror — `aria-hidden`, dismissed by `Esc`, `M`, or opening a dialog). The `M` shortcut row in display settings appears only where the key works; the `I` row is always listed.
 
+The viewer's `G` shortcut opens a centered selector overlay rather than a docked viewer. A full-viewport scrim dims and blurs the stage; the fixed-height filmstrip is vertically centered, uses `variants[0]` (falling back to `placeholder`) with lazy-loaded thumbnails, and centers the active item on open. Pointer drags and dominant-axis wheel input pan its horizontal scroll position; click selection closes the overlay before calling the existing smooth `goTo(i)`. `Escape`, `G`, and scrim clicks dismiss it, while thumbnail focus and arrow keys provide keyboard selection without changing order.
+
 ## Run locally
 
 The project uses Bun:
