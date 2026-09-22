@@ -53,6 +53,6 @@ Originals are never persisted — media streams through Manorama at view time an
 
 ---
 
-`G` raises a thumbnail filmstrip mid-screen — drag to browse, click to jump to that photograph.
+`G` raises the selector: a filmstrip mid-screen. Drag to browse, hover or arrow keys move the pink box, click or Enter jumps to it.
 
 *For developers: architecture, media pipeline, the viewer contract, and deployment live in [TECH-SPEC.md](TECH-SPEC.md).*

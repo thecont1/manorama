@@ -115,6 +115,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [gridOpen, setGridOpen] = useState(false)
+  const [gridSel, setGridSel] = useState(index)
+  const [gridClosing, setGridClosing] = useState(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   // Vertical scroll keeps arrows off by default regardless of the
   // gallery-wide setting — the feed scrolls natively, so they're only
@@ -191,6 +193,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const filmstripPanRef = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null)
   const scrollLeftAtDownRef = useRef(0)
   const gridSuppressClickRef = useRef(false)
+  const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -202,8 +205,32 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
   const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
   const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
-  const openGrid = () => { anyModalOpenRef.current = true; setGridOpen(true) }
-  const closeModals = () => { anyModalOpenRef.current = false; setModalOpen(false); setInfoOpen(false); setGridOpen(false) }
+  const openGrid = () => {
+    if (gridCloseTimerRef.current) {
+      clearTimeout(gridCloseTimerRef.current)
+      gridCloseTimerRef.current = null
+    }
+    anyModalOpenRef.current = true
+    setGridSel(indexRef.current)
+    setGridClosing(false)
+    setGridOpen(true)
+  }
+  const closeModals = () => {
+    anyModalOpenRef.current = false
+    setModalOpen(false)
+    setInfoOpen(false)
+    setGridOpen(false)
+    setGridClosing(false)
+  }
+  const requestCloseModals = () => {
+    if (!gridOpen) { closeModals(); return }
+    if (gridCloseTimerRef.current) return
+    setGridClosing(true)
+    gridCloseTimerRef.current = setTimeout(() => {
+      gridCloseTimerRef.current = null
+      closeModals()
+    }, 180)
+  }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
   const dragSamplesRef = useRef<DragSample[]>([])
@@ -761,11 +788,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       if (isTypingTarget(event.target as HTMLElement | null)) return
-      if (event.key === 'Escape' && gridOpen) { event.preventDefault(); closeModals(); return }
+      if (event.key === 'Escape' && gridOpen) { event.preventDefault(); requestCloseModals(); return }
       if (event.key !== 'g' && event.key !== 'G') return
       if (!document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
-      if (gridOpen) closeModals()
+      if (gridOpen) requestCloseModals()
       else if (!anyModalOpenRef.current) openGrid()
     }
     window.addEventListener('keydown', onKey)
@@ -774,6 +801,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     if (!gridOpen) return
+    setGridSel(indexRef.current)
     const openedFrom = document.activeElement as HTMLElement
     previousFocusRef.current = openedFrom
     const frame = requestAnimationFrame(() => {
@@ -805,19 +833,21 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     filmstripPanRef.current = { pointerId: event.pointerId, x: event.clientX, scrollLeft: frame.scrollLeft }
     scrollLeftAtDownRef.current = frame.scrollLeft
     gridSuppressClickRef.current = false
-    frame.setPointerCapture(event.pointerId)
   }
   const moveFilmstripPan = (event: PointerEvent) => {
     const pan = filmstripPanRef.current
     const frame = filmstripFrameRef.current
     if (!pan || !frame || pan.pointerId !== event.pointerId) return
     frame.scrollLeft = pan.scrollLeft - (event.clientX - pan.x)
-    if (Math.abs(frame.scrollLeft - scrollLeftAtDownRef.current) > 6) gridSuppressClickRef.current = true
+    if (Math.abs(frame.scrollLeft - scrollLeftAtDownRef.current) > 6) {
+      gridSuppressClickRef.current = true
+      if (!frame.hasPointerCapture(event.pointerId)) frame.setPointerCapture(event.pointerId)
+    }
   }
   const endFilmstripPan = (event: PointerEvent) => {
     const frame = filmstripFrameRef.current
     if (!filmstripPanRef.current || filmstripPanRef.current.pointerId !== event.pointerId) return
-    frame?.releasePointerCapture?.(event.pointerId)
+    if (frame?.hasPointerCapture(event.pointerId)) frame.releasePointerCapture(event.pointerId)
     filmstripPanRef.current = null
   }
   const wheelFilmstrip = (event: WheelEvent) => {
@@ -830,8 +860,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
   const selectFilmstripImage = (imageIndex: number) => {
     if (gridSuppressClickRef.current) { gridSuppressClickRef.current = false; return }
-    closeModals()
-    goTo(imageIndex)
+    if (gridCloseTimerRef.current) return
+    setGridSel(imageIndex)
+    setGridClosing(true)
+    gridCloseTimerRef.current = setTimeout(() => {
+      gridCloseTimerRef.current = null
+      closeModals()
+      goTo(imageIndex)
+    }, 180)
   }
 
   // Magnifier availability is a media-query question, answered on the
@@ -901,6 +937,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [modalOpen, infoOpen, gridOpen])
 
   useEffect(() => () => {
+    if (gridCloseTimerRef.current) clearTimeout(gridCloseTimerRef.current)
     magnifierRef.current?.destroy()
     magnifierRef.current = null
   }, [])
@@ -1188,7 +1225,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // first frames after opening, before a passive effect could attach a
   // document listener).
   const onModalKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') { event.preventDefault(); closeModals(); return }
+    if (event.key === 'Escape') { event.preventDefault(); requestCloseModals(); return }
     if (event.key !== 'Tab') return
     const modal = event.currentTarget as HTMLElement
     const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
@@ -1741,15 +1778,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
 
       {gridOpen ? <>
-        <div class="filmstrip-scrim" aria-hidden="true" onPointerDown={closeModals} />
-        <div ref={gridModalRef} class="viewer-filmstrip" role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
+          const modal = event.currentTarget as HTMLElement
+          const items = [...modal.querySelectorAll<HTMLButtonElement>('[data-grid-item]')]
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
-            const modal = event.currentTarget as HTMLElement
-            const items = [...modal.querySelectorAll<HTMLButtonElement>('[data-grid-item]')]
             const current = items.indexOf(document.activeElement as HTMLButtonElement)
-            const next = clamp(current + (event.key === 'ArrowRight' ? 1 : -1), 0, items.length - 1)
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
+            setGridSel(next)
             items[next]?.focus()
+            items[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+            return
+          }
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            selectFilmstripImage(gridSel)
             return
           }
           onModalKeyDown(event)
@@ -1761,11 +1805,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 const thumb = image.variants?.[0]?.src ?? image.placeholder
                 return <button
                   type="button"
-                  class={`viewer-filmstrip-item ${imageIndex === index ? 'is-active' : ''}`}
+                  class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
                   data-grid-item
-                  data-grid-active={imageIndex === index ? true : undefined}
-                  aria-current={imageIndex === index ? 'true' : undefined}
+                  data-grid-active={imageIndex === gridSel ? true : undefined}
+                  aria-current={imageIndex === gridSel ? 'true' : undefined}
                   aria-label={`${video ? 'Video' : 'Photograph'} ${imageIndex + 1} of ${images.length}`}
+                  onPointerEnter={() => { if (!filmstripPanRef.current) setGridSel(imageIndex) }}
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
                   <img src={thumb} loading="lazy" alt="" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />

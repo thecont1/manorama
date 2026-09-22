@@ -267,6 +267,32 @@ for (const vp of viewports) {
       await expect(frame).toBeHidden()
     })
 
+    test("the selector pink box follows arrows and hover; Enter commits", async ({ page }) => {
+      await dismissCurtain(page)
+      const count = await imageCount(page)
+      await page.keyboard.press("g")
+      const strip = page.locator(".viewer-filmstrip")
+      const active = strip.locator("[data-grid-active]")
+      const startIndex = await active.evaluate((item) => {
+        const items = [...item.parentElement!.querySelectorAll<HTMLElement>('[data-grid-item]')]
+        return items.indexOf(item as HTMLElement)
+      })
+      await expect(active).toHaveCSS("box-shadow", /rgb\(252, 15, 192\)/)
+      await page.keyboard.press("ArrowRight")
+      await page.keyboard.press("ArrowRight")
+      const arrowIndex = (startIndex + 2) % count
+      await expect(strip.locator("[data-grid-item]").nth(arrowIndex)).toHaveAttribute("data-grid-active", "true")
+      await expect(strip.locator("[data-grid-item]").nth(arrowIndex)).toBeFocused()
+      const hoverIndex = (arrowIndex + 2) % count
+      await strip.locator("[data-grid-item]").nth(hoverIndex).hover()
+      await expect(strip.locator("[data-grid-item]").nth(hoverIndex)).toHaveAttribute("data-grid-active", "true")
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(startIndex + 1))
+      await page.keyboard.press("Enter")
+      await expect(strip).toHaveClass(/is-closing/)
+      await expect(strip).toBeHidden()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(hoverIndex + 1))
+    })
+
     test("exactly one visible control during viewing", async ({ page }) => {
       await dismissCurtain(page);
       const visible = await page.evaluate(() => {
