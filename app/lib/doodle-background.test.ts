@@ -184,14 +184,35 @@ describe('placement bounds', () => {
   })
 
   test('rotation, scale and opacity stay inside the design range', () => {
+    // The regular band plus the accent minority: most glyphs sit in
+    // [0.75, 1.15], a deliberate few reach up to 1.45.
+    let accents = 0
     for (const p of layout.placements) {
       expect(p.rotation).toBeGreaterThanOrEqual(-25)
       expect(p.rotation).toBeLessThanOrEqual(25)
-      expect(p.scale).toBeGreaterThanOrEqual(0.7)
-      expect(p.scale).toBeLessThanOrEqual(1.3)
-      expect(p.opacity).toBeGreaterThanOrEqual(0.08)
-      expect(p.opacity).toBeLessThanOrEqual(0.18)
+      if (p.scale > 1.15) accents += 1
+      expect(p.scale === 0 || (p.scale >= 0.75 && p.scale <= 1.45)).toBe(true)
+      expect(p.opacity).toBeGreaterThanOrEqual(0.85)
+      expect(p.opacity).toBeLessThanOrEqual(1.0)
       expect(p.size).toBeGreaterThan(0)
+    }
+    // Accents exist but stay a minority of the field.
+    expect(accents).toBeGreaterThan(0)
+    expect(accents / layout.placements.length).toBeLessThan(0.3)
+  })
+
+  test('adjacent cells do not repeat the same icon where the set allows', () => {
+    // Reconstruct cell keys from placements; icons drawn back-to-back in
+    // draw order must differ from their 1-2 predecessors.
+    const seen: string[] = []
+    for (const p of layout.placements) {
+      if (seen.length >= 2) {
+        const [prev, before] = seen.slice(-2)
+        // With 14 icons and a 2-repick guard, an immediate repeat is
+        // possible but rare; assert it is not the norm.
+        expect(p.icon === prev && p.icon === before).toBe(false)
+      }
+      seen.push(p.icon)
     }
   })
 
@@ -205,10 +226,10 @@ describe('placement bounds', () => {
     }
   })
 
-  test('the field is sparse, not a solid grid', () => {
+  test('the field is dense but not a solid grid', () => {
     const cells = Math.ceil(1600 / layout.cell) * Math.ceil(1200 / layout.cell)
     expect(layout.placements.length).toBeLessThan(cells)
-    expect(layout.placements.length).toBeGreaterThan(cells * 0.3)
+    expect(layout.placements.length).toBeGreaterThan(cells * 0.6)
   })
 
   test('the icon set spans a useful variety', () => {

@@ -131,16 +131,16 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
       // letter-box itself to fit — plain `meet` scales the field down and
       // leaves bare gutters left and right.
       preserveAspectRatio="xMidYMin slice"
+      shape-rendering="geometricPrecision"
       aria-hidden="true"
       role="presentation"
       focusable="false"
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* One definition per icon; every placement is a cheap <use>.
-          Thin sharp line art: a hairline stroke with mitred corners and butt
-          caps reads as drawn with a technical pen rather than a marker.
-          vector-effect keeps the weight constant at every scale, so a 1.3x
-          glyph is not a fatter line. */}
+          Crisp thin line art: round caps and joins, ~1.25px screen weight
+          (non-scaling-stroke pins it when the 24-unit viewBox is scaled to
+          the placement size), geometric precision — no blur or filters. */}
       <defs>
         {DOODLE_ICONS.map((icon) => (
           <symbol key={icon.id} id={icon.id} viewBox="0 0 24 24">
@@ -148,9 +148,9 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
               d={icon.path}
               fill="none"
               stroke="currentColor"
-              stroke-width="0.9"
-              stroke-linecap="butt"
-              stroke-linejoin="miter"
+              stroke-width="1.25"
+              stroke-linecap="round"
+              stroke-linejoin="round"
               vector-effect="non-scaling-stroke"
             />
           </symbol>

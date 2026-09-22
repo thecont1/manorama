@@ -18,6 +18,8 @@
 
 :root {
   --ink: 243, 240, 232;
+  /* Doodle field ink: light on the dark canvas, flipped under html.light. */
+  --doodle-ink: rgba(255, 255, 255, 0.2);
   --gallery-canvas: #0a0a0a;
   color-scheme: dark;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
@@ -1088,12 +1090,14 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
   height: 100%;
   pointer-events: none;
   user-select: none;
-  /* Tint token, not a hardcoded colour: the glyphs stroke in
-     currentColor, so one variable tints the whole field. The default is
-     the gallery's light ink on its dark canvas; the editor's light
-     theme (html.light, the app's real theme switch — it does NOT use
-     prefers-color-scheme) flips it to dark ink. */
-  color: var(--doodle-ink, rgba(var(--ink), .55));
+  /* Contrast token, not a hardcoded colour: the glyphs stroke in
+     currentColor, so one variable tints the whole field. Deliberately
+     more present than the near-invisible first cut — legible at normal
+     viewing distance while photos stay unquestionably dominant. The
+     light theme (html.light, the app's real theme switch — it does NOT
+     use prefers-color-scheme) flips to dark ink at slightly lower
+     weight, as light-on-light tolerance is lower. */
+  color: var(--doodle-ink, rgba(255, 255, 255, 0.2));
   /* The canvas is twice the viewport height for scroll headroom; the
      SVG's own preserveAspectRatio="…slice" crops it to the box.
      (object-fit does not apply to inline SVG, only to replaced
@@ -1103,7 +1107,7 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
      every scroll of the track above. */
   will-change: opacity;
 }
-html.light .doodle-bg { --doodle-ink: rgba(22, 24, 23, .5); }
+html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 
 /* Fade the field in when the toggle flips, but never for a visitor who
    asked for reduced motion. */

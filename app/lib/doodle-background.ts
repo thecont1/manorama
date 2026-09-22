@@ -62,17 +62,27 @@ export type DoodleLayoutOptions = {
 export const MIN_CELL = 52
 export const MAX_CELL = 92
 export const DEFAULT_CELL = 70
-export const DEFAULT_FILL = 0.82
+export const DEFAULT_FILL = 0.86
 export const DEFAULT_MAX_ICONS = 420
 /** Extra canvas below the fold so scrolling never reveals a bare edge. */
 export const CANVAS_SCALE = 2
-/** Jitter is +/- this share of the cell, keeping glyphs off a rigid grid. */
-const JITTER = 0.3
+/** Jitter is +/- this share of the cell: enough to keep glyphs off a
+ *  rigid grid, tight enough not to open holes between neighbours. */
+const JITTER = 0.22
 const ROTATION_RANGE = 25
-const SCALE_MIN = 0.7
-const SCALE_MAX = 1.3
-const OPACITY_MIN = 0.08
-const OPACITY_MAX = 0.18
+/** Most glyphs sit in this band; a deliberate minority of larger accents
+ *  (ACCENT_SHARE) keeps the field from reading as one uniform size. */
+const SCALE_MIN = 0.75
+const SCALE_MAX = 1.15
+/** Share of placements drawn at the larger accent scale. */
+const ACCENT_SHARE = 0.12
+const ACCENT_MIN = 1.2
+const ACCENT_MAX = 1.45
+/** Per-icon opacity varies only within this narrow band; the layer's own
+ *  colour token carries the real contrast. Broad variation made some
+ *  symbols disappear against the canvas. */
+const OPACITY_MIN = 0.85
+const OPACITY_MAX = 1.0
 /** Glyph edge relative to the cell, before the per-icon scale roll. */
 const GLYPH_RATIO = 0.52
 
@@ -248,16 +258,29 @@ export const buildDoodleLayout = (seed: number, options: DoodleLayoutOptions): D
   const next = mulberry32(safeSeed)
   const glyph = cell * GLYPH_RATIO
   const candidates: DoodlePlacement[] = []
+  // The last two icons placed: adjacency variety. A repick consumes extra
+  // PRNG draws in place, so the stream stays deterministic per seed.
+  const recent: string[] = []
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < cols; col += 1) {
       // One draw decides occupancy; skipping early keeps sparse layouts cheap.
       if (next() >= fill) continue
-      const icon = icons[Math.floor(next() * icons.length)] ?? icons[0]
+      let icon = icons[Math.floor(next() * icons.length)] ?? icons[0]
+      // Avoid the same icon in immediately adjacent cells where the set
+      // allows it. The repick is a deterministic extra draw.
+      for (let guard = 0; recent.includes(icon.id) && guard < 2; guard += 1) {
+        icon = icons[Math.floor(next() * icons.length)] ?? icons[0]
+      }
+      recent.push(icon.id)
+      if (recent.length > 2) recent.shift()
       const jitterX = (next() * 2 - 1) * JITTER * cell
       const jitterY = (next() * 2 - 1) * JITTER * cell
       const rotation = (next() * 2 - 1) * ROTATION_RANGE
-      const scale = SCALE_MIN + next() * (SCALE_MAX - SCALE_MIN)
+      const accent = next() < ACCENT_SHARE
+      const scale = accent
+        ? ACCENT_MIN + next() * (ACCENT_MAX - ACCENT_MIN)
+        : SCALE_MIN + next() * (SCALE_MAX - SCALE_MIN)
       const opacity = OPACITY_MIN + next() * (OPACITY_MAX - OPACITY_MIN)
       candidates.push({
         icon: icon.id,
