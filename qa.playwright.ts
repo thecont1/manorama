@@ -2525,7 +2525,7 @@ test.describe("density-aware staging", () => {
     await context.close();
   });
 
-  test("only the active window mounts full-size media", async ({ playwright, browser }) => {
+  test("only the active window plus its retention tail mounts full-size media", async ({ playwright, browser }) => {
     const url = await densityGallery(
       playwright,
       "d-window",
@@ -2536,9 +2536,16 @@ test.describe("density-aware staging", () => {
     await dismissCurtain(page, url);
     await expect(page.locator(".frame-ph")).toHaveCount(12);
     await expect(page.locator(".frame-img")).toHaveCount(4);
+    // Index 4: the ±3 window is 7 frames, plus the MRU tail holds frame 0.
     for (let i = 0; i < 4; i += 1) await advanceToNextImage(page);
     await waitForTrackSettled(page);
-    await expect(page.locator(".frame-img")).toHaveCount(7);
+    await expect(page.locator(".frame-img")).toHaveCount(8);
+    // The tail is bounded: however far the strip advances, the window
+    // plus retention never exceeds STRIP_WINDOW*2 + 1 + STRIP_RETAIN.
+    for (let i = 0; i < 6; i += 1) await advanceToNextImage(page);
+    await waitForTrackSettled(page);
+    const mounted = await page.locator(".frame-img").count();
+    expect(mounted).toBeLessThanOrEqual(13);
     await context.close();
   });
 });
