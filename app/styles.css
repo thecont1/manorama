@@ -36,7 +36,7 @@ button { color: inherit; }
 
 .gallery-shell, honox-island { display: contents; }
 /* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
-.viewer-stage { position: relative; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
+.viewer-stage { position: relative; isolation: isolate; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
@@ -60,32 +60,11 @@ button { color: inherit; }
    would paint a solid slab around it. Only real sources — video posters,
    HEIC previews, the magnifier's swapped-in frame image — may paint;
    the SVG stub keeps its box for layout but stays invisible so the
-   striped field or canvas owns the gap. */
+   doodle field or canvas owns the gap. */
 .viewer-frame .frame-ph[src^="data:image/svg+xml"] { visibility: hidden; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
 
-/* Background: the stripe flavour paints the whole track as one
-   continuous field — not a panel per photo restarting its pattern at
-   each frame edge. 'light' is black stripes on a light field, 'dark'
-   is light stripes on black. */
-.seam-light .viewer-track { background-color: rgba(var(--ink), .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .5) 0 10px, transparent 10px 32px); }
-.seam-dark .viewer-track { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(var(--ink), .5) 0 10px, transparent 10px 32px); }
-/* Frames go transparent so the track's field shows through, and a pad
-   shrinks the photo on three sides so the field reads as an inset
-   border — left/top/bottom in Strip, top/left/right in Vertical.
-   'none' sits photographs flush. */
-.seam-light .viewer-track .viewer-frame,
-.seam-dark .viewer-track .viewer-frame { background: transparent; }
-.mode-strip.seam-light .viewer-frame,
-.mode-strip.seam-dark .viewer-frame { padding: 10px 0 10px 10px; }
-.mode-vertical.seam-light .viewer-frame,
-.mode-vertical.seam-dark .viewer-frame { padding: 10px 5px 0; }
-/* Floating over a field, media softens at the corners. */
-.seam-light .viewer-track .viewer-frame img,
-.seam-light .viewer-track .viewer-frame video,
-.seam-dark .viewer-track .viewer-frame img,
-.seam-dark .viewer-track .viewer-frame video { border-radius: 5px; }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); margin: 0 auto; object-fit: contain; }
 .viewer-track--vertical .viewer-frame:not(.viewer-frame--video) { place-items: center; }
@@ -101,7 +80,7 @@ button { color: inherit; }
    photograph rides in on a directional wipe behind an opaque canvas
    card — forward steps reveal from the right edge, back steps from the
    left. The outgoing photograph stays fully painted underneath until
-   the sweep lands, so no transparency ever ghosts the striped field
+   the sweep lands, so no transparency ever ghosts the background field
    through an image; afterwards the card's background eases back to
    transparent and the field settles around the new photograph. */
 .viewer-track--single[data-sweep-dir='fwd'] .viewer-frame--hidden { clip-path: inset(0 0 0 100%); }
@@ -1098,11 +1077,11 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
 /* ---------------------------------------------------------------------
    Seeded doodle background
    A deterministic scatter of photography glyphs derived from the URL.
-   The layer is fixed behind everything and completely inert: it must
+   The layer is absolute behind the gallery content and completely inert: it must
    never eat a tap meant for a photograph or a control.
    --------------------------------------------------------------------- */
 .doodle-bg {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 0;
   width: 100%;
@@ -1134,14 +1113,22 @@ html.light .doodle-bg { --doodle-ink: rgba(22, 24, 23, .5); }
 @keyframes doodle-fade-in { from { opacity: 0 } to { opacity: 1 } }
 @media (prefers-reduced-motion: reduce) { .doodle-bg { animation: none; } }
 
-/* The stage, track and frames normally paint an opaque canvas. With the
-   doodle on and no seam selected, they step aside so the pattern reads
-   through the letterbox gaps around each photograph. A chosen seam
-   still wins inside the track — its stripes are the deliberate field. */
+/* The doodle field is a decorative layer INSIDE the stage's isolated
+   stacking context at z-index 0; the gallery content sits above it at
+   z-index 1. The track and its frames are transparent, so the pattern
+   shows through only the gaps between tiles and the exposed canvas —
+   never over photographs or UI. When the doodle is off the stage
+   paints the flat canvas colour as before. */
 .viewer-stage.has-doodle { background: transparent; }
-.viewer-stage.has-doodle.seam-none .viewer-track,
-.viewer-stage.has-doodle.seam-none .viewer-frame { background: transparent; }
-.viewer-stage.has-doodle.seam-none .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
-/* The stage sits above the fixed layer; without a stacking context of
-   its own the track's transforms could slide under it. */
-.viewer-stage { position: relative; z-index: 1; }
+.viewer-stage.has-doodle .viewer-track,
+.viewer-stage.has-doodle .viewer-frame { background: transparent; }
+.viewer-stage.has-doodle .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
+/* The photo grid and content sit above the decorative doodle layer. */
+.viewer-track { position: relative; z-index: 1; }
+/* Vertical scroll mode: the stage itself is the scroll container, and an
+   absolutely-positioned child scrolls away with the content (the canvas
+   headroom is 2x the viewport — the track can be twenty times taller).
+   A sticky layer stays pinned in the scrollport at every depth while
+   remaining inside the stage's isolated stacking context, beneath the
+   photographs. */
+.viewer-stage.mode-vertical .doodle-bg { position: sticky; top: 0; }

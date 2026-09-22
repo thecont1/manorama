@@ -204,7 +204,10 @@ test('the layer is inert and hidden from assistive tech', async ({ page }) => {
     return { pointerEvents: s.pointerEvents, position: s.position, zIndex: s.zIndex }
   })
   expect(styles.pointerEvents).toBe('none')
-  expect(styles.position).toBe('fixed')
+  // The layer lives inside the stage's isolated stacking context, pinned
+  // beneath the gallery content — not fixed to the viewport.
+  expect(styles.position).toBe('absolute')
+  expect(styles.zIndex).toBe('0')
 })
 
 test('the field paints visible glyphs and yields a screenshot', async ({ page }) => {

@@ -9,7 +9,6 @@ import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundEnabled, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
 
 type Mode = 'strip' | 'vertical' | 'single'
-type SeamMode = 'light' | 'dark' | 'none'
 type DragSample = { x: number; time: number }
 type Props = {
   slug: string
@@ -87,18 +86,17 @@ const STRIP_WINDOW = 3
  *  bounded so decoded HEIC blobs still get revoked once out of play. */
 const STRIP_RETAIN = 6
 
-/** Anonymous per-gallery viewing preferences: mode + seam choice are
+/** Anonymous per-gallery viewing preferences: the view mode is
  *  remembered in localStorage keyed by gallery slug, so a link recipient
  *  keeps their own preference without an account. The doodle background
  *  is deliberately NOT here — it is app-wide chrome, stored globally in
  *  lib/background-preference.ts alongside the theme. */
-type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
+type ViewPrefs = { mode?: Mode }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
       mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
-      seamMode: stored.seamMode && ['light', 'dark', 'none'].includes(stored.seamMode) ? stored.seamMode : undefined,
     }
   } catch {
     return {}
@@ -121,7 +119,6 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // gallery-wide setting — the feed scrolls natively, so they're only
   // ever an opt-in.
   const [showArrowsVertical, setShowArrowsVertical] = useState(false)
-  const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
   // Doodle background: an app-wide preference, off by default so
   // existing galleries look untouched until a visitor opts in. Read as
   // 'flat' for SSR, then reconciled on mount so server and client markup
@@ -135,7 +132,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
   // One-at-a-time sweep: the outgoing frame stays mounted and fully
   // opaque while the incoming frame wipes over it behind an opaque
-  // canvas card — no transparency ever lands on the striped field.
+  // canvas card — no transparency ever lands on the background field.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
   const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
   const sweepTimerRef = useRef<number | null>(null)
@@ -242,11 +239,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [])
   useEffect(() => {
     try {
-      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
+      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode }))
     } catch {
       // Storage can be unavailable (private mode) — preferences are best-effort.
     }
-  }, [slug, mode, seamMode])
+  }, [slug, mode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
@@ -659,7 +656,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (modeRef.current !== 'strip') return
     const frame = requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true, true))
     return () => cancelAnimationFrame(frame)
-  }, [stageSize, seamMode])
+  }, [stageSize])
 
   useEffect(() => () => {
     cancelPositionReport()
@@ -1333,22 +1330,24 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
-  const seamInset = seamMode === 'none' ? 0 : mode === 'strip' ? 20 : mode === 'vertical' ? 10 : 0
-  const seamTop = seamMode === 'none' || mode === 'single' ? 0 : 10
 
   return (
     <>
       {/* Behind everything, inert: a deterministic field keyed to this
           gallery's URL. Sits outside the stage so it stays put while the
           track scrolls. */}
-      <SeededDoodleBackground enabled={doodle} />
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} seam-${seamMode}${doodle ? ' has-doodle' : ''}`}
+        class={`viewer-stage mode-${mode}${doodle ? ' has-doodle' : ''}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
       >
+        {/* A single decorative layer beneath the gallery content. Inside
+            the stage's isolated stacking context at z-index 0, it shows
+            through only the transparent gaps between tiles and the
+            exposed canvas — never over photographs or UI. */}
+        <SeededDoodleBackground enabled={doodle} />
         <div
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
@@ -1370,8 +1369,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               mode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
-              stageWidthCssPx: stageSize.width - (mode === 'strip' ? 0 : seamInset),
-              stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
+              stageWidthCssPx: stageSize.width,
+              stageHeightCssPx: stageSize.height,
               dpr: stageSize.dpr,
             })
             // Desktop restrains video: 70% of stage height in the strip,
@@ -1382,8 +1381,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               mode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
-              stageWidthCssPx: stageSize.width - (mode === 'strip' ? 0 : seamInset),
-              stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
+              stageWidthCssPx: stageSize.width,
+              stageHeightCssPx: stageSize.height,
               isDesktop,
             }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
@@ -1396,17 +1395,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             const cappedVideo = stagedVideo?.capped && stagedVideo.width > 0 && stagedVideo.height > 0 ? stagedVideo : null
             const frameStyle = mode === 'strip'
               ? cappedVideo
-                ? { width: `${cappedVideo.width + seamTop}px`, height: '100%' }
+                ? { width: `${cappedVideo.width}px`, height: '100%' }
                 : staged && staged.width > 0 && staged.height > 0
-                  ? { width: `${staged.width + seamTop}px`, height: `${staged.height + seamInset}px` }
+                  ? { width: `${staged.width}px`, height: `${staged.height}px` }
                   : { aspectRatio: `${frameW} / ${frameH}` }
               : mode === 'vertical'
                 ? video
                   ? cappedVideo
-                    ? { width: '100%', height: `${cappedVideo.height + seamTop}px` }
+                    ? { width: '100%', height: `${cappedVideo.height}px` }
                     : undefined
                   : staged && staged.height > 0
-                    ? { width: '100%', height: `${staged.height + seamTop}px` }
+                    ? { width: '100%', height: `${staged.height}px` }
                     : { width: '100%', aspectRatio: `${frameW} / ${frameH}` }
                 : undefined
             // The media box inside a capped frame.
@@ -1507,12 +1506,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               naturalWidthPx: img.naturalWidth,
                               naturalHeightPx: img.naturalHeight,
                               stageWidthCssPx: stageSize.width,
-                              stageHeightCssPx: stageSize.height - seamInset,
+                              stageHeightCssPx: stageSize.height,
                               dpr: stageSize.dpr,
                             })
                             if (restaged.width > 0) {
-                              frame.style.width = `${restaged.width + seamTop}px`
-                              frame.style.height = `${restaged.height + seamInset}px`
+                              frame.style.width = `${restaged.width}px`
+                              frame.style.height = `${restaged.height}px`
                             }
                             // A corrected frame changes track geometry —
                             // drop the cached bounds, then once layout
@@ -1596,14 +1595,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section" aria-labelledby="background-heading">
             <h3 id="background-heading">Background</h3>
-            <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
-              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>light stripes on black</small></label>
-              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>black stripes on light</small></label>
-              <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
-            </div>
-            {/* Layered on top of the seam choice rather than replacing it:
-                the pattern is keyed to this gallery's URL, so the same
-                album always wears the same field. */}
+            {/* The pattern is keyed to this gallery's URL, so the same
+                album always wears the same field. It sits beneath the
+                photographs and shows through the gaps between them. */}
             <div class="panel-actions">
               <button
                 type="button"
