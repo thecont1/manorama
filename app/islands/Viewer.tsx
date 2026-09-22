@@ -1613,13 +1613,17 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           ) : null}
         </div>
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
-            page's own controls. */}
-        {arrowsVisible ? (
-          <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
-            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
-          </div>
-        ) : null}
+            page's own controls. The container always renders so the
+            sequence bubble keeps its dock when arrows are opted out. */}
+        <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
+          <span class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length}`} title={`Photograph ${index + 1} of ${images.length}`}>{index + 1}</span>
+          {arrowsVisible ? (
+            <>
+              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
+              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>

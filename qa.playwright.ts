@@ -1026,6 +1026,58 @@ for (const vp of viewports) {
       expect(boxes[1].bottom).toBeGreaterThan(stage.bottom - 100);
     });
 
+    test("the sequence bubble counts the active photograph and rides beside the nav buttons", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const seq = page.locator(".stage-seq");
+      await expect(seq).toBeVisible();
+      await expect(seq).toHaveText("1");
+      await expect(seq).toHaveAttribute(
+        "aria-label",
+        `Photograph 1 of ${await imageCount(page)}`,
+      );
+
+      // The bubble tracks the reported index as the strip advances.
+      await advanceToNextImage(page);
+      await expect(seq).toHaveText("2");
+
+      // With arrows on, it floats left of the button cluster; with them
+      // off it still docks at the bottom-right corner alone.
+      const coarse = await page.evaluate(() =>
+        matchMedia("(pointer: coarse)").matches,
+      );
+      await ensureNavArrows(page);
+      const nextArrow = page.getByRole("button", {
+        name: /next photograph/i,
+      });
+      const seqBox = await seq.boundingBox();
+      const nextBox = await nextArrow.boundingBox();
+      expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
+      if (!coarse) {
+        // Fine pointers cluster ← → together — the bubble precedes both.
+        const prevBox = await page
+          .getByRole("button", { name: /previous photograph/i })
+          .boundingBox();
+        expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(prevBox!.x + 1);
+      }
+
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: /hide navigation arrows/i })
+        .click();
+      await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await expect(seq).toBeVisible();
+      const bare = await seq.boundingBox();
+      const stage = await page
+        .locator("[data-stage]")
+        .evaluate((el) => el.getBoundingClientRect());
+      expect(bare!.x + bare!.width).toBeGreaterThan(stage.right - 80);
+      expect(bare!.y + bare!.height).toBeGreaterThan(stage.bottom - 80);
+    });
+
     test("one-at-a-time steps sweep the next photograph over the current one", async ({
       page,
     }) => {

@@ -131,6 +131,48 @@ button { color: inherit; }
    full-width container above. */
 .stage-arrows--vertical { flex-direction: column; align-items: flex-end; }
 
+/* The sequence bubble: a quiet counter riding the nav cluster, parked
+   just left of the buttons (or of the ↑/↓ column in vertical — the
+   absolute dock keeps it beside the group rather than inside the flow).
+   When arrows are opted out the bubble takes the corner slot itself. */
+.stage-seq {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 8px;
+  display: grid;
+  place-items: center;
+  min-width: clamp(44px, 6.3svh, 59px);
+  height: clamp(44px, 6.3svh, 59px);
+  padding: 0 12px;
+  border: 1px solid rgba(var(--ink), .18);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .55);
+  box-shadow: 2px 2px 0 rgba(var(--ink), .18);
+  color: rgba(var(--ink), .85);
+  font-size: clamp(13px, 2svh, 18px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  opacity: .5;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* No buttons to flank: the bubble claims the corner outright. */
+.stage-arrows--bare .stage-seq { right: 0; top: auto; bottom: 0; transform: none; margin-right: 0; }
+/* On touch the enabled arrows split to opposite corners — the bubble
+   stays docked just left of the forward arrow instead. */
+@media (pointer: coarse) {
+  .stage-arrows:not(.stage-arrows--bare) .stage-seq {
+    right: calc(clamp(44px, 6.3svh, 59px) + 8px);
+    top: 0;
+    transform: none;
+    margin-right: 0;
+  }
+}
+
 .controls-modal { position: fixed; z-index: 40; inset: 0; overflow: auto; display: grid; place-items: start center; padding: clamp(22px, 5vw, 72px); background: rgba(17, 20, 19, .73); backdrop-filter: blur(18px) saturate(.75); }
 .controls-modal[hidden] { display: none; }
 .controls-panel { width: min(760px, 100%); margin: auto; padding: clamp(22px, 4vw, 42px); border: 1px solid rgba(var(--ink), .14); background: rgba(28, 31, 30, .88); box-shadow: 0 24px 90px rgba(0, 0, 0, .35); }

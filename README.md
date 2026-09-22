@@ -31,7 +31,7 @@ Every gallery lives at a clean public URL — `manorama.xyz/{you}/{gallery}` —
 The stage shows only your photographs — a small bobbing Manorama pill at the bottom edge is the only visible chrome. Press it (or wave the mouse near it) for display settings.
 
 - **Three ways to look**: a horizontal photostrip where images abut edge-to-edge, a vertical scroll, or one photograph at a time.
-- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll).
+- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet bubble at the bottom-right counts the photograph you're on.
 - **`I`** opens the information sheet — position, caption, EXIF, Content Credentials. **`⇧I`** opens the standalone C2PA viewer in a new tab.
 - **`M`** on desktop summons a magnifier that follows your cursor at 3×.
 - **Video** plays ambient — muted and looping — with a megaphone for sound.
