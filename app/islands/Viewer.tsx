@@ -222,6 +222,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const viewportFrameRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
   const boundsDirtyRef = useRef(true)
+  // The "The End." card is mounted in the track but excluded from the
+  // pan range until the visitor pushes past the last photograph — then
+  // it joins the bounds and stays reachable for the session.
+  const endcapRevealedRef = useRef(false)
 
   const currentImage = images[index] ?? images[0]
   // The info panel speaks about whichever medium is on screen, and EXIF
@@ -308,7 +312,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (!boundsDirtyRef.current) return boundsRef.current
     const viewport = stageRef.current?.clientWidth ?? window.innerWidth
     const content = trackRef.current?.scrollWidth ?? 0
-    boundsRef.current = { min: 0, max: Math.max(0, content - viewport) }
+    let max = Math.max(0, content - viewport)
+    // The "The End." card stays out of the pan range until the visitor
+    // pushes past the last photograph — subtract its footprint (width
+    // plus its trailing margin) while it is unrevealed.
+    if (!endcapRevealedRef.current) {
+      const cap = trackRef.current?.querySelector<HTMLElement>('.viewer-endcap')
+      if (cap) max = Math.max(0, max - cap.offsetWidth - imageMarginPx)
+    }
+    boundsRef.current = { min: 0, max }
     boundsDirtyRef.current = false
     return boundsRef.current
   }
@@ -354,7 +366,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const renderX = (next: number, shouldReport = true) => {
-    const bounds = getBounds()
+    let bounds = getBounds()
+    // Pushing past the last photograph — drag, flick, or wheel — wakes
+    // the endcard: its footprint rejoins the bounds and the gesture
+    // carries straight into the reveal.
+    if (mode === 'strip' && !endcapRevealedRef.current && next < -bounds.max - 1) {
+      endcapRevealedRef.current = true
+      boundsDirtyRef.current = true
+      bounds = getBounds()
+    }
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
@@ -492,14 +512,24 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (mode !== 'strip') { step(direction); return }
-    // Wrap: right arrow at the last image returns to the first, left
-    // arrow at the first image jumps to the last.
+    // The strip is bounded: forward at the end rests on the "The End."
+    // card rather than wrapping; left arrow at the first image still
+    // jumps to the last.
     const bounds = getBounds()
     // Rapid taps accumulate: anchor each advance at the pending in-flight
     // destination (or the real position when idle), so the tap count
     // becomes the photo count travelled.
     const base = -(navDestXRef.current ?? currentXRef.current)
-    if (direction === 1 && base >= bounds.max - 1) { goTo(0); return }
+    if (direction === 1 && base >= bounds.max - 1) {
+      // At the last photograph a forward step reveals the endcard — the
+      // strip glides it in flush right rather than wrapping to the start.
+      if (endcapRevealedRef.current) return
+      endcapRevealedRef.current = true
+      boundsDirtyRef.current = true
+      navDestXRef.current = -getBounds().max
+      settleTo(navDestXRef.current, false, true)
+      return
+    }
     if (direction === -1 && base <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
     let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${leftmostFrameIndex(base) + 1}"]`) ?? null
@@ -1571,6 +1601,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               </figure>
             )
           })}
+          {/* The end of the strip: a borderless, full-height faux frame
+              that slides in behind the last photograph, so reaching the
+              end reads as an ending instead of a jarring wrap to the
+              start. */}
+          {mode === 'strip' ? (
+            <div class="viewer-endcap" aria-hidden="true">
+              <span>The</span>
+              <span>End.</span>
+            </div>
+          ) : null}
         </div>
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. */}

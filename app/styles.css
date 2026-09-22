@@ -1140,12 +1140,36 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
    10px gutter; vertical rows sit on a 10px-railed track with a 10px
    foot. Fallback frames (unhealed aspect-ratio, uncapped video) shrink
    to the margin box so the bands show even before dims land. */
-.viewer-stage:is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-frame {
+.viewer-stage:is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-frame,
+.viewer-stage:is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-endcap {
   margin: 10px 10px 10px 0;
   height: calc(100% - 20px);
 }
 .viewer-stage:is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 0 10px; }
 .viewer-stage:is(.bg-light, .bg-dark) .viewer-track--vertical .viewer-frame { margin-bottom: 10px; }
+
+/* The strip's terminal card: a borderless faux frame that the last
+   photograph pushes aside to reveal. Typeset in the wordmark's own
+   face (the .brand-tld pairing) so "The End." reads as a signature. */
+.viewer-endcap {
+  flex: 0 0 auto;
+  width: auto;
+  height: 100%;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--ink));
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(39px, 4.8vw, 51px);
+  font-weight: 800;
+  letter-spacing: .01em;
+  line-height: 1.15;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
 /* The photo grid and content sit above the decorative doodle layer. */
 .viewer-track { position: relative; z-index: 1; }
 /* Vertical scroll mode: the stage itself is the scroll container, and an

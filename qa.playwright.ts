@@ -1207,6 +1207,88 @@ for (const vp of viewports) {
       expect(advance).toBeLessThanOrEqual(viewportWidth + 1);
     });
 
+    test("the strip ends on a 'The End.' card instead of wrapping", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const endcap = page.locator(".viewer-endcap");
+      await expect(endcap).toHaveCount(1);
+      await expect(endcap).toHaveText(/The\s*End\./);
+      // A borderless faux frame: wordmark type 3×, 20px side padding,
+      // full stage height — wider than the old fixed 100px.
+      const stageBox = await page.locator("[data-stage]").boundingBox();
+      const capBox = await endcap.boundingBox();
+      expect(capBox!.width).toBeGreaterThan(110);
+      expect(Math.abs(capBox!.height - stageBox!.height)).toBeLessThan(2);
+
+      await ensureNavArrows(page);
+      await page.keyboard.press("Escape");
+      // Reaching the last photograph alone does NOT reveal the card —
+      // the pan range ends at the photo's right edge.
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      const hidden = await endcap.boundingBox();
+      expect(hidden!.x).toBeGreaterThanOrEqual(
+        stageBox!.x + stageBox!.width - 1,
+      );
+
+      // Stepping past the end slides it in flush with the stage's right.
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await waitForTrackSettled(page);
+      const shown = await endcap.boundingBox();
+      expect(
+        Math.abs(shown!.x + shown!.width - (stageBox!.x + stageBox!.width)),
+      ).toBeLessThan(2);
+
+      // And the arrow stops there — no wrap back to the first image.
+      const trackLeft = () =>
+        page
+          .locator("[data-track]")
+          .evaluate((track) => track.getBoundingClientRect().left);
+      const atEnd = await trackLeft();
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await waitForTrackSettled(page);
+      expect(Math.abs((await trackLeft()) - atEnd)).toBeLessThan(2);
+      // aria-current is the leftmost visible frame — on wide stages
+      // that is an earlier photo, so the no-wrap check is "not 1".
+      await expect(
+        page.locator("[aria-current='true']"),
+      ).not.toHaveAttribute("data-index", "1");
+
+      // The card belongs to the strip alone.
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .locator(".mode-options label", { hasText: /vertical scroll/i })
+        .click();
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await expect(endcap).toHaveCount(0);
+    });
+
+    test("dragging past the last photograph reveals the endcard", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const stageBox = await page.locator("[data-stage]").boundingBox();
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      const endcap = page.locator(".viewer-endcap");
+      expect(
+        (await endcap.boundingBox())!.x,
+      ).toBeGreaterThanOrEqual(stageBox!.x + stageBox!.width - 1);
+      // A pull past the strip's end carries the card in with the drag.
+      const cx = stageBox!.x + stageBox!.width / 2;
+      const cy = stageBox!.y + stageBox!.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx - 160, cy, { steps: 12 });
+      await page.mouse.up();
+      await waitForTrackSettled(page);
+      const shown = await endcap.boundingBox();
+      expect(shown!.x).toBeLessThan(stageBox!.x + stageBox!.width - 1);
+    });
+
     test("no layout shift while images load", async ({ page, playwright }) => {
       // Runs on a spawned gallery whose manifest dims match the real
       // pixels: frames are born at their final geometry, so nothing
