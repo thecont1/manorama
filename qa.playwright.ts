@@ -91,8 +91,10 @@ async function dismissCurtain(
 // reorders, creates). The dev seed plugin's reset seam restores canonical
 // state so a case's outcome never depends on what ran before it.
 test.beforeEach(async ({ request, page }) => {
-  // Reduced motion keeps the bobbing logo tab click-stable for every spec;
-  // the bob itself is verified under no-preference in its own test.
+  // Reduced motion keeps animated chrome click-stable for every spec.
+  // RULE: a spec that asserts an animation mid-flight (is-lifting, the
+  // logo bob, sweeps) must re-emulate no-preference first — under reduce
+  // the transition is ~0ms and intermediate states die in one frame.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reset = await request.post(`${BASE}/.dev-seed/reset`);
   expect(reset.status(), "dev seed reset — is this `bun run dev`?").toBe(204);
@@ -187,6 +189,10 @@ test("curtain uses larger brand type without entry labels", async ({
 });
 
 test("curtain lifts upward before it hides", async ({ page }) => {
+  // This spec asserts the lift itself — under the suite-wide reduced
+  // motion emulation the transition is ~0ms and is-lifting only exists
+  // for a frame, so run it with motion on.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
@@ -199,6 +205,8 @@ test("curtain lifts upward before it hides", async ({ page }) => {
 test("curtain reveal remains visible through a calmer lift before it hides", async ({
   page,
 }) => {
+  // Lift duration is asserted — motion required (see the spec above).
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
@@ -211,6 +219,8 @@ test("curtain reveal remains visible through a calmer lift before it hides", asy
 test("curtain accepts an upward swipe before it lifts away", async ({
   page,
 }) => {
+  // Lift class asserted — motion required.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await page.mouse.move(300, 520);
@@ -593,6 +603,8 @@ for (const vp of viewports) {
 
     test("touch upward swipe lifts the opening curtain", async ({ page }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
+      // Lift class asserted — motion required.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       await page.goto(GALLERY);
       const client = await page.context().newCDPSession(page);
       const curtain = page.locator("[data-curtain]");
