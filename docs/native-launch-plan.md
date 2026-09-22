@@ -31,6 +31,9 @@ Submission closes Sep 30 at 11:45 PM PDT, with judging Oct 1–13
 Set the App Store release to **manual** so release date is under our control, then release
 the moment approval lands — do not let an automatic release slip past Sep 30.
 
+Owner-only setup — Apple, RevenueCat, AdMob, the Mac — is sequenced in
+[`docs/owner-setup-runbook.md`](./owner-setup-runbook.md).
+
 ### Two blockers that must be cleared today, before any code
 
 1. **Apple Developer Program membership.** Individual enrollment is normally 24–48 hours to
@@ -331,7 +334,13 @@ the product. Mac App Store distribution via notarisation. Deliberately post-Ship
 
 If Sep 25 arrives and the build is not submittable, drop in this order and no other:
 E3 (Duo SDK polish) → B6 (account slot) → C4 (global view) → D3 (HDR) → C5 (vault settings) →
-D4 (DPR cap) → B7 (house plate).
+D4 (DPR cap).
 
-Never cut: A2–A4 (shell), B1/B3/B4/B8 (eligibility and ad safety), C1–C3 (vault and offline —
+Never cut: A2–A4 (shell), B1/B3/B4/B7/B8 (eligibility and ad safety), C1–C3 (vault and offline —
 the 4.2 defence), D1 (one plist line), F1–F3/F5 (submission).
+
+**B7 was promoted out of the cut list on Sep 22.** A new AdMob app stays in limited ad serving
+until it is published and store-linked, so the plate will barely fill before launch. Without a
+house plate a reviewer sees an empty frame, and Shipaton eligibility shifts onto the IAP (B3)
+rather than RevenueCat Ads. Owner-side prerequisites are in
+[`docs/owner-setup-runbook.md`](./owner-setup-runbook.md).

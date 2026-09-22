@@ -10,6 +10,7 @@ Companion documents:
 - `docs/native-launch-plan.md` — the native/Shipaton plan. Authoritative on what we are building this week.
 - `docs/manorama-operations.md` — gallery lifecycle, source-link rules, destructive-action policy.
 - `VERIFICATION.md` — how to prove a change works.
+- `docs/owner-setup-runbook.md` — Apple, RevenueCat, AdMob and Mac setup. Owner-only; agents cannot action it.
 
 Issue tracker: GitHub issues #12–#43, tracked in #44.
 
@@ -212,10 +213,14 @@ Submission target **Sat Sep 26 2026**; the app must be *released* before **Wed S
 purely so Galaxy Store stays available as break-glass.
 
 Cut list, in order, if Friday arrives and the build is not submittable:
-#35 → #21 → #27 → #31 → #28 → #32 → #22.
+#35 → #21 → #27 → #31 → #28 → #32.
+
+#22 (house fallback plate) was promoted out of the cut list on Sep 22: AdMob will not serve
+normally until the app is published and store-linked, so without a house plate the slot is empty
+in front of a reviewer, and Shipaton eligibility rests on the IAP (#18) rather than on ads.
 
 Never cut: #14 #15 (shell) · #16 #18 #19 #23 (Shipaton eligibility and ad safety) ·
-#24 #25 #26 (vault and offline — the Guideline 4.2 defence) · #29 (one plist line) ·
+#22 (house plate) · #24 #25 #26 (vault and offline — the Guideline 4.2 defence) · #29 ·
 #36 #37 #38 #40 (submission).
 
 If you are ever unsure whether something belongs in this week's scope, it does not.
