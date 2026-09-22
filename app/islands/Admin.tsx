@@ -4,7 +4,6 @@ import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
 
-
 type Props = {
   galleries: readonly GallerySummary[]
   owner: string
