@@ -16,7 +16,7 @@ let previousWindow: unknown
 let SeededDoodleBackground: (props: Record<string, unknown>) => unknown
 
 beforeAll(async () => {
-  const window = new Window({ width: 1440, height: 900 })
+  const window = new Window({ width: 1440, height: 900, url: 'http://localhost/' })
   previousWindow = globals.window
   globals.window = window
   globals.document = window.document
@@ -30,7 +30,17 @@ afterAll(() => {
 const render = (props: Record<string, unknown>) => String(SeededDoodleBackground(props))
 
 describe('SeededDoodleBackground markup', () => {
-  test('emits an inert, aria-hidden svg layer', () => {
+  test('uses a zero viewport before mount so SSR and hydration start from the same empty layer', () => {
+    const win = globals.window as Window
+    win.history.replaceState(null, '', '/mahesh/live?mode=single')
+
+    // The server cannot know the viewport. The browser hydration render must
+    // therefore also start empty; the mount effect fills the layer afterwards.
+    expect(SeededDoodleBackground({ enabled: true })).toBeNull()
+    expect(win.location.pathname + win.location.search).toBe('/mahesh/live?mode=single')
+  })
+
+  test('emits an inert, aria-hidden svg layer when given an explicit render URL', () => {
     const html = render({ url: '/mahesh/kashi' })
     expect(html).toContain('<svg')
     expect(html).toContain('aria-hidden="true"')

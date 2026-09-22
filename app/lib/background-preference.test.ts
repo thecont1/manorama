@@ -5,6 +5,7 @@ import {
   BACKGROUND_KEY,
   DEFAULT_BACKGROUND,
   backgroundEnabled,
+  backgroundPreferenceFromEvent,
   loadBackgroundPreference,
   normalizeBackground,
   saveBackgroundPreference,
@@ -77,6 +78,12 @@ describe('persistence', () => {
     win.addEventListener(BACKGROUND_EVENT, ((event: { detail?: unknown }) => { heard = String(event.detail) }) as never)
     saveBackgroundPreference('doodle')
     expect(heard).toBe('doodle')
+  })
+
+  test('reads the same-tab custom event detail without depending on storage', () => {
+    expect(backgroundPreferenceFromEvent({ detail: 'doodle' })).toBe('doodle')
+    expect(backgroundPreferenceFromEvent({ detail: 'flat' })).toBe('flat')
+    expect(backgroundPreferenceFromEvent({ detail: 'corrupt' })).toBe(DEFAULT_BACKGROUND)
   })
 
   test('a throwing localStorage never breaks the render path', () => {

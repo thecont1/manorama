@@ -39,12 +39,18 @@ const viewportNow = () => ({
   height: typeof window === 'undefined' ? 0 : window.innerHeight,
 })
 
+const currentHref = () => typeof window === 'undefined' ? '' : window.location.pathname + window.location.search
+
 export default function SeededDoodleBackground({ url, enabled = true, maxIcons = DEFAULT_MAX_ICONS }: Props) {
-  // Zero until mounted: the server cannot know the viewport, so SSR emits
-  // an empty layer and the first client effect fills it in. That keeps
-  // hydration from diffing a server grid against a client one.
-  const [viewport, setViewport] = useState(() => (typeof window === 'undefined' ? { width: 0, height: 0 } : viewportNow()))
-  const [href, setHref] = useState(url ?? '')
+  // The server cannot know the viewport. Live islands (no explicit URL)
+  // therefore start at zero on both SSR and the browser's hydration render;
+  // the mount effect fills the real viewport afterwards. Explicit URLs are
+  // retained for deterministic render tests and non-hydrated callers.
+  const [viewport, setViewport] = useState(() => (url === undefined ? { width: 0, height: 0 } : viewportNow()))
+  // The URL is safe to read during the first client render: while viewport
+  // is zero no SVG is emitted, so it cannot create a hydration mismatch.
+  // This avoids ever generating a visible `/` pattern before the URL effect.
+  const [href, setHref] = useState(() => url ?? currentHref())
 
   // Track the URL without a router: history navigation in this app swaps
   // the whole document, but a pushState-based transition (or a future

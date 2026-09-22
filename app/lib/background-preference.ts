@@ -60,3 +60,9 @@ export const saveBackgroundPreference = (value: BackgroundPreference): void => {
 }
 
 export const backgroundEnabled = (value: BackgroundPreference): boolean => value === 'doodle'
+
+/** Same-tab listeners consume the custom event payload directly. Re-reading
+ * localStorage here would undo the user's choice when storage is unavailable
+ * (for example Safari private mode), even though the in-memory toggle worked. */
+export const backgroundPreferenceFromEvent = (event: Pick<CustomEvent<unknown>, 'detail'>): BackgroundPreference =>
+  normalizeBackground(event.detail)

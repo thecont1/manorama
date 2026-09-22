@@ -4,7 +4,7 @@ import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
 import SeededDoodleBackground from './SeededDoodleBackground'
-import { BACKGROUND_EVENT, backgroundEnabled, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
+import { BACKGROUND_EVENT, backgroundEnabled, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -123,12 +123,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   useEffect(() => {
     setDoodle(backgroundEnabled(loadBackgroundPreference()))
-    const sync = () => setDoodle(backgroundEnabled(loadBackgroundPreference()))
-    window.addEventListener('storage', sync)
-    window.addEventListener(BACKGROUND_EVENT, sync)
+    const syncFromStorage = () => setDoodle(backgroundEnabled(loadBackgroundPreference()))
+    const syncFromEvent = (event: Event) => setDoodle(backgroundEnabled(backgroundPreferenceFromEvent(event as CustomEvent<unknown>)))
+    window.addEventListener('storage', syncFromStorage)
+    window.addEventListener(BACKGROUND_EVENT, syncFromEvent)
     return () => {
-      window.removeEventListener('storage', sync)
-      window.removeEventListener(BACKGROUND_EVENT, sync)
+      window.removeEventListener('storage', syncFromStorage)
+      window.removeEventListener(BACKGROUND_EVENT, syncFromEvent)
     }
   }, [])
 
