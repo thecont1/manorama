@@ -2100,6 +2100,102 @@ test.describe("M magnifier (desktop only)", () => {
     await context.close();
   });
 
+  test("the lens magnifies the point under the cursor, not an offset of it", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      hasTouch: false,
+      extraHTTPHeaders: { Cookie: await sessionCookie() },
+    });
+    const page = await context.newPage();
+    await dismissCurtain(page);
+
+    // A marker injected into the stage is cloned into the lens world —
+    // its transformed position must sit at the lens centre.
+    const pt = { x: 400, y: 300 };
+    await page.evaluate(({ x, y }) => {
+      const marker = document.createElement("div");
+      marker.className = "probe-dot";
+      marker.style.cssText = `position:absolute;left:${x - 4}px;top:${y - 4}px;width:8px;height:8px;background:#f0f;z-index:99;`;
+      document.querySelector("[data-stage]")!.appendChild(marker);
+    }, pt);
+    await page.mouse.move(pt.x, pt.y);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toBeVisible();
+    await page.waitForTimeout(300);
+
+    const probe = await page.evaluate(() => {
+      const lens = document.querySelector(".magnifier-lens")!.getBoundingClientRect();
+      const dot = document
+        .querySelector(".magnifier-world .probe-dot")!
+        .getBoundingClientRect();
+      return {
+        lens: { x: lens.left + lens.width / 2, y: lens.top + lens.height / 2 },
+        dot: { x: dot.left + dot.width / 2, y: dot.top + dot.height / 2 },
+      };
+    });
+    expect(Math.abs(probe.dot.x - probe.lens.x)).toBeLessThanOrEqual(3);
+    expect(Math.abs(probe.dot.y - probe.lens.y)).toBeLessThanOrEqual(3);
+    await context.close();
+  });
+
+  test("the lens stays centred on the cursor in a scrolled vertical feed", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      hasTouch: false,
+      extraHTTPHeaders: { Cookie: await sessionCookie() },
+    });
+    const page = await context.newPage();
+    await dismissCurtain(page);
+    await page
+      .getByRole("button", { name: "Display settings", exact: true })
+      .click();
+    await page
+      .locator(".mode-options label", { hasText: /vertical scroll/i })
+      .click();
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+    await page.keyboard.press("Escape");
+
+    // Deep-scroll the feed and wait for the track to settle — frame
+    // heights heal as images decode, which grows scrollHeight and can
+    // clamp an early scrollTop. The marker is then placed relative to
+    // the *settled* scroll offset, straight under the cursor's viewport
+    // point — that is where scroll-compensation matters.
+    await page.evaluate(() => {
+      document.querySelector("[data-stage]")!.scrollTop = 1500;
+    });
+    await page.waitForTimeout(1500);
+    const pt = { x: 720, y: 450 };
+    await page.evaluate(({ x, y }) => {
+      const stage = document.querySelector("[data-stage]")!;
+      const marker = document.createElement("div");
+      marker.className = "probe-dot";
+      marker.style.cssText = `position:absolute;left:${x - 4}px;top:${stage.scrollTop + y - 4}px;width:8px;height:8px;background:#f0f;z-index:99;`;
+      stage.appendChild(marker);
+    }, pt);
+    await page.mouse.move(pt.x, pt.y);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toBeVisible();
+    await page.waitForTimeout(300);
+
+    const probe = await page.evaluate(() => {
+      const lens = document.querySelector(".magnifier-lens")!.getBoundingClientRect();
+      const dot = document
+        .querySelector(".magnifier-world .probe-dot")!
+        .getBoundingClientRect();
+      return {
+        lens: { x: lens.left + lens.width / 2, y: lens.top + lens.height / 2 },
+        dot: { x: dot.left + dot.width / 2, y: dot.top + dot.height / 2 },
+      };
+    });
+    expect(Math.abs(probe.dot.x - probe.lens.x)).toBeLessThanOrEqual(3);
+    expect(Math.abs(probe.dot.y - probe.lens.y)).toBeLessThanOrEqual(3);
+    await context.close();
+  });
+
   test("the lens is decorative — mirrored content is aria-hidden", async ({ page }) => {
     await dismissCurtain(page);
     await page.mouse.move(700, 450);

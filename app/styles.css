@@ -1122,9 +1122,9 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
    canvas — never over photographs or UI. The stage itself paints the
    canvas colour beneath the layer, so the field reads against a solid
    ground in both pairings. */
-.viewer-stage .viewer-track,
-.viewer-stage .viewer-frame,
-.viewer-stage .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
+:is(.viewer-stage, .magnifier-world) .viewer-track,
+:is(.viewer-stage, .magnifier-world) .viewer-frame,
+:is(.viewer-stage, .magnifier-world) .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
 
 /* Background pairing: Dark (default) is the near-black canvas with
    light-ink doodles; Light flips the stage's ground to the app's
@@ -1133,20 +1133,20 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
    readable over both. The html.light override below is the admin
    app's theme switch — the viewer manages its ink independently. */
 html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
-.viewer-stage.bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
+:is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
 /* Light and Dark give every image a 10px margin ('none' abuts). The
    frame carries the margin, the staged image inside it is already
    shrunk to fit: strip frames get top/bottom/right so neighbours keep a
    10px gutter; vertical rows sit on a 10px-railed track with a 10px
    foot. Fallback frames (unhealed aspect-ratio, uncapped video) shrink
    to the margin box so the bands show even before dims land. */
-.viewer-stage:is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-frame,
-.viewer-stage:is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-endcap {
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-frame,
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-endcap {
   margin: 10px 10px 10px 0;
   height: calc(100% - 20px);
 }
-.viewer-stage:is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 0 10px; }
-.viewer-stage:is(.bg-light, .bg-dark) .viewer-track--vertical .viewer-frame { margin-bottom: 10px; }
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 0 10px; }
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical .viewer-frame { margin-bottom: 10px; }
 
 /* The strip's terminal card: a borderless faux frame that the last
    photograph pushes aside to reveal. Typeset in the wordmark's own
@@ -1178,4 +1178,4 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
    A sticky layer stays pinned in the scrollport at every depth while
    remaining inside the stage's isolated stacking context, beneath the
    photographs. */
-.viewer-stage.mode-vertical .doodle-bg { position: sticky; top: 0; }
+:is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg { position: sticky; top: 0; }

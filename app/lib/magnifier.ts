@@ -140,6 +140,14 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     const rect = stage.getBoundingClientRect()
     world.style.width = `${rect.width}px`
     world.style.height = `${rect.height}px`
+    // The stage's measured height feeds rules like vertical mode's
+    // `max-height: var(--viewer-stage-height)` — the world lives on
+    // document.body, where the var would fall back to 100dvh and lay the
+    // clone out taller than the stage it mirrors.
+    world.style.setProperty(
+      '--viewer-stage-height',
+      stage.style.getPropertyValue('--viewer-stage-height') || `${rect.height}px`,
+    )
     const track = stage.querySelector<HTMLElement>('[data-track]')
     const clonedTrack = world.querySelector<HTMLElement>('[data-track]')
     if (track && clonedTrack) clonedTrack.style.transform = track.style.transform
@@ -177,7 +185,15 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     const img = frameEl?.querySelector<HTMLImageElement>('img.frame-img') ?? null
     const imgRect = img?.getBoundingClientRect()
     const scale = lensScale(img?.naturalWidth ?? 0, img?.naturalHeight ?? 0, imgRect?.width ?? 0, imgRect?.height ?? 0)
-    world.style.transform = `translate(${radius - scale * sx}px, ${radius - scale * sy}px) scale(${scale})`
+    // The scroller mirrors the stage's own scroll offsets, subtracting
+    // them after the transform — so the point under the cursor lives at
+    // (sx + scrollLeft, sy + scrollTop) in content space and the offset
+    // must be folded back: radius - S·(s + scroll) + scroll. Without it
+    // the lens drifts (S - 1)·scrollTop off in a scrolled vertical stage.
+    const scrollX = scroller.scrollLeft
+    const scrollY = scroller.scrollTop
+    world.style.transform =
+      `translate(${radius - scale * (sx + scrollX) + scrollX}px, ${radius - scale * (sy + scrollY) + scrollY}px) scale(${scale})`
   }
 
   const schedule = () => {
