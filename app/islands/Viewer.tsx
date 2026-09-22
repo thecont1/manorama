@@ -117,6 +117,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [gridOpen, setGridOpen] = useState(false)
   const [gridSel, setGridSel] = useState(index)
   const [gridClosing, setGridClosing] = useState(false)
+  const gridOpenRef = useRef(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   // Vertical scroll keeps arrows off by default regardless of the
   // gallery-wide setting — the feed scrolls natively, so they're only
@@ -211,19 +212,21 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       gridCloseTimerRef.current = null
     }
     anyModalOpenRef.current = true
+    gridOpenRef.current = true
     setGridSel(indexRef.current)
     setGridClosing(false)
     setGridOpen(true)
   }
   const closeModals = () => {
     anyModalOpenRef.current = false
+    gridOpenRef.current = false
     setModalOpen(false)
     setInfoOpen(false)
     setGridOpen(false)
     setGridClosing(false)
   }
   const requestCloseModals = () => {
-    if (!gridOpen) { closeModals(); return }
+    if (!gridOpenRef.current) { closeModals(); return }
     if (gridCloseTimerRef.current) return
     setGridClosing(true)
     gridCloseTimerRef.current = setTimeout(() => {
@@ -766,7 +769,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
         event.preventDefault()
-        closeModals()
+        requestCloseModals()
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
@@ -787,17 +790,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented) return
       if (isTypingTarget(event.target as HTMLElement | null)) return
-      if (event.key === 'Escape' && gridOpen) { event.preventDefault(); requestCloseModals(); return }
+      const actions = gridActionsRef.current
+      if (gridOpenRef.current) {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') { event.preventDefault(); actions.stepGridSel(event.key); return }
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); actions.commitGridSel(); return }
+      }
+      if (event.key === 'Escape' && gridOpenRef.current) { event.preventDefault(); actions.requestCloseModals(); return }
       if (event.key !== 'g' && event.key !== 'G') return
       if (!document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
-      if (gridOpen) requestCloseModals()
-      else if (!anyModalOpenRef.current) openGrid()
+      if (gridOpenRef.current) actions.requestCloseModals()
+      else if (!anyModalOpenRef.current) actions.openGrid()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [gridOpen])
+  }, [])
 
   useEffect(() => {
     if (!gridOpen) return
@@ -869,6 +878,27 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       goTo(imageIndex)
     }, 180)
   }
+  // Selection follows the pink box (data-grid-active), never DOM focus —
+  // arrows work whether or not a thumbnail has had time to take focus.
+  const gridItems = () => [...(gridModalRef.current?.querySelectorAll<HTMLButtonElement>('[data-grid-item]') ?? [])]
+  const stepGridSel = (key: string) => {
+    const items = gridItems()
+    if (!items.length) return
+    const current = Math.max(0, items.findIndex((el) => el.hasAttribute('data-grid-active')))
+    const next = key === 'Home' ? 0 : key === 'End' ? items.length - 1 : (current + (key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
+    setGridSel(next)
+    items[next]?.focus()
+    items[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+  const commitGridSel = () => {
+    const sel = gridItems().findIndex((el) => el.hasAttribute('data-grid-active'))
+    if (sel >= 0) selectFilmstripImage(sel)
+  }
+  // The window key handler subscribes once and reaches these through a ref —
+  // deps like [gridOpen] would unplug it for a few frames on every open/close
+  // (hono/jsx re-arms passive effects asynchronously) and swallow a fast G.
+  const gridActionsRef = useRef({ openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel })
+  gridActionsRef.current = { openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel }
 
   // Magnifier availability is a media-query question, answered on the
   // client only: the server cannot know the pointer type, so the shortcut
@@ -1780,20 +1810,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
         <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
-          const modal = event.currentTarget as HTMLElement
-          const items = [...modal.querySelectorAll<HTMLButtonElement>('[data-grid-item]')]
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
-            const current = items.indexOf(document.activeElement as HTMLButtonElement)
-            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
-            setGridSel(next)
-            items[next]?.focus()
-            items[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+            stepGridSel(event.key)
             return
           }
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
-            selectFilmstripImage(gridSel)
+            commitGridSel()
             return
           }
           onModalKeyDown(event)
@@ -1807,13 +1831,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                   type="button"
                   class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
                   data-grid-item
-                  data-grid-active={imageIndex === gridSel ? true : undefined}
+                  data-grid-active={imageIndex === gridSel ? 'true' : undefined}
                   aria-current={imageIndex === gridSel ? 'true' : undefined}
                   aria-label={`${video ? 'Video' : 'Photograph'} ${imageIndex + 1} of ${images.length}`}
-                  onPointerEnter={() => { if (!filmstripPanRef.current) setGridSel(imageIndex) }}
+                  onPointerMove={() => {
+                    if (filmstripPanRef.current || imageIndex === gridSel) return
+                    setGridSel(imageIndex)
+                  }}
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
-                  <img src={thumb} loading="lazy" alt="" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                  <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                   {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
                 </button>
               })}
