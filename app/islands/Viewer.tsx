@@ -6,7 +6,7 @@ import { effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
-import { BACKGROUND_EVENT, backgroundEnabled, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
+import { BACKGROUND_EVENT, backgroundIsLight, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
@@ -123,7 +123,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // existing galleries look untouched until a visitor opts in. Read as
   // 'flat' for SSR, then reconciled on mount so server and client markup
   // agree during hydration.
-  const [doodle, setDoodle] = useState(false)
+  // The doodle field is always on; this only picks the canvas/ink pairing.
+  const [background, setBackground] = useState<BackgroundPreference>('dark')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -225,11 +226,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   // Background preference is global chrome: adopt the stored value after
   // mount (SSR cannot read localStorage), then stay in sync with other
-  // tabs and with any other island that flips it.
+  // tabs and with any other island that changes it.
   useEffect(() => {
-    setDoodle(backgroundEnabled(loadBackgroundPreference()))
-    const syncFromStorage = () => setDoodle(backgroundEnabled(loadBackgroundPreference()))
-    const syncFromEvent = (event: Event) => setDoodle(backgroundEnabled(backgroundPreferenceFromEvent(event as CustomEvent<unknown>)))
+    setBackground(loadBackgroundPreference())
+    const syncFromStorage = () => setBackground(loadBackgroundPreference())
+    const syncFromEvent = (event: Event) => setBackground(backgroundPreferenceFromEvent(event as CustomEvent<unknown>))
     window.addEventListener('storage', syncFromStorage)
     window.addEventListener(BACKGROUND_EVENT, syncFromEvent)
     return () => {
@@ -1338,7 +1339,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode}${doodle ? ' has-doodle' : ''}`}
+        class={`viewer-stage mode-${mode} bg-${background}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -1347,7 +1348,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             the stage's isolated stacking context at z-index 0, it shows
             through only the transparent gaps between tiles and the
             exposed canvas — never over photographs or UI. */}
-        <SeededDoodleBackground enabled={doodle} />
+        <SeededDoodleBackground enabled />
         <div
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
@@ -1595,17 +1596,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section" aria-labelledby="background-heading">
             <h3 id="background-heading">Background</h3>
-            {/* The pattern is keyed to this gallery's URL, so the same
-                album always wears the same field. It sits beneath the
-                photographs and shows through the gaps between them. */}
-            <div class="panel-actions">
-              <button
-                type="button"
-                class="panel-action"
-                aria-pressed={doodle ? 'true' : 'false'}
-                data-doodle-toggle
-                onClick={() => { const next = !doodle; setDoodle(next); saveBackgroundPreference(next ? 'doodle' : 'flat') }}
-              >{doodle ? 'Hide doodle pattern' : 'Show doodle pattern'}</button>
+            {/* The doodle field is always on beneath the photographs; this
+                only picks the pairing. The pattern itself is keyed to this
+                gallery's URL, so the same album always wears the same
+                field — light background inks it in dark, and vice versa. */}
+            <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
+              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles on black</small></label>
+              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles on light</small></label>
             </div>
           </section>
 

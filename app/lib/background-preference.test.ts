@@ -4,7 +4,7 @@ import {
   BACKGROUND_EVENT,
   BACKGROUND_KEY,
   DEFAULT_BACKGROUND,
-  backgroundEnabled,
+  backgroundIsLight,
   backgroundPreferenceFromEvent,
   loadBackgroundPreference,
   normalizeBackground,
@@ -31,15 +31,18 @@ afterEach(() => {
 
 describe('normalizeBackground', () => {
   test('accepts the two canonical values', () => {
-    expect(normalizeBackground('doodle')).toBe('doodle')
-    expect(normalizeBackground('flat')).toBe('flat')
+    expect(normalizeBackground('light')).toBe('light')
+    expect(normalizeBackground('dark')).toBe('dark')
   })
 
-  test('tolerates a boolean shape', () => {
-    expect(normalizeBackground(true)).toBe('doodle')
-    expect(normalizeBackground(false)).toBe('flat')
-    expect(normalizeBackground('true')).toBe('doodle')
-    expect(normalizeBackground('false')).toBe('flat')
+  test('migrates the pre-doodle-always shapes onto the dark pairing', () => {
+    // 'doodle'/true meant the pattern was on: that is now the default dark
+    // canvas. 'flat'/false simply had it off — there is no off any more.
+    expect(normalizeBackground('doodle')).toBe('dark')
+    expect(normalizeBackground(true)).toBe('dark')
+    expect(normalizeBackground('true')).toBe('dark')
+    expect(normalizeBackground('flat')).toBe('dark')
+    expect(normalizeBackground(false)).toBe('dark')
   })
 
   test('falls back to the default for anything else', () => {
@@ -50,20 +53,20 @@ describe('normalizeBackground', () => {
 })
 
 describe('persistence', () => {
-  test('defaults to flat so existing galleries are untouched', () => {
-    expect(loadBackgroundPreference()).toBe('flat')
-    expect(backgroundEnabled('flat')).toBe(false)
-    expect(backgroundEnabled('doodle')).toBe(true)
+  test('defaults to dark so existing galleries are untouched', () => {
+    expect(loadBackgroundPreference()).toBe('dark')
+    expect(backgroundIsLight('dark')).toBe(false)
+    expect(backgroundIsLight('light')).toBe(true)
   })
 
   test('round-trips through localStorage under one global key', () => {
-    saveBackgroundPreference('doodle')
-    expect(loadBackgroundPreference()).toBe('doodle')
+    saveBackgroundPreference('light')
+    expect(loadBackgroundPreference()).toBe('light')
     const win = globals.window as unknown as Window
-    expect(win.localStorage.getItem(BACKGROUND_KEY)).toBe('doodle')
+    expect(win.localStorage.getItem(BACKGROUND_KEY)).toBe('light')
 
-    saveBackgroundPreference('flat')
-    expect(loadBackgroundPreference()).toBe('flat')
+    saveBackgroundPreference('dark')
+    expect(loadBackgroundPreference()).toBe('dark')
   })
 
   test('a corrupt stored value degrades to the default', () => {
@@ -76,13 +79,13 @@ describe('persistence', () => {
     const win = globals.window as unknown as Window
     let heard: string | null = null
     win.addEventListener(BACKGROUND_EVENT, ((event: { detail?: unknown }) => { heard = String(event.detail) }) as never)
-    saveBackgroundPreference('doodle')
-    expect(heard).toBe('doodle')
+    saveBackgroundPreference('light')
+    expect(heard).toBe('light')
   })
 
   test('reads the same-tab custom event detail without depending on storage', () => {
-    expect(backgroundPreferenceFromEvent({ detail: 'doodle' })).toBe('doodle')
-    expect(backgroundPreferenceFromEvent({ detail: 'flat' })).toBe('flat')
+    expect(backgroundPreferenceFromEvent({ detail: 'light' })).toBe('light')
+    expect(backgroundPreferenceFromEvent({ detail: 'dark' })).toBe('dark')
     expect(backgroundPreferenceFromEvent({ detail: 'corrupt' })).toBe(DEFAULT_BACKGROUND)
   })
 
@@ -97,12 +100,12 @@ describe('persistence', () => {
       dispatchEvent: () => true,
     }
     expect(loadBackgroundPreference()).toBe(DEFAULT_BACKGROUND)
-    expect(() => saveBackgroundPreference('doodle')).not.toThrow()
+    expect(() => saveBackgroundPreference('light')).not.toThrow()
   })
 
-  test('reads as flat when there is no window at all (SSR)', () => {
+  test('reads as dark when there is no window at all (SSR)', () => {
     globals.window = undefined
     expect(loadBackgroundPreference()).toBe(DEFAULT_BACKGROUND)
-    expect(() => saveBackgroundPreference('doodle')).not.toThrow()
+    expect(() => saveBackgroundPreference('light')).not.toThrow()
   })
 })

@@ -1,10 +1,12 @@
 /**
- * The "Background" preference: doodle field or flat.
+ * The "Background" preference: Dark canvas with light-ink doodles, or
+ * Light canvas with dark-ink doodles. The doodle field itself is
+ * always on — this only picks the ink/canvas pairing.
  *
  * App-wide chrome, not per-album styling — so it follows the
  * `manorama:theme` precedent and lives under one global key rather than
- * the per-slug `manorama:view:<slug>` bag. A visitor who turns the
- * pattern on for one gallery expects it on the next one too; the
+ * the per-slug `manorama:view:<slug>` bag. A visitor who picks a
+ * background for one gallery expects it on the next one too; the
  * *pattern itself* still differs per URL, because that comes from the
  * seed, not from this flag.
  *
@@ -13,20 +15,23 @@
  * exception on the render path.
  */
 
-export type BackgroundPreference = 'doodle' | 'flat'
+export type BackgroundPreference = 'light' | 'dark'
 
 export const BACKGROUND_KEY = 'manorama:background'
-export const DEFAULT_BACKGROUND: BackgroundPreference = 'flat'
+export const DEFAULT_BACKGROUND: BackgroundPreference = 'dark'
 
 /** Event fired on the window so every mounted island reacts to a change
  *  in the same tab (the native `storage` event only crosses tabs). */
 export const BACKGROUND_EVENT = 'manorama:background-change'
 
-/** Accepts the stored string, and tolerates the boolean shape in case a
- *  caller persisted `true`/`false` instead. */
+/** Accepts the stored string. The pre-doodle-always era persisted
+ *  'doodle'/'flat' (and, even earlier, a boolean): a visitor who had the
+ *  pattern on keeps the dark canvas; anything else lands on the dark
+ *  default. */
 export const normalizeBackground = (value: unknown): BackgroundPreference => {
-  if (value === 'doodle' || value === true || value === 'true') return 'doodle'
-  if (value === 'flat' || value === false || value === 'false') return 'flat'
+  if (value === 'light') return 'light'
+  if (value === 'dark') return 'dark'
+  if (value === true || value === 'true' || value === 'doodle') return 'dark'
   return DEFAULT_BACKGROUND
 }
 
@@ -45,7 +50,7 @@ export const saveBackgroundPreference = (value: BackgroundPreference): void => {
   try {
     window.localStorage.setItem(BACKGROUND_KEY, normalized)
   } catch {
-    // Private mode: the toggle still works for this session.
+    // Private mode: the choice still works for this session.
   }
   try {
     // Prefer the window's own constructor: a synthetic/proxied window
@@ -59,7 +64,7 @@ export const saveBackgroundPreference = (value: BackgroundPreference): void => {
   }
 }
 
-export const backgroundEnabled = (value: BackgroundPreference): boolean => value === 'doodle'
+export const backgroundIsLight = (value: BackgroundPreference): boolean => value === 'light'
 
 /** Same-tab listeners consume the custom event payload directly. Re-reading
  * localStorage here would undo the user's choice when storage is unavailable

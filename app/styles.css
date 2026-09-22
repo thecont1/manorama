@@ -1107,9 +1107,7 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
      every scroll of the track above. */
   will-change: opacity;
 }
-html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
-
-/* Fade the field in when the toggle flips, but never for a visitor who
+/* Fade the field in on first paint, but never for a visitor who
    asked for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   .doodle-bg { animation: doodle-fade-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -1119,14 +1117,23 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 
 /* The doodle field is a decorative layer INSIDE the stage's isolated
    stacking context at z-index 0; the gallery content sits above it at
-   z-index 1. The track and its frames are transparent, so the pattern
-   shows through only the gaps between tiles and the exposed canvas —
-   never over photographs or UI. When the doodle is off the stage
-   paints the flat canvas colour as before. */
-.viewer-stage.has-doodle { background: transparent; }
-.viewer-stage.has-doodle .viewer-track,
-.viewer-stage.has-doodle .viewer-frame { background: transparent; }
-.viewer-stage.has-doodle .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
+   z-index 1. The track and its frames are always transparent, so the
+   pattern shows through only the gaps between tiles and the exposed
+   canvas — never over photographs or UI. The stage itself paints the
+   canvas colour beneath the layer, so the field reads against a solid
+   ground in both pairings. */
+.viewer-stage .viewer-track,
+.viewer-stage .viewer-frame,
+.viewer-stage .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
+
+/* Background pairing: Dark (default) is the near-black canvas with
+   light-ink doodles; Light flips the stage's ground to the app's
+   warm paper tone and inks the field dark. The overlay chrome
+   (arrows, logo pill, curtain) keeps its own dark surfaces and stays
+   readable over both. The html.light override below is the admin
+   app's theme switch — the viewer manages its ink independently. */
+html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
+.viewer-stage.bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
 /* The photo grid and content sit above the decorative doodle layer. */
 .viewer-track { position: relative; z-index: 1; }
 /* Vertical scroll mode: the stage itself is the scroll container, and an
