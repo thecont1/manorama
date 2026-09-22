@@ -1795,7 +1795,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-          <span class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length}`} title={`Photograph ${index + 1} of ${images.length}`} data-total={images.length}>{index + 1}</span>
+          <button type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open selector`} onClick={openGrid}>
+            <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
+            <span class="stage-seq-detail" aria-hidden="true">
+              <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
+              <span class="stage-seq-hint">open global</span>
+            </span>
+          </button>
           {arrowsVisible ? (
             <>
               <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>

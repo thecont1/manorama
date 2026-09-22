@@ -1096,16 +1096,17 @@ for (const vp of viewports) {
     }) => {
       await dismissCurtain(page);
       const seq = page.locator(".stage-seq");
+      const seqNum = seq.locator(".stage-seq-num");
       await expect(seq).toBeVisible();
-      await expect(seq).toHaveText("1");
+      await expect(seqNum).toHaveText("1");
       await expect(seq).toHaveAttribute(
         "aria-label",
-        `Photograph 1 of ${await imageCount(page)}`,
+        `Photograph 1 of ${await imageCount(page)} — open selector`,
       );
 
       // The bubble tracks the reported index as the strip advances.
       await advanceToNextImage(page);
-      await expect(seq).toHaveText("2");
+      await expect(seqNum).toHaveText("2");
 
       // With arrows on, it floats left of the button cluster; with them
       // off it still docks at the bottom-right corner alone.
@@ -1113,21 +1114,34 @@ for (const vp of viewports) {
         matchMedia("(pointer: coarse)").matches,
       );
       if (!coarse) {
-        // Hovering the bubble lights it and expands the count into the
-        // full tally — "2 of 30". The total rides a ::after, so read the
-        // computed content rather than textContent.
+        // Hover stretches the circle into a pill: the bare count swaps
+        // for the full tally plus the open hint.
+        const restBox = await seq.boundingBox();
         await seq.hover();
+        await expect(seq.locator(".stage-seq-tally")).toBeVisible();
+        await expect(seq.locator(".stage-seq-tally")).toHaveText(
+          `2 of ${await imageCount(page)} items`,
+        );
+        await expect(seq.locator(".stage-seq-hint")).toHaveText(
+          /open global/i,
+        );
         const lit = await seq.evaluate((el) => ({
           opacity: getComputedStyle(el).opacity,
           events: getComputedStyle(el).pointerEvents,
-          tally: getComputedStyle(el, "::after").content,
         }));
         expect(lit.opacity).toBe("1");
         expect(lit.events).toBe("auto");
-        expect(lit.tally).toBe(`"of ${await imageCount(page)}"`);
+        const hotBox = await seq.boundingBox();
+        expect(hotBox!.width).toBeGreaterThan(restBox!.width + 40);
         await page.mouse.move(0, 0);
-        await expect(seq).toHaveText("2");
+        await expect(seqNum).toHaveText("2");
       }
+
+      // The bubble is a button — clicking it raises the selector.
+      await seq.click();
+      await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".viewer-filmstrip")).toBeHidden();
       await ensureNavArrows(page);
       const nextArrow = page.getByRole("button", {
         name: /next photograph/i,
@@ -1381,7 +1395,7 @@ for (const vp of viewports) {
       const total = 9;
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
-      await expect(page.locator(".stage-seq")).toHaveText(`${total}`);
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText(`${total}`);
       const hidden = await endcap.boundingBox();
       expect(hidden!.x).toBeGreaterThanOrEqual(
         stageBox!.x + stageBox!.width - 1,
@@ -1401,7 +1415,7 @@ for (const vp of viewports) {
       await expect(reset).toBeVisible();
       await reset.click();
       await waitForTrackSettled(page);
-      await expect(page.locator(".stage-seq")).toHaveText("1");
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
       await expect(
         page.locator("[aria-current='true']"),
       ).toHaveAttribute("data-index", "1");
