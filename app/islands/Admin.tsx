@@ -491,7 +491,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
           </div>
         </div>
-        <div class="admin-display-toggles" aria-label="Display preferences">
+        <div class="admin-display-toggles" role="group" aria-label="Display preferences">
           <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
             <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
           </button>
