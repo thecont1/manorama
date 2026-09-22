@@ -1059,7 +1059,7 @@ for (const vp of viewports) {
         }));
         expect(lit.opacity).toBe("1");
         expect(lit.events).toBe("auto");
-        expect(lit.tally).toBe(`" of ${await imageCount(page)}"`);
+        expect(lit.tally).toBe(`"of ${await imageCount(page)}"`);
         await page.mouse.move(0, 0);
         await expect(seq).toHaveText("2");
       }

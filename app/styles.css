@@ -166,7 +166,20 @@ button { color: inherit; }
 @media (hover: hover) and (pointer: fine) {
   .stage-seq { pointer-events: auto; cursor: default; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
   .stage-seq:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
-  .stage-seq:hover::after { content: ' of ' attr(data-total); }
+  /* The tally tucks under the count in small type — the number itself
+     stays exactly where it sat at rest. */
+  .stage-seq:hover::after {
+    content: 'of ' attr(data-total);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 18%;
+    font-size: clamp(9px, 1.35svh, 11px);
+    font-weight: 500;
+    letter-spacing: .05em;
+    color: rgba(var(--ink), .6);
+    white-space: nowrap;
+  }
 }
 /* No buttons to flank: the bubble claims the corner outright. */
 .stage-arrows--bare .stage-seq { right: 0; top: auto; bottom: 0; transform: none; margin-right: 0; }
