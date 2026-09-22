@@ -66,7 +66,7 @@ const openSettings = async (page: Page) => {
   const logo = page.locator('.control-logo')
   await logo.waitFor({ state: 'visible', timeout: 30000 })
   await logo.click()
-  await expect(page.locator('[data-doodle-toggle]')).toBeVisible()
+  await expect(page.locator('#background-heading')).toBeVisible()
 }
 
 const sessionCookie = async () => {
@@ -102,8 +102,16 @@ const clickUntil = async (page: Page, click: () => Promise<void>, expected: stri
   }).toPass({ timeout: 30000 })
 }
 
-const toggleDoodle = async (page: Page) => {
-  await page.locator('[data-doodle-toggle]').click()
+const selectBackground = async (page: Page, value: 'light' | 'dark') => {
+  // Selecting a radio closes the panel (closeModals, same as the view
+  // mode radios), so reopen it when a second selection follows.
+  const group = page.getByRole('radiogroup', { name: 'Background behind photographs' })
+  if (await group.count() === 0 || !(await group.isVisible().catch(() => false))) await openSettings(page)
+  // The radios are visually hidden inside their labels — drive the
+  // label, the element a pointer actually hits. Label textContent
+  // collapses the span/small gap ("Lightdark ink…"), so the pairing's
+  // own name plus "ink" disambiguates from the small copy.
+  await group.locator('label').filter({ hasText: value === 'light' ? /Lightdark ink/ : /Darklight ink/ }).first().click()
   await page.waitForTimeout(350)
 }
 
@@ -121,30 +129,36 @@ const layerSignature = async (page: Page) => {
   }
 }
 
-test('the toggle shows the doodle field and hides it again', async ({ page }) => {
+test('the field is always on; the Background radios only pick the pairing', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
   await openSettings(page)
 
-  // Off by default: the flat background is untouched.
-  await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
-  await expect(page.locator('[data-doodle-toggle]')).toHaveAttribute('aria-pressed', 'false')
-
-  await toggleDoodle(page)
+  // Dark by default — and the layer is already there, no toggle needed.
+  await expect(page.locator('.viewer-stage.bg-dark')).toHaveCount(1)
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
-  await expect(page.locator('[data-doodle-toggle]')).toHaveAttribute('aria-pressed', 'true')
   const count = Number((await page.locator('[data-doodle-bg]').getAttribute('data-doodle-count')) ?? '0')
   expect(count).toBeGreaterThan(20)
   expect(count).toBeLessThanOrEqual(420)
+  // The doodle on/off toggle is gone for good.
+  await expect(page.locator('[data-doodle-toggle]')).toHaveCount(0)
 
-  await toggleDoodle(page)
-  await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
-  await expect(page.locator('.viewer-stage.has-doodle')).toHaveCount(0)
+  // Light: dark-ink doodles on the paper canvas, same field geometry.
+  const darkSignature = await layerSignature(page)
+  await selectBackground(page, 'light')
+  await expect(page.locator('.viewer-stage.bg-light')).toHaveCount(1)
+  await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
+  const lightSignature = await layerSignature(page)
+  expect(lightSignature.geometry).toBe(darkSignature.geometry)
+
+  // And back to dark.
+  await selectBackground(page, 'dark')
+  await expect(page.locator('.viewer-stage.bg-dark')).toHaveCount(1)
+  await expect(page.locator('.viewer-stage.bg-light')).toHaveCount(0)
 })
 
 test('reloading the same url reproduces an identical pattern', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
   await openSettings(page)
-  await toggleDoodle(page)
   const first = await layerSignature(page)
 
   // The preference persists, so the field must return identically.
@@ -160,8 +174,6 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
 
 test('a different album produces a visibly different pattern', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
-  await openSettings(page)
-  await toggleDoodle(page)
   const a = await layerSignature(page)
 
   await gotoGallery(page, ALBUM_B)
@@ -174,9 +186,13 @@ test('a different album produces a visibly different pattern', async ({ page }) 
 
 test('the layer never intercepts a click meant for the gallery', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
-  await openSettings(page)
-  await toggleDoodle(page)
-  await page.keyboard.press('Escape')
+  // Lift the entry curtain first: it swallows pointer events until it
+  // finishes animating out.
+  const curtain = page.locator('[data-curtain]')
+  if (await curtain.count()) {
+    await curtain.first().click({ force: true }).catch(() => {})
+    await curtain.first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {})
+  }
   await page.waitForTimeout(300)
 
   // Whatever sits under the centre of the viewport, it must not be the
@@ -189,13 +205,10 @@ test('the layer never intercepts a click meant for the gallery', async ({ page }
 
   // And the controls still respond after the layer is painted.
   await page.locator('.control-logo').click()
-  await expect(page.locator('[data-doodle-toggle]')).toBeVisible()
 })
 
 test('the layer is inert and hidden from assistive tech', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
-  await openSettings(page)
-  await toggleDoodle(page)
 
   const svg = page.locator('[data-doodle-bg]')
   await expect(svg).toHaveAttribute('aria-hidden', 'true')
@@ -215,16 +228,12 @@ test('the field paints visible glyphs and yields a screenshot', async ({ page })
   await gotoGallery(page, ALBUM_A)
   await openSettings(page)
 
-  // Capture the same viewport with the pattern off, then on, so the
-  // pixel comparison isolates exactly what the layer contributes.
+  // The field is always on now; the radios flip the pairing. Capture the
+  // dark canvas first, then the light one, so the pair isolates exactly
+  // what each ink does over the same geometry.
   await page.keyboard.press('Escape')
   await page.waitForTimeout(400)
-  await page.screenshot({ path: 'test-results/doodle-off.png' })
-
-  await openSettings(page)
-  await toggleDoodle(page)
-  await page.keyboard.press('Escape')
-  await page.waitForTimeout(500)
+  await page.screenshot({ path: 'test-results/doodle-dark.png' })
 
   const report = await page.evaluate(() => {
     const svg = document.querySelector('[data-doodle-bg]')
@@ -256,17 +265,36 @@ test('the field paints visible glyphs and yields a screenshot', async ({ page })
   expect(report!.symbols).toBeGreaterThanOrEqual(8)
   expect(report!.pointerEvents).toBe('none')
 
-  // The gallery canvas is near-black, so the ink must be LIGHT or the
-  // pattern is invisible. Regression guard for tying the tint to
-  // prefers-color-scheme instead of the app's own html.light switch.
+  // The dark pairing paints a near-black canvas, so the ink must be
+  // LIGHT or the pattern is invisible. Regression guard for tying the
+  // tint to prefers-color-scheme instead of the app's own pairing switch.
   const rgb = report!.color.match(/\d+/g)?.slice(0, 3).map(Number) ?? [0, 0, 0]
   const luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
   expect(luminance).toBeGreaterThan(120)
 
   // eslint-disable-next-line no-console
-  console.log('doodle visual report:', JSON.stringify(report))
+  console.log('doodle visual report (dark pairing):', JSON.stringify(report))
 
-  await page.screenshot({ path: 'test-results/doodle-on.png' })
+  // The light pairing: same field, dark ink over the paper canvas.
+  await openSettings(page)
+  await selectBackground(page, 'light')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(500)
+  const lightReport = await page.evaluate(() => {
+    const svg = document.querySelector('[data-doodle-bg]')
+    if (!svg) return null
+    return { color: getComputedStyle(svg).color }
+  })
+  expect(lightReport).not.toBeNull()
+  const lrgb = lightReport!.color.match(/\d+/g)?.slice(0, 3).map(Number) ?? [255, 255, 255]
+  const lLuminance = (0.299 * lrgb[0] + 0.587 * lrgb[1] + 0.114 * lrgb[2])
+  expect(lLuminance).toBeLessThan(120)
+  await page.screenshot({ path: 'test-results/doodle-light.png' })
+
+  await openSettings(page)
+  await selectBackground(page, 'dark')
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(500)
 
   // Pixel proof, isolated: hide the photo track so only the background
   // layer paints, then capture. Comparing full frames instead would be
@@ -290,7 +318,7 @@ test('the dashboard never paints a doodle field, even when the gallery preferenc
   // account page still renders no layer and offers no background control,
   // while a public album with the same flag does paint one.
   await page.goto(BASE)
-  await page.evaluate(() => localStorage.setItem('manorama:background', 'doodle'))
+  await page.evaluate(() => localStorage.setItem('manorama:background', 'light'))
   await openDashboard(page)
 
   await expect(page.getByRole('button', { name: 'Use doodle background' })).toHaveCount(0)
@@ -304,8 +332,6 @@ test('the dashboard never paints a doodle field, even when the gallery preferenc
 
 test('history navigation changes the seed while transient query changes do not', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
-  await openSettings(page)
-  await toggleDoodle(page)
   const firstSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
 
   const modeSeed = seedFromUrl('/thecontrarian/mixed-album?mode=single')
@@ -320,8 +346,6 @@ test('history navigation changes the seed while transient query changes do not',
 test('the field survives a resize without a reload', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await gotoGallery(page, ALBUM_A)
-  await openSettings(page)
-  await toggleDoodle(page)
   const before = await layerSignature(page)
 
   await page.setViewportSize({ width: 700, height: 900 })
