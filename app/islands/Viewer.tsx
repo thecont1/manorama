@@ -4,6 +4,7 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
+import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundEnabled, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
 
@@ -150,6 +151,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [magnifierActive, setMagnifierActive] = useState(false)
   const [magnifierAvailable, setMagnifierAvailable] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
+  // Network quality, for the "stay a still image on a poor connection"
+  // rule. Starts undefined so SSR and the hydration render agree (the
+  // server has no navigator); the mount effect reconciles it.
+  const [connection, setConnection] = useState<ConnectionLike | undefined>(undefined)
   // Playback is gated by the opening curtain. Without React state here,
   // adding a body class does not rerender the active VideoSlide, so a
   // video-first gallery would remain mounted and autoplay behind the
@@ -686,6 +691,30 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => query.removeEventListener?.('change', sync)
   }, [])
 
+
+  // Network quality, tracked live: a visitor who walks out of wifi onto a
+  // weak cell link should see the clips fall back to their stills rather
+  // than stall. The API is absent in Safari and Firefox, where the read
+  // is simply undefined and video behaves normally.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return
+    const source = connectionOf(navigator) as (ConnectionLike & {
+      addEventListener?: (type: string, listener: () => void) => void
+      removeEventListener?: (type: string, listener: () => void) => void
+    }) | undefined
+    if (!source) return
+    // Copy the live object's fields: it mutates in place, so storing the
+    // reference itself would never register as a state change.
+    const sync = () => setConnection({
+      saveData: source.saveData,
+      effectiveType: source.effectiveType,
+      downlink: source.downlink,
+    })
+    sync()
+    source.addEventListener?.('change', sync)
+    return () => source.removeEventListener?.('change', sync)
+  }, [])
+
   useEffect(() => {
     if (!magnifierAvailable) return
     const handle = attachMagnifier(stageRef.current)
@@ -1159,14 +1188,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [index, mode, images.length])
 
   /**
-   * The ONE frame that may own a media element. `isFrameActive` is a
-   * window (plus retention, in strip mode) — correct for images, wrong
-   * for video: it would mount a <video> per retained frame, each
-   * fetching metadata. A video mounts only on the current slide; every
-   * other frame, adjacent or not, is its poster image alone.
+   * Which frames may own a media element. `isFrameActive` is a window
+   * (plus retention, in strip mode) — too wide for video, which would
+   * mount a `<video>` per retained frame. A video mounts on the current
+   * slide and its immediate neighbours, so stepping onto one finds a clip
+   * that is ALREADY running rather than one that starts on arrival. On a
+   * poor connection nothing mounts and the poster is the whole frame.
    */
   const isVideoSlideActive = (imageIndex: number) =>
-    galleryEntered && !modalOpen && !infoOpen && imageIndex === index && isFrameActive(imageIndex)
+    videoMountsFor({
+      imageIndex,
+      index,
+      frameActive: isFrameActive(imageIndex),
+      galleryEntered,
+      blocked: modalOpen || infoOpen,
+      connection,
+    })
 
   const isFrameActive = (imageIndex: number) => {
     if (mode === 'vertical') {
@@ -1331,14 +1368,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               >
                 {video ? (
                   <>
-                    {/* The poster is the whole frame until the video is the
-                        active slide: adjacent frames cost one image, and
-                        non-adjacent frames mount no media element at all. */}
+                    {/* The poster holds the frame's aspect-ratio canvas and
+                        stays the accessible still for every frame that is
+                        not the one on screen — including mounted, silently
+                        looping neighbours. */}
                     <img
                       class="frame-ph"
                       src={video.poster.src}
-                      alt={isVideoSlideActive(imageIndex) ? '' : video.alt}
-                      aria-hidden={isVideoSlideActive(imageIndex) ? 'true' : undefined}
+                      alt={imageIndex === index ? '' : video.alt}
+                      aria-hidden={imageIndex === index ? 'true' : undefined}
                       width={frameW}
                       height={frameH}
                       decoding="async"
@@ -1347,7 +1385,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                     {isVideoSlideActive(imageIndex) ? (
                       <VideoSlide
                         item={video}
-                        isActive
+                        isActive={imageIndex === index}
                         soundOn={soundOn}
                         prefersReducedMotion={reducedMotion}
                         onToggleSound={setSoundOn}
