@@ -1197,7 +1197,7 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
   flex: 0 0 auto;
   width: auto;
   height: 100%;
-  padding: 0 20px;
+  padding: 0 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1212,6 +1212,26 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
   user-select: none;
   -webkit-user-select: none;
 }
+/* The card's quiet exit — a small underlined link beneath the display
+   type, styled like the viewer's other tertiary chrome. */
+.endcap-reset {
+  margin-top: 18px;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  color: rgba(var(--ink), .5);
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(11px, 1.5svh, 14px);
+  font-weight: 500;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+.endcap-reset:hover { color: rgba(var(--ink), .9); }
+.endcap-reset:focus-visible { color: rgba(var(--ink), .9); outline: 1px solid rgba(var(--ink), .5); outline-offset: 3px; }
 /* The photo grid and content sit above the decorative doodle layer. */
 .viewer-track { position: relative; z-index: 1; }
 /* Vertical scroll mode: the stage itself is the scroll container, and an

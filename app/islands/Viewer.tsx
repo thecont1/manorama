@@ -226,6 +226,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // pan range until the visitor pushes past the last photograph — then
   // it joins the bounds and stays reachable for the session.
   const endcapRevealedRef = useRef(false)
+  // Mirrored into state purely so the card's "Back to Start" link can
+  // join the tab order only while it is on screen — bounds math keeps
+  // reading the ref synchronously.
+  const [endcapRevealed, setEndcapRevealed] = useState(false)
 
   const currentImage = images[index] ?? images[0]
   // The info panel speaks about whichever medium is on screen, and EXIF
@@ -340,6 +344,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return nearest
   }
 
+  // The endcard joins the pan range the first time a gesture pushes past
+  // the last photograph, and is disarmed by its own "Back to Start" link
+  // so a return visit earns the reveal again.
+  const revealEndcap = () => {
+    if (endcapRevealedRef.current) return
+    endcapRevealedRef.current = true
+    setEndcapRevealed(true)
+    boundsDirtyRef.current = true
+  }
+
+  const backToStart = () => {
+    endcapRevealedRef.current = false
+    setEndcapRevealed(false)
+    boundsDirtyRef.current = true
+    goTo(0)
+  }
+
   const reportStripPosition = () => {
     if (positionFrameRef.current !== null) return
     positionFrameRef.current = requestAnimationFrame(() => {
@@ -347,7 +368,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const stage = stageRef.current
       const track = trackRef.current
       if (!stage || !track) return
-      const nearest = leftmostFrameIndex(-currentXRef.current)
+      // Docked at the strip's end the last photograph owns the position:
+      // a frame narrower than the viewport never reaches the left edge,
+      // so leftmost-frame reporting would stall the counter one short.
+      const x = -currentXRef.current
+      const nearest = x >= getBounds().max - 1 ? images.length - 1 : leftmostFrameIndex(x)
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
@@ -371,8 +396,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // the endcard: its footprint rejoins the bounds and the gesture
     // carries straight into the reveal.
     if (mode === 'strip' && !endcapRevealedRef.current && next < -bounds.max - 1) {
-      endcapRevealedRef.current = true
-      boundsDirtyRef.current = true
+      revealEndcap()
       bounds = getBounds()
     }
     const value = clamp(next, -bounds.max, 0)
@@ -429,8 +453,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const eased = glideEase(progress)
       // Chase navDestX live: a mid-flight retarget (queued taps, or a
       // healed frame shifting the destination's offset) is absorbed into
-      // the remaining travel instead of cancelling the navigation.
-      const liveDest = navDestXRef.current ?? destination
+      // the remaining travel instead of cancelling the navigation. The
+      // chase is re-clamped every tick — a programmatic destination past
+      // the bound (e.g. End docking a photo narrower than the stage)
+      // must never read as the visitor pushing into the endcard.
+      const liveDest = clamp(navDestXRef.current ?? destination, -getBounds().max, 0)
       const next = from + (liveDest - from) * eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
@@ -524,8 +551,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // At the last photograph a forward step reveals the endcard — the
       // strip glides it in flush right rather than wrapping to the start.
       if (endcapRevealedRef.current) return
-      endcapRevealedRef.current = true
-      boundsDirtyRef.current = true
+      revealEndcap()
       navDestXRef.current = -getBounds().max
       settleTo(navDestXRef.current, false, true)
       return
@@ -1604,11 +1630,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           {/* The end of the strip: a borderless, full-height faux frame
               that slides in behind the last photograph, so reaching the
               end reads as an ending instead of a jarring wrap to the
-              start. */}
+              start. `inert` until revealed — it sits past the pan bound
+              before then, so its link must not take focus or announce. */}
           {mode === 'strip' ? (
-            <div class="viewer-endcap" aria-hidden="true">
+            <div class="viewer-endcap" inert={!endcapRevealed}>
               <span>The</span>
               <span>End.</span>
+              <button class="endcap-reset" onClick={backToStart}>Back to Start</button>
             </div>
           ) : null}
         </div>

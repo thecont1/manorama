@@ -1261,12 +1261,30 @@ for (const vp of viewports) {
 
     test("the strip ends on a 'The End.' card instead of wrapping", async ({
       page,
+      playwright,
     }) => {
-      await dismissCurtain(page);
+      // Spawned fixtures carry truthful dims — the strip never heals
+      // mid-spec, so end-of-strip assertions aren't racing decode-time
+      // width corrections. The finale is a sliver narrower than every
+      // stage: it never reaches the left edge, which is what used to
+      // stall the counter one short of the total.
+      const request = await retentionApi(playwright);
+      await spawnGalleries(request, [
+        {
+          slug: `endcap-${vp.name}`,
+          images: [
+            ...[0, 1, 2, 3, 4].map((i) => fixtureImage(`cap-w${i}`, 2400, 1600)),
+            ...[5, 6, 7].map((i) => fixtureImage(`cap-p${i}`, 1200, 1800)),
+            fixtureImage("cap-last", 300, 1200),
+          ],
+        },
+      ]);
+      await request.dispose();
+      await dismissCurtain(page, `${BASE}/${RETENTION_OWNER}/endcap-${vp.name}`);
       const endcap = page.locator(".viewer-endcap");
       await expect(endcap).toHaveCount(1);
       await expect(endcap).toHaveText(/The\s*End\./);
-      // A borderless faux frame: wordmark type 3×, 20px side padding,
+      // A borderless faux frame: wordmark type 3×, 40px side padding,
       // full stage height — wider than the old fixed 100px.
       const stageBox = await page.locator("[data-stage]").boundingBox();
       const capBox = await endcap.boundingBox();
@@ -1276,9 +1294,13 @@ for (const vp of viewports) {
       await ensureNavArrows(page);
       await page.keyboard.press("Escape");
       // Reaching the last photograph alone does NOT reveal the card —
-      // the pan range ends at the photo's right edge.
+      // the pan range ends at the photo's right edge. The counter still
+      // counts it: the finale never reaches the left edge, so the docked
+      // end must report the final image.
+      const total = 9;
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
+      await expect(page.locator(".stage-seq")).toHaveText(`${total}`);
       const hidden = await endcap.boundingBox();
       expect(hidden!.x).toBeGreaterThanOrEqual(
         stageBox!.x + stageBox!.width - 1,
@@ -1292,15 +1314,39 @@ for (const vp of viewports) {
         Math.abs(shown!.x + shown!.width - (stageBox!.x + stageBox!.width)),
       ).toBeLessThan(2);
 
-      // And the arrow stops there — no wrap back to the first image.
-      const trackLeft = () =>
-        page
-          .locator("[data-track]")
-          .evaluate((track) => track.getBoundingClientRect().left);
-      const atEnd = await trackLeft();
+      // The card carries a quiet "Back to Start" link that rewinds the
+      // strip to the first photograph and re-arms the reveal.
+      const reset = endcap.getByRole("button", { name: /back to start/i });
+      await expect(reset).toBeVisible();
+      await reset.click();
+      await waitForTrackSettled(page);
+      await expect(page.locator(".stage-seq")).toHaveText("1");
+      await expect(
+        page.locator("[aria-current='true']"),
+      ).toHaveAttribute("data-index", "1");
+      const rearmed = await endcap.boundingBox();
+      expect(rearmed!.x).toBeGreaterThanOrEqual(
+        stageBox!.x + stageBox!.width - 1,
+      );
+
+      // Reveal it once more for the no-wrap checks.
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
       await page.getByRole("button", { name: /next photograph/i }).click();
       await waitForTrackSettled(page);
-      expect(Math.abs((await trackLeft()) - atEnd)).toBeLessThan(2);
+
+      // And the arrow stops there — no wrap back to the first image.
+      // (The card staying flush-right is the check: a healed frame can
+      // legitimately re-anchor the track transform, so compare the
+      // card's box rather than the track's origin.)
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await waitForTrackSettled(page);
+      const stillShown = await endcap.boundingBox();
+      expect(
+        Math.abs(
+          stillShown!.x + stillShown!.width - (stageBox!.x + stageBox!.width),
+        ),
+      ).toBeLessThan(2);
       // aria-current is the leftmost visible frame — on wide stages
       // that is an earlier photo, so the no-wrap check is "not 1".
       await expect(
@@ -1320,8 +1366,20 @@ for (const vp of viewports) {
 
     test("dragging past the last photograph reveals the endcard", async ({
       page,
+      playwright,
     }) => {
-      await dismissCurtain(page);
+      const request = await retentionApi(playwright);
+      await spawnGalleries(request, [
+        {
+          slug: `endcap-drag-${vp.name}`,
+          images: [
+            ...[0, 1, 2].map((i) => fixtureImage(`cap-d${i}`, 2400, 1600)),
+            fixtureImage("cap-d-last", 300, 1200),
+          ],
+        },
+      ]);
+      await request.dispose();
+      await dismissCurtain(page, `${BASE}/${RETENTION_OWNER}/endcap-drag-${vp.name}`);
       const stageBox = await page.locator("[data-stage]").boundingBox();
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
