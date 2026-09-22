@@ -4,6 +4,8 @@ import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } fr
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
+import SeededDoodleBackground from './SeededDoodleBackground'
+import { BACKGROUND_EVENT, backgroundEnabled, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
 
 type Mode = 'strip' | 'vertical' | 'single'
 type SeamMode = 'light' | 'dark' | 'none'
@@ -78,9 +80,11 @@ const STRIP_WINDOW = 3
  *  bounded so decoded HEIC blobs still get revoked once out of play. */
 const STRIP_RETAIN = 6
 
-/** Anonymous per-gallery viewing preferences: mode + background choice are
+/** Anonymous per-gallery viewing preferences: mode + seam choice are
  *  remembered in localStorage keyed by gallery slug, so a link recipient
- *  keeps their own preference without an account. */
+ *  keeps their own preference without an account. The doodle background
+ *  is deliberately NOT here — it is app-wide chrome, stored globally in
+ *  lib/background-preference.ts alongside the theme. */
 type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
@@ -111,6 +115,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // ever an opt-in.
   const [showArrowsVertical, setShowArrowsVertical] = useState(false)
   const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
+  // Doodle background: an app-wide preference, off by default so
+  // existing galleries look untouched until a visitor opts in. Read as
+  // 'flat' for SSR, then reconciled on mount so server and client markup
+  // agree during hydration.
+  const [doodle, setDoodle] = useState(false)
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -202,6 +211,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
+
+  // Background preference is global chrome: adopt the stored value after
+  // mount (SSR cannot read localStorage), then stay in sync with other
+  // tabs and with any other island that flips it.
+  useEffect(() => {
+    setDoodle(backgroundEnabled(loadBackgroundPreference()))
+    const sync = () => setDoodle(backgroundEnabled(loadBackgroundPreference()))
+    window.addEventListener('storage', sync)
+    window.addEventListener(BACKGROUND_EVENT, sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener(BACKGROUND_EVENT, sync)
+    }
+  }, [])
   useEffect(() => {
     try {
       localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
@@ -1257,9 +1280,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   return (
     <>
+      {/* Behind everything, inert: a deterministic field keyed to this
+          gallery's URL. Sits outside the stage so it stays put while the
+          track scrolls. */}
+      <SeededDoodleBackground enabled={doodle} />
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} seam-${seamMode}`}
+        class={`viewer-stage mode-${mode} seam-${seamMode}${doodle ? ' has-doodle' : ''}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -1476,6 +1503,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>light stripes on black</small></label>
               <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>black stripes on light</small></label>
               <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
+            </div>
+            {/* Layered on top of the seam choice rather than replacing it:
+                the pattern is keyed to this gallery's URL, so the same
+                album always wears the same field. */}
+            <div class="panel-actions">
+              <button
+                type="button"
+                class="panel-action"
+                aria-pressed={doodle ? 'true' : 'false'}
+                data-doodle-toggle
+                onClick={() => { const next = !doodle; setDoodle(next); saveBackgroundPreference(next ? 'doodle' : 'flat') }}
+              >{doodle ? 'Hide doodle pattern' : 'Show doodle pattern'}</button>
             </div>
           </section>
 

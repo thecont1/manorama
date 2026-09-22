@@ -1064,3 +1064,54 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
 .quickadd-spinner { margin: 0; color: rgba(var(--ink), .42); font-size: 20px; animation: quickadd-pulse 1.4s ease-in-out infinite; }
 @keyframes quickadd-pulse { 0%, 100% { opacity: .28 } 50% { opacity: .9 } }
 @media (prefers-reduced-motion: reduce) { .quickadd-spinner { animation: none; } }
+
+/* ---------------------------------------------------------------------
+   Seeded doodle background
+   A deterministic scatter of photography glyphs derived from the URL.
+   The layer is fixed behind everything and completely inert: it must
+   never eat a tap meant for a photograph or a control.
+   --------------------------------------------------------------------- */
+.doodle-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+  /* Tint token, not a hardcoded colour: the glyphs stroke in
+     currentColor, so one variable tints the whole field. The default is
+     the gallery's light ink on its dark canvas; the editor's light
+     theme (html.light, the app's real theme switch — it does NOT use
+     prefers-color-scheme) flips it to dark ink. */
+  color: var(--doodle-ink, rgba(var(--ink), .55));
+  /* The canvas is twice the viewport height for scroll headroom; the
+     SVG's own preserveAspectRatio="…slice" crops it to the box.
+     (object-fit does not apply to inline SVG, only to replaced
+     elements, so it would be a no-op here.) */
+  contain: strict;
+  /* Painting 200 glyphs once into a layer beats repainting them on
+     every scroll of the track above. */
+  will-change: opacity;
+}
+html.light .doodle-bg { --doodle-ink: rgba(22, 24, 23, .5); }
+
+/* Fade the field in when the toggle flips, but never for a visitor who
+   asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .doodle-bg { animation: doodle-fade-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
+@keyframes doodle-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .doodle-bg { animation: none; } }
+
+/* The stage, track and frames normally paint an opaque canvas. With the
+   doodle on and no seam selected, they step aside so the pattern reads
+   through the letterbox gaps around each photograph. A chosen seam
+   still wins inside the track — its stripes are the deliberate field. */
+.viewer-stage.has-doodle { background: transparent; }
+.viewer-stage.has-doodle.seam-none .viewer-track,
+.viewer-stage.has-doodle.seam-none .viewer-frame { background: transparent; }
+.viewer-stage.has-doodle.seam-none .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
+/* The stage sits above the fixed layer; without a stacking context of
+   its own the track's transforms could slide under it. */
+.viewer-stage { position: relative; z-index: 1; }

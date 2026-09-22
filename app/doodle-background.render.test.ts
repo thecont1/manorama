@@ -1,0 +1,85 @@
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { Window } from 'happy-dom'
+
+/**
+ * The layer has to come out of hono/jsx as real, inert SVG. The island
+ * sizes itself from `window.innerWidth/innerHeight`, so these render it
+ * against a happy-dom viewport — the same approach magnifier.test.ts
+ * uses — and assert on the markup a visitor's DOM would receive.
+ *
+ * The import is deferred until after the DOM is installed because the
+ * module reads the viewport during its initial state.
+ */
+
+const globals = globalThis as Record<string, unknown>
+let previousWindow: unknown
+let SeededDoodleBackground: (props: Record<string, unknown>) => unknown
+
+beforeAll(async () => {
+  const window = new Window({ width: 1440, height: 900 })
+  previousWindow = globals.window
+  globals.window = window
+  globals.document = window.document
+  SeededDoodleBackground = (await import('./islands/SeededDoodleBackground')).default as typeof SeededDoodleBackground
+})
+
+afterAll(() => {
+  globals.window = previousWindow
+})
+
+const render = (props: Record<string, unknown>) => String(SeededDoodleBackground(props))
+
+describe('SeededDoodleBackground markup', () => {
+  test('emits an inert, aria-hidden svg layer', () => {
+    const html = render({ url: '/mahesh/kashi' })
+    expect(html).toContain('<svg')
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).toContain('role="presentation"')
+    expect(html).toContain('doodle-bg')
+    expect(html).toContain('focusable="false"')
+  })
+
+  test('renders symbols once and references them with <use>', () => {
+    const html = render({ url: '/mahesh/kashi' })
+    const symbols = html.match(/<symbol/g) ?? []
+    const uses = html.match(/<use/g) ?? []
+    expect(symbols.length).toBeGreaterThanOrEqual(8)
+    // The whole point of the sprite: far more instances than definitions.
+    expect(uses.length).toBeGreaterThan(symbols.length)
+  })
+
+  test('strokes in currentColor so CSS can theme it', () => {
+    const html = render({ url: '/a' })
+    expect(html).toContain('stroke="currentColor"')
+    expect(html).toContain('fill="none"')
+  })
+
+  test('renders nothing at all when disabled', () => {
+    expect(SeededDoodleBackground({ url: '/a', enabled: false })).toBeNull()
+  })
+
+  test('the same url renders byte-identical markup', () => {
+    expect(render({ url: '/mahesh/kashi' })).toBe(render({ url: '/mahesh/kashi' }))
+  })
+
+  test('a different url renders different markup', () => {
+    expect(render({ url: '/mahesh/kashi' })).not.toBe(render({ url: '/mahesh/goa' }))
+  })
+
+  test('the seed is exposed for screenshot-diff verification', () => {
+    const html = render({ url: '/mahesh/kashi' })
+    expect(html).toContain('data-doodle-seed=')
+    expect(html).toContain('data-doodle-count=')
+  })
+
+  test('honours an explicit icon budget', () => {
+    const uses = render({ url: '/a', maxIcons: 12 }).match(/<use/g) ?? []
+    expect(uses.length).toBeLessThanOrEqual(12)
+  })
+
+  test('carries no pointer-grabbing attributes', () => {
+    const html = render({ url: '/a' })
+    expect(html).not.toContain('onclick')
+    expect(html).not.toContain('tabindex')
+  })
+})
