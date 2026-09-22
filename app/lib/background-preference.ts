@@ -1,7 +1,8 @@
 /**
- * The "Background" preference: Dark canvas with light-ink doodles, or
- * Light canvas with dark-ink doodles. The doodle field itself is
- * always on — this only picks the ink/canvas pairing.
+ * The "Background" preference: None (default — photographs abut on the
+ * dark canvas, no doodle field), Dark (light-ink doodles behind 10px
+ * margins), or Light (dark-ink doodles on the paper canvas, 10px
+ * margins).
  *
  * App-wide chrome, not per-album styling — so it follows the
  * `manorama:theme` precedent and lives under one global key rather than
@@ -15,10 +16,10 @@
  * exception on the render path.
  */
 
-export type BackgroundPreference = 'light' | 'dark'
+export type BackgroundPreference = 'none' | 'light' | 'dark'
 
 export const BACKGROUND_KEY = 'manorama:background'
-export const DEFAULT_BACKGROUND: BackgroundPreference = 'dark'
+export const DEFAULT_BACKGROUND: BackgroundPreference = 'none'
 
 /** Event fired on the window so every mounted island reacts to a change
  *  in the same tab (the native `storage` event only crosses tabs). */
@@ -26,11 +27,10 @@ export const BACKGROUND_EVENT = 'manorama:background-change'
 
 /** Accepts the stored string. The pre-doodle-always era persisted
  *  'doodle'/'flat' (and, even earlier, a boolean): a visitor who had the
- *  pattern on keeps the dark canvas; anything else lands on the dark
- *  default. */
+ *  pattern on keeps the dark doodle pairing, a visitor who had it off
+ *  lands on None; anything unrecognised lands on the None default. */
 export const normalizeBackground = (value: unknown): BackgroundPreference => {
-  if (value === 'light') return 'light'
-  if (value === 'dark') return 'dark'
+  if (value === 'none' || value === 'light' || value === 'dark') return value
   if (value === true || value === 'true' || value === 'doodle') return 'dark'
   return DEFAULT_BACKGROUND
 }

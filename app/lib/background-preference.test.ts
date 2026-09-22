@@ -30,19 +30,20 @@ afterEach(() => {
 })
 
 describe('normalizeBackground', () => {
-  test('accepts the two canonical values', () => {
+  test('accepts the three canonical values', () => {
+    expect(normalizeBackground('none')).toBe('none')
     expect(normalizeBackground('light')).toBe('light')
     expect(normalizeBackground('dark')).toBe('dark')
   })
 
-  test('migrates the pre-doodle-always shapes onto the dark pairing', () => {
-    // 'doodle'/true meant the pattern was on: that is now the default dark
-    // canvas. 'flat'/false simply had it off — there is no off any more.
+  test('migrates the pre-doodle-always shapes onto their modern pairing', () => {
+    // 'doodle'/true meant the pattern was on: that is the Dark pairing.
+    // 'flat'/false meant it was off: that is None.
     expect(normalizeBackground('doodle')).toBe('dark')
     expect(normalizeBackground(true)).toBe('dark')
     expect(normalizeBackground('true')).toBe('dark')
-    expect(normalizeBackground('flat')).toBe('dark')
-    expect(normalizeBackground(false)).toBe('dark')
+    expect(normalizeBackground('flat')).toBe('none')
+    expect(normalizeBackground(false)).toBe('none')
   })
 
   test('falls back to the default for anything else', () => {
@@ -53,10 +54,11 @@ describe('normalizeBackground', () => {
 })
 
 describe('persistence', () => {
-  test('defaults to dark so existing galleries are untouched', () => {
-    expect(loadBackgroundPreference()).toBe('dark')
+  test('defaults to none so photographs abut on the dark canvas', () => {
+    expect(loadBackgroundPreference()).toBe('none')
     expect(backgroundIsLight('dark')).toBe(false)
     expect(backgroundIsLight('light')).toBe(true)
+    expect(backgroundIsLight('none')).toBe(false)
   })
 
   test('round-trips through localStorage under one global key', () => {
@@ -103,7 +105,7 @@ describe('persistence', () => {
     expect(() => saveBackgroundPreference('light')).not.toThrow()
   })
 
-  test('reads as dark when there is no window at all (SSR)', () => {
+  test('reads as none when there is no window at all (SSR)', () => {
     globals.window = undefined
     expect(loadBackgroundPreference()).toBe(DEFAULT_BACKGROUND)
     expect(() => saveBackgroundPreference('light')).not.toThrow()

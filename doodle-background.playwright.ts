@@ -5,8 +5,9 @@ import { seedFromUrl } from './app/lib/doodle-background'
 
 /**
  * End-to-end proof for the seeded doodle background, against the real
- * dev server. Covers each acceptance criterion: the toggle shows and
- * hides the field, one URL always reproduces one pattern, a different
+ * dev server. Covers each acceptance criterion: None is the default
+ * (photographs abut, no field), Light/Dark wake the field behind 10px
+ * margins, one URL always reproduces one pattern, a different
  * album produces a different one, and the layer never intercepts a tap.
  *
  * Run with: bunx playwright test doodle-background.playwright.ts
@@ -102,7 +103,13 @@ const clickUntil = async (page: Page, click: () => Promise<void>, expected: stri
   }).toPass({ timeout: 30000 })
 }
 
-const selectBackground = async (page: Page, value: 'light' | 'dark') => {
+/** The doodle field only paints under a visible background — specs that
+ *  exercise it seed the preference before navigation so the gallery
+ *  boots straight into Dark instead of the None default. */
+const seedBackground = (page: Page, value: 'none' | 'light' | 'dark' = 'dark') =>
+  page.addInitScript((v) => { try { window.localStorage.setItem('manorama:background', v) } catch { /* private mode */ } }, value)
+
+const selectBackground = async (page: Page, value: 'none' | 'light' | 'dark') => {
   // Selecting a radio closes the panel (closeModals, same as the view
   // mode radios), so reopen it when a second selection follows.
   const group = page.getByRole('radiogroup', { name: 'Background behind photographs' })
@@ -110,8 +117,9 @@ const selectBackground = async (page: Page, value: 'light' | 'dark') => {
   // The radios are visually hidden inside their labels — drive the
   // label, the element a pointer actually hits. Label textContent
   // collapses the span/small gap ("Lightdark ink…"), so the pairing's
-  // own name plus "ink" disambiguates from the small copy.
-  await group.locator('label').filter({ hasText: value === 'light' ? /Lightdark ink/ : /Darklight ink/ }).first().click()
+  // own name plus its copy's first word disambiguates.
+  const name = { light: /Lightdark ink/, dark: /Darklight ink/, none: /Nonephotographs abut/ }[value]
+  await group.locator('label').filter({ hasText: name }).first().click()
   await page.waitForTimeout(350)
 }
 
@@ -129,18 +137,40 @@ const layerSignature = async (page: Page) => {
   }
 }
 
-test('the field is always on; the Background radios only pick the pairing', async ({ page }) => {
+test('Background offers Light/Dark/None — None is default and photographs abut', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
-  await openSettings(page)
 
-  // Dark by default — and the layer is already there, no toggle needed.
+  // None by default: the field is away and the canvas stays dark.
+  await expect(page.locator('.viewer-stage.bg-none')).toHaveCount(1)
+  await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
+
+  // Photographs strictly abut — adjacent frames share an edge exactly.
+  const gap = await page.locator('[data-stage]').evaluate(() => {
+    const frames = Array.from(document.querySelectorAll('.viewer-frame'))
+    const a = frames[0].getBoundingClientRect()
+    const b = frames[1].getBoundingClientRect()
+    return Math.min(Math.abs(b.left - a.right), Math.abs(b.top - a.bottom))
+  })
+  expect(gap).toBeLessThan(2)
+
+  await openSettings(page)
+  const radios = page.locator('input[name="background-mode"]')
+  await expect(radios).toHaveCount(3)
+  // Order is Light, Dark, None — and None is the checked default.
+  await expect(radios.nth(0)).toHaveAttribute('value', 'light')
+  await expect(radios.nth(1)).toHaveAttribute('value', 'dark')
+  await expect(radios.nth(2)).toHaveAttribute('value', 'none')
+  await expect(radios.nth(2)).toBeChecked()
+  // The doodle on/off toggle is gone for good.
+  await expect(page.locator('[data-doodle-toggle]')).toHaveCount(0)
+
+  // Dark wakes the field: light ink on the near-black canvas.
+  await selectBackground(page, 'dark')
   await expect(page.locator('.viewer-stage.bg-dark')).toHaveCount(1)
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
   const count = Number((await page.locator('[data-doodle-bg]').getAttribute('data-doodle-count')) ?? '0')
   expect(count).toBeGreaterThan(20)
   expect(count).toBeLessThanOrEqual(420)
-  // The doodle on/off toggle is gone for good.
-  await expect(page.locator('[data-doodle-toggle]')).toHaveCount(0)
 
   // Light: dark-ink doodles on the paper canvas, same field geometry.
   const darkSignature = await layerSignature(page)
@@ -150,13 +180,73 @@ test('the field is always on; the Background radios only pick the pairing', asyn
   const lightSignature = await layerSignature(page)
   expect(lightSignature.geometry).toBe(darkSignature.geometry)
 
-  // And back to dark.
-  await selectBackground(page, 'dark')
-  await expect(page.locator('.viewer-stage.bg-dark')).toHaveCount(1)
-  await expect(page.locator('.viewer-stage.bg-light')).toHaveCount(0)
+  // And None puts the field away again.
+  await selectBackground(page, 'none')
+  await expect(page.locator('.viewer-stage.bg-none')).toHaveCount(1)
+  await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
+})
+
+test('Light and Dark give every image a 10px margin; None abuts', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await seedBackground(page, 'dark')
+  await gotoGallery(page, ALBUM_A)
+  await page.locator('[data-stage]').waitFor()
+  await page.waitForTimeout(800)
+
+  // Strip: a 10px band above and below, and a 10px gutter on the right —
+  // bounding boxes exclude margins, so the frame gap IS the margin. The
+  // tightest band belongs to a height-fit frame and is exactly 10px.
+  const strip = await page.locator('[data-stage]').evaluate((stage) => {
+    const stageBox = stage.getBoundingClientRect()
+    const frames = Array.from(stage.querySelectorAll('.viewer-frame'))
+    const boxes = frames.map((f) => f.getBoundingClientRect())
+    return {
+      top: Math.min(...boxes.map((b) => b.top - stageBox.top)),
+      bottom: Math.min(...boxes.map((b) => stageBox.bottom - b.bottom)),
+      gutter: boxes[1].left - boxes[0].right,
+      left: boxes[0].left - stageBox.left,
+    }
+  })
+  expect(Math.abs(strip.top - 10)).toBeLessThan(2)
+  expect(Math.abs(strip.bottom - 10)).toBeLessThan(2)
+  expect(Math.abs(strip.gutter - 10)).toBeLessThan(2)
+  // No left margin: the first frame still starts at the stage edge.
+  expect(Math.abs(strip.left)).toBeLessThan(2)
+
+  // Vertical: 10px rails left and right (the track's padding), a 10px
+  // foot on every row, and the first row still starts flush at the top.
+  await openSettings(page)
+  await page.locator('.mode-options label', { hasText: /vertical scroll/i }).click()
+  await expect(page.locator('[data-stage]')).toHaveClass(/mode-vertical/)
+  await page.waitForTimeout(500)
+  const vertical = await page.locator('[data-stage]').evaluate((stage) => {
+    const stageBox = stage.getBoundingClientRect()
+    const frames = Array.from(stage.querySelectorAll('.viewer-frame'))
+    const a = frames[0].getBoundingClientRect()
+    const b = frames[1].getBoundingClientRect()
+    return { left: a.left - stageBox.left, right: stageBox.right - a.right, foot: b.top - a.bottom, top: a.top - stageBox.top }
+  })
+  expect(Math.abs(vertical.left - 10)).toBeLessThan(2)
+  expect(Math.abs(vertical.right - 10)).toBeLessThan(2)
+  expect(Math.abs(vertical.foot - 10)).toBeLessThan(2)
+  expect(Math.abs(vertical.top)).toBeLessThan(2)
+
+  // None strips the margins back off — rows abut again.
+  await selectBackground(page, 'none')
+  await expect(page.locator('.viewer-stage.bg-none')).toHaveCount(1)
+  const flat = await page.locator('[data-stage]').evaluate((stage) => {
+    const stageBox = stage.getBoundingClientRect()
+    const frames = Array.from(stage.querySelectorAll('.viewer-frame'))
+    const a = frames[0].getBoundingClientRect()
+    const b = frames[1].getBoundingClientRect()
+    return { left: a.left - stageBox.left, foot: b.top - a.bottom }
+  })
+  expect(Math.abs(flat.left)).toBeLessThan(2)
+  expect(Math.abs(flat.foot)).toBeLessThan(2)
 })
 
 test('reloading the same url reproduces an identical pattern', async ({ page }) => {
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
   await openSettings(page)
   const first = await layerSignature(page)
@@ -173,6 +263,7 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
 })
 
 test('a different album produces a visibly different pattern', async ({ page }) => {
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
   const a = await layerSignature(page)
 
@@ -185,6 +276,7 @@ test('a different album produces a visibly different pattern', async ({ page }) 
 })
 
 test('the layer never intercepts a click meant for the gallery', async ({ page }) => {
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
   // Lift the entry curtain first: it swallows pointer events until it
   // finishes animating out.
@@ -208,6 +300,7 @@ test('the layer never intercepts a click meant for the gallery', async ({ page }
 })
 
 test('the layer is inert and hidden from assistive tech', async ({ page }) => {
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
 
   const svg = page.locator('[data-doodle-bg]')
@@ -225,12 +318,13 @@ test('the layer is inert and hidden from assistive tech', async ({ page }) => {
 
 test('the field paints visible glyphs and yields a screenshot', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
   await openSettings(page)
 
-  // The field is always on now; the radios flip the pairing. Capture the
-  // dark canvas first, then the light one, so the pair isolates exactly
-  // what each ink does over the same geometry.
+  // The radios pick the pairing; the seeded preference boots into Dark.
+  // Capture the dark canvas first, then the light one, so the pair
+  // isolates exactly what each ink does over the same geometry.
   await page.keyboard.press('Escape')
   await page.waitForTimeout(400)
   await page.screenshot({ path: 'test-results/doodle-dark.png' })
@@ -331,6 +425,7 @@ test('the dashboard never paints a doodle field, even when the gallery preferenc
 })
 
 test('history navigation changes the seed while transient query changes do not', async ({ page }) => {
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
   const firstSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
 
@@ -345,6 +440,7 @@ test('history navigation changes the seed while transient query changes do not',
 
 test('the field survives a resize without a reload', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
+  await seedBackground(page)
   await gotoGallery(page, ALBUM_A)
   const before = await layerSignature(page)
 

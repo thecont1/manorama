@@ -6,7 +6,7 @@ import { effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
-import { BACKGROUND_EVENT, backgroundIsLight, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
+import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
@@ -119,12 +119,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // gallery-wide setting — the feed scrolls natively, so they're only
   // ever an opt-in.
   const [showArrowsVertical, setShowArrowsVertical] = useState(false)
-  // Doodle background: an app-wide preference, off by default so
-  // existing galleries look untouched until a visitor opts in. Read as
-  // 'flat' for SSR, then reconciled on mount so server and client markup
-  // agree during hydration.
-  // The doodle field is always on; this only picks the canvas/ink pairing.
-  const [background, setBackground] = useState<BackgroundPreference>('dark')
+  // Background: an app-wide preference. 'none' (the default) keeps
+  // photographs abutting on the bare dark canvas; light and dark wake
+  // the doodle field and give every image a 10px margin. Read as 'none'
+  // for SSR, then reconciled on mount so server and client markup agree
+  // during hydration.
+  const [background, setBackground] = useState<BackgroundPreference>('none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -148,6 +148,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const watchdogSeenRef = useRef(new WeakMap<HTMLImageElement, number>())
   const watchdogAttemptsRef = useRef<Record<string, number>>({})
   const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: effectiveImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio) })
+  // Under a visible background (Light/Dark) every image carries a 10px
+  // margin: strip frames stage against a stage 20px shorter so height-fit
+  // images get 10px bands top and bottom, vertical rows against a stage
+  // 20px narrower for 10px rails left and right. The trailing gutter —
+  // right in strip, bottom in vertical — is frame margin in CSS. 'none'
+  // stages against the raw stage, so photographs abut edge to edge.
+  const imageMarginPx = background !== 'none' ? 10 : 0
+  const stagingWidth = Math.max(0, stageSize.width - (mode === 'vertical' ? imageMarginPx * 2 : 0))
+  const stagingHeight = Math.max(0, stageSize.height - (mode === 'strip' ? imageMarginPx * 2 : 0))
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
   // resets when the viewer unmounts, so a fresh visit is always quiet.
@@ -1348,7 +1357,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             the stage's isolated stacking context at z-index 0, it shows
             through only the transparent gaps between tiles and the
             exposed canvas — never over photographs or UI. */}
-        <SeededDoodleBackground enabled />
+        <SeededDoodleBackground enabled={background !== 'none'} />
         <div
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
@@ -1370,8 +1379,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               mode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
-              stageWidthCssPx: stageSize.width,
-              stageHeightCssPx: stageSize.height,
+              stageWidthCssPx: stagingWidth,
+              stageHeightCssPx: stagingHeight,
               dpr: stageSize.dpr,
             })
             // Desktop restrains video: 70% of stage height in the strip,
@@ -1382,8 +1391,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               mode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
-              stageWidthCssPx: stageSize.width,
-              stageHeightCssPx: stageSize.height,
+              stageWidthCssPx: stagingWidth,
+              stageHeightCssPx: stagingHeight,
               isDesktop,
             }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
@@ -1396,7 +1405,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             const cappedVideo = stagedVideo?.capped && stagedVideo.width > 0 && stagedVideo.height > 0 ? stagedVideo : null
             const frameStyle = mode === 'strip'
               ? cappedVideo
-                ? { width: `${cappedVideo.width}px`, height: '100%' }
+                ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
                 : staged && staged.width > 0 && staged.height > 0
                   ? { width: `${staged.width}px`, height: `${staged.height}px` }
                   : { aspectRatio: `${frameW} / ${frameH}` }
@@ -1515,8 +1524,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               mode: 'strip',
                               naturalWidthPx: img.naturalWidth,
                               naturalHeightPx: img.naturalHeight,
-                              stageWidthCssPx: stageSize.width,
-                              stageHeightCssPx: stageSize.height,
+                              stageWidthCssPx: stagingWidth,
+                              stageHeightCssPx: stagingHeight,
                               dpr: stageSize.dpr,
                             })
                             if (restaged.width > 0) {
@@ -1605,13 +1614,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section" aria-labelledby="background-heading">
             <h3 id="background-heading">Background</h3>
-            {/* The doodle field is always on beneath the photographs; this
-                only picks the pairing. The pattern itself is keyed to this
+            {/* 'none' leaves photographs abutting on the bare dark canvas;
+                Light and Dark wake the doodle field — keyed to this
                 gallery's URL, so the same album always wears the same
-                field — light background inks it in dark, and vice versa. */}
+                pattern — and give every image a 10px margin on the
+                trailing side. */}
             <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
-              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles on black</small></label>
-              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles on light</small></label>
+              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles, 10px margins</small></label>
+              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles, 10px margins</small></label>
+              <label><input type="radio" name="background-mode" value="none" checked={background === 'none'} onChange={() => { setBackground('none'); saveBackgroundPreference('none'); closeModals() }} /> <span>None</span><small>photographs abut on the dark canvas</small></label>
             </div>
           </section>
 
