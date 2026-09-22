@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { effectiveImageDpr, imageStageSize } from './image-staging'
+import { VIDEO_STRIP_MAX_STAGE_HEIGHT, VIDEO_VERTICAL_MAX_STAGE_WIDTH, effectiveImageDpr, imageStageSize, videoStageSize } from './image-staging'
 
 const STAGE = { stageWidthCssPx: 1440, stageHeightCssPx: 900 }
 const EPSILON = 1e-6
@@ -154,5 +154,92 @@ describe('imageStageSize guards invalid input', () => {
         expect(size(mode, 2400, 1600, dpr)).toEqual(size(mode, 2400, 1600, 1))
       }
     }
+  })
+})
+
+describe('videoStageSize caps desktop video against the stage', () => {
+  const SHAPES_V = [
+    ['landscape', 1920, 1080],
+    ['portrait', 1080, 1920],
+    ['square', 1000, 1000],
+    ['ultrawide', 4000, 1000],
+    ['tiny', 160, 90],
+  ] as const
+
+  test('strip mode holds every shape to exactly 70% of stage height', () => {
+    for (const [, w, h] of SHAPES_V) {
+      const r = videoStageSize({ mode: 'strip', naturalWidthPx: w, naturalHeightPx: h, ...STAGE, isDesktop: true })
+      expect(r.capped).toBe(true)
+      near(r.height, STAGE.stageHeightCssPx * 0.7)
+      // Aspect ratio survives the cap.
+      near(r.width / r.height, w / h)
+    }
+  })
+
+  test('vertical mode holds every shape to exactly 60% of stage width', () => {
+    for (const [, w, h] of SHAPES_V) {
+      const r = videoStageSize({ mode: 'vertical', naturalWidthPx: w, naturalHeightPx: h, ...STAGE, isDesktop: true })
+      expect(r.capped).toBe(true)
+      near(r.width, STAGE.stageWidthCssPx * 0.6)
+      near(r.width / r.height, w / h)
+    }
+  })
+
+  test('the caps are the advertised constants', () => {
+    expect(VIDEO_STRIP_MAX_STAGE_HEIGHT).toBe(0.7)
+    expect(VIDEO_VERTICAL_MAX_STAGE_WIDTH).toBe(0.6)
+  })
+
+  test('mobile is exempt in both capped modes', () => {
+    for (const mode of ['strip', 'vertical'] as const) {
+      const r = videoStageSize({ mode, naturalWidthPx: 1920, naturalHeightPx: 1080, ...STAGE, isDesktop: false })
+      expect(r.capped).toBe(false)
+    }
+  })
+
+  test('single mode is never capped, desktop or not', () => {
+    for (const isDesktop of [true, false]) {
+      const r = videoStageSize({ mode: 'single', naturalWidthPx: 1920, naturalHeightPx: 1080, ...STAGE, isDesktop })
+      expect(r.capped).toBe(false)
+    }
+  })
+
+  test('a capped strip video leaves room above and below to centre in', () => {
+    const r = videoStageSize({ mode: 'strip', naturalWidthPx: 1920, naturalHeightPx: 1080, ...STAGE, isDesktop: true })
+    expect(r.height).toBeLessThan(STAGE.stageHeightCssPx)
+    expect(STAGE.stageHeightCssPx - r.height).toBeGreaterThan(0)
+  })
+
+  test('a capped vertical video never exceeds the stage width', () => {
+    const r = videoStageSize({ mode: 'vertical', naturalWidthPx: 1080, naturalHeightPx: 1920, ...STAGE, isDesktop: true })
+    expect(r.width).toBeLessThan(STAGE.stageWidthCssPx)
+  })
+
+  test('degenerate intrinsic sizes fall back instead of producing NaN', () => {
+    const bad: [number, number][] = [[0, 0], [1920, 0], [0, 1080], [-100, 50], [Number.NaN, 100], [Number.POSITIVE_INFINITY, 100]]
+    for (const [w, h] of bad) {
+      for (const mode of ['strip', 'vertical'] as const) {
+        const r = videoStageSize({ mode, naturalWidthPx: w, naturalHeightPx: h, ...STAGE, isDesktop: true })
+        expect(r.capped).toBe(false)
+        expect(Number.isNaN(r.width)).toBe(false)
+        expect(Number.isNaN(r.height)).toBe(false)
+      }
+    }
+  })
+
+  test('an unmeasured stage falls back rather than collapsing the frame', () => {
+    const strip = videoStageSize({ mode: 'strip', naturalWidthPx: 1920, naturalHeightPx: 1080, stageWidthCssPx: 1440, stageHeightCssPx: 0, isDesktop: true })
+    expect(strip.capped).toBe(false)
+    const vert = videoStageSize({ mode: 'vertical', naturalWidthPx: 1920, naturalHeightPx: 1080, stageWidthCssPx: 0, stageHeightCssPx: 900, isDesktop: true })
+    expect(vert.capped).toBe(false)
+    const nan = videoStageSize({ mode: 'strip', naturalWidthPx: 1920, naturalHeightPx: 1080, stageWidthCssPx: Number.NaN, stageHeightCssPx: Number.NaN, isDesktop: true })
+    expect(nan.capped).toBe(false)
+  })
+
+  test('the cap scales with the stage, not with a fixed pixel count', () => {
+    const small = videoStageSize({ mode: 'strip', naturalWidthPx: 1920, naturalHeightPx: 1080, stageWidthCssPx: 1000, stageHeightCssPx: 500, isDesktop: true })
+    const big = videoStageSize({ mode: 'strip', naturalWidthPx: 1920, naturalHeightPx: 1080, stageWidthCssPx: 2000, stageHeightCssPx: 1000, isDesktop: true })
+    near(small.height, 350)
+    near(big.height, 700)
   })
 })

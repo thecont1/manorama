@@ -134,7 +134,7 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
 
   /** Mirrors the live stage geometry into the clone: the track's strip
    *  transform (including momentum), the stage's scroll offsets, its size
-   *  and its mode/seam classes. Without this the lens drifts out of sync
+   *  and its mode classes. Without this the lens drifts out of sync
    *  the moment anything moves. */
   const syncGeometry = () => {
     const rect = stage.getBoundingClientRect()
@@ -145,7 +145,7 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     if (track && clonedTrack) clonedTrack.style.transform = track.style.transform
     scroller.scrollTop = stage.scrollTop
     scroller.scrollLeft = stage.scrollLeft
-    // Mirror the mode/seam classes so the clone lays out identically, but
+    // Mirror the mode classes so the clone lays out identically, but
     // never `viewer-stage` itself: a second element with that class would
     // pick up the stage's own fixed sizing rules and would make every
     // `.viewer-stage` selector — in CSS and in tests — ambiguous.

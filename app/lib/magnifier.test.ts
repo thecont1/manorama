@@ -13,7 +13,7 @@ const installDom = (options: { finePointer: boolean; reducedMotion?: boolean } =
   const window = new Window({ width: 1440, height: 900 })
   const document = window.document
   document.body.innerHTML = `
-    <div class="viewer-stage mode-strip seam-none" data-stage>
+    <div class="viewer-stage mode-strip" data-stage>
       <div class="viewer-track" data-track style="transform: translate3d(-120px, 0, 0)">
         <figure class="viewer-frame" data-index="1">
           <img class="frame-ph" src="/a-thumb.jpg" alt="" />

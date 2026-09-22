@@ -2,11 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
-import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
+import { effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
+import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
+import SeededDoodleBackground from './SeededDoodleBackground'
+import { BACKGROUND_EVENT, backgroundIsLight, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 
 type Mode = 'strip' | 'vertical' | 'single'
-type SeamMode = 'light' | 'dark' | 'none'
 type DragSample = { x: number; time: number }
 type Props = {
   slug: string
@@ -55,6 +57,12 @@ const coarsePointer = () =>
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches
 
+/** The video size caps are a desktop rule: a phone keeps the full-bleed
+ *  clip. "Desktop" here means a real pointer on a screen wide enough for
+ *  the restraint to read as composition rather than a bug — the same
+ *  720px line the stylesheet already treats as the mobile breakpoint. */
+const DESKTOP_VIDEO_QUERY = '(min-width: 721px) and (pointer: fine)'
+
 /** Keystrokes belong to the viewer unless focus sits in a text-entry
  *  field. Non-text inputs (radio, checkbox, range, …) never receive
  *  typed characters, so letting shortcuts through keeps I/M/Esc alive
@@ -78,16 +86,17 @@ const STRIP_WINDOW = 3
  *  bounded so decoded HEIC blobs still get revoked once out of play. */
 const STRIP_RETAIN = 6
 
-/** Anonymous per-gallery viewing preferences: mode + background choice are
+/** Anonymous per-gallery viewing preferences: the view mode is
  *  remembered in localStorage keyed by gallery slug, so a link recipient
- *  keeps their own preference without an account. */
-type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
+ *  keeps their own preference without an account. The doodle background
+ *  is deliberately NOT here — it is app-wide chrome, stored globally in
+ *  lib/background-preference.ts alongside the theme. */
+type ViewPrefs = { mode?: Mode }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
       mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
-      seamMode: stored.seamMode && ['light', 'dark', 'none'].includes(stored.seamMode) ? stored.seamMode : undefined,
     }
   } catch {
     return {}
@@ -110,7 +119,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // gallery-wide setting — the feed scrolls natively, so they're only
   // ever an opt-in.
   const [showArrowsVertical, setShowArrowsVertical] = useState(false)
-  const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
+  // Doodle background: an app-wide preference, off by default so
+  // existing galleries look untouched until a visitor opts in. Read as
+  // 'flat' for SSR, then reconciled on mount so server and client markup
+  // agree during hydration.
+  // The doodle field is always on; this only picks the canvas/ink pairing.
+  const [background, setBackground] = useState<BackgroundPreference>('dark')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -119,7 +133,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
   // One-at-a-time sweep: the outgoing frame stays mounted and fully
   // opaque while the incoming frame wipes over it behind an opaque
-  // canvas card — no transparency ever lands on the striped field.
+  // canvas card — no transparency ever lands on the background field.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
   const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
   const sweepTimerRef = useRef<number | null>(null)
@@ -141,6 +155,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [magnifierActive, setMagnifierActive] = useState(false)
   const [magnifierAvailable, setMagnifierAvailable] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
+  // Desktop gates the video size caps. False during SSR and the hydration
+  // render so server and client markup agree; the mount effect reconciles.
+  const [isDesktop, setIsDesktop] = useState(false)
+  // Network quality, for the "stay a still image on a poor connection"
+  // rule. Starts undefined so SSR and the hydration render agree (the
+  // server has no navigator); the mount effect reconciles it.
+  const [connection, setConnection] = useState<ConnectionLike | undefined>(undefined)
   // Playback is gated by the opening curtain. Without React state here,
   // adding a body class does not rerender the active VideoSlide, so a
   // video-first gallery would remain mounted and autoplay behind the
@@ -202,13 +223,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
+
+  // Background preference is global chrome: adopt the stored value after
+  // mount (SSR cannot read localStorage), then stay in sync with other
+  // tabs and with any other island that changes it.
+  useEffect(() => {
+    setBackground(loadBackgroundPreference())
+    const syncFromStorage = () => setBackground(loadBackgroundPreference())
+    const syncFromEvent = (event: Event) => setBackground(backgroundPreferenceFromEvent(event as CustomEvent<unknown>))
+    window.addEventListener('storage', syncFromStorage)
+    window.addEventListener(BACKGROUND_EVENT, syncFromEvent)
+    return () => {
+      window.removeEventListener('storage', syncFromStorage)
+      window.removeEventListener(BACKGROUND_EVENT, syncFromEvent)
+    }
+  }, [])
   useEffect(() => {
     try {
-      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
+      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode }))
     } catch {
       // Storage can be unavailable (private mode) — preferences are best-effort.
     }
-  }, [slug, mode, seamMode])
+  }, [slug, mode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
@@ -621,7 +657,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (modeRef.current !== 'strip') return
     const frame = requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true, true))
     return () => cancelAnimationFrame(frame)
-  }, [stageSize, seamMode])
+  }, [stageSize])
 
   useEffect(() => () => {
     cancelPositionReport()
@@ -660,6 +696,41 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     sync()
     query.addEventListener?.('change', sync)
     return () => query.removeEventListener?.('change', sync)
+  }, [])
+
+  // Desktop/mobile, tracked live: resizing across the breakpoint (or
+  // dragging the window to another display) must re-apply or release the
+  // video size caps rather than leave a stale first-paint decision.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(DESKTOP_VIDEO_QUERY)
+    const sync = () => setIsDesktop(query.matches)
+    sync()
+    query.addEventListener?.('change', sync)
+    return () => query.removeEventListener?.('change', sync)
+  }, [])
+
+  // Network quality, tracked live: a visitor who walks out of wifi onto a
+  // weak cell link should see the clips fall back to their stills rather
+  // than stall. The API is absent in Safari and Firefox, where the read
+  // is simply undefined and video behaves normally.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return
+    const source = connectionOf(navigator) as (ConnectionLike & {
+      addEventListener?: (type: string, listener: () => void) => void
+      removeEventListener?: (type: string, listener: () => void) => void
+    }) | undefined
+    if (!source) return
+    // Copy the live object's fields: it mutates in place, so storing the
+    // reference itself would never register as a state change.
+    const sync = () => setConnection({
+      saveData: source.saveData,
+      effectiveType: source.effectiveType,
+      downlink: source.downlink,
+    })
+    sync()
+    source.addEventListener?.('change', sync)
+    return () => source.removeEventListener?.('change', sync)
   }, [])
 
   useEffect(() => {
@@ -1135,14 +1206,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [index, mode, images.length])
 
   /**
-   * The ONE frame that may own a media element. `isFrameActive` is a
-   * window (plus retention, in strip mode) — correct for images, wrong
-   * for video: it would mount a <video> per retained frame, each
-   * fetching metadata. A video mounts only on the current slide; every
-   * other frame, adjacent or not, is its poster image alone.
+   * Which frames may own a media element. `isFrameActive` is a window
+   * (plus retention, in strip mode) — too wide for video, which would
+   * mount a `<video>` per retained frame. A video mounts on the current
+   * slide and its immediate neighbours, so stepping onto one finds a clip
+   * that is ALREADY running rather than one that starts on arrival. On a
+   * poor connection nothing mounts and the poster is the whole frame.
    */
   const isVideoSlideActive = (imageIndex: number) =>
-    galleryEntered && !modalOpen && !infoOpen && imageIndex === index && isFrameActive(imageIndex)
+    videoMountsFor({
+      imageIndex,
+      index,
+      frameActive: isFrameActive(imageIndex),
+      galleryEntered,
+      blocked: modalOpen || infoOpen,
+      connection,
+    })
 
   const isFrameActive = (imageIndex: number) => {
     if (mode === 'vertical') {
@@ -1252,18 +1331,24 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
-  const seamInset = seamMode === 'none' ? 0 : mode === 'strip' ? 20 : mode === 'vertical' ? 10 : 0
-  const seamTop = seamMode === 'none' || mode === 'single' ? 0 : 10
 
   return (
     <>
+      {/* Behind everything, inert: a deterministic field keyed to this
+          gallery's URL. Sits outside the stage so it stays put while the
+          track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} seam-${seamMode}`}
+        class={`viewer-stage mode-${mode} bg-${background}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
       >
+        {/* A single decorative layer beneath the gallery content. Inside
+            the stage's isolated stacking context at z-index 0, it shows
+            through only the transparent gaps between tiles and the
+            exposed canvas — never over photographs or UI. */}
+        <SeededDoodleBackground enabled />
         <div
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
@@ -1285,46 +1370,94 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               mode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
-              stageWidthCssPx: stageSize.width - (mode === 'strip' ? 0 : seamInset),
-              stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
+              stageWidthCssPx: stageSize.width,
+              stageHeightCssPx: stageSize.height,
               dpr: stageSize.dpr,
             })
+            // Desktop restrains video: 70% of stage height in the strip,
+            // 60% of stage width in vertical scroll. `capped: false` means
+            // the rule does not apply (mobile, single mode, unmeasured
+            // stage) and the frame keeps its previous full-bleed sizing.
+            const stagedVideo = video ? videoStageSize({
+              mode,
+              naturalWidthPx: frameW,
+              naturalHeightPx: frameH,
+              stageWidthCssPx: stageSize.width,
+              stageHeightCssPx: stageSize.height,
+              isDesktop,
+            }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
+            // A capped video gets an explicit box. Strip frames are laid
+            // out edge-to-edge, so the frame keeps full stage height and
+            // only the media inside it shrinks — that is what centres the
+            // clip vertically instead of leaving it top-aligned above a
+            // gap. Vertical frames are full-width rows, so the row height
+            // follows the capped media height.
+            const cappedVideo = stagedVideo?.capped && stagedVideo.width > 0 && stagedVideo.height > 0 ? stagedVideo : null
+            const frameStyle = mode === 'strip'
+              ? cappedVideo
+                ? { width: `${cappedVideo.width}px`, height: '100%' }
+                : staged && staged.width > 0 && staged.height > 0
+                  ? { width: `${staged.width}px`, height: `${staged.height}px` }
+                  : { aspectRatio: `${frameW} / ${frameH}` }
+              : mode === 'vertical'
+                ? video
+                  ? cappedVideo
+                    ? { width: '100%', height: `${cappedVideo.height}px` }
+                    : undefined
+                  : staged && staged.height > 0
+                    ? { width: '100%', height: `${staged.height}px` }
+                    : { width: '100%', aspectRatio: `${frameW} / ${frameH}` }
+                : undefined
+            // The media box inside a capped frame.
+            const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             return (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
                 aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
-                style={mode === 'strip' ? staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width + seamTop}px`, height: `${staged.height + seamInset}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
+                style={frameStyle}
               >
                 {video ? (
                   <>
-                    {/* The poster is the whole frame until the video is the
-                        active slide: adjacent frames cost one image, and
-                        non-adjacent frames mount no media element at all. */}
+                    {/* The poster holds the frame's aspect-ratio canvas and
+                        stays the accessible still for every frame whose
+                        video is not mounted — including neighbours that
+                        ARE mounted but silently looping behind the active
+                        clip. An active slide whose video is unmounted
+                        (reduced motion, slow connection, blocked by a
+                        modal) keeps its poster exposed with video.alt so
+                        the slide is never left without a name. */}
+                    {(() => {
+                    const videoMounted = isVideoSlideActive(imageIndex)
+                    return <>
                     <img
                       class="frame-ph"
                       src={video.poster.src}
-                      alt={isVideoSlideActive(imageIndex) ? '' : video.alt}
-                      aria-hidden={isVideoSlideActive(imageIndex) ? 'true' : undefined}
+                      alt={videoMounted && imageIndex === index ? '' : video.alt}
+                      aria-hidden={videoMounted && imageIndex === index ? 'true' : undefined}
                       width={frameW}
                       height={frameH}
                       decoding="async"
                       loading={isActive ? 'eager' : 'lazy'}
+                      style={cappedMediaStyle}
                     />
-                    {isVideoSlideActive(imageIndex) ? (
+                    {videoMounted ? (
                       <VideoSlide
                         item={video}
-                        isActive
+                        isActive={imageIndex === index}
                         soundOn={soundOn}
                         prefersReducedMotion={reducedMotion}
                         onToggleSound={setSoundOn}
+                        boxStyle={cappedMediaStyle}
                       />
                     ) : null}
+                    </>
+                    })()}
                   </>
                 ) : (
                 <>
@@ -1383,12 +1516,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               naturalWidthPx: img.naturalWidth,
                               naturalHeightPx: img.naturalHeight,
                               stageWidthCssPx: stageSize.width,
-                              stageHeightCssPx: stageSize.height - seamInset,
+                              stageHeightCssPx: stageSize.height,
                               dpr: stageSize.dpr,
                             })
                             if (restaged.width > 0) {
-                              frame.style.width = `${restaged.width + seamTop}px`
-                              frame.style.height = `${restaged.height + seamInset}px`
+                              frame.style.width = `${restaged.width}px`
+                              frame.style.height = `${restaged.height}px`
                             }
                             // A corrected frame changes track geometry —
                             // drop the cached bounds, then once layout
@@ -1472,10 +1605,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section" aria-labelledby="background-heading">
             <h3 id="background-heading">Background</h3>
+            {/* The doodle field is always on beneath the photographs; this
+                only picks the pairing. The pattern itself is keyed to this
+                gallery's URL, so the same album always wears the same
+                field — light background inks it in dark, and vice versa. */}
             <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
-              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>light stripes on black</small></label>
-              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>black stripes on light</small></label>
-              <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
+              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles on black</small></label>
+              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles on light</small></label>
             </div>
           </section>
 

@@ -73,6 +73,17 @@ const seedPipelineOwner = async () => {
 }
 
 describe('the dashboard renders retention state', () => {
+  test('the owner grid keeps its theme control and never paints a doodle field', async () => {
+    const html = await renderDashboard(async () => {})
+    expect(html).toContain('aria-label="Display preferences"')
+    // Doodles belong to gallery pages only: the account page must ship no
+    // background layer, no has-doodle surface, and no background toggle.
+    expect(html).not.toContain('data-doodle-bg')
+    expect(html).not.toContain('has-doodle')
+    expect(html).not.toContain('Use doodle background')
+    expect(html).not.toContain('admin-background-toggle')
+  })
+
   test('a pipeline card locks every edit surface and explains the deadline', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     expect(html).toContain('data-retention="pipeline"')

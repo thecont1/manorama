@@ -1038,13 +1038,12 @@ for (const vp of viewports) {
         (slug) =>
           window.localStorage.setItem(
             `manorama:view:${slug}`,
-            JSON.stringify({ mode: "single", seamMode: "dark" }),
+            JSON.stringify({ mode: "single" }),
           ),
         SLUG,
       );
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
-      await expect(page.locator("[data-stage]")).toHaveClass(/seam-dark/);
       await page.keyboard.press("ArrowRight");
       // Mid-sweep the outgoing frame is still mounted and fully painted
       // while the incoming one wipes in behind an opaque canvas card —

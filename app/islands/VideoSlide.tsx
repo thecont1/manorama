@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
 import type { VideoItem } from '../lib/imagesource'
+import { connectionOf, shouldAutoplayVideo, videoAudibleFor } from '../lib/video-playback'
 
 /**
  * One video slide's media lifecycle — and nothing else. The parent Viewer
  * owns the index, navigation, and modals; this leaf owns only the
- * `<video>` element beneath the active frame.
+ * `<video>` element beneath its frame.
  *
  * The playback model is deliberately singular: **ambient muted loop**.
- * A slide that becomes active starts playing muted and loops; leaving it
- * pauses and rewinds so returning shows the poster again. There is no
- * seek bar, no per-item mode, no autoplay-with-sound on first sight.
+ * A slide plays as soon as it MOUNTS — arriving at a video finds motion
+ * already underway rather than starting it. The parent bounds how many
+ * videos exist (see `videoMountsFor`), which is what keeps "play on load"
+ * from meaning "decode the whole gallery". There is no seek bar and no
+ * autoplay-with-sound on first sight.
  *
- * Sound is viewer-level state held by the parent: once a visitor presses
- * the megaphone, every subsequently activated video starts audible until
- * they mute again or leave. Nothing is persisted.
+ * Sound is viewer-level state held by the parent, and only the ACTIVE
+ * slide is ever audible: neighbours run muted so two clips never overlap.
+ *
+ * On a connection too poor for smooth playback the frame stays a still
+ * image — the parent declines to mount us at all.
  */
 
 type Props = {
@@ -23,6 +28,10 @@ type Props = {
   prefersReducedMotion: boolean
   onToggleSound: (soundOn: boolean) => void
   onPlaybackEvent?: (event: 'playing' | 'paused' | 'error' | 'blocked') => void
+  /** Explicit media box, set when the desktop video size cap applies. The
+   *  slide and its `<video>` must match the poster exactly, so the parent
+   *  hands the same dimensions to both. Undefined means "fill the frame". */
+  boxStyle?: { width: string; height: string }
 }
 
 /** `VIDEO · 1:37`. Falls back to a bare label until a duration is known. */
@@ -34,8 +43,12 @@ export const formatDuration = (seconds: number | undefined) => {
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
-export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, onToggleSound, onPlaybackEvent }: Props) {
+export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, onToggleSound, onPlaybackEvent, boxStyle }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  // Whether the clip was actually running when the document last became
+  // hidden — visibilitychange resumes only what was playing, never a
+  // clip that was mounted-but-paused.
+  const wasPlayingRef = useRef(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasDecodedFrame, setHasDecodedFrame] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -70,33 +83,37 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     }
   }
 
-  // Activation drives everything. Reduced motion never autoplays: the
-  // poster and an explicit Play control stand in, so playback stays
-  // user-initiated.
+  // Playback is driven by MOUNTING, not activation: a loaded video is
+  // already running by the time the visitor reaches it. Reduced motion
+  // never autoplays — the poster plus an explicit Play control stand in.
+  // `isActive` is deliberately absent from the deps: stepping onto a
+  // slide must not restart a clip that has been looping all along.
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    if (!isActive) {
-      video.pause()
-      // Rewind so returning to the slide shows the poster, not a frozen
-      // mid-clip frame.
-      try { video.currentTime = 0 } catch { /* not seekable yet */ }
-      setIsPlaying(false)
-      setHasDecodedFrame(false)
-      return
-    }
-    video.muted = !soundOn
-    if (prefersReducedMotion) return
+    video.muted = !videoAudibleFor({ isActive, soundOn })
+    const autoplay = shouldAutoplayVideo({
+      prefersReducedMotion,
+      connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
+      documentHidden: typeof document !== 'undefined' && document.hidden,
+    })
+    // Autoplay being disallowed — including the moment reduced motion
+    // turns on mid-session — must also stop any playback already running,
+    // not merely skip the play attempt.
+    if (!autoplay) { video.pause(); return }
     void attemptPlay()
-  }, [isActive, prefersReducedMotion])
+  }, [prefersReducedMotion])
 
-  // Sound is viewer-level: a change applies to the playing video at once.
+  // Sound follows the active slide. A neighbour that is already looping
+  // must drop to muted the moment it stops being the one on screen, so
+  // two clips never overlap.
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !isActive) return
-    video.muted = !soundOn
-    if (soundOn && video.paused && !prefersReducedMotion) void attemptPlay()
-  }, [soundOn])
+    if (!video) return
+    const audible = videoAudibleFor({ isActive, soundOn })
+    video.muted = !audible
+    if (audible && video.paused && !prefersReducedMotion) void attemptPlay()
+  }, [soundOn, isActive])
 
   // A backgrounded tab must not keep decoding video.
   useEffect(() => {
@@ -104,12 +121,28 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     const onVisibility = () => {
       const video = videoRef.current
       if (!video) return
-      if (document.hidden) video.pause()
-      else if (isActive && !prefersReducedMotion) void attemptPlay()
+      if (document.hidden) {
+        // Remember whether this clip was actually running so the
+        // visibilitychange handler can decide on return whether the
+        // poster (already painted) should resume behind the motion.
+        wasPlayingRef.current = !video.paused
+        video.pause()
+        return
+      }
+      // Only resume playback that existed before the hide — a clip
+      // mounted-but-paused (reduced motion, blocked autoplay) must
+      // not be startled into motion on tab return.
+      if (
+        wasPlayingRef.current &&
+        shouldAutoplayVideo({
+          prefersReducedMotion,
+          connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
+        })
+      ) void attemptPlay()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [isActive, prefersReducedMotion])
+  }, [prefersReducedMotion])
 
   // Full teardown on unmount: release the media element's buffers rather
   // than leaving a detached video decoding.
@@ -129,7 +162,7 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
   }
 
   return (
-    <div class={`video-slide ${hasDecodedFrame ? 'is-playing-frame' : ''}`} data-video-slide>
+    <div class={`video-slide ${hasDecodedFrame ? 'is-playing-frame' : ''}`} data-video-slide style={boxStyle}>
       <video
         ref={videoRef}
         class="frame-video"
@@ -142,7 +175,10 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
         muted
         playsInline
         loop
-        preload="metadata"
+        // `auto`, not `metadata`: a neighbour must have buffered enough to
+        // be genuinely running by the time the visitor steps onto it. The
+        // mount radius is what keeps this from costing the whole gallery.
+        preload="auto"
         aria-label={item.alt}
         onLoadedMetadata={(event: Event) => {
           const video = event.currentTarget as HTMLVideoElement
@@ -167,8 +203,12 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
       </video>
 
       {failed ? (
-        <p class="video-unavailable" role="status">Video unavailable</p>
+        isActive ? <p class="video-unavailable" role="status">Video unavailable</p> : null
       ) : (
+        // Neighbours are mounted and looping, but they are not the slide
+        // the visitor is on: showing their controls would duplicate the
+        // Play/Mute buttons and leak offscreen clips into the a11y tree.
+        isActive ? (
         <div class="video-controls" data-video-controls>
           <button
             type="button"
@@ -189,6 +229,7 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
           </button>
           <span class="video-chip" aria-hidden="true">{durationLabel ? `VIDEO · ${durationLabel}` : 'VIDEO'}</span>
         </div>
+        ) : null
       )}
     </div>
   )
