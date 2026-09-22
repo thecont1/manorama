@@ -136,7 +136,11 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
       focusable="false"
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* One definition per icon; every placement is a cheap <use>. */}
+      {/* One definition per icon; every placement is a cheap <use>.
+          Thin sharp line art: a hairline stroke with mitred corners and butt
+          caps reads as drawn with a technical pen rather than a marker.
+          vector-effect keeps the weight constant at every scale, so a 1.3x
+          glyph is not a fatter line. */}
       <defs>
         {DOODLE_ICONS.map((icon) => (
           <symbol key={icon.id} id={icon.id} viewBox="0 0 24 24">
@@ -144,9 +148,10 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
               d={icon.path}
               fill="none"
               stroke="currentColor"
-              stroke-width="1.4"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              stroke-width="0.9"
+              stroke-linecap="butt"
+              stroke-linejoin="miter"
+              vector-effect="non-scaling-stroke"
             />
           </symbol>
         ))}

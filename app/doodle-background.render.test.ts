@@ -58,10 +58,14 @@ describe('SeededDoodleBackground markup', () => {
     expect(uses.length).toBeGreaterThan(symbols.length)
   })
 
-  test('strokes in currentColor so CSS can theme it', () => {
+  test('strokes thin sharp hairlines so the field reads as technical pen work', () => {
     const html = render({ url: '/a' })
     expect(html).toContain('stroke="currentColor"')
     expect(html).toContain('fill="none"')
+    expect(html).toContain('stroke-width="0.9"')
+    expect(html).toContain('stroke-linejoin="miter"')
+    expect(html).toContain('vector-effect="non-scaling-stroke"')
+    expect(html).not.toContain('stroke-linejoin="round"')
   })
 
   test('renders nothing at all when disabled', () => {

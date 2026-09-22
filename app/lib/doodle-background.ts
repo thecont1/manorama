@@ -59,11 +59,11 @@ export type DoodleLayoutOptions = {
 
 /* ---------------------------------------------------------------- tuning */
 
-export const MIN_CELL = 80
-export const MAX_CELL = 140
-export const DEFAULT_CELL = 108
-export const DEFAULT_FILL = 0.68
-export const DEFAULT_MAX_ICONS = 220
+export const MIN_CELL = 52
+export const MAX_CELL = 92
+export const DEFAULT_CELL = 70
+export const DEFAULT_FILL = 0.82
+export const DEFAULT_MAX_ICONS = 420
 /** Extra canvas below the fold so scrolling never reveals a bare edge. */
 export const CANVAS_SCALE = 2
 /** Jitter is +/- this share of the cell, keeping glyphs off a rigid grid. */
@@ -293,9 +293,9 @@ export const responsiveCell = (viewportWidth: number): number => {
   const w = finite(viewportWidth, 0)
   if (w <= 0) return DEFAULT_CELL
   if (w < 480) return MIN_CELL
-  if (w < 900) return 96
+  if (w < 900) return 62
   if (w < 1600) return DEFAULT_CELL
-  return 124
+  return 80
 }
 
 /**

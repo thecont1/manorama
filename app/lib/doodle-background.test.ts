@@ -242,8 +242,15 @@ describe('degenerate input', () => {
   })
 
   test('full fill places one icon in every cell', () => {
+    // Derive the expected count from the layout's own resolved cell rather
+    // than hardcoding it: the requested cell is clamped into
+    // [MIN_CELL, MAX_CELL], so a literal here silently breaks whenever the
+    // density tuning changes. fill: 1 means every cell must be occupied.
     const layout = buildDoodleLayout(7, { width: 400, height: 400, cell: 100, fill: 1, maxIcons: 10_000 })
-    expect(layout.placements).toHaveLength(16)
+    const expected = Math.ceil(400 / layout.cell) ** 2
+    expect(layout.cell).toBeLessThanOrEqual(MAX_CELL)
+    expect(layout.cell).toBeGreaterThanOrEqual(MIN_CELL)
+    expect(layout.placements).toHaveLength(expected)
   })
 
   test('an empty icon set degrades to an empty field', () => {

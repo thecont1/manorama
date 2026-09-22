@@ -85,11 +85,11 @@ const openDashboard = async (page: Page) => {
   await page.goto(`${BASE}/thecontrarian`)
   await expect(page.locator('.admin-page')).toBeVisible()
   // `.admin-page` is server-rendered, so its presence proves nothing about
-  // the island being live. Wait for the control itself to exist; the actual
-  // hydration race is absorbed by clickUntil, which retries a dropped click.
+  // the island being live. The background toggle used to be our hydration
+  // beacon; it is gone now, so wait on the theme control instead.
   // Deliberately no `networkidle` here — the dashboard polls on an interval,
   // so it never goes idle and the wait would eat the whole test budget.
-  await page.locator('.admin-background-toggle').waitFor({ state: 'visible', timeout: 30000 })
+  await page.locator('.admin-theme-toggle').waitFor({ state: 'visible', timeout: 30000 })
 }
 
 /** Clicks an island control that may still be hydrating: a click landing on
@@ -134,7 +134,7 @@ test('the toggle shows the doodle field and hides it again', async ({ page }) =>
   await expect(page.locator('[data-doodle-toggle]')).toHaveAttribute('aria-pressed', 'true')
   const count = Number((await page.locator('[data-doodle-bg]').getAttribute('data-doodle-count')) ?? '0')
   expect(count).toBeGreaterThan(20)
-  expect(count).toBeLessThanOrEqual(220)
+  expect(count).toBeLessThanOrEqual(420)
 
   await toggleDoodle(page)
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
@@ -282,24 +282,21 @@ test('the field paints visible glyphs and yields a screenshot', async ({ page })
   await page.screenshot({ path: 'test-results/doodle-layer-blank.png' })
 })
 
-test('the dashboard gallery grid shares and controls the background preference', async ({ page }) => {
-  // Start from a known flat preference, then verify the owner grid can turn
-  // the layer on and that the public album inherits the same app-wide flag.
+test('the dashboard never paints a doodle field, even when the gallery preference is on', async ({ page }) => {
+  // Doodles are gallery-only. Turn the shared preference ON, then prove the
+  // account page still renders no layer and offers no background control,
+  // while a public album with the same flag does paint one.
   await page.goto(BASE)
-  await page.evaluate(() => localStorage.setItem('manorama:background', 'flat'))
+  await page.evaluate(() => localStorage.setItem('manorama:background', 'doodle'))
   await openDashboard(page)
 
-  const toggle = page.getByRole('button', { name: 'Use doodle background' })
-  await expect(toggle).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Use doodle background' })).toHaveCount(0)
+  await expect(page.locator('.admin-background-toggle')).toHaveCount(0)
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(0)
-  await clickUntil(page, () => toggle.click(), '.admin-page.has-doodle')
-  await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
-  const dashboardSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
+  await expect(page.locator('.admin-page.has-doodle')).toHaveCount(0)
 
   await gotoGallery(page, ALBUM_A)
   await expect(page.locator('[data-doodle-bg]')).toHaveCount(1)
-  const albumSeed = await page.locator('[data-doodle-bg]').getAttribute('data-doodle-seed')
-  expect(albumSeed).not.toBe(dashboardSeed)
 })
 
 test('history navigation changes the seed while transient query changes do not', async ({ page }) => {

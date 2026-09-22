@@ -3,8 +3,7 @@ import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
-import SeededDoodleBackground from './SeededDoodleBackground'
-import { BACKGROUND_EVENT, backgroundEnabled, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference } from '../lib/background-preference'
+
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -28,7 +27,6 @@ type Theme = 'light' | 'dark'
 
 const THEME_KEY = 'manorama:theme'
 const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
-const setDoodlePreference = (enabled: boolean) => saveBackgroundPreference(enabled ? 'doodle' : 'flat')
 
 const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
 
@@ -117,21 +115,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       return 'dark'
     }
   })
-  // App-wide display chrome, shared with the public viewer. Start flat for
-  // SSR/hydration, then reconcile the persisted preference on mount.
-  const [doodle, setDoodle] = useState(false)
-
-  useEffect(() => {
-    setDoodle(backgroundEnabled(loadBackgroundPreference()))
-    const syncFromStorage = () => setDoodle(backgroundEnabled(loadBackgroundPreference()))
-    const syncFromEvent = (event: Event) => setDoodle(backgroundEnabled(backgroundPreferenceFromEvent(event as CustomEvent<unknown>)))
-    window.addEventListener('storage', syncFromStorage)
-    window.addEventListener(BACKGROUND_EVENT, syncFromEvent)
-    return () => {
-      window.removeEventListener('storage', syncFromStorage)
-      window.removeEventListener(BACKGROUND_EVENT, syncFromEvent)
-    }
-  }, [])
 
   // Quick-add resume. The `manorama_oauth_next` cookie is the real record
   // of an interrupted /<share-url> flow; this is the fallback for when it
@@ -484,8 +467,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   return (
     <>
-      <SeededDoodleBackground enabled={doodle} />
-      <main class={`admin-page admin-page--selector${doodle ? ' has-doodle' : ''}`}>
+      <main class="admin-page admin-page--selector">
       <header class="admin-header">
         <div>
           <form method="post" action="/auth/logout" class="admin-brand-form">
@@ -511,9 +493,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div>
         </div>
         <div class="admin-display-toggles" aria-label="Display preferences">
-          <button type="button" class="admin-background-toggle" onClick={() => { const next = !doodle; setDoodle(next); setDoodlePreference(next) }} aria-label={doodle ? 'Use flat background' : 'Use doodle background'} aria-pressed={doodle} title={doodle ? 'Use flat background' : 'Use doodle background'}>
-            <span aria-hidden="true">{doodle ? '▦' : '□'}</span>
-          </button>
           <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
             <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
           </button>

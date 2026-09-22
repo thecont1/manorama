@@ -229,9 +229,7 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
-body:has(.admin-page.has-doodle) { background: transparent; }
 .admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
-.admin-page.has-doodle { background: linear-gradient(rgba(17, 19, 18, .76), rgba(17, 19, 18, .76)); }
 .admin-header { width: min(1040px, 100%); margin: 0 auto; }
 .admin-form { width: min(1180px, 100%); margin: 0 auto; }
 .admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 36px; padding-bottom: clamp(32px, 5vw, 56px); }
@@ -868,10 +866,9 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
 [aria-disabled="true"].editable-value, .admin-icon-action[aria-disabled="true"] { opacity: .6; }
 
 
-/* Editor display controls — background pattern + light/dark mode. */
+/* Editor display controls — light/dark mode. */
 .admin-display-toggles { display: flex; align-items: center; gap: 8px; flex: none; }
-.admin-theme-toggle,
-.admin-background-toggle {
+.admin-theme-toggle {
   display: grid;
   place-items: center;
   flex: 0 0 36px;
@@ -884,19 +881,14 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
   cursor: pointer;
 }
 .admin-theme-toggle img { display: block; width: 18px; height: 18px; filter: invert(1); }
-.admin-background-toggle span { display: block; font-family: 'DM Mono', ui-monospace, monospace; font-size: 17px; line-height: 1; }
-.admin-theme-toggle:hover, .admin-theme-toggle:focus-visible,
-.admin-background-toggle:hover, .admin-background-toggle:focus-visible { border-color: rgba(var(--ink), .84); color: rgb(var(--ink)); outline: none; }
-.admin-background-toggle[aria-pressed="true"] { background: rgba(var(--ink), .1); border-color: rgba(var(--ink), .52); color: rgb(var(--ink)); }
+.admin-theme-toggle:hover, .admin-theme-toggle:focus-visible { border-color: rgba(var(--ink), .84); color: rgb(var(--ink)); outline: none; }
 html.light .admin-theme-toggle img { filter: brightness(0); }
 
 /* Light theme (editor only): the toggle adds .light to <html>; --ink flips every
    ink-derived color. Hard-coded surfaces and white-hover states need overrides. */
 html.light { --ink: 22, 24, 23; color-scheme: light; }
 html.light, html.light body, html.light body:has(.admin-page) { background: #e9e5dc; }
-html.light body:has(.admin-page.has-doodle) { background: transparent; }
 html.light .admin-page { color: #161817; background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .14), transparent 35rem), #e9e5dc; }
-html.light .admin-page.has-doodle { background: linear-gradient(rgba(233, 229, 220, .78), rgba(233, 229, 220, .78)); }
 html.light .admin-gallery-strip-frame, html.light .dropbox-strip-item img { background: #dcd7cb; }
 html.light .admin-toast { color: #f3f0e8; }
 html.light .admin-button--solid { color: #e9e5dc; }
