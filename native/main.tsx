@@ -2,13 +2,22 @@ import { render } from 'hono/jsx/dom'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import GalleryList from './islands/GalleryList'
+import { beginDropboxSignIn, installNativeAuth } from './lib/session'
 import './styles.css'
 
 const root = document.getElementById('app')
 if (!root) throw new Error('Native app root is missing')
 
 const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
-render(<GalleryList apiBase={apiBase} />, root)
+render(
+  <GalleryList
+    apiBase={apiBase}
+    onSignIn={() => void beginDropboxSignIn(apiBase)}
+  />,
+  root,
+)
+
+void installNativeAuth(apiBase).catch(() => undefined)
 
 /** Configure the native status bar and dismiss the launch splash screen. */
 const configureNativeChrome = async () => {
