@@ -164,7 +164,8 @@ button { color: inherit; }
   -webkit-user-select: none;
   overflow: hidden;
 }
-.stage-seq-num { transition: opacity 150ms ease; }
+/* Count fades back in after the pill has collapsed to circle size. */
+.stage-seq-num { transition: opacity 160ms ease 60ms; }
 /* The hover flyout: two centered lines that only exist inside the
    expanded pill, so the resting circle stays a bare counter. */
 .stage-seq-detail {
@@ -175,25 +176,45 @@ button { color: inherit; }
   gap: 3px;
   opacity: 0;
   white-space: nowrap;
-  transition: opacity 180ms ease;
+  transition: opacity 140ms ease;
 }
 .stage-seq-tally { font-size: clamp(12px, 1.75svh, 15px); font-weight: 600; }
 .stage-seq-hint { font-size: clamp(9px, 1.28svh, 10.5px); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: rgba(var(--ink), .62); }
-/* On mouse pointers the circle grows into a pill — its right edge stays
-   docked to the nav cluster, so the expansion reads as the bubble
-   stretching left, not jumping. Focus-visible gets the same treatment
-   so keyboard users see the affordance too. */
+/* On mouse pointers the circle animates into a pill — its right edge
+   stays docked to the nav cluster, so the expansion reads as the bubble
+   stretching left, not jumping. Hovering anywhere in the nav cluster
+   counts as "near" the counter (the pill grows away from the arrows,
+   so it never occludes them). A soft overshoot easing makes the grow
+   feel like the pill inflates; un-hover settles back faster. The flyout
+   waits for the pill to have room before fading in. Focus-visible gets
+   the same treatment so keyboard users see the affordance too. */
 @media (hover: hover) and (pointer: fine) {
-  .stage-seq { transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease, width 220ms ease, min-width 220ms ease, height 220ms ease; }
-  .stage-seq:is(:hover, :focus-visible) {
+  .stage-seq {
+    transition:
+      opacity 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      min-width 220ms cubic-bezier(.4, 0, .2, 1),
+      height 220ms cubic-bezier(.4, 0, .2, 1);
+  }
+  .stage-seq:is(:hover, :focus-visible),
+  .stage-arrows:hover .stage-seq {
     opacity: 1;
     border-color: rgba(var(--ink), .8);
     background: rgba(10, 10, 10, .82);
     min-width: clamp(126px, 18svh, 168px);
     height: clamp(52px, 7.4svh, 66px);
+    transition:
+      opacity 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      min-width 340ms cubic-bezier(.28, 1.35, .42, 1),
+      height 340ms cubic-bezier(.28, 1.35, .42, 1);
   }
-  .stage-seq:is(:hover, :focus-visible) .stage-seq-num { opacity: 0; }
-  .stage-seq:is(:hover, :focus-visible) .stage-seq-detail { opacity: 1; }
+  .stage-seq:is(:hover, :focus-visible) .stage-seq-num,
+  .stage-arrows:hover .stage-seq .stage-seq-num { opacity: 0; transition: opacity 110ms ease; }
+  .stage-seq:is(:hover, :focus-visible) .stage-seq-detail,
+  .stage-arrows:hover .stage-seq .stage-seq-detail { opacity: 1; transition: opacity 200ms ease 120ms; }
 }
 .stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
 /* No buttons to flank: the bubble claims the corner outright. */

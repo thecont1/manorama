@@ -1143,8 +1143,11 @@ for (const vp of viewports) {
         }));
         expect(lit.opacity).toBe("1");
         expect(lit.events).toBe("auto");
-        const hotBox = await seq.boundingBox();
-        expect(hotBox!.width).toBeGreaterThan(restBox!.width + 40);
+        // The circle animates into the pill — poll the box until the
+        // expansion completes rather than reading one mid-flight frame.
+        await expect
+          .poll(async () => (await seq.boundingBox())!.width)
+          .toBeGreaterThan(restBox!.width + 40);
         await page.mouse.move(0, 0);
         await expect(seqNum).toHaveText("2");
       }
@@ -1158,6 +1161,16 @@ for (const vp of viewports) {
       const nextArrow = page.getByRole("button", {
         name: /next photograph/i,
       });
+      if (!coarse) {
+        // Hovering NEAR the counter (anywhere in the nav cluster)
+        // wakes the pill too.
+        await nextArrow.hover();
+        await expect(seq.locator(".stage-seq-detail")).toHaveCSS(
+          "opacity",
+          "1",
+        );
+        await page.mouse.move(0, 0);
+      }
       const seqBox = await seq.boundingBox();
       const nextBox = await nextArrow.boundingBox();
       expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
