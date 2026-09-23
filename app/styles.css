@@ -281,6 +281,11 @@ button { color: inherit; }
 .shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; }
 .shortcuts h3 { grid-column: 1 / -1; }
 .shortcuts p { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+/* The legal line — the only chrome a gallery carries. Sits at the foot
+   of the brand popover, quiet as the eyebrow rows. */
+.panel-legal { margin-top: 6px; padding-top: 16px; border-top: 1px solid rgba(var(--ink), .1); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: .06em; text-transform: lowercase; color: rgba(var(--ink), .45); }
+.panel-legal a { color: rgba(var(--ink), .62); text-decoration: none; transition: color 160ms ease; }
+.panel-legal a:hover, .panel-legal a:focus-visible { color: rgba(var(--ink), .95); }
 @media (max-width: 560px) { .shortcuts { grid-template-columns: 1fr; } }
 kbd { border: 1px solid rgba(var(--ink), .23); padding: 3px 5px; color: rgba(var(--ink), .76); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 cai-manifest-summary { display: block; margin-top: 16px; }
@@ -309,14 +314,13 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 .policy-document h1 { margin: 0 0 4px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(28px, 5vw, 40px); font-weight: 800; letter-spacing: -.03em; }
 .policy-updated { margin: 0 0 32px; font-size: 13px; opacity: .5; }
 .policy-document h2 { margin: 36px 0 12px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 18px; font-weight: 700; }
+.policy-document h3 { margin: 28px 0 8px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
 .policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.7; opacity: .85; }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
 .policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.7; opacity: .85; }
 .policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; }
 .policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
 .policy-document a:hover, .policy-document a:focus-visible { text-decoration-color: rgba(243,240,232,.7); }
-.policy-participants { margin: 0 0 16px; padding-left: 20px; }
-.policy-participants li { margin: 0 0 10px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.7; opacity: .85; }
 .policy-table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 17px; }
 .policy-table th { text-align: left; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(255,255,255,.12); opacity: .6; }
 .policy-table td { padding: 10px 12px 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-weight: 300; line-height: 1.6; opacity: .85; vertical-align: top; }

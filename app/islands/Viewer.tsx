@@ -1280,7 +1280,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (event.key === 'Escape') { event.preventDefault(); requestCloseModals(); return }
     if (event.key !== 'Tab') return
     const modal = event.currentTarget as HTMLElement
-    const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
+    const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, a[href], [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
     if (!focusable.length) return
     const first = focusable[0]
     const last = focusable[focusable.length - 1]
@@ -1944,6 +1944,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             <p><kbd>⇧I</kbd> standalone c2pa viewer (new tab)</p>
             <p><kbd>Esc</kbd> close controls</p>
           </section>
+
+          {/* The one bit of chrome every gallery carries: the privacy
+              policy and the copyright line. Docked at the bottom of the
+              brand popover — present without ever interrupting the
+              photographs. Opens in a new tab so the gallery keeps its
+              place. */}
+          <footer class="panel-legal">
+            <a href="/privacy" target="_blank" rel="noopener" onClick={() => closeModals()}>Privacy policy</a>
+            <span aria-hidden="true"> · </span>© 2026 manorama
+          </footer>
         </div>
       </div>
 

@@ -8,11 +8,17 @@ Manorama is a photo-gallery app at manorama.xyz. This page explains what we do a
 
 All kinds of people love and use Manorama. And they rise in three categories. The rules are different for each:
 
-1. **Just Looking** — anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?
+### Just Looking
 
-2. **Can Touch** — people who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.
+Anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?
 
-3. **Will Pay** (coming soon) — same sign-in, up to 99 galleries, richer customisation, and the *Ask Manu* assistant.
+### Can Touch
+
+People who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.
+
+### Will Pay
+
+(coming soon) — same sign-in, up to 99 galleries, richer customisation, and the *Ask Manu* assistant.
 
 ## Just Looking: we collect nothing
 

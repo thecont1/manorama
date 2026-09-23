@@ -11,11 +11,15 @@ export default createRoute((c) =>
 
         <h2>The Users of Manorama</h2>
         <p>All kinds of people love and use Manorama. And they rise in three categories. The rules are different for each:</p>
-        <ol class="policy-participants">
-          <li><strong>Just Looking</strong> — anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?</li>
-          <li><strong>Can Touch</strong> — people who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.</li>
-          <li><strong>Will Pay</strong> (coming soon) — same sign-in, up to 99 galleries, richer customisation, and the <em>Ask Manu</em> assistant.</li>
-        </ol>
+
+        <h3>Just Looking</h3>
+        <p>Anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?</p>
+
+        <h3>Can Touch</h3>
+        <p>People who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.</p>
+
+        <h3>Will Pay</h3>
+        <p>(coming soon) — same sign-in, up to 99 galleries, richer customisation, and the <em>Ask Manu</em> assistant.</p>
 
         <h2>Just Looking: we collect nothing</h2>
         <p>When someone shares a gallery link with you, you can open it without signing in. We don't set cookies on your device, we don't run analytics, we don't track page views, and we don't record who you are. Your browser asks our server for the page, our server fetches the photos from the gallery owner's linked cloud folder and passes them through — that's the entire interaction.</p>
