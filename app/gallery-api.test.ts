@@ -79,6 +79,34 @@ describe('native gallery API', () => {
     expect(response.headers.get('Access-Control-Allow-Headers')).toContain('Authorization')
   })
 
+  test('answers Capacitor preflight and rejects every other origin boundary', async () => {
+    const preflight = (origin: string) => api.request('/api/gallery/test-owner/test-gallery', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: origin,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'Authorization',
+      },
+    }, env)
+
+    const capacitor = await preflight('capacitor://localhost')
+    expect(capacitor.status).toBe(204)
+    expect(capacitor.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
+    expect(capacitor.headers.get('Access-Control-Allow-Headers')).toContain('Authorization')
+
+    for (const origin of [
+      'https://localhost',
+      'http://localhost.localdomain',
+      'http://example.com',
+      'not-an-origin',
+    ]) {
+      const response = await preflight(origin)
+      expect(response.status).toBe(204)
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+      expect(response.headers.get('Access-Control-Allow-Headers')).toBeNull()
+    }
+  })
+
   test('does not disclose a missing public gallery', async () => {
     const response = await api.request('/api/gallery/test-owner/missing', {}, env)
     expect(response.status).toBe(404)

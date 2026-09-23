@@ -350,6 +350,10 @@ export default defineConfig(() => ({
     ],
   },
   server: {
+    // Hono owns the API CORS boundary. Vite's default CORS middleware
+    // intercepts OPTIONS requests first and reflects HTTPS localhost while
+    // dropping the capacitor://localhost origin.
+    cors: false,
     watch: {
       // HonoX's restartOnAddUnlink calls server.restart() on chokidar
       // add/unlink events — and those events fire for every watched path,
