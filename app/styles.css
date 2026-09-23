@@ -115,7 +115,7 @@ button { color: inherit; }
 .curtain-prompt { margin-top: 22vh; color: rgba(var(--ink), .42); }
 .curtain:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -8px; }
 
-.stage-arrows { position: fixed; z-index: 10; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
+.stage-arrows { position: fixed; z-index: 21; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
 .stage-arrows button { pointer-events: auto; width: clamp(44px, 6.3svh, 59px); height: clamp(44px, 6.3svh, 59px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(14px, 2.4svh, 22px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
@@ -140,10 +140,12 @@ button { color: inherit; }
    state as an ellipse and its transition list would drop the pill's
    size animation. */
 .stage-arrows .stage-seq {
-  position: absolute;
-  right: 100%;
-  top: 50%;
-  transform: translateY(-50%);
+  /* In-flow flex child (order-first) instead of an absolutely-parked bubble
+     left of the cluster: an abs-positioned child outside its parent's layout
+     box is skipped by the trusted-input hit test on touch layouts, so taps
+     fell through to the stage. Flex flow keeps paint = hit target. */
+  position: relative;
+  order: -1;
   margin-right: 8px;
   display: grid;
   place-items: center;
@@ -164,6 +166,7 @@ button { color: inherit; }
   opacity: .5;
   pointer-events: auto;
   cursor: pointer;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   overflow: hidden;
@@ -221,16 +224,24 @@ button { color: inherit; }
   .stage-arrows:hover .stage-seq .stage-seq-detail { opacity: 1; transition: opacity 200ms ease 120ms; }
 }
 .stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
-/* No buttons to flank: the bubble claims the corner outright. */
-.stage-arrows--bare .stage-seq { right: 0; top: auto; bottom: 0; transform: none; margin-right: 0; }
+/* No buttons to flank: the bubble claims the corner outright. In flow it
+   already occupies that slot; just square it to the corner. */
+.stage-arrows--bare .stage-seq { margin-right: 0; }
 /* On touch the enabled arrows split to opposite corners — the bubble
-   stays docked just left of the forward arrow instead. */
+   stays docked just left of the forward arrow. In flow with order:-1
+   it would park at the far left of the full-width bar; re-dock it next
+   to the forward arrow via auto margin. (In vertical mode the column
+   stack keeps its natural top-to-bottom order with the counter above.)
+   The forward arrow needs order:2 so the bubble can sit between it and
+   the back arrow at the right corner. */
 @media (pointer: coarse) {
-  .stage-arrows:not(.stage-arrows--bare) .stage-seq {
-    right: calc(clamp(44px, 6.3svh, 59px) + 8px);
-    top: 0;
-    transform: none;
+  .stage-arrows:not(.stage-arrows--vertical) .stage-seq {
+    order: 1;
     margin-right: 0;
+    margin-left: auto;
+  }
+  .stage-arrows:not(.stage-arrows--vertical) [data-nav-arrow]:last-child {
+    order: 2;
   }
 }
 
