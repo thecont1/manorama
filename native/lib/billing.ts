@@ -7,7 +7,7 @@ import {
   type PurchasesPlugin,
 } from '@revenuecat/purchases-capacitor'
 
-export const PRO_ENTITLEMENT = 'pro'
+export const PRO_ENTITLEMENT = 'will_pay'
 
 export type NativeTier = 'free' | 'pro'
 

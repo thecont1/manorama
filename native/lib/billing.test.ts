@@ -55,20 +55,20 @@ const fakePurchases = (info: CustomerInfo): FakePurchases => {
 
 describe('RevenueCat entitlement mapping', () => {
   test('maps an active pro entitlement to the pro tier', () => {
-    const info = customerInfo({ pro: { isActive: true } })
+    const info = customerInfo({ will_pay: { isActive: true } })
     expect(tierFromCustomerInfo(info)).toBe('pro')
     expect(billingStateFromCustomerInfo(info).isPro).toBe(true)
   })
 
   test('maps missing or inactive pro entitlements to the free tier', () => {
     expect(tierFromCustomerInfo(customerInfo())).toBe('free')
-    expect(tierFromCustomerInfo(customerInfo({ pro: { isActive: false } }))).toBe('free')
+    expect(tierFromCustomerInfo(customerInfo({ will_pay: { isActive: false } }))).toBe('free')
   })
 })
 
 describe('RevenueCatBilling', () => {
   test('configures, refreshes, and notifies from customer info', async () => {
-    const info = customerInfo({ pro: { isActive: true } })
+    const info = customerInfo({ will_pay: { isActive: true } })
     const fake = fakePurchases(info)
     const seen: string[] = []
     const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
@@ -89,7 +89,7 @@ describe('RevenueCatBilling', () => {
   })
 
   test('refreshes after purchase and restores', async () => {
-    const info = customerInfo({ pro: { isActive: true } })
+    const info = customerInfo({ will_pay: { isActive: true } })
     const fake = fakePurchases(info)
     const billing = new RevenueCatBilling(fake)
     await billing.configure({ apiKey: 'key', appUserId: 'account' })
