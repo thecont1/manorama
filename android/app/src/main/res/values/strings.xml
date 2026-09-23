@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Manorama</string>
+    <string name="title_activity_main">Manorama</string>
+    <string name="package_name">in.thecontrarian.manorama</string>
+    <string name="custom_url_scheme">in.thecontrarian.manorama</string>
+</resources>
