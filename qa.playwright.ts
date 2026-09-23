@@ -104,6 +104,17 @@ async function imageCount(page: import("@playwright/test").Page) {
   return page.locator("[data-track] [data-index]").count();
 }
 
+async function ensureStripSettled(page: import("@playwright/test").Page) {
+  await expect
+    .poll(async () => {
+      const a = await page.evaluate(() => document.querySelector("[data-track]")!.getBoundingClientRect().left);
+      await new Promise((r) => setTimeout(r, 160));
+      const b = await page.evaluate(() => document.querySelector("[data-track]")!.getBoundingClientRect().left);
+      return a === b;
+    }, { timeout: 8000 })
+    .toBe(true);
+}
+
 /** Opens the in-gallery info sheet via its I shortcut. */
 async function openInfoDialog(page: import("@playwright/test").Page) {
   await page.keyboard.press("i");
@@ -251,6 +262,12 @@ for (const vp of viewports) {
       await expect(strip.locator("[aria-current='true']")).toHaveCount(1)
       await strip.locator("[data-grid-item]").nth(Math.min(2, count - 1)).click()
       await expect(strip).toBeHidden()
+      await ensureStripSettled(page)
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(Math.min(2, count - 1) + 1))
+      // A stray Enter after the selector closes must not step the gallery
+      // from the restored focus on the next-arrow (or any previous focus).
+      await page.keyboard.press("Enter")
+      await expect(strip).toBeVisible()
       await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(Math.min(2, count - 1) + 1))
     })
 
@@ -2955,5 +2972,44 @@ test.describe("density-aware staging", () => {
     const mounted = await page.locator(".frame-img").count();
     expect(mounted).toBeLessThanOrEqual(13);
     await context.close();
+  });
+});
+
+test.describe("PR #48 review fixes — touch counter", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  async function currentTrackX(page: import("@playwright/test").Page): Promise<number> {
+    return page.evaluate(() => {
+      const track = document.querySelector("[data-track]") as HTMLElement;
+      const m = /translate3d\((-?[\d.]+)px/.exec(track.style.transform || "");
+      return m ? parseFloat(m[1]) : NaN;
+    });
+  }
+
+  test("dragging from the sequence counter pans the strip instead of opening the selector", async ({ page }) => {
+    await dismissCurtain(page);
+    await ensureStripSettled(page);
+    const x0 = await currentTrackX(page);
+    const seq = page.locator(".stage-seq");
+    const box = await seq.boundingBox();
+    expect(box, "counter visible").not.toBeNull();
+    const sx = box!.x + box!.width / 2;
+    const sy = box!.y + box!.height / 2;
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(sx - 240, sy, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+    const x1 = await currentTrackX(page);
+    expect(x1, `strip should pan from the counter drag (${x0} -> ${x1})`).not.toBe(x0);
+  });
+
+  test("tapping the sequence counter opens the selector instead of the brand pill", async ({ page }) => {
+    await dismissCurtain(page);
+    const seq = page.locator(".stage-seq");
+    const box = await seq.boundingBox();
+    expect(box, "counter visible").not.toBeNull();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await expect(page.locator(".viewer-filmstrip")).toBeVisible();
   });
 });
