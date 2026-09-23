@@ -5,23 +5,23 @@ export default createRoute((c) =>
     <main class="policy-page">
       <article class="policy-document">
         <h1>Privacy Policy</h1>
-        <p class="policy-updated">Last updated: 20 September 2026</p>
+        <p class="policy-updated">Last updated: 23 September 2026</p>
 
         <p>Manorama is a photo-gallery app at manorama.xyz. This page explains what we do and don't collect, and why.</p>
 
-        <h2>The three kinds of people on Manorama</h2>
-        <p>Manorama has three kinds of users. The rules are different for each:</p>
+        <h2>The Users of Manorama</h2>
+        <p>All kinds of people love and use Manorama. And they rise in three categories. The rules are different for each:</p>
         <ol class="policy-participants">
-          <li><strong>Mister Just Looking</strong> — anyone with a gallery link. No sign-in, no account, no data collected. You open a link, you see photos, that's it. We have no clue who you are. Why not write in to say hello?</li>
-          <li><strong>Miss Can Touch</strong> — people who create and manage galleries. You sign in with Dropbox, you get up to three editable galleries — any further galleries are temporary and are removed after 30 days unless you upgrade — and we keep a small record of who you are so your galleries have a home.</li>
-          <li><strong>Lord Will Pay</strong> (coming soon) — same sign-in, up to 99 galleries, richer customisation. The account tier column in our database already has a slot for this, but nobody is in it yet.</li>
+          <li><strong>Just Looking</strong> — anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?</li>
+          <li><strong>Can Touch</strong> — people who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.</li>
+          <li><strong>Will Pay</strong> (coming soon) — same sign-in, up to 99 galleries, richer customisation, and the <em>Ask Manu</em> assistant.</li>
         </ol>
 
-        <h2>If you're Just Looking: we collect nothing</h2>
+        <h2>Just Looking: we collect nothing</h2>
         <p>When someone shares a gallery link with you, you can open it without signing in. We don't set cookies on your device, we don't run analytics, we don't track page views, and we don't record who you are. Your browser asks our server for the page, our server fetches the photos from the gallery owner's linked cloud folder and passes them through — that's the entire interaction.</p>
         <p>One small exception to "we store nothing": if you change how a gallery looks — the layout, or whether photos get borders — your browser remembers that choice in its own local storage, keyed to that gallery. It is not a cookie, it never reaches our server, and we can't see it. Clearing your browser's site data forgets it entirely.</p>
 
-        <h2>If you Can Touch: what we store and why</h2>
+        <h2>Can Touch: what we store and why</h2>
         <p>Signing in with Dropbox creates a small record about you in our database. Here's exactly what we keep, and why each piece exists:</p>
         <table class="policy-table">
           <thead><tr><th>What</th><th>Why</th></tr></thead>
@@ -33,11 +33,11 @@ export default createRoute((c) =>
             <tr><td>Your account tier (<code>free</code>)</td><td>To enforce gallery limits: free accounts keep 3 editable galleries plus temporary ones that expire after 30 days; paid accounts keep up to 99.</td></tr>
           </tbody>
         </table>
-        <p>We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), a list of image filenames and dimensions, and the gallery's retention state — whether it is retained or a temporary pipeline gallery, and if temporary, its expiry date. This lets us render your gallery without re-scanning the source folder on every visit.</p>
+        <p>We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), a list of media filenames and dimensions (photographs, and videos when an iCloud shared album contains them), and the gallery's retention state — whether it is retained or temporary, and if temporary, its expiry date. This lets us render your gallery without re-scanning the source folder on every visit.</p>
         <p>Your browser also keeps your own preferences — the editor's light/dark theme, and per-gallery viewing choices — in its local storage. Like the viewer's, this never reaches our server.</p>
 
-        <h2>We don't store your photographs</h2>
-        <p>Manorama never copies, downloads, or caches your images. When a viewer opens your gallery, our server fetches each photo directly from the linked source and streams it to their browser on demand. The image data passes through our server but is never written to disk — image responses carry <code>no-store</code> cache headers. We store only the source link and image metadata (filenames, dimensions, alt text), never the pixels themselves.</p>
+        <h2>We don't store your photographs or videos</h2>
+        <p>Manorama never copies, downloads, or caches your media. When a viewer opens your gallery, our server fetches each photograph — or, for an iCloud shared album containing video, each clip and its poster frame — directly from the linked source and streams it to their browser on demand. The media data passes through our server but is never written to disk; originals and video responses carry <code>no-store</code> cache headers. Video is proxied exactly like photographs: we never transcode it, never store it, and a seek simply forwards your browser's byte range to the source. We store only the source link and media metadata (filenames, dimensions, duration, alt text), never the pixels themselves.</p>
 
         <h2>Content Credentials (C2PA)</h2>
         <p>Some photographs carry embedded Content Credentials — provenance information that records how an image was created and whether it's been edited. If a photo has them, a viewer can verify them by clicking the logo at the bottom of the gallery. This verification happens entirely in the viewer's browser: the image is downloaded to their device and checked locally. The provenance data never goes to our server.</p>
@@ -54,7 +54,7 @@ export default createRoute((c) =>
         <p>A few companies process data on Manorama's behalf:</p>
         <ul>
           <li><strong>Dropbox</strong> — handles sign-in and may host the photos. When you sign in, Dropbox shares your account ID, name, and verified email with us. When a gallery is viewed, our server fetches images from the owner's public shared link. Dropbox's own privacy policy covers what they do on their side.</li>
-          <li><strong>Google Drive, iCloud, and MEGA</strong> — if a gallery's photos live on one of these, our server fetches them from the owner's public link when the gallery is viewed. We never sign in to these services and share no account data with them; their privacy policies cover their side.</li>
+          <li><strong>Google Drive, iCloud, and MEGA</strong> — if a gallery's photos or videos live on one of these, our server fetches them from the owner's public link when the gallery is viewed. We never sign in to these services and share no account data with them; their privacy policies cover their side.</li>
           <li><strong>Cloudflare</strong> — hosts the app and handles web traffic. Cloudflare may log request metadata (like IP addresses and timestamps) as part of keeping the site online and protected from abuse. Cloudflare's privacy policy covers what they do on their side.</li>
         </ul>
 
@@ -62,7 +62,7 @@ export default createRoute((c) =>
         <p>When you sign in, we place a cookie on your device that keeps you logged in for 7 days. The cookie contains only your Dropbox account ID, signed with a secret that lives on our server. It's not shared with anyone, and you can clear it anytime by signing out.</p>
 
         <h2>Data retention</h2>
-        <p>Galleries are yours to delete: the dashboard's delete action removes the gallery's Manorama record immediately, and nothing at the source is ever touched. Temporary pipeline galleries — the extra galleries a free account can hold beyond its three editable ones — are removed automatically at their deadline, 30 days after creation; the dashboard shows that deadline, and we send no emails or reminders before it arrives. Your account record itself stays until you ask us to delete it — write to us and we'll remove your account and all associated gallery metadata. Deleting your account does not touch your Dropbox files; it only removes your Manorama record.</p>
+        <p>Galleries are yours to delete: the dashboard's delete action removes the gallery's Manorama record immediately, and nothing at the source is ever touched. Temporary galleries — the extra galleries a free account can hold beyond its three editable ones — are removed automatically at their deadline, 30 days after creation; the dashboard shows that deadline, and we send no emails or reminders before it arrives. Your account record itself stays until you ask us to delete it — there's no self-service delete button for the account yet — write to us and we'll remove your account and all associated gallery metadata. Deleting your account does not touch your Dropbox files; it only removes your Manorama record.</p>
 
         <h2>Your rights (GDPR and friends)</h2>
         <p>Depending on where you live — the GDPR in the EU/UK, CCPA in California, and their equivalents elsewhere — you have the right to know what we hold about you, correct it, export it, or have it deleted. Our honest answer is that we hold very little: account owners have the small record described above, and visitors have nothing at all. Write to us and we'll show you, fix it, or erase it. We don't profile you, we don't make automated decisions about you, and we don't keep data longer than your account needs it.</p>
@@ -77,6 +77,6 @@ export default createRoute((c) =>
         <p>For privacy questions, feel free to reach out to app developer <a href="https://thecontrarian.in/#contact">Mahesh Shantaram</a>.</p>
       </article>
     </main>,
-    { title: 'Privacy Policy — manorama', description: 'Manorama does not collect data from gallery viewers. Editor accounts store only a Dropbox ID, name, and gallery metadata. No images are stored.' },
+    { title: 'Privacy Policy — manorama', description: 'Manorama does not collect data from gallery viewers. Editor accounts store only a Dropbox ID, name, and gallery metadata. No media is stored.' },
   ),
 )
