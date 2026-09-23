@@ -5,12 +5,15 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import { fetchGallery, normalizeApiBase } from '../lib/api'
+import type { RevenueCatBilling } from '../lib/billing'
+import Paywall from './Paywall'
 
 type Props = {
   apiBase: string
   owner?: string
   slug?: string
   onSignIn?: () => void
+  billing?: RevenueCatBilling
 }
 
 type Selection = { owner: string; slug: string }
@@ -25,7 +28,7 @@ const selectionFromLocation = (): Selection => {
   }
 }
 
-export default function GalleryList({ apiBase, owner, slug, onSignIn }: Props) {
+export default function GalleryList({ apiBase, owner, slug, onSignIn, billing }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
@@ -36,6 +39,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn }: Props) {
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [paywallOpen, setPaywallOpen] = useState(false)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
   useEffect(() => {
@@ -79,6 +83,10 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn }: Props) {
     )
   }
 
+  if (paywallOpen && billing) {
+    return <Paywall billing={billing} onClose={() => setPaywallOpen(false)} />
+  }
+
   const openGallery = (event: Event) => {
     event.preventDefault()
     const next = {
@@ -108,6 +116,11 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn }: Props) {
         {onSignIn && (
           <button type="button" onClick={onSignIn}>
             Sign in with Dropbox
+          </button>
+        )}
+        {billing && (
+          <button type="button" onClick={() => setPaywallOpen(true)}>
+            View subscription options
           </button>
         )}
         <form onSubmit={openGallery}>

@@ -38,6 +38,20 @@ export const clearSessionToken = async (): Promise<void> => {
   }
 }
 
+export const getSessionAppUserId = async (): Promise<string | undefined> => {
+  const token = await getSessionToken()
+  const encodedPayload = token?.split('.')[1]
+  if (!encodedPayload) return undefined
+  try {
+    const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    const payload = JSON.parse(atob(padded)) as { sub?: unknown }
+    return typeof payload.sub === 'string' && payload.sub.trim() ? payload.sub : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const beginDropboxSignIn = async (apiBase: string): Promise<void> => {
   const url = new URL('/auth/dropbox', `${apiBase.replace(/\/+$/, '')}/`)
   url.searchParams.set('native', '1')

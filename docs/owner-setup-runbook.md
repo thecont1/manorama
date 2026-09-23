@@ -57,14 +57,15 @@ Same one-download rule.
 
 - [ ] Project created, iOS app added with bundle id `in.thecontrarian.manorama`
 - [ ] In-App Purchase Key uploaded (Issuer ID + Key ID + `.p8`)
-- [ ] Entitlement created, identifier exactly **`pro`** — the code in #16 keys off this string
-- [ ] Products: `manorama_pro_monthly`, `manorama_pro_yearly`, `manorama_forever`
-- [ ] One Offering (`default`) with three packages attached
-- [ ] Public SDK key copied for #16
-- [ ] Webhook URL pointed at the Worker endpoint from #20
+- [ ] Entitlement created, identifier exactly **`will_pay`** — the native adapter and hosted paywall key off this string
+- [ ] App Store product created with product ID **`yearly`**, one-year duration, price, and localization
+- [ ] RevenueCat product `yearly` imported and attached to the current Offering (annual package)
+- [ ] Hosted Paywall configured for that Offering; Customer Center enabled
+- [ ] Public SDK key copied to `VITE_REVENUECAT_API_KEY` for native builds
+- [ ] Webhook URL pointed at `/api/revenuecat-webhook` with dashboard Authorization and HMAC signing enabled
 
-Create the products in App Store Connect too (#17), each with a price and **at least one
-localization**, or they will not return in sandbox even with the agreement active
+Create the product in App Store Connect too (#17), with a price and **at least one
+localization**, or it will not return in sandbox even with the agreement active
 ([Apple TN3186](https://developer.apple.com/documentation/technotes/tn3186-troubleshooting-in-app-purchases-availability-in-the-sandbox)).
 
 ---

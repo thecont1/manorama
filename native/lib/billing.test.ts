@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { CustomerInfo, PurchasesPackage } from '@revenuecat/purchases-capacitor'
+import { PAYWALL_RESULT } from '@revenuecat/purchases-capacitor-ui'
 import {
   RevenueCatBilling,
   billingStateFromCustomerInfo,
@@ -55,20 +56,20 @@ const fakePurchases = (info: CustomerInfo): FakePurchases => {
 
 describe('RevenueCat entitlement mapping', () => {
   test('maps an active pro entitlement to the pro tier', () => {
-    const info = customerInfo({ pro: { isActive: true } })
+    const info = customerInfo({ will_pay: { isActive: true } })
     expect(tierFromCustomerInfo(info)).toBe('pro')
     expect(billingStateFromCustomerInfo(info).isPro).toBe(true)
   })
 
   test('maps missing or inactive pro entitlements to the free tier', () => {
     expect(tierFromCustomerInfo(customerInfo())).toBe('free')
-    expect(tierFromCustomerInfo(customerInfo({ pro: { isActive: false } }))).toBe('free')
+    expect(tierFromCustomerInfo(customerInfo({ will_pay: { isActive: false } }))).toBe('free')
   })
 })
 
 describe('RevenueCatBilling', () => {
   test('configures, refreshes, and notifies from customer info', async () => {
-    const info = customerInfo({ pro: { isActive: true } })
+    const info = customerInfo({ will_pay: { isActive: true } })
     const fake = fakePurchases(info)
     const seen: string[] = []
     const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
@@ -89,13 +90,37 @@ describe('RevenueCatBilling', () => {
   })
 
   test('refreshes after purchase and restores', async () => {
-    const info = customerInfo({ pro: { isActive: true } })
+    const info = customerInfo({ will_pay: { isActive: true } })
     const fake = fakePurchases(info)
     const billing = new RevenueCatBilling(fake)
     await billing.configure({ apiKey: 'key', appUserId: 'account' })
 
     expect((await billing.purchase(packageStub)).isPro).toBe(true)
     expect((await billing.restore()).tier).toBe('pro')
+  })
+
+  test('presents the hosted paywall for will_pay and opens Customer Center', async () => {
+    const fake = fakePurchases(customerInfo({ will_pay: { isActive: true } }))
+    let paywallOptions: unknown
+    let customerCenterOpened = false
+    const ui = {
+      presentPaywallIfNeeded: async (options: unknown) => {
+        paywallOptions = options
+        return { result: PAYWALL_RESULT.PURCHASED }
+      },
+      presentCustomerCenter: async () => {
+        customerCenterOpened = true
+      },
+    }
+    const billing = new RevenueCatBilling(fake, undefined, ui)
+    await billing.configure({ apiKey: 'key', appUserId: 'account' })
+    await billing.presentPaywallIfNeeded()
+    await billing.presentCustomerCenter()
+
+    expect(paywallOptions).toMatchObject({
+      requiredEntitlementIdentifier: 'will_pay',
+    })
+    expect(customerCenterOpened).toBe(true)
   })
 
   test('removes its listener before signing out', async () => {

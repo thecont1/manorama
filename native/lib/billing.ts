@@ -6,8 +6,14 @@ import {
   type PurchasesPackage,
   type PurchasesPlugin,
 } from '@revenuecat/purchases-capacitor'
+import {
+  PaywallPresentationConfiguration,
+  RevenueCatUI,
+  type RevenueCatUIPlugin,
+} from '@revenuecat/purchases-capacitor-ui'
 
-export const PRO_ENTITLEMENT = 'pro'
+export const PRO_ENTITLEMENT = 'will_pay'
+export const YEARLY_PRODUCT_ID = 'yearly'
 
 export type NativeTier = 'free' | 'pro'
 
@@ -58,15 +64,19 @@ export const billingStateFromCustomerInfo = (
 export class RevenueCatBilling {
   private readonly purchases: PurchasesClient
   private readonly onStateChange?: (state: BillingState) => void
+  private readonly ui: Pick<RevenueCatUIPlugin, 'presentPaywallIfNeeded' | 'presentCustomerCenter'>
   private listenerId?: PurchasesCallbackId
   private state?: BillingState
+  private configured = false
 
   constructor(
     purchases: PurchasesClient = Purchases,
     onStateChange?: (state: BillingState) => void,
+    ui: Pick<RevenueCatUIPlugin, 'presentPaywallIfNeeded' | 'presentCustomerCenter'> = RevenueCatUI,
   ) {
     this.purchases = purchases
     this.onStateChange = onStateChange
+    this.ui = ui
   }
 
   get currentState(): BillingState | undefined {
@@ -87,6 +97,7 @@ export class RevenueCatBilling {
       automaticDeviceIdentifierCollectionEnabled: false,
       diagnosticsEnabled: false,
     })
+    this.configured = true
 
     await this.removeListener()
     this.listenerId = await this.purchases.addCustomerInfoUpdateListener(
@@ -126,6 +137,23 @@ export class RevenueCatBilling {
     await this.removeListener()
     await this.purchases.logOut()
     this.state = undefined
+    this.configured = false
+  }
+
+  async presentPaywallIfNeeded() {
+    if (!this.configured) throw new Error('Sign in before opening the subscription options')
+    const result = await this.ui.presentPaywallIfNeeded({
+      requiredEntitlementIdentifier: PRO_ENTITLEMENT,
+      presentationConfiguration: PaywallPresentationConfiguration.FULL_SCREEN,
+      displayCloseButton: true,
+    })
+    return { result: result.result, state: await this.refresh() }
+  }
+
+  async presentCustomerCenter(): Promise<BillingState> {
+    if (!this.configured) throw new Error('Sign in before managing your subscription')
+    await this.ui.presentCustomerCenter()
+    return this.refresh()
   }
 
   private applyCustomerInfo(customerInfo: CustomerInfo): BillingState {
