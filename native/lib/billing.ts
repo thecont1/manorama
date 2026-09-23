@@ -60,6 +60,8 @@ export class RevenueCatBilling {
   private readonly onStateChange?: (state: BillingState) => void
   private listenerId?: PurchasesCallbackId
   private state?: BillingState
+  private sessionGeneration = 0
+  private configured = false
 
   constructor(
     purchases: PurchasesClient = Purchases,
@@ -78,6 +80,9 @@ export class RevenueCatBilling {
     const appUserId = options.appUserId.trim()
     if (!apiKey) throw new Error('RevenueCat API key is required')
     if (!appUserId) throw new Error('RevenueCat app user ID is required')
+    const generation = ++this.sessionGeneration
+    this.configured = false
+    this.state = undefined
 
     await this.purchases.configure({
       apiKey,
@@ -89,22 +94,29 @@ export class RevenueCatBilling {
     })
 
     await this.removeListener()
-    this.listenerId = await this.purchases.addCustomerInfoUpdateListener(
-      (customerInfo) => this.applyCustomerInfo(customerInfo),
+    if (generation !== this.sessionGeneration) throw new Error('RevenueCat session changed during configuration')
+    const listenerId = await this.purchases.addCustomerInfoUpdateListener(
+      (customerInfo) => this.applyCustomerInfo(customerInfo, generation),
     )
-    return this.refresh()
+    if (generation !== this.sessionGeneration) {
+      await this.purchases.removeCustomerInfoUpdateListener({ listenerToRemove: listenerId })
+      throw new Error('RevenueCat session changed during configuration')
+    }
+    this.listenerId = listenerId
+    this.configured = true
+    return this.refresh(generation)
   }
 
   async identify(appUserId: string): Promise<BillingState> {
     const trimmed = appUserId.trim()
     if (!trimmed) throw new Error('RevenueCat app user ID is required')
     const result = await this.purchases.logIn({ appUserID: trimmed })
-    return this.applyCustomerInfo(result.customerInfo)
+    return this.applyCustomerInfo(result.customerInfo, this.sessionGeneration)
   }
 
-  async refresh(): Promise<BillingState> {
+  async refresh(generation = this.sessionGeneration): Promise<BillingState> {
     const result = await this.purchases.getCustomerInfo()
-    return this.applyCustomerInfo(result.customerInfo)
+    return this.applyCustomerInfo(result.customerInfo, generation)
   }
 
   async offerings(): Promise<PurchasesOffering | null> {
@@ -114,22 +126,25 @@ export class RevenueCatBilling {
 
   async purchase(aPackage: PurchasesPackage): Promise<BillingState> {
     const result = await this.purchases.purchasePackage({ aPackage })
-    return this.applyCustomerInfo(result.customerInfo)
+    return this.applyCustomerInfo(result.customerInfo, this.sessionGeneration)
   }
 
   async restore(): Promise<BillingState> {
     const result = await this.purchases.restorePurchases()
-    return this.applyCustomerInfo(result.customerInfo)
+    return this.applyCustomerInfo(result.customerInfo, this.sessionGeneration)
   }
 
   async signOut(): Promise<void> {
+    this.sessionGeneration += 1
+    this.configured = false
+    this.state = undefined
     await this.removeListener()
     await this.purchases.logOut()
-    this.state = undefined
   }
 
-  private applyCustomerInfo(customerInfo: CustomerInfo): BillingState {
+  private applyCustomerInfo(customerInfo: CustomerInfo, generation: number): BillingState {
     const next = billingStateFromCustomerInfo(customerInfo)
+    if (!this.configured || generation !== this.sessionGeneration) return next
     this.state = next
     this.onStateChange?.(next)
     return next

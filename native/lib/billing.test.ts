@@ -108,4 +108,30 @@ describe('RevenueCatBilling', () => {
     expect(fake.loggedOut).toBe(true)
     expect(billing.currentState).toBeUndefined()
   })
+
+  test('clears state immediately and ignores queued updates during pending logout', async () => {
+    const info = customerInfo({ will_pay: { isActive: true } })
+    const fake = fakePurchases(info)
+    let finishLogout!: () => void
+    fake.logOut = async () => {
+      await new Promise<void>((resolve) => { finishLogout = resolve })
+      return { customerInfo: info }
+    }
+    const seen: string[] = []
+    const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
+    await billing.configure({ apiKey: 'key', appUserId: 'account' })
+
+    const logout = billing.signOut()
+    expect(billing.currentState).toBeUndefined()
+    fake.listener?.(info)
+    expect(billing.currentState).toBeUndefined()
+    expect(seen).toEqual(['pro'])
+
+    await Promise.resolve()
+    await Promise.resolve()
+    finishLogout()
+    await logout
+    expect(billing.currentState).toBeUndefined()
+    expect(seen).toEqual(['pro'])
+  })
 })
