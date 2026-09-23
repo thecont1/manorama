@@ -1,6 +1,6 @@
 import { getUserByDropboxId, setUserTier, type UserRepositoryEnv } from './user-repository'
 
-export const REVENUECAT_PRO_ENTITLEMENT = 'pro'
+export const REVENUECAT_PRO_ENTITLEMENT = 'will_pay'
 export const REVENUECAT_SIGNATURE_TOLERANCE_SECONDS = 5 * 60
 
 export type RevenueCatWebhookEnv = UserRepositoryEnv & {

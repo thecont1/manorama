@@ -18,7 +18,7 @@ const payloadFor = (event: Record<string, unknown>) => JSON.stringify({
     id: 'event-1',
     type: 'INITIAL_PURCHASE',
     app_user_id: TEST_OWNER.dropboxAccountId,
-    entitlement_ids: ['pro'],
+    entitlement_ids: ['will_pay'],
     ...event,
   },
 })
