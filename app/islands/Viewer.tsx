@@ -196,6 +196,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const gridSuppressClickRef = useRef(false)
   const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
+  const seqRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   // "A modal is open" for always-on window key handlers: hono/jsx applies
@@ -874,6 +875,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     setGridClosing(true)
     gridCloseTimerRef.current = setTimeout(() => {
       gridCloseTimerRef.current = null
+      // Return focus to the selector trigger rather than wherever the
+      // gallery happened to focus last (e.g. the next-arrow auto-focused
+      // by the curtain dismiss), so a stray Enter after commit re-opens
+      // the selector instead of stepping the strip.
+      previousFocusRef.current = seqRef.current
       closeModals()
       goTo(imageIndex)
     }, 180)
@@ -1076,13 +1082,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const stage = stageRef.current
     const logo = dotRef.current
+    const seq = seqRef.current
     if (!stage) return
-    // A press landing on the brand pill is a drag candidate: the pill
-    // floats over the stage, so it captures the pointer onto the stage
-    // and pans with the strip. A release that never travelled still
-    // counts as the pill's click (pointer capture suppresses the
-    // button's own click event, so the press is replayed here).
+    // A press landing on the brand pill or sequence counter is a drag
+    // candidate: the pill floats over the stage, and the counter lives
+    // inside the stage's control cluster. Both capture the pointer onto
+    // the stage and pan with the strip. A release that never travelled
+    // still counts as the button's own click (pointer capture suppresses
+    // the native click event, so each press is replayed here).
     let logoPress: { x: number; y: number } | null = null
+    let seqPress: { x: number; y: number } | null = null
     const beginDrag = (event: PointerEvent) => {
       stopMomentum()
       draggingRef.current = true
@@ -1099,6 +1108,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onLogoDown = (event: PointerEvent) => {
       if (mode !== 'strip') return
       logoPress = { x: event.clientX, y: event.clientY }
+      beginDrag(event)
+    }
+    const onSeqDown = (event: PointerEvent) => {
+      if (mode !== 'strip') return
+      seqPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onPointerMove = (event: PointerEvent) => {
@@ -1124,6 +1138,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
         logoPress = null
         if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
+        return
+      }
+      if (seqPress) {
+        const travelled = Math.hypot(event.clientX - seqPress.x, event.clientY - seqPress.y)
+        seqPress = null
+        if (event.type === 'pointerup' && travelled < 6) openGrid()
         return
       }
       if (event.type === 'pointercancel' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -1153,12 +1173,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
     logo?.addEventListener('pointerdown', onLogoDown)
+    seq?.addEventListener('pointerdown', onSeqDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
       logo?.removeEventListener('pointerdown', onLogoDown)
+      seq?.removeEventListener('pointerdown', onSeqDown)
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
@@ -1795,7 +1817,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-          <button type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open selector`} onClick={openGrid}>
+          <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open selector`} onClick={openGrid}>
             <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
             <span class="stage-seq-detail" aria-hidden="true">
               <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
