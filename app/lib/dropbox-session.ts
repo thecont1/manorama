@@ -18,6 +18,12 @@ import { getUserByDropboxId, type UserRepositoryEnv } from './user-repository'
 export const SESSION_COOKIE = 'manorama_session'
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 
+/** Long-lived marker set after a successful OAuth callback so the landing
+ * page can greet returning visitors with "Sign in" instead of the generic
+ * "Sign Up or Sign In" copy. It is only a UX hint — never auth. */
+export const RETURNING_COOKIE = 'manorama_returning'
+export const RETURNING_TTL_SECONDS = 365 * 24 * 60 * 60
+
 export type ManoramaSession = {
   /** Stable principal: the Dropbox account ID, never an email. */
   id: `dropbox:${string}`

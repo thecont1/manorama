@@ -1,7 +1,8 @@
 import { createRoute } from 'honox/factory'
 import { embeddedSourceCandidate } from '../lib/sources'
 import { localFolderCandidate } from '../lib/local-source'
-import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
+import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/dropbox-session'
+import { getCookie } from 'hono/cookie'
 
 /**
  * The quick-add script URL, resolved for both dev and production.
@@ -108,7 +109,7 @@ export default createRoute(async (c, next) => {
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z" fill="currentColor" />
                     </svg>
-                    Continue with Dropbox
+                    {getCookie(c, RETURNING_COOKIE) ? 'Sign in with Dropbox' : 'Sign Up or Sign In with Dropbox'}
                   </>
                 )}
               </a>

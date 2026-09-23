@@ -1,5 +1,6 @@
 import { createRoute } from 'honox/factory'
-import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
+import { getCookie } from 'hono/cookie'
+import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/dropbox-session'
 
 const DropboxGlyph = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -17,6 +18,9 @@ export default createRoute(async (c) => {
   if (session) return c.redirect(`/${session.ownerSlug}`)
 
   const failed = c.req.query('error') === '1'
+  // We can't know whether the Dropbox account has a manorama record until
+  // OAuth completes — but a marker cookie tells us this browser has been here.
+  const returning = !!getCookie(c, RETURNING_COOKIE)
   return c.render(
     <main class="landing-page">
       <div class="landing-brand">
@@ -24,7 +28,7 @@ export default createRoute(async (c) => {
         <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         <a class="landing-signin" href="/auth/dropbox">
           <DropboxGlyph />
-          Continue with Dropbox
+          {returning ? 'Sign in with Dropbox' : 'Sign Up or Sign In with Dropbox'}
         </a>
         {failed ? <p class="landing-note">Sign-in didn&rsquo;t complete. Please try again.</p> : null}
       </div>

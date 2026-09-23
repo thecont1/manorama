@@ -49,7 +49,7 @@ const showSignInPanel = (root: HTMLElement, sourceUrl: string) => {
     working.innerHTML = `
       <h1 class="quickadd-title">Sign in to open this album</h1>
       <p class="quickadd-copy">${local ? 'This dev server can sign you in locally before it builds your gallery.' : 'Manorama needs a Dropbox sign-in before it can build your gallery.'}</p>
-      <a class="landing-signin quickadd-signin" data-quickadd-signin href="${local ? '/.dev-seed/login' : '/auth/dropbox'}">${local ? 'Sign in (dev)' : 'Continue with Dropbox'}</a>
+      <a class="landing-signin quickadd-signin" data-quickadd-signin href="${local ? '/.dev-seed/login' : '/auth/dropbox'}">${local ? 'Sign in (dev)' : 'Sign Up or Sign In with Dropbox'}</a>
       <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>`
     working.dataset.panel = 'signin'
   }

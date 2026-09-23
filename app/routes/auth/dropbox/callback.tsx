@@ -2,7 +2,7 @@ import { createRoute } from 'honox/factory'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { callbackUrl, fetchDropboxAccount, OAUTH_NEXT_COOKIE, OAUTH_STATE_COOKIE } from '../../../lib/dropbox-oauth'
 import { upsertUser } from '../../../lib/user-repository'
-import { accessEnvOf, createSessionToken, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../../../lib/dropbox-session'
+import { accessEnvOf, createSessionToken, RETURNING_COOKIE, RETURNING_TTL_SECONDS, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../../../lib/dropbox-session'
 
 export default createRoute(async (c) => {
   const url = new URL(c.req.url)
@@ -26,6 +26,14 @@ export default createRoute(async (c) => {
       sameSite: 'Lax',
       path: '/',
       maxAge: SESSION_TTL_SECONDS,
+    })
+    // Outlives the session: a signed-in-here-before hint for the landing CTA.
+    setCookie(c, RETURNING_COOKIE, '1', {
+      httpOnly: true,
+      secure: url.protocol === 'https:',
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: RETURNING_TTL_SECONDS,
     })
     const next = getCookie(c, OAUTH_NEXT_COOKIE)
     deleteCookie(c, OAUTH_NEXT_COOKIE, { path: '/' })

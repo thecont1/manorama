@@ -141,7 +141,7 @@ describe('the quick-add catch-all renders for provider links', () => {
     const response = await app.request('/https://mega.nz/folder/AbCdEf12', {}, env)
     const html = await response.text()
     expect(html).toContain('data-mode="signin"')
-    expect(html).toContain('Continue with Dropbox')
+    expect(html).toContain('Sign Up or Sign In with Dropbox')
   })
 
   test('a signed-in visitor gets the working panel — zero clicks', async () => {

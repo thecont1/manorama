@@ -179,8 +179,16 @@ describe('the landing page is the sign-in door', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
-    expect(html).toContain('Continue with Dropbox')
+    expect(html).toContain('Sign Up or Sign In with Dropbox')
     expect(html).toContain('href="/auth/dropbox"')
+  })
+
+  test('a browser that signed in before gets the shorter sign-in label', async () => {
+    const response = await page().request('/', { headers: { Cookie: 'manorama_returning=1' } }, env)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('Sign in with Dropbox')
+    expect(html).not.toContain('Sign Up or Sign In')
   })
 
   test('a failed sign-in shows the quiet retry note', async () => {
