@@ -1,0 +1,137 @@
+import { describe, expect, test } from 'bun:test'
+import type { CustomerInfo, PurchasesPackage } from '@revenuecat/purchases-capacitor'
+import {
+  RevenueCatBilling,
+  billingStateFromCustomerInfo,
+  tierFromCustomerInfo,
+  type PurchasesClient,
+} from './billing'
+
+const customerInfo = (active: Record<string, { isActive: boolean }> = {}) =>
+  ({ entitlements: { active } } as CustomerInfo)
+
+const packageStub = {} as PurchasesPackage
+
+type FakePurchases = PurchasesClient & {
+  configured?: unknown
+  listener?: (next: CustomerInfo) => void
+  removed?: string
+  loggedIn?: string
+  loggedOut?: boolean
+}
+
+const fakePurchases = (info: CustomerInfo): FakePurchases => {
+  const fake = {
+    configure: async (configuration: unknown) => {
+      fake.configured = configuration
+    },
+    getCustomerInfo: async () => ({ customerInfo: info }),
+    getOfferings: async () => ({ all: {}, current: null }),
+    purchasePackage: async () => ({
+      productIdentifier: 'manorama_pro_monthly',
+      customerInfo: info,
+      transaction: {} as never,
+    }),
+    restorePurchases: async () => ({ customerInfo: info }),
+    addCustomerInfoUpdateListener: async (listener: (next: CustomerInfo) => void) => {
+      fake.listener = listener
+      return 'listener-1'
+    },
+    removeCustomerInfoUpdateListener: async ({ listenerToRemove }: { listenerToRemove: string }) => {
+      fake.removed = listenerToRemove
+      return { wasRemoved: true }
+    },
+    logIn: async ({ appUserID }: { appUserID: string }) => {
+      fake.loggedIn = appUserID
+      return { created: false, customerInfo: info }
+    },
+    logOut: async () => {
+      fake.loggedOut = true
+      return { customerInfo: info }
+    },
+  } as FakePurchases
+  return fake
+}
+
+describe('RevenueCat entitlement mapping', () => {
+  test('maps an active pro entitlement to the pro tier', () => {
+    const info = customerInfo({ will_pay: { isActive: true } })
+    expect(tierFromCustomerInfo(info)).toBe('pro')
+    expect(billingStateFromCustomerInfo(info).isPro).toBe(true)
+  })
+
+  test('maps missing or inactive pro entitlements to the free tier', () => {
+    expect(tierFromCustomerInfo(customerInfo())).toBe('free')
+    expect(tierFromCustomerInfo(customerInfo({ will_pay: { isActive: false } }))).toBe('free')
+  })
+})
+
+describe('RevenueCatBilling', () => {
+  test('configures, refreshes, and notifies from customer info', async () => {
+    const info = customerInfo({ will_pay: { isActive: true } })
+    const fake = fakePurchases(info)
+    const seen: string[] = []
+    const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
+
+    const state = await billing.configure({
+      apiKey: 'public_sdk_key',
+      appUserId: 'dropbox-account-1',
+    })
+
+    expect(fake.configured).toEqual({
+      apiKey: 'public_sdk_key',
+      appUserID: 'dropbox-account-1',
+      automaticDeviceIdentifierCollectionEnabled: false,
+      diagnosticsEnabled: false,
+    })
+    expect(state.tier).toBe('pro')
+    expect(seen).toEqual(['pro'])
+  })
+
+  test('refreshes after purchase and restores', async () => {
+    const info = customerInfo({ will_pay: { isActive: true } })
+    const fake = fakePurchases(info)
+    const billing = new RevenueCatBilling(fake)
+    await billing.configure({ apiKey: 'key', appUserId: 'account' })
+
+    expect((await billing.purchase(packageStub)).isPro).toBe(true)
+    expect((await billing.restore()).tier).toBe('pro')
+  })
+
+  test('removes its listener before signing out', async () => {
+    const fake = fakePurchases(customerInfo())
+    const billing = new RevenueCatBilling(fake)
+    await billing.configure({ apiKey: 'key', appUserId: 'account' })
+    await billing.signOut()
+
+    expect(fake.removed).toBe('listener-1')
+    expect(fake.loggedOut).toBe(true)
+    expect(billing.currentState).toBeUndefined()
+  })
+
+  test('clears state immediately and ignores queued updates during pending logout', async () => {
+    const info = customerInfo({ will_pay: { isActive: true } })
+    const fake = fakePurchases(info)
+    let finishLogout!: () => void
+    fake.logOut = async () => {
+      await new Promise<void>((resolve) => { finishLogout = resolve })
+      return { customerInfo: info }
+    }
+    const seen: string[] = []
+    const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
+    await billing.configure({ apiKey: 'key', appUserId: 'account' })
+
+    const logout = billing.signOut()
+    expect(billing.currentState).toBeUndefined()
+    fake.listener?.(info)
+    expect(billing.currentState).toBeUndefined()
+    expect(seen).toEqual(['pro'])
+
+    await Promise.resolve()
+    await Promise.resolve()
+    finishLogout()
+    await logout
+    expect(billing.currentState).toBeUndefined()
+    expect(seen).toEqual(['pro'])
+  })
+})
