@@ -34,14 +34,15 @@ The stage shows only your photographs — a small bobbing Manorama pill at the b
 - **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet bubble at the bottom-right counts the photograph you're on — it's also a button: hover stretches it into a pill ("5 of 56 items" / "open global"), and click (or `G`) raises the selector filmstrip.
 - **`I`** opens the information sheet — position, caption, EXIF, Content Credentials. **`⇧I`** opens the standalone C2PA viewer in a new tab.
 - **`M`** on desktop summons a magnifier that follows your cursor at 3×.
-- **Video** plays ambient — muted and looping — with a megaphone for sound.
+- **The strip ends honestly**: a "The End." card slides in past the last photograph, with **Back to Start** to loop around.
+- **Video** plays ambient — muted and looping — with a speaker button for sound.
 - **Background** offers None (the default — photographs abut on a plain dark canvas), Dark, or Light — the latter two wake a subtle doodle field and give every image a 10px margin.
 
 Images always fit the stage whole — never cropped, never enlarged past their real resolution. Smaller sources float at their honest size rather than stretching.
 
 ## Your dashboard
 
-`manorama.xyz/{you}` lists your galleries newest-first. Click a title, caption, or slug to edit it inline — the public URL follows the slug. Drag thumbnails in the media rail to reorder; every row exposes its public URL, a copy button, and delete.
+`manorama.xyz/{you}` lists your galleries newest-first. Click a title, caption, or slug to edit it inline — the public URL follows the slug. Drag thumbnails in the media rail to reorder; every row exposes its public URL, a copy button, refresh-from-source, and delete.
 
 ## Plans
 

@@ -1,26 +1,26 @@
 # Privacy Policy
 
-Last updated: 17 September 2026
+Last updated: 23 September 2026
 
 Manorama is a photo-gallery app at manorama.xyz. This page explains what we do and don't collect, and why.
 
-## The three kinds of people on Manorama
+## The Users of Manorama
 
-Manorama has three kinds of users. The rules are different for each:
+All kinds of people love and use Manorama. And they rise in three categories. The rules are different for each:
 
-1. **Just Looking** — anyone with a gallery link. No sign-in, no account, no data collected. You open a link, you see photos, that's it. We have no clue who you are. Why not write in to say hello?
+1. **Just Looking** — anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?
 
-2. **Can Touch** — people who create and manage galleries. You sign in with Dropbox, you get up to three galleries, and we keep a small record of who you are so your galleries have a home.
+2. **Can Touch** — people who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.
 
-3. **Will Pay** (coming soon) — same sign-in, no gallery limit, richer customisation. The account tier column in our database already has a slot for this, but nobody is in it yet.
+3. **Will Pay** (coming soon) — same sign-in, up to 99 galleries, richer customisation, and the *Ask Manu* assistant.
 
-## If you're Just Looking: we collect nothing
+## Just Looking: we collect nothing
 
 When someone shares a gallery link with you, you can open it without signing in. We don't set cookies on your device, we don't run analytics, we don't track page views, and we don't record who you are. Your browser asks our server for the page, our server fetches the photos from the gallery owner's linked cloud folder and passes them through — that's the entire interaction.
 
 One small exception to "we store nothing": if you change how a gallery looks — the layout, or whether photos get borders — your browser remembers that choice in its own local storage, keyed to that gallery. It is not a cookie, it never reaches our server, and we can't see it. Clearing your browser's site data forgets it entirely.
 
-## If you Can Touch: what we store and why
+## Can Touch: what we store and why
 
 Signing in with Dropbox creates a small record about you in our database. Here's exactly what we keep, and why each piece exists:
 
@@ -30,9 +30,9 @@ Signing in with Dropbox creates a small record about you in our database. Here's
 | Your display name | So we can greet you on your dashboard and credit you as the gallery owner. |
 | Your email (only if Dropbox has verified it) | So we can reach you if something goes wrong with your account or galleries. We only store it if Dropbox confirms it's real. |
 | Your chosen URL slug (e.g. `manorama.xyz/your-name`) | This is the public address for your galleries. You can change it anytime. |
-| Your account tier (`free`) | To enforce the three-gallery limit. When paid accounts arrive, this field will track that too. |
+| Your account tier (`free`) | To enforce gallery limits: free accounts keep 3 editable galleries plus temporary ones that expire after 30 days; paid accounts keep up to 99. |
 
-We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), and a list of media filenames and dimensions (photographs, and videos when an iCloud shared album contains them). This lets us render your gallery without re-scanning the source folder on every visit.
+We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), a list of media filenames and dimensions (photographs, and videos when an iCloud shared album contains them), and the gallery's retention state — whether it is retained or temporary, and if temporary, its expiry date. This lets us render your gallery without re-scanning the source folder on every visit.
 
 Your browser also keeps your own preferences — the editor's light/dark theme, and per-gallery viewing choices — in its local storage. Like the viewer's, this never reaches our server.
 
@@ -65,7 +65,7 @@ When you sign in, we place a cookie on your device that keeps you logged in for 
 
 ## Data retention
 
-Your account and gallery metadata stay until you ask us to delete them. There's no self-service delete button yet — write to us and we'll remove your account and all associated gallery metadata. Deleting your account does not touch your Dropbox files; it only removes your Manorama record.
+Galleries are yours to delete: the dashboard's delete action removes the gallery's Manorama record immediately, and nothing at the source is ever touched. Temporary galleries — the extra galleries a free account can hold beyond its three editable ones — are removed automatically at their deadline, 30 days after creation; the dashboard shows that deadline, and we send no emails or reminders before it arrives. Your account record itself stays until you ask us to delete it — there's no self-service delete button for the account yet — write to us and we'll remove your account and all associated gallery metadata. Deleting your account does not touch your Dropbox files; it only removes your Manorama record.
 
 ## Your rights (GDPR and friends)
 
