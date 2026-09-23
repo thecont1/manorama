@@ -135,7 +135,11 @@ button { color: inherit; }
    just left of the buttons (or of the ↑/↓ column in vertical — the
    absolute dock keeps it beside the group rather than inside the flow).
    When arrows are opted out the bubble takes the corner slot itself. */
-.stage-seq {
+/* The .stage-arrows prefix out-specifies the shared `.stage-arrows
+   button` rule — otherwise its border-radius: 50% renders the expanded
+   state as an ellipse and its transition list would drop the pill's
+   size animation. */
+.stage-arrows .stage-seq {
   position: absolute;
   right: 100%;
   top: 50%;
@@ -189,7 +193,7 @@ button { color: inherit; }
    waits for the pill to have room before fading in. Focus-visible gets
    the same treatment so keyboard users see the affordance too. */
 @media (hover: hover) and (pointer: fine) {
-  .stage-seq {
+  .stage-arrows .stage-seq {
     transition:
       opacity 180ms ease,
       border-color 180ms ease,
@@ -1247,11 +1251,11 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
   to { opacity: 1; transform: translateY(-50%); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage-seq,
+  .stage-arrows .stage-seq,
   .viewer-filmstrip,
   .viewer-filmstrip.is-closing,
   .filmstrip-scrim.is-closing,
-  .viewer-filmstrip-item img { transition: none; animation: none; }
+  .viewer-filmstrip-item img { transition: none !important; animation: none !important; }
 }
 
 /* Admin rail: a video item keeps the photo thumbnail and gains a badge. */
