@@ -29,7 +29,7 @@ beforeAll(async () => {
     caption: '',
     date: '',
     createdAt: '2026-09-04T00:00:00.000Z',
-    images: [],
+    images: [{ id: 'test-image', filename: 'test.jpg', src: '/api/dropbox/file?sourceUrl=test', width: 1200, height: 800, alt: 'Test image', c2pa: false, placeholder: "" }],
   })
   await createGallery(TEST_OWNER.dropboxAccountId, {
     slug: 'test-other',
@@ -46,6 +46,44 @@ const patch = (slug: string, body: object) =>
     headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify(body),
   }, env)
+
+describe('native gallery API', () => {
+  test('returns a public manifest and viewer settings with Capacitor CORS', async () => {
+    const response = await api.request('/api/gallery/test-owner/test-gallery', {
+      headers: { Origin: 'capacitor://localhost' },
+    }, env)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
+    const payload = await response.json() as {
+      manifest?: { slug?: string; title?: string; images?: { id: string }[] }
+      settings?: { defaultMode?: string; imageAlts?: Record<string, string> }
+    }
+    expect(payload.manifest?.slug).toBe('test-gallery')
+    expect(payload.manifest?.title).toBe('Test Gallery')
+    expect(payload.manifest?.images?.map((image) => image.id)).toEqual(['test-image'])
+    expect(payload.settings?.defaultMode).toBe('strip')
+    expect(payload.settings?.imageAlts?.['test-image']).toBe('Test image')
+  })
+
+  test('answers native CORS preflight without requiring a session', async () => {
+    const response = await api.request('/api/gallery/test-owner/test-gallery', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:5173',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'Authorization',
+      },
+    }, env)
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173')
+    expect(response.headers.get('Access-Control-Allow-Headers')).toContain('Authorization')
+  })
+
+  test('does not disclose a missing public gallery', async () => {
+    const response = await api.request('/api/gallery/test-owner/missing', {}, env)
+    expect(response.status).toBe(404)
+  })
+})
 
 describe('slug rename contract', () => {
   test('renames via body newSlug, not body slug', async () => {

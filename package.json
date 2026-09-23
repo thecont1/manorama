@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --env-file=.env.local vite --host 0.0.0.0",
     "build": "vite build --mode client && vite build",
+    "build:native": "bunx vite build --config vite.config.native.ts",
     "preview": "bun --env-file=.env.local vite preview --host 0.0.0.0",
     "test": "playwright test",
     "vendo:sync": "vendo sync --no-ai && bun scripts/gen-vendo-profile.ts",
