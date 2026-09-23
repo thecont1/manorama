@@ -12,13 +12,13 @@ export default createRoute((c) =>
         <h2>The Users of Manorama</h2>
         <p>All kinds of people love and use Manorama. And they rise in three categories. The rules are different for each:</p>
 
-        <h3>Just Looking</h3>
+        <h4>Just Looking</h4>
         <p>Anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?</p>
 
-        <h3>Can Touch</h3>
+        <h4>Can Touch</h4>
         <p>People who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.</p>
 
-        <h3>Will Pay</h3>
+        <h4>Will Pay</h4>
         <p>(coming soon) — same sign-in, up to 99 galleries, richer customisation, and the <em>Ask Manu</em> assistant.</p>
 
         <h2>Just Looking: we collect nothing</h2>
