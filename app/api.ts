@@ -12,6 +12,7 @@ import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
 import { OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
+import { defaultGallerySettings } from './lib/gallery-settings'
 
 type RequestBody = { url?: string; order?: string[]; quick?: boolean }
 
@@ -167,6 +168,35 @@ const streamRangeResponse = (response: Response, cacheControl: string) => {
 export const createManoramaApi = () => {
   const api = new Hono<HonoSessionEnv>()
 
+  api.use('/api/*', async (c, next) => {
+    const origin = c.req.header('Origin')
+    let allowed = false
+    if (origin === 'capacitor://localhost') allowed = true
+    if (origin) {
+      try {
+        const url = new URL(origin)
+        allowed ||= url.protocol === 'http:' && url.hostname === 'localhost'
+      } catch {
+        allowed = false
+      }
+    }
+    if (allowed) {
+      c.header('Access-Control-Allow-Origin', origin!)
+      c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+      c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
+      c.header('Vary', 'Origin')
+    }
+    if (c.req.method === 'OPTIONS') return c.body(null, 204)
+    await next()
+  })
+  api.get('/api/gallery/:owner/:slug', async (c) => {
+    const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
+    if (!user) return c.json({ error: 'That gallery was not found' }, 404)
+    const gallery = await getGallery(user.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+    if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+    const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images: gallery.images }
+    return c.json({ manifest, settings: defaultGallerySettings(gallery) })
+  })
   api.use('/api/galleries', requireSession())
   api.use('/api/galleries/*', requireSession())
   api.use('/api/account', requireSession())

@@ -12,5 +12,12 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["app", "packages", "vendo", "vite.config.ts"]
+  "include": [
+    "app",
+    "packages",
+    "native",
+    "vendo",
+    "vite.config.ts",
+    "vite.config.native.ts"
+  ]
 }

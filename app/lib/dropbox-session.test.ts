@@ -53,6 +53,16 @@ describe('session token issuance and resolution', () => {
     })
   })
 
+  test('a valid bearer token resolves without a cookie', async () => {
+    await seedTestUser()
+    const token = await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const request = new Request('https://manorama.xyz/api/galleries', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect((await resolveManoramaSession(request, { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }))?.dropboxAccountId)
+      .toBe(TEST_OWNER.dropboxAccountId)
+  })
+
   test('an owner slug change is reflected without a new cookie', async () => {
     const user = await seedTestUser()
     const token = await createSessionToken(user.dropboxAccountId, TEST_SESSION_SECRET)
