@@ -19,7 +19,8 @@ export const measureFrameRate = ({
   frames = 60,
   requestFrame,
 }: FrameRateProbeOptions): Promise<FrameRateSample> => {
-  const targetFrames = Math.max(2, Math.floor(frames))
+  const normalizedFrames = Number.isFinite(frames) ? frames : 2
+  const targetFrames = Math.max(2, Math.floor(normalizedFrames))
 
   return new Promise((resolve) => {
     let count = 0

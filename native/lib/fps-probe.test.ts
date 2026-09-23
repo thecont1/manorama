@@ -18,7 +18,7 @@ describe('measureFrameRate', () => {
     expect(Math.abs(sample.framesPerSecond - 120)).toBeLessThan(0.01)
   })
 
-  test('uses a minimum two-frame sample for invalid frame counts', async () => {
+  test('uses a minimum two-frame sample for invalid finite counts', async () => {
     let calls = 0
     const sample = await measureFrameRate({
       frames: 0,
@@ -31,5 +31,22 @@ describe('measureFrameRate', () => {
 
     expect(sample.frames).toBe(2)
     expect(Math.abs(sample.framesPerSecond - 62.5)).toBeLessThan(0.01)
+  })
+
+  test('uses a minimum two-frame sample for non-finite counts delivered asynchronously', async () => {
+    for (const frames of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      let calls = 0
+      const sample = await measureFrameRate({
+        frames,
+        requestFrame: (callback) => {
+          calls += 1
+          queueMicrotask(() => callback(calls * 16))
+          return calls
+        },
+      })
+
+      expect(sample.frames).toBe(2)
+      expect(calls).toBe(2)
+    }
   })
 })
