@@ -17,6 +17,7 @@ import { getUserByDropboxId, type UserRepositoryEnv } from './user-repository'
 
 export const SESSION_COOKIE = 'manorama_session'
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
+export const NATIVE_HANDOFF_TTL_SECONDS = 60
 
 /** Long-lived marker set after a successful OAuth callback so the landing
  * page can greet returning visitors with "Sign in" instead of the generic
@@ -67,6 +68,22 @@ export const createSessionToken = (dropboxAccountId: string, secret: string) =>
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
     .sign(sessionKey(secret))
+
+/** A one-minute, purpose-bound token that is safe to carry through the native
+ * custom URL scheme. It is exchanged for the normal bearer session over HTTPS;
+ * the long-lived session token never appears in the deep link. */
+export const createNativeHandoffToken = (dropboxAccountId: string, secret: string) =>
+  new SignJWT({ sub: dropboxAccountId, typ: 'native-handoff' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(`${NATIVE_HANDOFF_TTL_SECONDS}s`)
+    .sign(sessionKey(secret))
+
+export const verifyNativeHandoffToken = async (token: string, secret: string) => {
+  const { payload } = await jwtVerify(token, sessionKey(secret))
+  if (payload.typ !== 'native-handoff') return null
+  return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
+}
 
 const verifySessionToken = async (token: string, secret: string) => {
   const { payload } = await jwtVerify(token, sessionKey(secret))

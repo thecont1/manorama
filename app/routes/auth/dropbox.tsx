@@ -1,6 +1,6 @@
 import { createRoute } from 'honox/factory'
 import { setCookie } from 'hono/cookie'
-import { callbackUrl, dropboxAuthorizeUrl, newState, OAUTH_NEXT_COOKIE, OAUTH_STATE_COOKIE, type DropboxOauthEnv } from '../../lib/dropbox-oauth'
+import { callbackUrl, dropboxAuthorizeUrl, newState, OAUTH_NATIVE_COOKIE, OAUTH_NEXT_COOKIE, OAUTH_STATE_COOKIE, type DropboxOauthEnv } from '../../lib/dropbox-oauth'
 import { accessEnvOf } from '../../lib/dropbox-session'
 
 export default createRoute((c) => {
@@ -14,6 +14,9 @@ export default createRoute((c) => {
       maxAge: 600,
     }
     setCookie(c, OAUTH_STATE_COOKIE, state, cookieOpts)
+    if (c.req.query('native') === '1') {
+      setCookie(c, OAUTH_NATIVE_COOKIE, '1', cookieOpts)
+    }
     const next = c.req.query('next')
     if (next) {
       try {

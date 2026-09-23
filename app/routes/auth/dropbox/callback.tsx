@@ -1,8 +1,8 @@
 import { createRoute } from 'honox/factory'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import { callbackUrl, fetchDropboxAccount, OAUTH_NEXT_COOKIE, OAUTH_STATE_COOKIE } from '../../../lib/dropbox-oauth'
+import { callbackUrl, fetchDropboxAccount, OAUTH_NATIVE_COOKIE, OAUTH_NEXT_COOKIE, OAUTH_STATE_COOKIE } from '../../../lib/dropbox-oauth'
 import { upsertUser } from '../../../lib/user-repository'
-import { accessEnvOf, createSessionToken, RETURNING_COOKIE, RETURNING_TTL_SECONDS, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../../../lib/dropbox-session'
+import { accessEnvOf, createNativeHandoffToken, createSessionToken, RETURNING_COOKIE, RETURNING_TTL_SECONDS, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../../../lib/dropbox-session'
 
 export default createRoute(async (c) => {
   const url = new URL(c.req.url)
@@ -35,6 +35,12 @@ export default createRoute(async (c) => {
       path: '/',
       maxAge: RETURNING_TTL_SECONDS,
     })
+    const native = getCookie(c, OAUTH_NATIVE_COOKIE) === '1'
+    deleteCookie(c, OAUTH_NATIVE_COOKIE, { path: '/' })
+    if (native) {
+      const handoff = await createNativeHandoffToken(user.dropboxAccountId, secret)
+      return c.redirect(`in.thecontrarian.manorama://auth/callback?handoff=${encodeURIComponent(handoff)}`)
+    }
     const next = getCookie(c, OAUTH_NEXT_COOKIE)
     deleteCookie(c, OAUTH_NEXT_COOKIE, { path: '/' })
     if (next) {
