@@ -178,4 +178,4 @@ Then verify on a physical sandbox device:
 8. Open Customer Center and verify restore and cancellation flows.
 9. Confirm a free customer sees the ad/upgrade path and a Pro customer does not receive free-tier treatment.
 
-The remaining owner-only gates are creating the `yearly` product and RevenueCat offering, creating a Sandbox Tester, and waiting for the DSA review to complete. 
+The remaining owner-only gates are creating the `yearly` product and RevenueCat offering, creating a Sandbox Tester, and waiting for the DSA review to complete.
