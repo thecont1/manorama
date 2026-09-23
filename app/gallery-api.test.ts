@@ -4,6 +4,7 @@ import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import type { GalleryImage } from './lib/imagesource'
 import { resetUserStore } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
+import { createNativeHandoffToken, createSessionToken } from './lib/dropbox-session'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -48,6 +49,26 @@ const patch = (slug: string, body: object) =>
   }, env)
 
 describe('native gallery API', () => {
+  test('exchanges only a purpose-bound native handoff token', async () => {
+    const handoffToken = await createNativeHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const response = await api.request('/api/auth/native/exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'capacitor://localhost' },
+      body: JSON.stringify({ handoffToken }),
+    }, env)
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { token?: string }
+    expect(typeof payload.token).toBe('string')
+
+    const normalToken = await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const rejected = await api.request('/api/auth/native/exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'capacitor://localhost' },
+      body: JSON.stringify({ handoffToken: normalToken }),
+    }, env)
+    expect(rejected.status).toBe(401)
+  })
+
   test('returns a public manifest and viewer settings with Capacitor CORS', async () => {
     const response = await api.request('/api/gallery/test-owner/test-gallery', {
       headers: { Origin: 'capacitor://localhost' },

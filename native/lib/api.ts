@@ -48,7 +48,7 @@ export const fetchGallery = async (
   slug: string,
   signal?: AbortSignal,
 ): Promise<NativeGalleryResponse> => {
-  const token = getSessionToken()
+  const token = await getSessionToken()
   const headers = token ? { Authorization: `Bearer ${token}` } : undefined
   const response = await fetch(
     `${normalizeApiBase(apiBase)}/api/gallery/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`,

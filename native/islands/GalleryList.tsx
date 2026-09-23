@@ -10,6 +10,7 @@ type Props = {
   apiBase: string
   owner?: string
   slug?: string
+  onSignIn?: () => void
 }
 
 type Selection = { owner: string; slug: string }
@@ -24,7 +25,7 @@ const selectionFromLocation = (): Selection => {
   }
 }
 
-export default function GalleryList({ apiBase, owner, slug }: Props) {
+export default function GalleryList({ apiBase, owner, slug, onSignIn }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
@@ -104,6 +105,11 @@ export default function GalleryList({ apiBase, owner, slug }: Props) {
         </span>
         <h1>Open a gallery</h1>
         <p>{error ?? 'Connect to manorama to view a public gallery.'}</p>
+        {onSignIn && (
+          <button type="button" onClick={onSignIn}>
+            Sign in with Dropbox
+          </button>
+        )}
         <form onSubmit={openGallery}>
           <label>
             Owner
