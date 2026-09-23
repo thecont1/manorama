@@ -1,0 +1,93 @@
+@import '../app/styles.css';
+
+:root {
+  --native-safe-top: env(safe-area-inset-top, 0px);
+  --native-safe-right: env(safe-area-inset-right, 0px);
+  --native-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --native-safe-left: env(safe-area-inset-left, 0px);
+}
+
+body {
+  padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
+}
+
+.native-list-shell {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--gallery-canvas);
+}
+
+.native-list-card {
+  width: min(100%, 460px);
+  padding: clamp(28px, 8vw, 64px);
+  border: 1px solid rgba(var(--ink), .14);
+  background: rgba(24, 26, 25, .8);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, .24);
+}
+
+.native-list-logo {
+  display: block;
+  width: min(220px, 68vw);
+  height: auto;
+  margin-bottom: 42px;
+}
+
+.native-list-card h1 {
+  margin: 0 0 16px;
+  font-size: clamp(34px, 8vw, 56px);
+  letter-spacing: -.055em;
+  line-height: 1;
+}
+
+.native-list-card p {
+  min-height: 2.8em;
+  margin: 0 0 28px;
+  color: rgba(var(--ink), .7);
+  line-height: 1.55;
+}
+
+.native-list-card form {
+  display: grid;
+  gap: 16px;
+}
+
+.native-list-card label {
+  display: grid;
+  gap: 7px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-list-card input {
+  width: 100%;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 0;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, .18);
+  color: rgb(var(--ink));
+  outline: none;
+}
+
+.native-list-card input:focus-visible,
+.native-list-card button:focus-visible {
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 3px;
+}
+
+.native-list-card button {
+  border: 1px solid rgba(var(--ink), .42);
+  border-radius: 999px;
+  padding: 13px 18px;
+  background: transparent;
+  color: rgb(var(--ink));
+  cursor: pointer;
+}
+
+.native-list-card button:hover {
+  background: rgba(var(--ink), .1);
+}

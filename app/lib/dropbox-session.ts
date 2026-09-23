@@ -78,6 +78,12 @@ const cookieValue = (request: Request, name: string) => {
   return undefined
 }
 
+const bearerValue = (request: Request) => {
+  const authorization = request.headers.get('Authorization')
+  if (!authorization) return undefined
+  const match = authorization.match(/^Bearer[ \t]+(.+)/i)
+  return match?.[1].trim() || undefined
+}
 /** process.env when the runtime has one (Node/vite dev); never carries
  *  anything on Workers, where c.env bindings are authoritative. */
 const processEnv = () => (globalThis as typeof globalThis & {
@@ -101,7 +107,7 @@ export async function resolveManoramaSession(
 ): Promise<ManoramaSession | null> {
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return null
-  const token = cookieValue(request, SESSION_COOKIE)
+  const token = cookieValue(request, SESSION_COOKIE) ?? bearerValue(request)
   if (!token) return null
   let dropboxAccountId: string | null
   try {

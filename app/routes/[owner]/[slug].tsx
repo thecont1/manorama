@@ -1,8 +1,13 @@
 import { createRoute } from 'honox/factory'
 import Viewer from '../../islands/Viewer'
+import GalleryShell from '../../components/GalleryShell'
 import { BundledSource } from '../../lib/imagesource'
 import { defaultGallerySettings } from '../../lib/gallery-settings'
-import { getGallery, type GalleryEnv, type GalleryRecord } from '../../lib/gallery-repository'
+import {
+  getGallery,
+  type GalleryEnv,
+  type GalleryRecord,
+} from '../../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../../lib/user-repository'
 import { ogItemKey } from '../../lib/og-card'
 
@@ -12,7 +17,11 @@ export default createRoute(async (c) => {
   if (!user) return c.notFound()
 
   const slug = c.req.param('slug') ?? ''
-  const gallery = await getGallery(user.dropboxAccountId, slug, c.env as GalleryEnv)
+  const gallery = await getGallery(
+    user.dropboxAccountId,
+    slug,
+    c.env as GalleryEnv,
+  )
   if (!gallery) return c.notFound()
 
   const source = new BundledSource(gallery as GalleryRecord)
@@ -21,28 +30,25 @@ export default createRoute(async (c) => {
   // `?i=` is the first item's stable key, so reordering the gallery
   // changes the URL and busts the edge cache without a purge.
   const firstKey = ogItemKey(gallery.images[0])
-  const ogImage = `/api/og/${encodeURIComponent(owner)}/${encodeURIComponent(gallery.slug)}${firstKey ? `?i=${encodeURIComponent(firstKey)}` : ''}`
+  const ogImage = `/api/og/${encodeURIComponent(owner)}/${encodeURIComponent(
+    gallery.slug,
+  )}${firstKey ? `?i=${encodeURIComponent(firstKey)}` : ''}`
   c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
   c.header('Cache-Control', 'no-cache')
 
   return c.render(
-    <main class="gallery-shell">
-      <h1 class="sr-only">{gallery.title}</h1>
-      <section
-        class="curtain"
-        data-curtain
-        role="button"
-        tabIndex={0}
-        aria-label="Enter gallery"
-      >
-        <div class="curtain-content">
-          <span class="brand-mark-wrap curtain-logo-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" class="curtain-logo" /><span class="brand-tld" aria-hidden="true">.xyz</span></span>
-          <h1 data-curtain-title>{settings.title}</h1>
-          <p class="curtain-caption" data-curtain-caption>{settings.caption}</p>
-        </div>
-      </section>
-      <Viewer slug={gallery.slug} images={source.list()} settings={settings} />
-    </main>,
-    { title: `${gallery.title} — manorama`, description: gallery.caption || `${gallery.title} — a photo gallery on manorama`, ogImage },
+    <GalleryShell settings={settings}>
+      <Viewer
+        slug={gallery.slug}
+        images={source.list()}
+        settings={settings}
+      />
+    </GalleryShell>,
+    {
+      title: `${gallery.title} — manorama`,
+      description:
+        gallery.caption || `${gallery.title} — a photo gallery on manorama`,
+      ogImage,
+    },
   )
 })
