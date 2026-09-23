@@ -91,8 +91,10 @@ async function dismissCurtain(
 // reorders, creates). The dev seed plugin's reset seam restores canonical
 // state so a case's outcome never depends on what ran before it.
 test.beforeEach(async ({ request, page }) => {
-  // Reduced motion keeps the bobbing logo tab click-stable for every spec;
-  // the bob itself is verified under no-preference in its own test.
+  // Reduced motion keeps animated chrome click-stable for every spec.
+  // RULE: a spec that asserts an animation mid-flight (is-lifting, the
+  // logo bob, sweeps) must re-emulate no-preference first — under reduce
+  // the transition is ~0ms and intermediate states die in one frame.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reset = await request.post(`${BASE}/.dev-seed/reset`);
   expect(reset.status(), "dev seed reset — is this `bun run dev`?").toBe(204);
@@ -100,6 +102,17 @@ test.beforeEach(async ({ request, page }) => {
 
 async function imageCount(page: import("@playwright/test").Page) {
   return page.locator("[data-track] [data-index]").count();
+}
+
+async function ensureStripSettled(page: import("@playwright/test").Page) {
+  await expect
+    .poll(async () => {
+      const a = await page.evaluate(() => document.querySelector("[data-track]")!.getBoundingClientRect().left);
+      await new Promise((r) => setTimeout(r, 160));
+      const b = await page.evaluate(() => document.querySelector("[data-track]")!.getBoundingClientRect().left);
+      return a === b;
+    }, { timeout: 8000 })
+    .toBe(true);
 }
 
 /** Opens the in-gallery info sheet via its I shortcut. */
@@ -187,6 +200,10 @@ test("curtain uses larger brand type without entry labels", async ({
 });
 
 test("curtain lifts upward before it hides", async ({ page }) => {
+  // This spec asserts the lift itself — under the suite-wide reduced
+  // motion emulation the transition is ~0ms and is-lifting only exists
+  // for a frame, so run it with motion on.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
@@ -199,6 +216,8 @@ test("curtain lifts upward before it hides", async ({ page }) => {
 test("curtain reveal remains visible through a calmer lift before it hides", async ({
   page,
 }) => {
+  // Lift duration is asserted — motion required (see the spec above).
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
@@ -211,6 +230,8 @@ test("curtain reveal remains visible through a calmer lift before it hides", asy
 test("curtain accepts an upward swipe before it lifts away", async ({
   page,
 }) => {
+  // Lift class asserted — motion required.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await page.mouse.move(300, 520);
@@ -227,6 +248,77 @@ for (const vp of viewports) {
       viewport: { width: vp.width, height: vp.height },
       hasTouch: vp.hasTouch,
     });
+
+    test("the G selector shows every photograph and jumps on click", async ({ page }) => {
+      await dismissCurtain(page)
+      const count = await imageCount(page)
+      await page.keyboard.press("g")
+      const strip = page.locator(".viewer-filmstrip")
+      await expect(strip).toBeVisible()
+      const box = await strip.boundingBox()
+      expect(box).not.toBeNull()
+      expect(Math.abs((box!.y + box!.height / 2) - vp.height / 2)).toBeLessThan(3)
+      await expect(strip.locator("[data-grid-item]")).toHaveCount(count)
+      await expect(strip.locator("[aria-current='true']")).toHaveCount(1)
+      await strip.locator("[data-grid-item]").nth(Math.min(2, count - 1)).click()
+      await expect(strip).toBeHidden()
+      await ensureStripSettled(page)
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(Math.min(2, count - 1) + 1))
+      // A stray Enter after the selector closes must not step the gallery
+      // from the restored focus on the next-arrow (or any previous focus).
+      await page.keyboard.press("Enter")
+      await expect(strip).toBeVisible()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(Math.min(2, count - 1) + 1))
+    })
+
+    test("drag-scrolling the selector doesn't navigate; Escape and scrim dismiss", async ({ page }) => {
+      await dismissCurtain(page)
+      const before = await page.locator("[data-track] [aria-current='true']").getAttribute("data-index")
+      await page.keyboard.press("g")
+      const frame = page.locator(".viewer-filmstrip-frame")
+      const frameBox = await frame.boundingBox()
+      expect(frameBox).not.toBeNull()
+      const initial = await frame.evaluate((node) => node.scrollLeft)
+      await page.mouse.move(frameBox!.x + frameBox!.width * .7, frameBox!.y + frameBox!.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(frameBox!.x + frameBox!.width * .2, frameBox!.y + frameBox!.height / 2, { steps: 5 })
+      await page.mouse.up()
+      await expect.poll(() => frame.evaluate((node) => node.scrollLeft)).not.toBe(initial)
+      await expect(frame).toBeVisible()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", before!)
+      await page.keyboard.press("Escape")
+      await expect(frame).toBeHidden()
+      await page.keyboard.press("g")
+      await expect(frame).toBeVisible()
+      await page.locator(".filmstrip-scrim").click({ position: { x: 5, y: 5 } })
+      await expect(frame).toBeHidden()
+    })
+
+    test("the selector pink box follows arrows and hover; Enter commits", async ({ page }) => {
+      await dismissCurtain(page)
+      const count = await imageCount(page)
+      await page.keyboard.press("g")
+      const strip = page.locator(".viewer-filmstrip")
+      const active = strip.locator("[data-grid-active]")
+      const startIndex = await active.evaluate((item) => {
+        const items = [...item.parentElement!.querySelectorAll<HTMLElement>('[data-grid-item]')]
+        return items.indexOf(item as HTMLElement)
+      })
+      await expect(active).toHaveCSS("box-shadow", /rgb\(252, 15, 192\)/)
+      await page.keyboard.press("ArrowRight")
+      await page.keyboard.press("ArrowRight")
+      const arrowIndex = (startIndex + 2) % count
+      await expect(strip.locator("[data-grid-item]").nth(arrowIndex)).toHaveAttribute("data-grid-active", "true")
+      await expect(strip.locator("[data-grid-item]").nth(arrowIndex)).toBeFocused()
+      const hoverIndex = (arrowIndex + 2) % count
+      await strip.locator("[data-grid-item]").nth(hoverIndex).hover()
+      await expect(strip.locator("[data-grid-item]").nth(hoverIndex)).toHaveAttribute("data-grid-active", "true")
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(startIndex + 1))
+      await page.keyboard.press("Enter")
+      await expect(strip).toHaveClass(/is-closing/)
+      await expect(strip).toBeHidden()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(hoverIndex + 1))
+    })
 
     test("exactly one visible control during viewing", async ({ page }) => {
       await dismissCurtain(page);
@@ -528,6 +620,8 @@ for (const vp of viewports) {
 
     test("touch upward swipe lifts the opening curtain", async ({ page }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
+      // Lift class asserted — motion required.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       await page.goto(GALLERY);
       const client = await page.context().newCDPSession(page);
       const curtain = page.locator("[data-curtain]");
@@ -1026,6 +1120,101 @@ for (const vp of viewports) {
       expect(boxes[1].bottom).toBeGreaterThan(stage.bottom - 100);
     });
 
+    test("the sequence bubble counts the active photograph and rides beside the nav buttons", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const seq = page.locator(".stage-seq");
+      const seqNum = seq.locator(".stage-seq-num");
+      await expect(seq).toBeVisible();
+      await expect(seqNum).toHaveText("1");
+      await expect(seq).toHaveAttribute(
+        "aria-label",
+        `Photograph 1 of ${await imageCount(page)} — open selector`,
+      );
+
+      // The bubble tracks the reported index as the strip advances.
+      await advanceToNextImage(page);
+      await expect(seqNum).toHaveText("2");
+
+      // With arrows on, it floats left of the button cluster; with them
+      // off it still docks at the bottom-right corner alone.
+      const coarse = await page.evaluate(() =>
+        matchMedia("(pointer: coarse)").matches,
+      );
+      if (!coarse) {
+        // Hover stretches the circle into a pill: the bare count swaps
+        // for the full tally plus the open hint.
+        const restBox = await seq.boundingBox();
+        await seq.hover();
+        await expect(seq.locator(".stage-seq-tally")).toBeVisible();
+        await expect(seq.locator(".stage-seq-tally")).toHaveText(
+          `2 of ${await imageCount(page)} items`,
+        );
+        await expect(seq.locator(".stage-seq-hint")).toHaveText(
+          /open global/i,
+        );
+        const lit = await seq.evaluate((el) => ({
+          opacity: getComputedStyle(el).opacity,
+          events: getComputedStyle(el).pointerEvents,
+        }));
+        expect(lit.opacity).toBe("1");
+        expect(lit.events).toBe("auto");
+        // The circle animates into the pill — poll the box until the
+        // expansion completes rather than reading one mid-flight frame.
+        await expect
+          .poll(async () => (await seq.boundingBox())!.width)
+          .toBeGreaterThan(restBox!.width + 40);
+        await page.mouse.move(0, 0);
+        await expect(seqNum).toHaveText("2");
+      }
+
+      // The bubble is a button — clicking it raises the selector.
+      await seq.click();
+      await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".viewer-filmstrip")).toBeHidden();
+      await ensureNavArrows(page);
+      const nextArrow = page.getByRole("button", {
+        name: /next photograph/i,
+      });
+      if (!coarse) {
+        // Hovering NEAR the counter (anywhere in the nav cluster)
+        // wakes the pill too.
+        await nextArrow.hover();
+        await expect(seq.locator(".stage-seq-detail")).toHaveCSS(
+          "opacity",
+          "1",
+        );
+        await page.mouse.move(0, 0);
+      }
+      const seqBox = await seq.boundingBox();
+      const nextBox = await nextArrow.boundingBox();
+      expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
+      if (!coarse) {
+        // Fine pointers cluster ← → together — the bubble precedes both.
+        const prevBox = await page
+          .getByRole("button", { name: /previous photograph/i })
+          .boundingBox();
+        expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(prevBox!.x + 1);
+      }
+
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: /hide navigation arrows/i })
+        .click();
+      await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await expect(seq).toBeVisible();
+      const bare = await seq.boundingBox();
+      const stage = await page
+        .locator("[data-stage]")
+        .evaluate((el) => el.getBoundingClientRect());
+      expect(bare!.x + bare!.width).toBeGreaterThan(stage.right - 80);
+      expect(bare!.y + bare!.height).toBeGreaterThan(stage.bottom - 80);
+    });
+
     test("one-at-a-time steps sweep the next photograph over the current one", async ({
       page,
     }) => {
@@ -1038,13 +1227,12 @@ for (const vp of viewports) {
         (slug) =>
           window.localStorage.setItem(
             `manorama:view:${slug}`,
-            JSON.stringify({ mode: "single", seamMode: "dark" }),
+            JSON.stringify({ mode: "single" }),
           ),
         SLUG,
       );
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
-      await expect(page.locator("[data-stage]")).toHaveClass(/seam-dark/);
       await page.keyboard.press("ArrowRight");
       // Mid-sweep the outgoing frame is still mounted and fully painted
       // while the incoming one wipes in behind an opaque canvas card —
@@ -1206,6 +1394,146 @@ for (const vp of viewports) {
       // full-viewport chunks, so the bound is <=, never a teleport.
       expect(advance).toBeGreaterThan(viewportWidth * 0.7);
       expect(advance).toBeLessThanOrEqual(viewportWidth + 1);
+    });
+
+    test("the strip ends on a 'The End.' card instead of wrapping", async ({
+      page,
+      playwright,
+    }) => {
+      // Spawned fixtures carry truthful dims — the strip never heals
+      // mid-spec, so end-of-strip assertions aren't racing decode-time
+      // width corrections. The finale is a sliver narrower than every
+      // stage: it never reaches the left edge, which is what used to
+      // stall the counter one short of the total.
+      const request = await retentionApi(playwright);
+      await spawnGalleries(request, [
+        {
+          slug: `endcap-${vp.name}`,
+          images: [
+            ...[0, 1, 2, 3, 4].map((i) => fixtureImage(`cap-w${i}`, 2400, 1600)),
+            ...[5, 6, 7].map((i) => fixtureImage(`cap-p${i}`, 1200, 1800)),
+            fixtureImage("cap-last", 300, 1200),
+          ],
+        },
+      ]);
+      await request.dispose();
+      await dismissCurtain(page, `${BASE}/${RETENTION_OWNER}/endcap-${vp.name}`);
+      const endcap = page.locator(".viewer-endcap");
+      await expect(endcap).toHaveCount(1);
+      await expect(endcap).toHaveText(/The\s*End\./);
+      // A borderless faux frame: wordmark type 3×, 40px side padding,
+      // full stage height — wider than the old fixed 100px.
+      const stageBox = await page.locator("[data-stage]").boundingBox();
+      const capBox = await endcap.boundingBox();
+      expect(capBox!.width).toBeGreaterThan(110);
+      expect(Math.abs(capBox!.height - stageBox!.height)).toBeLessThan(2);
+
+      await ensureNavArrows(page);
+      await page.keyboard.press("Escape");
+      // Reaching the last photograph alone does NOT reveal the card —
+      // the pan range ends at the photo's right edge. The counter still
+      // counts it: the finale never reaches the left edge, so the docked
+      // end must report the final image.
+      const total = 9;
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText(`${total}`);
+      const hidden = await endcap.boundingBox();
+      expect(hidden!.x).toBeGreaterThanOrEqual(
+        stageBox!.x + stageBox!.width - 1,
+      );
+
+      // Stepping past the end slides it in flush with the stage's right.
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await waitForTrackSettled(page);
+      const shown = await endcap.boundingBox();
+      expect(
+        Math.abs(shown!.x + shown!.width - (stageBox!.x + stageBox!.width)),
+      ).toBeLessThan(2);
+
+      // The card carries a quiet "Back to Start" link that rewinds the
+      // strip to the first photograph and re-arms the reveal.
+      const reset = endcap.getByRole("button", { name: /back to start/i });
+      await expect(reset).toBeVisible();
+      await reset.click();
+      await waitForTrackSettled(page);
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
+      await expect(
+        page.locator("[aria-current='true']"),
+      ).toHaveAttribute("data-index", "1");
+      const rearmed = await endcap.boundingBox();
+      expect(rearmed!.x).toBeGreaterThanOrEqual(
+        stageBox!.x + stageBox!.width - 1,
+      );
+
+      // Reveal it once more for the no-wrap checks.
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await waitForTrackSettled(page);
+
+      // And the arrow stops there — no wrap back to the first image.
+      // (The card staying flush-right is the check: a healed frame can
+      // legitimately re-anchor the track transform, so compare the
+      // card's box rather than the track's origin.)
+      await page.getByRole("button", { name: /next photograph/i }).click();
+      await waitForTrackSettled(page);
+      const stillShown = await endcap.boundingBox();
+      expect(
+        Math.abs(
+          stillShown!.x + stillShown!.width - (stageBox!.x + stageBox!.width),
+        ),
+      ).toBeLessThan(2);
+      // aria-current is the leftmost visible frame — on wide stages
+      // that is an earlier photo, so the no-wrap check is "not 1".
+      await expect(
+        page.locator("[aria-current='true']"),
+      ).not.toHaveAttribute("data-index", "1");
+
+      // The card belongs to the strip alone.
+      await page
+        .getByRole("button", { name: "Display settings", exact: true })
+        .click();
+      await page
+        .locator(".mode-options label", { hasText: /vertical scroll/i })
+        .click();
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await expect(endcap).toHaveCount(0);
+    });
+
+    test("dragging past the last photograph reveals the endcard", async ({
+      page,
+      playwright,
+    }) => {
+      const request = await retentionApi(playwright);
+      await spawnGalleries(request, [
+        {
+          slug: `endcap-drag-${vp.name}`,
+          images: [
+            ...[0, 1, 2].map((i) => fixtureImage(`cap-d${i}`, 2400, 1600)),
+            fixtureImage("cap-d-last", 300, 1200),
+          ],
+        },
+      ]);
+      await request.dispose();
+      await dismissCurtain(page, `${BASE}/${RETENTION_OWNER}/endcap-drag-${vp.name}`);
+      const stageBox = await page.locator("[data-stage]").boundingBox();
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      const endcap = page.locator(".viewer-endcap");
+      expect(
+        (await endcap.boundingBox())!.x,
+      ).toBeGreaterThanOrEqual(stageBox!.x + stageBox!.width - 1);
+      // A pull past the strip's end carries the card in with the drag.
+      const cx = stageBox!.x + stageBox!.width / 2;
+      const cy = stageBox!.y + stageBox!.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx - 160, cy, { steps: 12 });
+      await page.mouse.up();
+      await waitForTrackSettled(page);
+      const shown = await endcap.boundingBox();
+      expect(shown!.x).toBeLessThan(stageBox!.x + stageBox!.width - 1);
     });
 
     test("no layout shift while images load", async ({ page, playwright }) => {
@@ -2019,6 +2347,102 @@ test.describe("M magnifier (desktop only)", () => {
     await context.close();
   });
 
+  test("the lens magnifies the point under the cursor, not an offset of it", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      hasTouch: false,
+      extraHTTPHeaders: { Cookie: await sessionCookie() },
+    });
+    const page = await context.newPage();
+    await dismissCurtain(page);
+
+    // A marker injected into the stage is cloned into the lens world —
+    // its transformed position must sit at the lens centre.
+    const pt = { x: 400, y: 300 };
+    await page.evaluate(({ x, y }) => {
+      const marker = document.createElement("div");
+      marker.className = "probe-dot";
+      marker.style.cssText = `position:absolute;left:${x - 4}px;top:${y - 4}px;width:8px;height:8px;background:#f0f;z-index:99;`;
+      document.querySelector("[data-stage]")!.appendChild(marker);
+    }, pt);
+    await page.mouse.move(pt.x, pt.y);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toBeVisible();
+    await page.waitForTimeout(300);
+
+    const probe = await page.evaluate(() => {
+      const lens = document.querySelector(".magnifier-lens")!.getBoundingClientRect();
+      const dot = document
+        .querySelector(".magnifier-world .probe-dot")!
+        .getBoundingClientRect();
+      return {
+        lens: { x: lens.left + lens.width / 2, y: lens.top + lens.height / 2 },
+        dot: { x: dot.left + dot.width / 2, y: dot.top + dot.height / 2 },
+      };
+    });
+    expect(Math.abs(probe.dot.x - probe.lens.x)).toBeLessThanOrEqual(3);
+    expect(Math.abs(probe.dot.y - probe.lens.y)).toBeLessThanOrEqual(3);
+    await context.close();
+  });
+
+  test("the lens stays centred on the cursor in a scrolled vertical feed", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      hasTouch: false,
+      extraHTTPHeaders: { Cookie: await sessionCookie() },
+    });
+    const page = await context.newPage();
+    await dismissCurtain(page);
+    await page
+      .getByRole("button", { name: "Display settings", exact: true })
+      .click();
+    await page
+      .locator(".mode-options label", { hasText: /vertical scroll/i })
+      .click();
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+    await page.keyboard.press("Escape");
+
+    // Deep-scroll the feed and wait for the track to settle — frame
+    // heights heal as images decode, which grows scrollHeight and can
+    // clamp an early scrollTop. The marker is then placed relative to
+    // the *settled* scroll offset, straight under the cursor's viewport
+    // point — that is where scroll-compensation matters.
+    await page.evaluate(() => {
+      document.querySelector("[data-stage]")!.scrollTop = 1500;
+    });
+    await page.waitForTimeout(1500);
+    const pt = { x: 720, y: 450 };
+    await page.evaluate(({ x, y }) => {
+      const stage = document.querySelector("[data-stage]")!;
+      const marker = document.createElement("div");
+      marker.className = "probe-dot";
+      marker.style.cssText = `position:absolute;left:${x - 4}px;top:${stage.scrollTop + y - 4}px;width:8px;height:8px;background:#f0f;z-index:99;`;
+      stage.appendChild(marker);
+    }, pt);
+    await page.mouse.move(pt.x, pt.y);
+    await page.keyboard.press("m");
+    await expect(page.locator(".magnifier-lens")).toBeVisible();
+    await page.waitForTimeout(300);
+
+    const probe = await page.evaluate(() => {
+      const lens = document.querySelector(".magnifier-lens")!.getBoundingClientRect();
+      const dot = document
+        .querySelector(".magnifier-world .probe-dot")!
+        .getBoundingClientRect();
+      return {
+        lens: { x: lens.left + lens.width / 2, y: lens.top + lens.height / 2 },
+        dot: { x: dot.left + dot.width / 2, y: dot.top + dot.height / 2 },
+      };
+    });
+    expect(Math.abs(probe.dot.x - probe.lens.x)).toBeLessThanOrEqual(3);
+    expect(Math.abs(probe.dot.y - probe.lens.y)).toBeLessThanOrEqual(3);
+    await context.close();
+  });
+
   test("the lens is decorative — mirrored content is aria-hidden", async ({ page }) => {
     await dismissCurtain(page);
     await page.mouse.move(700, 450);
@@ -2526,7 +2950,7 @@ test.describe("density-aware staging", () => {
     await context.close();
   });
 
-  test("only the active window mounts full-size media", async ({ playwright, browser }) => {
+  test("only the active window plus its retention tail mounts full-size media", async ({ playwright, browser }) => {
     const url = await densityGallery(
       playwright,
       "d-window",
@@ -2537,9 +2961,55 @@ test.describe("density-aware staging", () => {
     await dismissCurtain(page, url);
     await expect(page.locator(".frame-ph")).toHaveCount(12);
     await expect(page.locator(".frame-img")).toHaveCount(4);
+    // Index 4: the ±3 window is 7 frames, plus the MRU tail holds frame 0.
     for (let i = 0; i < 4; i += 1) await advanceToNextImage(page);
     await waitForTrackSettled(page);
-    await expect(page.locator(".frame-img")).toHaveCount(7);
+    await expect(page.locator(".frame-img")).toHaveCount(8);
+    // The tail is bounded: however far the strip advances, the window
+    // plus retention never exceeds STRIP_WINDOW*2 + 1 + STRIP_RETAIN.
+    for (let i = 0; i < 6; i += 1) await advanceToNextImage(page);
+    await waitForTrackSettled(page);
+    const mounted = await page.locator(".frame-img").count();
+    expect(mounted).toBeLessThanOrEqual(13);
     await context.close();
+  });
+});
+
+test.describe("PR #48 review fixes — touch counter", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  async function currentTrackX(page: import("@playwright/test").Page): Promise<number> {
+    return page.evaluate(() => {
+      const track = document.querySelector("[data-track]") as HTMLElement;
+      const m = /translate3d\((-?[\d.]+)px/.exec(track.style.transform || "");
+      return m ? parseFloat(m[1]) : NaN;
+    });
+  }
+
+  test("dragging from the sequence counter pans the strip instead of opening the selector", async ({ page }) => {
+    await dismissCurtain(page);
+    await ensureStripSettled(page);
+    const x0 = await currentTrackX(page);
+    const seq = page.locator(".stage-seq");
+    const box = await seq.boundingBox();
+    expect(box, "counter visible").not.toBeNull();
+    const sx = box!.x + box!.width / 2;
+    const sy = box!.y + box!.height / 2;
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(sx - 240, sy, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+    const x1 = await currentTrackX(page);
+    expect(x1, `strip should pan from the counter drag (${x0} -> ${x1})`).not.toBe(x0);
+  });
+
+  test("tapping the sequence counter opens the selector instead of the brand pill", async ({ page }) => {
+    await dismissCurtain(page);
+    const seq = page.locator(".stage-seq");
+    const box = await seq.boundingBox();
+    expect(box, "counter visible").not.toBeNull();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await expect(page.locator(".viewer-filmstrip")).toBeVisible();
   });
 });

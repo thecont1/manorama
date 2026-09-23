@@ -18,6 +18,8 @@
 
 :root {
   --ink: 243, 240, 232;
+  /* Doodle field ink: light on the dark canvas, flipped under html.light. */
+  --doodle-ink: rgba(255, 255, 255, 0.2);
   --gallery-canvas: #0a0a0a;
   color-scheme: dark;
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
@@ -36,7 +38,7 @@ button { color: inherit; }
 
 .gallery-shell, honox-island { display: contents; }
 /* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
-.viewer-stage { position: relative; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
+.viewer-stage { position: relative; isolation: isolate; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
@@ -60,32 +62,11 @@ button { color: inherit; }
    would paint a solid slab around it. Only real sources — video posters,
    HEIC previews, the magnifier's swapped-in frame image — may paint;
    the SVG stub keeps its box for layout but stays invisible so the
-   striped field or canvas owns the gap. */
+   doodle field or canvas owns the gap. */
 .viewer-frame .frame-ph[src^="data:image/svg+xml"] { visibility: hidden; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
 
-/* Background: the stripe flavour paints the whole track as one
-   continuous field — not a panel per photo restarting its pattern at
-   each frame edge. 'light' is black stripes on a light field, 'dark'
-   is light stripes on black. */
-.seam-light .viewer-track { background-color: rgba(var(--ink), .88); background-image: repeating-linear-gradient(45deg, rgba(10, 10, 10, .5) 0 10px, transparent 10px 32px); }
-.seam-dark .viewer-track { background-color: #0c0e0d; background-image: repeating-linear-gradient(45deg, rgba(var(--ink), .5) 0 10px, transparent 10px 32px); }
-/* Frames go transparent so the track's field shows through, and a pad
-   shrinks the photo on three sides so the field reads as an inset
-   border — left/top/bottom in Strip, top/left/right in Vertical.
-   'none' sits photographs flush. */
-.seam-light .viewer-track .viewer-frame,
-.seam-dark .viewer-track .viewer-frame { background: transparent; }
-.mode-strip.seam-light .viewer-frame,
-.mode-strip.seam-dark .viewer-frame { padding: 10px 0 10px 10px; }
-.mode-vertical.seam-light .viewer-frame,
-.mode-vertical.seam-dark .viewer-frame { padding: 10px 5px 0; }
-/* Floating over a field, media softens at the corners. */
-.seam-light .viewer-track .viewer-frame img,
-.seam-light .viewer-track .viewer-frame video,
-.seam-dark .viewer-track .viewer-frame img,
-.seam-dark .viewer-track .viewer-frame video { border-radius: 5px; }
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); margin: 0 auto; object-fit: contain; }
 .viewer-track--vertical .viewer-frame:not(.viewer-frame--video) { place-items: center; }
@@ -101,7 +82,7 @@ button { color: inherit; }
    photograph rides in on a directional wipe behind an opaque canvas
    card — forward steps reveal from the right edge, back steps from the
    left. The outgoing photograph stays fully painted underneath until
-   the sweep lands, so no transparency ever ghosts the striped field
+   the sweep lands, so no transparency ever ghosts the background field
    through an image; afterwards the card's background eases back to
    transparent and the field settles around the new photograph. */
 .viewer-track--single[data-sweep-dir='fwd'] .viewer-frame--hidden { clip-path: inset(0 0 0 100%); }
@@ -134,7 +115,7 @@ button { color: inherit; }
 .curtain-prompt { margin-top: 22vh; color: rgba(var(--ink), .42); }
 .curtain:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -8px; }
 
-.stage-arrows { position: fixed; z-index: 10; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
+.stage-arrows { position: fixed; z-index: 21; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
 .stage-arrows button { pointer-events: auto; width: clamp(44px, 6.3svh, 59px); height: clamp(44px, 6.3svh, 59px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(14px, 2.4svh, 22px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
@@ -149,6 +130,120 @@ button { color: inherit; }
    align-items pins the buttons right even inside the coarse-pointer
    full-width container above. */
 .stage-arrows--vertical { flex-direction: column; align-items: flex-end; }
+
+/* The sequence bubble: a quiet counter riding the nav cluster, parked
+   just left of the buttons (or of the ↑/↓ column in vertical — the
+   absolute dock keeps it beside the group rather than inside the flow).
+   When arrows are opted out the bubble takes the corner slot itself. */
+/* The .stage-arrows prefix out-specifies the shared `.stage-arrows
+   button` rule — otherwise its border-radius: 50% renders the expanded
+   state as an ellipse and its transition list would drop the pill's
+   size animation. */
+.stage-arrows .stage-seq {
+  /* In-flow flex child (order-first) instead of an absolutely-parked bubble
+     left of the cluster: an abs-positioned child outside its parent's layout
+     box is skipped by the trusted-input hit test on touch layouts, so taps
+     fell through to the stage. Flex flow keeps paint = hit target. */
+  position: relative;
+  order: -1;
+  margin-right: 8px;
+  display: grid;
+  place-items: center;
+  width: clamp(44px, 6.3svh, 59px);
+  min-width: clamp(44px, 6.3svh, 59px);
+  height: clamp(44px, 6.3svh, 59px);
+  padding: 0 12px;
+  border: 1px solid rgba(var(--ink), .18);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .55);
+  box-shadow: 2px 2px 0 rgba(var(--ink), .18);
+  color: rgba(var(--ink), .85);
+  font-family: inherit;
+  font-size: clamp(13px, 2svh, 18px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  opacity: .5;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+/* Count fades back in after the pill has collapsed to circle size. */
+.stage-seq-num { transition: opacity 160ms ease 60ms; }
+/* The hover flyout: two centered lines that only exist inside the
+   expanded pill, so the resting circle stays a bare counter. */
+.stage-seq-detail {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 140ms ease;
+}
+.stage-seq-tally { font-size: clamp(12px, 1.75svh, 15px); font-weight: 600; }
+.stage-seq-hint { font-size: clamp(9px, 1.28svh, 10.5px); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: rgba(var(--ink), .62); }
+/* On mouse pointers the circle animates into a pill — its right edge
+   stays docked to the nav cluster, so the expansion reads as the bubble
+   stretching left, not jumping. Hovering anywhere in the nav cluster
+   counts as "near" the counter (the pill grows away from the arrows,
+   so it never occludes them). A soft overshoot easing makes the grow
+   feel like the pill inflates; un-hover settles back faster. The flyout
+   waits for the pill to have room before fading in. Focus-visible gets
+   the same treatment so keyboard users see the affordance too. */
+@media (hover: hover) and (pointer: fine) {
+  .stage-arrows .stage-seq {
+    transition:
+      opacity 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      min-width 220ms cubic-bezier(.4, 0, .2, 1),
+      height 220ms cubic-bezier(.4, 0, .2, 1);
+  }
+  .stage-seq:is(:hover, :focus-visible),
+  .stage-arrows:hover .stage-seq {
+    opacity: 1;
+    border-color: rgba(var(--ink), .8);
+    background: rgba(10, 10, 10, .82);
+    min-width: clamp(126px, 18svh, 168px);
+    height: clamp(52px, 7.4svh, 66px);
+    transition:
+      opacity 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      min-width 340ms cubic-bezier(.28, 1.35, .42, 1),
+      height 340ms cubic-bezier(.28, 1.35, .42, 1);
+  }
+  .stage-seq:is(:hover, :focus-visible) .stage-seq-num,
+  .stage-arrows:hover .stage-seq .stage-seq-num { opacity: 0; transition: opacity 110ms ease; }
+  .stage-seq:is(:hover, :focus-visible) .stage-seq-detail,
+  .stage-arrows:hover .stage-seq .stage-seq-detail { opacity: 1; transition: opacity 200ms ease 120ms; }
+}
+.stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
+/* No buttons to flank: the bubble claims the corner outright. In flow it
+   already occupies that slot; just square it to the corner. */
+.stage-arrows--bare .stage-seq { margin-right: 0; }
+/* On touch the enabled arrows split to opposite corners — the bubble
+   stays docked just left of the forward arrow. In flow with order:-1
+   it would park at the far left of the full-width bar; re-dock it next
+   to the forward arrow via auto margin. (In vertical mode the column
+   stack keeps its natural top-to-bottom order with the counter above.)
+   The forward arrow needs order:2 so the bubble can sit between it and
+   the back arrow at the right corner. */
+@media (pointer: coarse) {
+  .stage-arrows:not(.stage-arrows--vertical) .stage-seq {
+    order: 1;
+    margin-right: 0;
+    margin-left: auto;
+  }
+  .stage-arrows:not(.stage-arrows--vertical) [data-nav-arrow]:last-child {
+    order: 2;
+  }
+}
 
 .controls-modal { position: fixed; z-index: 40; inset: 0; overflow: auto; display: grid; place-items: start center; padding: clamp(22px, 5vw, 72px); background: rgba(17, 20, 19, .73); backdrop-filter: blur(18px) saturate(.75); }
 .controls-modal[hidden] { display: none; }
@@ -229,7 +324,7 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
-.admin-page { min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
+.admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
 .admin-header { width: min(1040px, 100%); margin: 0 auto; }
 .admin-form { width: min(1180px, 100%); margin: 0 auto; }
 .admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 36px; padding-bottom: clamp(32px, 5vw, 56px); }
@@ -866,7 +961,8 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
 [aria-disabled="true"].editable-value, .admin-icon-action[aria-disabled="true"] { opacity: .6; }
 
 
-/* Editor theme toggle — sunglasses icon, same technique as robby. */
+/* Editor display controls — light/dark mode. */
+.admin-display-toggles { display: flex; align-items: center; gap: 8px; flex: none; }
 .admin-theme-toggle {
   display: grid;
   place-items: center;
@@ -978,16 +1074,45 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
 .viewer-frame .frame-video {
   grid-area: 1 / 1;
   display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  /* Identical box to the poster it replaces (.frame-ph is 100%/100% with
+     object-fit: contain). Sizing to the intrinsic video instead made the
+     clip visibly separate from its still on the first decoded frame. */
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   /* Crossfade in only once a frame has decoded — no black flash. */
   opacity: 0;
   transition: opacity .32s ease;
 }
 .video-slide.is-playing-frame .frame-video { opacity: 1; }
+
+/* ── Desktop video size caps ──────────────────────────────────────────
+   A video is held to 70% of stage height in the horizontal strip and 60%
+   of stage width in vertical scroll (desktop only — the cap is applied in
+   JS, which also decides what "desktop" means; these rules just place the
+   capped box). The frame keeps its full extent so the smaller media sits
+   centred in it rather than hugging an edge. */
+.viewer-frame--video-capped { place-items: center; overflow: visible; }
+.viewer-frame--video-capped .frame-ph,
+.viewer-frame--video-capped .video-slide,
+.viewer-frame--video-capped .frame-video {
+  /* The inline width/height from the parent wins; these keep the poster,
+     the slide and the <video> in one identical box. */
+  align-self: center;
+  justify-self: center;
+  object-fit: contain;
+}
+/* Vertical mode otherwise stretches video frames to the full stage
+   height; a capped clip must keep the height its aspect ratio earns. */
+.viewer-track--vertical .viewer-frame--video-capped,
+.viewer-track--vertical .viewer-frame--video-capped.viewer-frame--portrait {
+  height: auto;
+  overflow: visible;
+}
+.viewer-track--vertical .viewer-frame--video-capped .frame-ph,
+.viewer-track--vertical .viewer-frame--video-capped.viewer-frame--portrait img {
+  max-height: none;
+}
 .video-controls {
   position: absolute;
   z-index: 12;
@@ -1035,6 +1160,115 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
 }
 @media (prefers-reduced-motion: reduce) { .viewer-frame .frame-video { transition: none; } }
 
+/* G-key centered photograph selector. The strip is a modal choice surface,
+   not a second viewer: stage media sits behind the scrim and is blocked. */
+.filmstrip-scrim {
+  position: fixed;
+  z-index: 29;
+  inset: 0;
+  background: rgba(10, 10, 10, .62);
+  backdrop-filter: blur(6px);
+}
+.viewer-filmstrip {
+  position: fixed;
+  z-index: 30;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: clamp(110px, 20svh, 160px);
+  transform: translateY(-50%);
+  border-top: 1px solid rgba(244, 240, 232, .18);
+  border-bottom: 1px solid rgba(244, 240, 232, .18);
+  background: rgba(12, 14, 14, .68);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .25);
+  animation: viewer-filmstrip-in 280ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.viewer-filmstrip-frame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: pan-x;
+  user-select: none;
+}
+.viewer-filmstrip-frame:active { cursor: grabbing; }
+.viewer-filmstrip-track {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  gap: 0;
+  justify-content: center;
+}
+.viewer-filmstrip-item {
+  position: relative;
+  z-index: 0;
+  flex: 0 0 auto;
+  width: auto;
+  height: 100%;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  cursor: grab;
+}
+.viewer-filmstrip-item:active { cursor: grabbing; }
+.viewer-filmstrip-item::after {
+  position: absolute;
+  inset: 0;
+  border-right: 1px solid rgba(244, 240, 232, .25);
+  content: '';
+  pointer-events: none;
+}
+.viewer-filmstrip-item img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity .32s ease;
+}
+.viewer-filmstrip-item img.is-loaded { opacity: 1; }
+.viewer-filmstrip-item.is-active,
+.viewer-filmstrip-item:focus-visible { z-index: 1; box-shadow: inset 0 0 0 2px #fc0fc0; }
+.viewer-filmstrip.is-closing {
+  animation: viewer-filmstrip-out 180ms ease forwards;
+  transition: none;
+}
+.filmstrip-scrim.is-closing {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+@keyframes viewer-filmstrip-out {
+  from { opacity: 1; transform: translateY(-50%); }
+  to { opacity: 0; transform: translateY(calc(-50% - 8px)); }
+}
+.viewer-filmstrip-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  background: rgba(10, 10, 10, .74);
+  color: rgba(244, 240, 232, .92);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+@keyframes viewer-filmstrip-in {
+  from { opacity: 0; transform: translateY(calc(-50% + 10px)); }
+  to { opacity: 1; transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-arrows .stage-seq,
+  .viewer-filmstrip,
+  .viewer-filmstrip.is-closing,
+  .filmstrip-scrim.is-closing,
+  .viewer-filmstrip-item img { transition: none !important; animation: none !important; }
+}
+
 /* Admin rail: a video item keeps the photo thumbnail and gains a badge. */
 .admin-gallery-strip-item { position: relative; }
 .admin-strip-badge {
@@ -1064,3 +1298,127 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
 .quickadd-spinner { margin: 0; color: rgba(var(--ink), .42); font-size: 20px; animation: quickadd-pulse 1.4s ease-in-out infinite; }
 @keyframes quickadd-pulse { 0%, 100% { opacity: .28 } 50% { opacity: .9 } }
 @media (prefers-reduced-motion: reduce) { .quickadd-spinner { animation: none; } }
+
+/* ---------------------------------------------------------------------
+   Seeded doodle background
+   A deterministic scatter of photography glyphs derived from the URL.
+   The layer is absolute behind the gallery content and completely inert: it must
+   never eat a tap meant for a photograph or a control.
+   --------------------------------------------------------------------- */
+.doodle-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+  /* Contrast token, not a hardcoded colour: the glyphs stroke in
+     currentColor, so one variable tints the whole field. Deliberately
+     more present than the near-invisible first cut — legible at normal
+     viewing distance while photos stay unquestionably dominant. The
+     light theme (html.light, the app's real theme switch — it does NOT
+     use prefers-color-scheme) flips to dark ink at slightly lower
+     weight, as light-on-light tolerance is lower. */
+  color: var(--doodle-ink, rgba(255, 255, 255, 0.2));
+  /* The canvas is twice the viewport height for scroll headroom; the
+     SVG's own preserveAspectRatio="…slice" crops it to the box.
+     (object-fit does not apply to inline SVG, only to replaced
+     elements, so it would be a no-op here.) */
+  contain: strict;
+  /* Painting 200 glyphs once into a layer beats repainting them on
+     every scroll of the track above. */
+  will-change: opacity;
+}
+/* Fade the field in on first paint, but never for a visitor who
+   asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .doodle-bg { animation: doodle-fade-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
+@keyframes doodle-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .doodle-bg { animation: none; } }
+
+/* The doodle field is a decorative layer INSIDE the stage's isolated
+   stacking context at z-index 0; the gallery content sits above it at
+   z-index 1. The track and its frames are always transparent, so the
+   pattern shows through only the gaps between tiles and the exposed
+   canvas — never over photographs or UI. The stage itself paints the
+   canvas colour beneath the layer, so the field reads against a solid
+   ground in both pairings. */
+:is(.viewer-stage, .magnifier-world) .viewer-track,
+:is(.viewer-stage, .magnifier-world) .viewer-frame,
+:is(.viewer-stage, .magnifier-world) .viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { background: transparent; }
+
+/* Background pairing: Dark (default) is the near-black canvas with
+   light-ink doodles; Light flips the stage's ground to the app's
+   warm paper tone and inks the field dark. The overlay chrome
+   (arrows, logo pill, curtain) keeps its own dark surfaces and stays
+   readable over both. The html.light override below is the admin
+   app's theme switch — the viewer manages its ink independently. */
+html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
+:is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
+/* Light and Dark give every image a 10px margin ('none' abuts). The
+   frame carries the margin, the staged image inside it is already
+   shrunk to fit: strip frames get top/bottom/right so neighbours keep a
+   10px gutter; vertical rows sit on a 10px-railed track with a 10px
+   foot. Fallback frames (unhealed aspect-ratio, uncapped video) shrink
+   to the margin box so the bands show even before dims land. */
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-frame,
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) .viewer-endcap {
+  margin: 10px 10px 10px 0;
+  height: calc(100% - 20px);
+}
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical { padding: 0 10px; }
+:is(.viewer-stage, .magnifier-world):is(.bg-light, .bg-dark) .viewer-track--vertical .viewer-frame { margin-bottom: 10px; }
+
+/* The strip's terminal card: a borderless faux frame that the last
+   photograph pushes aside to reveal. Typeset in the wordmark's own
+   face (the .brand-tld pairing) so "The End." reads as a signature. */
+.viewer-endcap {
+  flex: 0 0 auto;
+  width: auto;
+  height: 100%;
+  padding: 0 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--ink));
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(39px, 4.8vw, 51px);
+  font-weight: 800;
+  letter-spacing: .01em;
+  line-height: 1.15;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* The card's quiet exit — a small underlined link beneath the display
+   type, styled like the viewer's other tertiary chrome. */
+.endcap-reset {
+  margin-top: 18px;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  color: rgba(var(--ink), .5);
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(11px, 1.5svh, 14px);
+  font-weight: 500;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+.endcap-reset:hover { color: rgba(var(--ink), .9); }
+.endcap-reset:focus-visible { color: rgba(var(--ink), .9); outline: 1px solid rgba(var(--ink), .5); outline-offset: 3px; }
+/* The photo grid and content sit above the decorative doodle layer. */
+.viewer-track { position: relative; z-index: 1; }
+/* Vertical scroll mode: the stage itself is the scroll container, and an
+   absolutely-positioned child scrolls away with the content (the canvas
+   headroom is 2x the viewport — the track can be twenty times taller).
+   A sticky layer stays pinned in the scrollport at every depth while
+   remaining inside the stage's isolated stacking context, beneath the
+   photographs. */
+:is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg { position: sticky; top: 0; }

@@ -247,6 +247,21 @@ const withDeadline = <T>(work: Promise<T>): Promise<T> => {
 export const scanSource = (input: string, env: SourceEnv, fetchImpl: typeof fetch = fetch): Promise<SourceScan> =>
   withDeadline(scanSourceUnbounded(input, env, timedFetch(fetchImpl)))
 
+/**
+ * Provider listings arrive in whatever order the host serves them —
+ * Dropbox folder order, Drive's internal order, MEGA's node order.
+ * A gallery's canonical order is ascending filename (numeric-aware, so
+ * IMG_2 precedes IMG_10), inherited by create, the scan preview, and the
+ * refresh merge's appended tail. Owners change it afterwards only by
+ * hand, through the admin reorder.
+ *
+ * iCloud is the exception: shared albums carry no filenames at all (the
+ * scanner synthesizes `Photo N`/captions), so the album's own curated
+ * order is the canonical one there — sorting it would scramble it.
+ */
+const byFilename = (a: GalleryMediaItem, b: GalleryMediaItem) =>
+  a.filename.localeCompare(b.filename, undefined, { numeric: true })
+
 const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typeof fetch): Promise<SourceScan> => {
   const provider = detectSource(input)
   if (!provider) {
@@ -256,16 +271,20 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
     if (isICloudDriveLink(input)) throw new Error('iCloud Drive links cannot be read — share a Shared Album from Photos instead (icloud.com/sharedalbum or share.icloud.com/photos)')
     throw new Error(UNRECOGNIZED_LINK_MESSAGE)
   }
-  switch (provider) {
-    case 'dropbox':
-      return { provider, ...(await scanDropboxFolder(input, env, fetchImpl)) }
-    case 'gdrive':
-      return { provider, ...(await scanDriveFolder(input, env, fetchImpl)) }
-    case 'icloud':
-      return { provider, ...(await scanICloudAlbum(input, fetchImpl)) }
-    case 'mega':
-      return { provider, ...(await scanMegaSource(input, fetchImpl)) }
-    case 'local':
-      return { provider, ...(await scanLocalFolder(input)) }
-  }
+  const scan = await (async (): Promise<Omit<SourceScan, 'provider'>> => {
+    switch (provider) {
+      case 'dropbox':
+        return scanDropboxFolder(input, env, fetchImpl)
+      case 'gdrive':
+        return scanDriveFolder(input, env, fetchImpl)
+      case 'icloud':
+        return scanICloudAlbum(input, fetchImpl)
+      case 'mega':
+        return scanMegaSource(input, fetchImpl)
+      case 'local':
+        return scanLocalFolder(input)
+    }
+  })()
+  if (provider !== 'icloud') scan.images.sort(byFilename)
+  return { provider, ...scan }
 }

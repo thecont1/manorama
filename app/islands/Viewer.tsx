@@ -2,11 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
-import { effectiveImageDpr, imageStageSize } from '../lib/image-staging'
+import { effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
+import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
+import SeededDoodleBackground from './SeededDoodleBackground'
+import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 
 type Mode = 'strip' | 'vertical' | 'single'
-type SeamMode = 'light' | 'dark' | 'none'
 type DragSample = { x: number; time: number }
 type Props = {
   slug: string
@@ -55,6 +57,12 @@ const coarsePointer = () =>
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(pointer: coarse)').matches
 
+/** The video size caps are a desktop rule: a phone keeps the full-bleed
+ *  clip. "Desktop" here means a real pointer on a screen wide enough for
+ *  the restraint to read as composition rather than a bug — the same
+ *  720px line the stylesheet already treats as the mobile breakpoint. */
+const DESKTOP_VIDEO_QUERY = '(min-width: 721px) and (pointer: fine)'
+
 /** Keystrokes belong to the viewer unless focus sits in a text-entry
  *  field. Non-text inputs (radio, checkbox, range, …) never receive
  *  typed characters, so letting shortcuts through keeps I/M/Esc alive
@@ -78,16 +86,17 @@ const STRIP_WINDOW = 3
  *  bounded so decoded HEIC blobs still get revoked once out of play. */
 const STRIP_RETAIN = 6
 
-/** Anonymous per-gallery viewing preferences: mode + background choice are
+/** Anonymous per-gallery viewing preferences: the view mode is
  *  remembered in localStorage keyed by gallery slug, so a link recipient
- *  keeps their own preference without an account. */
-type ViewPrefs = { mode?: Mode; seamMode?: SeamMode }
+ *  keeps their own preference without an account. The doodle background
+ *  is deliberately NOT here — it is app-wide chrome, stored globally in
+ *  lib/background-preference.ts alongside the theme. */
+type ViewPrefs = { mode?: Mode }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
       mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
-      seamMode: stored.seamMode && ['light', 'dark', 'none'].includes(stored.seamMode) ? stored.seamMode : undefined,
     }
   } catch {
     return {}
@@ -105,12 +114,21 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [gridOpen, setGridOpen] = useState(false)
+  const [gridSel, setGridSel] = useState(index)
+  const [gridClosing, setGridClosing] = useState(false)
+  const gridOpenRef = useRef(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   // Vertical scroll keeps arrows off by default regardless of the
   // gallery-wide setting — the feed scrolls natively, so they're only
   // ever an opt-in.
   const [showArrowsVertical, setShowArrowsVertical] = useState(false)
-  const [seamMode, setSeamMode] = useState<SeamMode>(viewPrefs.seamMode ?? 'none')
+  // Background: an app-wide preference. 'none' (the default) keeps
+  // photographs abutting on the bare dark canvas; light and dark wake
+  // the doodle field and give every image a 10px margin. Read as 'none'
+  // for SSR, then reconciled on mount so server and client markup agree
+  // during hydration.
+  const [background, setBackground] = useState<BackgroundPreference>('none')
   const [showCaptions, setShowCaptions] = useState(initialSettings.defaultShowCaptions)
   const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
   const [fullscreenActive, setFullscreenActive] = useState(false)
@@ -119,7 +137,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
   // One-at-a-time sweep: the outgoing frame stays mounted and fully
   // opaque while the incoming frame wipes over it behind an opaque
-  // canvas card — no transparency ever lands on the striped field.
+  // canvas card — no transparency ever lands on the background field.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
   const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
   const sweepTimerRef = useRef<number | null>(null)
@@ -134,6 +152,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const watchdogSeenRef = useRef(new WeakMap<HTMLImageElement, number>())
   const watchdogAttemptsRef = useRef<Record<string, number>>({})
   const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: effectiveImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio) })
+  // Under a visible background (Light/Dark) every image carries a 10px
+  // margin: strip frames stage against a stage 20px shorter so height-fit
+  // images get 10px bands top and bottom, vertical rows against a stage
+  // 20px narrower for 10px rails left and right. The trailing gutter —
+  // right in strip, bottom in vertical — is frame margin in CSS. 'none'
+  // stages against the raw stage, so photographs abut edge to edge.
+  const imageMarginPx = background !== 'none' ? 10 : 0
+  const stagingWidth = Math.max(0, stageSize.width - (mode === 'vertical' ? imageMarginPx * 2 : 0))
+  const stagingHeight = Math.max(0, stageSize.height - (mode === 'strip' ? imageMarginPx * 2 : 0))
   // Viewer-level sound: once a visitor unmutes, every subsequently
   // activated video starts audible. Deliberately NOT persisted — it
   // resets when the viewer unmounts, so a fresh visit is always quiet.
@@ -141,6 +168,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [magnifierActive, setMagnifierActive] = useState(false)
   const [magnifierAvailable, setMagnifierAvailable] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
+  // Desktop gates the video size caps. False during SSR and the hydration
+  // render so server and client markup agree; the mount effect reconciles.
+  const [isDesktop, setIsDesktop] = useState(false)
+  // Network quality, for the "stay a still image on a poor connection"
+  // rule. Starts undefined so SSR and the hydration render agree (the
+  // server has no navigator); the mount effect reconciles it.
+  const [connection, setConnection] = useState<ConnectionLike | undefined>(undefined)
   // Playback is gated by the opening curtain. Without React state here,
   // adding a body class does not rerender the active VideoSlide, so a
   // video-first gallery would remain mounted and autoplay behind the
@@ -155,7 +189,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
   const infoModalRef = useRef<HTMLDivElement | null>(null)
+  const gridModalRef = useRef<HTMLDivElement | null>(null)
+  const filmstripFrameRef = useRef<HTMLDivElement | null>(null)
+  const filmstripPanRef = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null)
+  const scrollLeftAtDownRef = useRef(0)
+  const gridSuppressClickRef = useRef(false)
+  const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
+  const seqRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   // "A modal is open" for always-on window key handlers: hono/jsx applies
@@ -163,10 +204,37 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // closures and render-synced values lag a setState call. The open/close
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
-  anyModalOpenRef.current = modalOpen || infoOpen
+  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
   const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
   const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
-  const closeModals = () => { anyModalOpenRef.current = false; setModalOpen(false); setInfoOpen(false) }
+  const openGrid = () => {
+    if (gridCloseTimerRef.current) {
+      clearTimeout(gridCloseTimerRef.current)
+      gridCloseTimerRef.current = null
+    }
+    anyModalOpenRef.current = true
+    gridOpenRef.current = true
+    setGridSel(indexRef.current)
+    setGridClosing(false)
+    setGridOpen(true)
+  }
+  const closeModals = () => {
+    anyModalOpenRef.current = false
+    gridOpenRef.current = false
+    setModalOpen(false)
+    setInfoOpen(false)
+    setGridOpen(false)
+    setGridClosing(false)
+  }
+  const requestCloseModals = () => {
+    if (!gridOpenRef.current) { closeModals(); return }
+    if (gridCloseTimerRef.current) return
+    setGridClosing(true)
+    gridCloseTimerRef.current = setTimeout(() => {
+      gridCloseTimerRef.current = null
+      closeModals()
+    }, 180)
+  }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
   const dragSamplesRef = useRef<DragSample[]>([])
@@ -192,6 +260,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const viewportFrameRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
   const boundsDirtyRef = useRef(true)
+  // The "The End." card is mounted in the track but excluded from the
+  // pan range until the visitor pushes past the last photograph — then
+  // it joins the bounds and stays reachable for the session.
+  const endcapRevealedRef = useRef(false)
+  // Mirrored into state purely so the card's "Back to Start" link can
+  // join the tab order only while it is on screen — bounds math keeps
+  // reading the ref synchronously.
+  const [endcapRevealed, setEndcapRevealed] = useState(false)
 
   const currentImage = images[index] ?? images[0]
   // The info panel speaks about whichever medium is on screen, and EXIF
@@ -202,13 +278,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
+
+  // Background preference is global chrome: adopt the stored value after
+  // mount (SSR cannot read localStorage), then stay in sync with other
+  // tabs and with any other island that changes it.
+  useEffect(() => {
+    setBackground(loadBackgroundPreference())
+    const syncFromStorage = () => setBackground(loadBackgroundPreference())
+    const syncFromEvent = (event: Event) => setBackground(backgroundPreferenceFromEvent(event as CustomEvent<unknown>))
+    window.addEventListener('storage', syncFromStorage)
+    window.addEventListener(BACKGROUND_EVENT, syncFromEvent)
+    return () => {
+      window.removeEventListener('storage', syncFromStorage)
+      window.removeEventListener(BACKGROUND_EVENT, syncFromEvent)
+    }
+  }, [])
   useEffect(() => {
     try {
-      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode, seamMode }))
+      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode }))
     } catch {
       // Storage can be unavailable (private mode) — preferences are best-effort.
     }
-  }, [slug, mode, seamMode])
+  }, [slug, mode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
@@ -263,7 +354,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (!boundsDirtyRef.current) return boundsRef.current
     const viewport = stageRef.current?.clientWidth ?? window.innerWidth
     const content = trackRef.current?.scrollWidth ?? 0
-    boundsRef.current = { min: 0, max: Math.max(0, content - viewport) }
+    let max = Math.max(0, content - viewport)
+    // The "The End." card stays out of the pan range until the visitor
+    // pushes past the last photograph — subtract its footprint (width
+    // plus its trailing margin) while it is unrevealed.
+    if (!endcapRevealedRef.current) {
+      const cap = trackRef.current?.querySelector<HTMLElement>('.viewer-endcap')
+      if (cap) max = Math.max(0, max - cap.offsetWidth - imageMarginPx)
+    }
+    boundsRef.current = { min: 0, max }
     boundsDirtyRef.current = false
     return boundsRef.current
   }
@@ -283,6 +382,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return nearest
   }
 
+  // The endcard joins the pan range the first time a gesture pushes past
+  // the last photograph, and is disarmed by its own "Back to Start" link
+  // so a return visit earns the reveal again.
+  const revealEndcap = () => {
+    if (endcapRevealedRef.current) return
+    endcapRevealedRef.current = true
+    setEndcapRevealed(true)
+    boundsDirtyRef.current = true
+  }
+
+  const backToStart = () => {
+    endcapRevealedRef.current = false
+    setEndcapRevealed(false)
+    boundsDirtyRef.current = true
+    goTo(0)
+  }
+
   const reportStripPosition = () => {
     if (positionFrameRef.current !== null) return
     positionFrameRef.current = requestAnimationFrame(() => {
@@ -290,7 +406,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const stage = stageRef.current
       const track = trackRef.current
       if (!stage || !track) return
-      const nearest = leftmostFrameIndex(-currentXRef.current)
+      // Docked at the strip's end the last photograph owns the position:
+      // a frame narrower than the viewport never reaches the left edge,
+      // so leftmost-frame reporting would stall the counter one short.
+      const x = -currentXRef.current
+      const nearest = x >= getBounds().max - 1 ? images.length - 1 : leftmostFrameIndex(x)
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
@@ -309,7 +429,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const renderX = (next: number, shouldReport = true) => {
-    const bounds = getBounds()
+    let bounds = getBounds()
+    // Pushing past the last photograph — drag, flick, or wheel — wakes
+    // the endcard: its footprint rejoins the bounds and the gesture
+    // carries straight into the reveal.
+    if (mode === 'strip' && !endcapRevealedRef.current && next < -bounds.max - 1) {
+      revealEndcap()
+      bounds = getBounds()
+    }
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
@@ -364,8 +491,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const eased = glideEase(progress)
       // Chase navDestX live: a mid-flight retarget (queued taps, or a
       // healed frame shifting the destination's offset) is absorbed into
-      // the remaining travel instead of cancelling the navigation.
-      const liveDest = navDestXRef.current ?? destination
+      // the remaining travel instead of cancelling the navigation. The
+      // chase is re-clamped every tick — a programmatic destination past
+      // the bound (e.g. End docking a photo narrower than the stage)
+      // must never read as the visitor pushing into the endcard.
+      const liveDest = clamp(navDestXRef.current ?? destination, -getBounds().max, 0)
       const next = from + (liveDest - from) * eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
@@ -447,14 +577,23 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (mode !== 'strip') { step(direction); return }
-    // Wrap: right arrow at the last image returns to the first, left
-    // arrow at the first image jumps to the last.
+    // The strip is bounded: forward at the end rests on the "The End."
+    // card rather than wrapping; left arrow at the first image still
+    // jumps to the last.
     const bounds = getBounds()
     // Rapid taps accumulate: anchor each advance at the pending in-flight
     // destination (or the real position when idle), so the tap count
     // becomes the photo count travelled.
     const base = -(navDestXRef.current ?? currentXRef.current)
-    if (direction === 1 && base >= bounds.max - 1) { goTo(0); return }
+    if (direction === 1 && base >= bounds.max - 1) {
+      // At the last photograph a forward step reveals the endcard — the
+      // strip glides it in flush right rather than wrapping to the start.
+      if (endcapRevealedRef.current) return
+      revealEndcap()
+      navDestXRef.current = -getBounds().max
+      settleTo(navDestXRef.current, false, true)
+      return
+    }
     if (direction === -1 && base <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
     let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${leftmostFrameIndex(base) + 1}"]`) ?? null
@@ -621,7 +760,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (modeRef.current !== 'strip') return
     const frame = requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true, true))
     return () => cancelAnimationFrame(frame)
-  }, [stageSize, seamMode])
+  }, [stageSize])
 
   useEffect(() => () => {
     cancelPositionReport()
@@ -631,7 +770,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
         event.preventDefault()
-        closeModals()
+        requestCloseModals()
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
@@ -649,6 +788,124 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // gate reads anyModalOpenRef (written at event time) instead.
   }, [index, mode, images.length])
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented) return
+      if (isTypingTarget(event.target as HTMLElement | null)) return
+      const actions = gridActionsRef.current
+      if (gridOpenRef.current) {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') { event.preventDefault(); actions.stepGridSel(event.key); return }
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); actions.commitGridSel(); return }
+      }
+      if (event.key === 'Escape' && gridOpenRef.current) { event.preventDefault(); actions.requestCloseModals(); return }
+      if (event.key !== 'g' && event.key !== 'G') return
+      if (!document.body.classList.contains('gallery-entered')) return
+      event.preventDefault()
+      if (gridOpenRef.current) actions.requestCloseModals()
+      else if (!anyModalOpenRef.current) actions.openGrid()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    if (!gridOpen) return
+    setGridSel(indexRef.current)
+    const openedFrom = document.activeElement as HTMLElement
+    previousFocusRef.current = openedFrom
+    const frame = requestAnimationFrame(() => {
+      const container = filmstripFrameRef.current
+      const active = gridModalRef.current?.querySelector<HTMLElement>('[data-grid-active]')
+      if (container && active) container.scrollLeft = active.offsetLeft + active.offsetWidth / 2 - container.clientWidth / 2
+      active?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [gridOpen])
+
+  useEffect(() => {
+    if (gridOpen || modalOpen || infoOpen) return
+    if (previousFocusRef.current) {
+      previousFocusRef.current.focus({ preventScroll: true })
+      previousFocusRef.current = null
+    }
+  }, [gridOpen, modalOpen, infoOpen])
+
+  useEffect(() => {
+    if (!gridOpen) return
+    magnifierRef.current?.deactivate()
+    setMagnifierActive(false)
+  }, [gridOpen])
+
+  const startFilmstripPan = (event: PointerEvent) => {
+    const frame = filmstripFrameRef.current
+    if (!frame) return
+    filmstripPanRef.current = { pointerId: event.pointerId, x: event.clientX, scrollLeft: frame.scrollLeft }
+    scrollLeftAtDownRef.current = frame.scrollLeft
+    gridSuppressClickRef.current = false
+  }
+  const moveFilmstripPan = (event: PointerEvent) => {
+    const pan = filmstripPanRef.current
+    const frame = filmstripFrameRef.current
+    if (!pan || !frame || pan.pointerId !== event.pointerId) return
+    frame.scrollLeft = pan.scrollLeft - (event.clientX - pan.x)
+    if (Math.abs(frame.scrollLeft - scrollLeftAtDownRef.current) > 6) {
+      gridSuppressClickRef.current = true
+      if (!frame.hasPointerCapture(event.pointerId)) frame.setPointerCapture(event.pointerId)
+    }
+  }
+  const endFilmstripPan = (event: PointerEvent) => {
+    const frame = filmstripFrameRef.current
+    if (!filmstripPanRef.current || filmstripPanRef.current.pointerId !== event.pointerId) return
+    if (frame?.hasPointerCapture(event.pointerId)) frame.releasePointerCapture(event.pointerId)
+    filmstripPanRef.current = null
+  }
+  const wheelFilmstrip = (event: WheelEvent) => {
+    const frame = filmstripFrameRef.current
+    if (!frame) return
+    event.preventDefault()
+    const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+    const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? frame.clientWidth : 1
+    frame.scrollLeft += delta * factor
+  }
+  const selectFilmstripImage = (imageIndex: number) => {
+    if (gridSuppressClickRef.current) { gridSuppressClickRef.current = false; return }
+    if (gridCloseTimerRef.current) return
+    setGridSel(imageIndex)
+    setGridClosing(true)
+    gridCloseTimerRef.current = setTimeout(() => {
+      gridCloseTimerRef.current = null
+      // Return focus to the selector trigger rather than wherever the
+      // gallery happened to focus last (e.g. the next-arrow auto-focused
+      // by the curtain dismiss), so a stray Enter after commit re-opens
+      // the selector instead of stepping the strip.
+      previousFocusRef.current = seqRef.current
+      closeModals()
+      goTo(imageIndex)
+    }, 180)
+  }
+  // Selection follows the pink box (data-grid-active), never DOM focus —
+  // arrows work whether or not a thumbnail has had time to take focus.
+  const gridItems = () => [...(gridModalRef.current?.querySelectorAll<HTMLButtonElement>('[data-grid-item]') ?? [])]
+  const stepGridSel = (key: string) => {
+    const items = gridItems()
+    if (!items.length) return
+    const current = Math.max(0, items.findIndex((el) => el.hasAttribute('data-grid-active')))
+    const next = key === 'Home' ? 0 : key === 'End' ? items.length - 1 : (current + (key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
+    setGridSel(next)
+    items[next]?.focus()
+    items[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+  const commitGridSel = () => {
+    const sel = gridItems().findIndex((el) => el.hasAttribute('data-grid-active'))
+    if (sel >= 0) selectFilmstripImage(sel)
+  }
+  // The window key handler subscribes once and reaches these through a ref —
+  // deps like [gridOpen] would unplug it for a few frames on every open/close
+  // (hono/jsx re-arms passive effects asynchronously) and swallow a fast G.
+  const gridActionsRef = useRef({ openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel })
+  gridActionsRef.current = { openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel }
+
   // Magnifier availability is a media-query question, answered on the
   // client only: the server cannot know the pointer type, so the shortcut
   // row and the key binding appear after mount.
@@ -660,6 +917,41 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     sync()
     query.addEventListener?.('change', sync)
     return () => query.removeEventListener?.('change', sync)
+  }, [])
+
+  // Desktop/mobile, tracked live: resizing across the breakpoint (or
+  // dragging the window to another display) must re-apply or release the
+  // video size caps rather than leave a stale first-paint decision.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia(DESKTOP_VIDEO_QUERY)
+    const sync = () => setIsDesktop(query.matches)
+    sync()
+    query.addEventListener?.('change', sync)
+    return () => query.removeEventListener?.('change', sync)
+  }, [])
+
+  // Network quality, tracked live: a visitor who walks out of wifi onto a
+  // weak cell link should see the clips fall back to their stills rather
+  // than stall. The API is absent in Safari and Firefox, where the read
+  // is simply undefined and video behaves normally.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return
+    const source = connectionOf(navigator) as (ConnectionLike & {
+      addEventListener?: (type: string, listener: () => void) => void
+      removeEventListener?: (type: string, listener: () => void) => void
+    }) | undefined
+    if (!source) return
+    // Copy the live object's fields: it mutates in place, so storing the
+    // reference itself would never register as a state change.
+    const sync = () => setConnection({
+      saveData: source.saveData,
+      effectiveType: source.effectiveType,
+      downlink: source.downlink,
+    })
+    sync()
+    source.addEventListener?.('change', sync)
+    return () => source.removeEventListener?.('change', sync)
   }, [])
 
   useEffect(() => {
@@ -675,12 +967,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // Opening either modal dismisses the lens: a loupe floating over a
   // dialog is both confusing and unreachable.
   useEffect(() => {
-    if (!modalOpen && !infoOpen) return
+    if (!modalOpen && !infoOpen && !gridOpen) return
     magnifierRef.current?.deactivate()
     setMagnifierActive(false)
-  }, [modalOpen, infoOpen])
+  }, [modalOpen, infoOpen, gridOpen])
 
   useEffect(() => () => {
+    if (gridCloseTimerRef.current) clearTimeout(gridCloseTimerRef.current)
     magnifierRef.current?.destroy()
     magnifierRef.current = null
   }, [])
@@ -789,13 +1082,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const stage = stageRef.current
     const logo = dotRef.current
+    const seq = seqRef.current
     if (!stage) return
-    // A press landing on the brand pill is a drag candidate: the pill
-    // floats over the stage, so it captures the pointer onto the stage
-    // and pans with the strip. A release that never travelled still
-    // counts as the pill's click (pointer capture suppresses the
-    // button's own click event, so the press is replayed here).
+    // A press landing on the brand pill or sequence counter is a drag
+    // candidate: the pill floats over the stage, and the counter lives
+    // inside the stage's control cluster. Both capture the pointer onto
+    // the stage and pan with the strip. A release that never travelled
+    // still counts as the button's own click (pointer capture suppresses
+    // the native click event, so each press is replayed here).
     let logoPress: { x: number; y: number } | null = null
+    let seqPress: { x: number; y: number } | null = null
     const beginDrag = (event: PointerEvent) => {
       stopMomentum()
       draggingRef.current = true
@@ -812,6 +1108,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onLogoDown = (event: PointerEvent) => {
       if (mode !== 'strip') return
       logoPress = { x: event.clientX, y: event.clientY }
+      beginDrag(event)
+    }
+    const onSeqDown = (event: PointerEvent) => {
+      if (mode !== 'strip') return
+      seqPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onPointerMove = (event: PointerEvent) => {
@@ -837,6 +1138,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
         logoPress = null
         if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
+        return
+      }
+      if (seqPress) {
+        const travelled = Math.hypot(event.clientX - seqPress.x, event.clientY - seqPress.y)
+        seqPress = null
+        if (event.type === 'pointerup' && travelled < 6) openGrid()
         return
       }
       if (event.type === 'pointercancel' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -866,12 +1173,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
     logo?.addEventListener('pointerdown', onLogoDown)
+    seq?.addEventListener('pointerdown', onSeqDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
       logo?.removeEventListener('pointerdown', onLogoDown)
+      seq?.removeEventListener('pointerdown', onSeqDown)
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
@@ -968,7 +1277,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // first frames after opening, before a passive effect could attach a
   // document listener).
   const onModalKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') { event.preventDefault(); closeModals(); return }
+    if (event.key === 'Escape') { event.preventDefault(); requestCloseModals(); return }
     if (event.key !== 'Tab') return
     const modal = event.currentTarget as HTMLElement
     const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
@@ -1135,14 +1444,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [index, mode, images.length])
 
   /**
-   * The ONE frame that may own a media element. `isFrameActive` is a
-   * window (plus retention, in strip mode) — correct for images, wrong
-   * for video: it would mount a <video> per retained frame, each
-   * fetching metadata. A video mounts only on the current slide; every
-   * other frame, adjacent or not, is its poster image alone.
+   * Which frames may own a media element. `isFrameActive` is a window
+   * (plus retention, in strip mode) — too wide for video, which would
+   * mount a `<video>` per retained frame. A video mounts on the current
+   * slide and its immediate neighbours, so stepping onto one finds a clip
+   * that is ALREADY running rather than one that starts on arrival. On a
+   * poor connection nothing mounts and the poster is the whole frame.
    */
   const isVideoSlideActive = (imageIndex: number) =>
-    galleryEntered && !modalOpen && !infoOpen && imageIndex === index && isFrameActive(imageIndex)
+    videoMountsFor({
+      imageIndex,
+      index,
+      frameActive: isFrameActive(imageIndex),
+      galleryEntered,
+      blocked: modalOpen || infoOpen || gridOpen,
+      connection,
+    })
 
   const isFrameActive = (imageIndex: number) => {
     if (mode === 'vertical') {
@@ -1252,18 +1569,24 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
-  const seamInset = seamMode === 'none' ? 0 : mode === 'strip' ? 20 : mode === 'vertical' ? 10 : 0
-  const seamTop = seamMode === 'none' || mode === 'single' ? 0 : 10
 
   return (
     <>
+      {/* Behind everything, inert: a deterministic field keyed to this
+          gallery's URL. Sits outside the stage so it stays put while the
+          track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} seam-${seamMode}`}
+        class={`viewer-stage mode-${mode} bg-${background}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
       >
+        {/* A single decorative layer beneath the gallery content. Inside
+            the stage's isolated stacking context at z-index 0, it shows
+            through only the transparent gaps between tiles and the
+            exposed canvas — never over photographs or UI. */}
+        <SeededDoodleBackground enabled={background !== 'none'} />
         <div
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
@@ -1285,46 +1608,94 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               mode,
               naturalWidthPx: frameW,
               naturalHeightPx: frameH,
-              stageWidthCssPx: stageSize.width - (mode === 'strip' ? 0 : seamInset),
-              stageHeightCssPx: stageSize.height - (mode === 'vertical' ? 0 : seamInset),
+              stageWidthCssPx: stagingWidth,
+              stageHeightCssPx: stagingHeight,
               dpr: stageSize.dpr,
             })
+            // Desktop restrains video: 70% of stage height in the strip,
+            // 60% of stage width in vertical scroll. `capped: false` means
+            // the rule does not apply (mobile, single mode, unmeasured
+            // stage) and the frame keeps its previous full-bleed sizing.
+            const stagedVideo = video ? videoStageSize({
+              mode,
+              naturalWidthPx: frameW,
+              naturalHeightPx: frameH,
+              stageWidthCssPx: stagingWidth,
+              stageHeightCssPx: stagingHeight,
+              isDesktop,
+            }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
+            // A capped video gets an explicit box. Strip frames are laid
+            // out edge-to-edge, so the frame keeps full stage height and
+            // only the media inside it shrinks — that is what centres the
+            // clip vertically instead of leaving it top-aligned above a
+            // gap. Vertical frames are full-width rows, so the row height
+            // follows the capped media height.
+            const cappedVideo = stagedVideo?.capped && stagedVideo.width > 0 && stagedVideo.height > 0 ? stagedVideo : null
+            const frameStyle = mode === 'strip'
+              ? cappedVideo
+                ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
+                : staged && staged.width > 0 && staged.height > 0
+                  ? { width: `${staged.width}px`, height: `${staged.height}px` }
+                  : { aspectRatio: `${frameW} / ${frameH}` }
+              : mode === 'vertical'
+                ? video
+                  ? cappedVideo
+                    ? { width: '100%', height: `${cappedVideo.height}px` }
+                    : undefined
+                  : staged && staged.height > 0
+                    ? { width: '100%', height: `${staged.height}px` }
+                    : { width: '100%', aspectRatio: `${frameW} / ${frameH}` }
+                : undefined
+            // The media box inside a capped frame.
+            const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             return (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
                 aria-current={imageIndex === index ? 'true' : undefined}
                 aria-hidden={mode === 'single' && imageIndex !== index ? 'true' : undefined}
-                style={mode === 'strip' ? staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width + seamTop}px`, height: `${staged.height + seamInset}px` } : { aspectRatio: `${frameW} / ${frameH}` } : mode === 'vertical' && !video ? staged && staged.height > 0 ? { width: '100%', height: `${staged.height + seamTop}px` } : { width: '100%', aspectRatio: `${frameW} / ${frameH}` } : undefined}
+                style={frameStyle}
               >
                 {video ? (
                   <>
-                    {/* The poster is the whole frame until the video is the
-                        active slide: adjacent frames cost one image, and
-                        non-adjacent frames mount no media element at all. */}
+                    {/* The poster holds the frame's aspect-ratio canvas and
+                        stays the accessible still for every frame whose
+                        video is not mounted — including neighbours that
+                        ARE mounted but silently looping behind the active
+                        clip. An active slide whose video is unmounted
+                        (reduced motion, slow connection, blocked by a
+                        modal) keeps its poster exposed with video.alt so
+                        the slide is never left without a name. */}
+                    {(() => {
+                    const videoMounted = isVideoSlideActive(imageIndex)
+                    return <>
                     <img
                       class="frame-ph"
                       src={video.poster.src}
-                      alt={isVideoSlideActive(imageIndex) ? '' : video.alt}
-                      aria-hidden={isVideoSlideActive(imageIndex) ? 'true' : undefined}
+                      alt={videoMounted && imageIndex === index ? '' : video.alt}
+                      aria-hidden={videoMounted && imageIndex === index ? 'true' : undefined}
                       width={frameW}
                       height={frameH}
                       decoding="async"
                       loading={isActive ? 'eager' : 'lazy'}
+                      style={cappedMediaStyle}
                     />
-                    {isVideoSlideActive(imageIndex) ? (
+                    {videoMounted ? (
                       <VideoSlide
                         item={video}
-                        isActive
+                        isActive={imageIndex === index}
                         soundOn={soundOn}
                         prefersReducedMotion={reducedMotion}
                         onToggleSound={setSoundOn}
+                        boxStyle={cappedMediaStyle}
                       />
                     ) : null}
+                    </>
+                    })()}
                   </>
                 ) : (
                 <>
@@ -1382,13 +1753,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               mode: 'strip',
                               naturalWidthPx: img.naturalWidth,
                               naturalHeightPx: img.naturalHeight,
-                              stageWidthCssPx: stageSize.width,
-                              stageHeightCssPx: stageSize.height - seamInset,
+                              stageWidthCssPx: stagingWidth,
+                              stageHeightCssPx: stagingHeight,
                               dpr: stageSize.dpr,
                             })
                             if (restaged.width > 0) {
-                              frame.style.width = `${restaged.width + seamTop}px`
-                              frame.style.height = `${restaged.height + seamInset}px`
+                              frame.style.width = `${restaged.width}px`
+                              frame.style.height = `${restaged.height}px`
                             }
                             // A corrected frame changes track geometry —
                             // drop the cached bounds, then once layout
@@ -1429,18 +1800,82 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               </figure>
             )
           })}
+          {/* The end of the strip: a borderless, full-height faux frame
+              that slides in behind the last photograph, so reaching the
+              end reads as an ending instead of a jarring wrap to the
+              start. `inert` until revealed — it sits past the pan bound
+              before then, so its link must not take focus or announce. */}
+          {mode === 'strip' ? (
+            <div class="viewer-endcap" inert={!endcapRevealed}>
+              <span>The</span>
+              <span>End.</span>
+              <button class="endcap-reset" onClick={backToStart}>Back to Start</button>
+            </div>
+          ) : null}
         </div>
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
-            page's own controls. */}
-        {arrowsVisible ? (
-          <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
-            <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
-          </div>
-        ) : null}
+            page's own controls. The container always renders so the
+            sequence bubble keeps its dock when arrows are opted out. */}
+        <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
+          <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open selector`} onClick={openGrid}>
+            <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
+            <span class="stage-seq-detail" aria-hidden="true">
+              <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
+              <span class="stage-seq-hint">open global</span>
+            </span>
+          </button>
+          {arrowsVisible ? (
+            <>
+              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
+              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
+
+      {gridOpen ? <>
+        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+            event.preventDefault()
+            stepGridSel(event.key)
+            return
+          }
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            commitGridSel()
+            return
+          }
+          onModalKeyDown(event)
+        }}>
+          <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
+            <div class="viewer-filmstrip-track">
+              {images.map((image, imageIndex) => {
+                const video = isVideoItem(image)
+                const thumb = image.variants?.[0]?.src ?? image.placeholder
+                return <button
+                  type="button"
+                  class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
+                  data-grid-item
+                  data-grid-active={imageIndex === gridSel ? 'true' : undefined}
+                  aria-current={imageIndex === gridSel ? 'true' : undefined}
+                  aria-label={`${video ? 'Video' : 'Photograph'} ${imageIndex + 1} of ${images.length}`}
+                  onPointerMove={() => {
+                    if (filmstripPanRef.current || imageIndex === gridSel) return
+                    setGridSel(imageIndex)
+                  }}
+                  onClick={() => selectFilmstripImage(imageIndex)}
+                >
+                  <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                  {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
+                </button>
+              })}
+            </div>
+          </div>
+        </div>
+      </> : null}
 
       <div
         ref={modalRef}
@@ -1472,10 +1907,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section" aria-labelledby="background-heading">
             <h3 id="background-heading">Background</h3>
+            {/* 'none' leaves photographs abutting on the bare dark canvas;
+                Light and Dark wake the doodle field — keyed to this
+                gallery's URL, so the same album always wears the same
+                pattern — and give every image a 10px margin on the
+                trailing side. */}
             <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
-              <label><input type="radio" name="seam-mode" value="dark" checked={seamMode === 'dark'} onChange={() => setSeamMode('dark')} /> <span>Dark</span><small>light stripes on black</small></label>
-              <label><input type="radio" name="seam-mode" value="light" checked={seamMode === 'light'} onChange={() => setSeamMode('light')} /> <span>Light</span><small>black stripes on light</small></label>
-              <label><input type="radio" name="seam-mode" value="none" checked={seamMode === 'none'} onChange={() => setSeamMode('none')} /> <span>None</span><small>photographs sit flush</small></label>
+              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles, 10px margins</small></label>
+              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles, 10px margins</small></label>
+              <label><input type="radio" name="background-mode" value="none" checked={background === 'none'} onChange={() => { setBackground('none'); saveBackgroundPreference('none'); closeModals() }} /> <span>None</span><small>photographs abut on the dark canvas</small></label>
             </div>
           </section>
 
@@ -1493,6 +1933,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
             <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
+            <p><kbd>G</kbd> photograph selector</p>
             <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
             <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
             {/* Pointer-gated: a loupe replacing the cursor means nothing

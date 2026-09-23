@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { createManoramaApi } from './api'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
+import type { GalleryImage } from './lib/imagesource'
 import { resetUserStore } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { readFileSync } from 'node:fs'
@@ -229,6 +230,86 @@ describe('quick-add naming', () => {
       const payload = await response.json() as { gallery?: { slug?: string; title?: string } }
       expect(payload.gallery?.title).toBe('Family Album')
       expect(payload.gallery?.slug).toBe('family-album')
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe('source ordering', () => {
+  // A dedicated owner: TEST_OWNER's allowance is already spent on earlier
+  // describes, so its further seeds land as read-only pipeline galleries.
+  const ORDER_OWNER = 'dbid:AAATESTordering'
+  let orderCookie: string
+
+  const stubListing = (names: string[], folderName = 'Sorted Album') => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: names.map((name) => ({ '.tag': 'file' as const, name, id: `id:${name}`, media_info: { metadata: { dimensions: { width: 4, height: 3 } } } })),
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: folderName })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    return () => { globalThis.fetch = realFetch }
+  }
+
+  const seedImage = (filename: string): GalleryImage => ({
+    id: `seed-${filename}`,
+    filename,
+    src: `/api/dropbox/file?filename=${filename}`,
+    width: 4,
+    height: 3,
+    alt: filename,
+    c2pa: false,
+    placeholder: '',
+  })
+
+  test('a fresh gallery stores images in ascending filename order', async () => {
+    await seedTestUser({ dropboxAccountId: ORDER_OWNER, displayName: 'Order Owner' })
+    orderCookie = await sessionCookieFor(ORDER_OWNER)
+    // Provider order is arbitrary — numeric collation puts img2 before img10.
+    const restore = stubListing(['zeta.jpg', 'img10.jpg', 'img2.jpg', 'alpha.jpg'])
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: orderCookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/ordered-one' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { images?: { filename: string }[] } }
+      expect(payload.gallery?.images?.map((image) => image.filename)).toEqual(['alpha.jpg', 'img2.jpg', 'img10.jpg', 'zeta.jpg'])
+    } finally {
+      restore()
+    }
+  })
+
+  test('refresh keeps the owner order, drops deleted files, and appends new files sorted', async () => {
+    await createGallery(ORDER_OWNER, {
+      slug: 'ordered-source',
+      title: 'Ordered Source',
+      caption: '',
+      date: '',
+      sourceUrl: 'https://www.dropbox.com/scl/fo/order-src?dl=0',
+      // The owner hand-ordered d before a; z has since been deleted at the source.
+      images: [seedImage('d.jpg'), seedImage('a.jpg'), seedImage('z.jpg')],
+    })
+    const restore = stubListing(['img10.jpg', 'c.jpg', 'a.jpg', 'img2.jpg', 'd.jpg'])
+    try {
+      const response = await api.request('/api/galleries/ordered-source/refresh', {
+        method: 'POST',
+        headers: { Cookie: orderCookie },
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(200)
+      const payload = await response.json() as { gallery?: { images?: { filename: string }[] } }
+      // z.jpg is gone; d,a keep the owner's order; c, img2, img10 append
+      // in ascending filename order — img2 before img10, not lexical.
+      expect(payload.gallery?.images?.map((image) => image.filename)).toEqual(['d.jpg', 'a.jpg', 'c.jpg', 'img2.jpg', 'img10.jpg'])
     } finally {
       restore()
     }
