@@ -30,6 +30,8 @@ export type RuntimeEnv = {
   VENDO_MCP_BROKER_URL?: string
   VENDO_MCP_FEDERATION_SECRET?: string
   HOST_API_JWT_SECRET?: string
+  REVENUECAT_WEBHOOK_AUTH?: string
+  REVENUECAT_WEBHOOK_SIGNING_SECRET?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
