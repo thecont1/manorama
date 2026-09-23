@@ -143,6 +143,7 @@ button { color: inherit; }
   margin-right: 8px;
   display: grid;
   place-items: center;
+  width: clamp(44px, 6.3svh, 59px);
   min-width: clamp(44px, 6.3svh, 59px);
   height: clamp(44px, 6.3svh, 59px);
   padding: 0 12px;
@@ -183,7 +184,7 @@ button { color: inherit; }
    stretching left, not jumping. Focus-visible gets the same treatment
    so keyboard users see the affordance too. */
 @media (hover: hover) and (pointer: fine) {
-  .stage-seq { transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease, min-width 220ms ease, height 220ms ease; }
+  .stage-seq { transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease, width 220ms ease, min-width 220ms ease, height 220ms ease; }
   .stage-seq:is(:hover, :focus-visible) {
     opacity: 1;
     border-color: rgba(var(--ink), .8);
