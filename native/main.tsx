@@ -10,6 +10,7 @@ if (!root) throw new Error('Native app root is missing')
 const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
 render(<GalleryList apiBase={apiBase} />, root)
 
+/** Configure the native status bar and dismiss the launch splash screen. */
 const configureNativeChrome = async () => {
   try {
     await StatusBar.setOverlaysWebView({ overlay: false })
