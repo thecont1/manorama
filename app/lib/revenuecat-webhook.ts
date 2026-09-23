@@ -1,4 +1,9 @@
-import { getUserByDropboxId, setUserTier, type UserRepositoryEnv } from './user-repository'
+import {
+  getUserByDropboxId,
+  setUserTier,
+  type BillingEventOrder,
+  type UserRepositoryEnv,
+} from './user-repository'
 
 export const REVENUECAT_PRO_ENTITLEMENT = 'will_pay'
 export const REVENUECAT_SIGNATURE_TOLERANCE_SECONDS = 5 * 60
@@ -14,6 +19,8 @@ type RevenueCatEvent = {
   app_user_id?: string
   original_app_user_id?: string
   aliases?: string[]
+  transferred_from?: unknown[]
+  transferred_to?: unknown[]
   entitlement_ids?: string[] | null
   event_timestamp_ms?: number
   expiration_at_ms?: number | null
@@ -74,8 +81,23 @@ const eventUserIds = (event: RevenueCatEvent) => [
   ...(event.aliases ?? []),
 ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
 
+const dbAccountIds = (ids: unknown[]) => Array.from(new Set(
+  ids.filter((id): id is string => typeof id === 'string' && id.startsWith('dbid:')),
+))
+
+const eventAccountIds = (event: RevenueCatEvent) => event.type === 'TRANSFER'
+  ? {
+      from: dbAccountIds(event.transferred_from ?? []),
+      to: dbAccountIds(event.transferred_to ?? []),
+    }
+  : { from: [], to: dbAccountIds(eventUserIds(event)) }
+
 const isProEvent = (event: RevenueCatEvent) =>
   event.entitlement_ids?.includes(REVENUECAT_PRO_ENTITLEMENT) === true
+
+const establishesProState = (event: RevenueCatEvent) =>
+  Array.isArray(event.entitlement_ids)
+  && event.entitlement_ids.includes(REVENUECAT_PRO_ENTITLEMENT)
 
 const isActiveEvent = (event: RevenueCatEvent) => {
   if (['EXPIRATION', 'REFUND'].includes(event.type ?? '')) return false
@@ -111,12 +133,28 @@ export const processRevenueCatWebhook = async (
   }
   const event = payload.event
   if (!event || typeof event.id !== 'string' || !event.type) return { status: 400 as const, code: 'INVALID_EVENT' as const }
-  const accountId = eventUserIds(event).find((id) => id.startsWith('dbid:'))
-  if (!accountId) return { status: 200 as const, code: 'IGNORED_IDENTITY' as const, eventId: event.id }
-  const user = await getUserByDropboxId(accountId, env)
-  if (!user) return { status: 200 as const, code: 'IGNORED_UNKNOWN_ACCOUNT' as const, eventId: event.id }
-
+  const accounts = eventAccountIds(event)
+  const accountIds = Array.from(new Set([...accounts.from, ...accounts.to]))
+  if (!accountIds.length) return { status: 200 as const, code: 'IGNORED_IDENTITY' as const, eventId: event.id }
+  if (!establishesProState(event)) {
+    return { status: 200 as const, code: 'IGNORED_ENTITLEMENT' as const, eventId: event.id }
+  }
+  const order: BillingEventOrder | undefined = Number.isSafeInteger(event.event_timestamp_ms)
+    ? { timestampMs: event.event_timestamp_ms!, eventId: event.id }
+    : undefined
+  let knownAccount = false
+  let applied = 0
+  for (const accountId of accountIds) {
+    const user = await getUserByDropboxId(accountId, env)
+    if (!user) continue
+    knownAccount = true
+    const tier = accounts.from.includes(accountId) && event.type === 'TRANSFER'
+      ? 'free'
+      : isProEvent(event) && isActiveEvent(event) ? 'pro' : 'free'
+    if (await setUserTier(accountId, tier, env, undefined, order)) applied += 1
+  }
+  if (!knownAccount) return { status: 200 as const, code: 'IGNORED_UNKNOWN_ACCOUNT' as const, eventId: event.id }
+  if (!applied) return { status: 200 as const, code: 'IGNORED_STALE' as const, eventId: event.id }
   const tier = isProEvent(event) && isActiveEvent(event) ? 'pro' : 'free'
-  await setUserTier(accountId, tier, env)
   return { status: 200 as const, code: 'APPLIED' as const, eventId: event.id, tier }
 }

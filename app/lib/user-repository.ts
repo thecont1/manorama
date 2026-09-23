@@ -13,9 +13,16 @@ export type UserRecord = {
   displayName: string
   email?: string
   tier: 'free' | 'pro'
+  billingEventTimestampMs?: number
+  billingEventId?: string
 }
 
 export type UserRepositoryEnv = { DB?: D1Database }
+
+export type BillingEventOrder = {
+  timestampMs: number
+  eventId: string
+}
 
 export const OWNER_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const OWNER_SLUG_MAX = 48
@@ -38,6 +45,12 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
     tier: row.tier === 'pro' ? 'pro' : 'free',
   }
   if (typeof row.email === 'string' && row.email.length > 0) user.email = row.email
+  if (typeof row.billing_event_timestamp_ms === 'number') {
+    user.billingEventTimestampMs = row.billing_event_timestamp_ms
+  }
+  if (typeof row.billing_event_id === 'string' && row.billing_event_id.length > 0) {
+    user.billingEventId = row.billing_event_id
+  }
   return user
 }
 
@@ -186,10 +199,44 @@ export const setUserTier = async (
   tier: 'free' | 'pro',
   env?: UserRepositoryEnv,
   now = new Date().toISOString(),
+  billingEvent?: BillingEventOrder,
 ): Promise<UserRecord | null> => {
   const current = await getUserByDropboxId(dropboxAccountId, env)
   if (!current) return null
+  if (billingEvent && current.billingEventTimestampMs !== undefined) {
+    const isOlder = billingEvent.timestampMs < current.billingEventTimestampMs
+      || (billingEvent.timestampMs === current.billingEventTimestampMs
+        && billingEvent.eventId <= (current.billingEventId ?? ''))
+    if (isOlder) return null
+  }
   if (d1Configured(env)) {
+    if (billingEvent) {
+      const eventTimestamp = billingEvent.timestampMs
+      const eventId = billingEvent.eventId
+      const update = await env.DB.prepare(
+        `UPDATE users SET tier = ?, updated_at = ?, billing_event_timestamp_ms = ?, billing_event_id = ?
+         WHERE dropbox_account_id = ? AND (
+           billing_event_timestamp_ms IS NULL
+           OR billing_event_timestamp_ms < ?
+           OR (billing_event_timestamp_ms = ? AND COALESCE(billing_event_id, '') < ?)
+         )`,
+      ).bind(tier, now, eventTimestamp, eventId, dropboxAccountId, eventTimestamp, eventTimestamp, eventId)
+      const statements = [update]
+      if (tier === 'pro') {
+        statements.push(env.DB.prepare(
+          `UPDATE galleries SET retention = 'retained', expires_at = NULL
+           WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`,
+        ).bind(dropboxAccountId, now))
+      }
+      const results = await env.DB.batch(statements)
+      if (!results[0].meta.changes) return null
+      return {
+        ...current,
+        tier,
+        billingEventTimestampMs: eventTimestamp,
+        billingEventId: eventId,
+      }
+    }
     if (tier === 'pro') {
       await env.DB.batch([
         env.DB.prepare(`UPDATE users SET tier = ?, updated_at = ? WHERE dropbox_account_id = ?`).bind(tier, now, dropboxAccountId),
@@ -201,6 +248,10 @@ export const setUserTier = async (
       ).bind(tier, dropboxAccountId).run()
     }
     return { ...current, tier }
+  }
+  if (billingEvent) {
+    current.billingEventTimestampMs = billingEvent.timestampMs
+    current.billingEventId = billingEvent.eventId
   }
   if (tier === 'pro') {
     const { promotePipelineGalleries } = await import('./gallery-repository')

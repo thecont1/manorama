@@ -8,8 +8,8 @@ import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from '.
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
-import { requireSession, type HonoSessionEnv } from './lib/dropbox-session'
-import { OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { createSessionToken, requireSession, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/dropbox-session'
+import { getUserByDropboxId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
@@ -190,6 +190,26 @@ export const createManoramaApi = () => {
     }
     if (c.req.method === 'OPTIONS') return c.body(null, 204)
     await next()
+  })
+  /** Exchanges the one-minute deep-link handoff for the normal seven-day
+   * bearer session. The handoff is purpose-bound and never accepted as an API
+   * bearer token itself. */
+  api.post('/api/auth/native/exchange', async (c) => {
+    const payload = await c.req.json<{ handoffToken?: string }>().catch((): { handoffToken?: string } => ({}))
+    const handoffToken = payload.handoffToken?.trim()
+    const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
+    if (!handoffToken || !secret) return c.json({ error: 'Authentication could not be completed' }, 401)
+    let dropboxAccountId: string | null = null
+    try {
+      dropboxAccountId = await verifyNativeHandoffToken(handoffToken, secret)
+    } catch {
+      return c.json({ error: 'That sign-in link has expired' }, 401)
+    }
+    if (!dropboxAccountId) return c.json({ error: 'That sign-in link is invalid' }, 401)
+    const user = await getUserByDropboxId(dropboxAccountId, dbEnv(c))
+    if (!user) return c.json({ error: 'That account is no longer available' }, 401)
+    const token = await createSessionToken(user.dropboxAccountId, secret)
+    return c.json({ token, ownerSlug: user.ownerSlug })
   })
   api.get('/api/gallery/:owner/:slug', async (c) => {
     const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))

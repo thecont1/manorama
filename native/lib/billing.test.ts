@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { CustomerInfo, PurchasesPackage } from '@revenuecat/purchases-capacitor'
+import { PAYWALL_RESULT } from '@revenuecat/purchases-capacitor-ui'
 import {
   RevenueCatBilling,
   billingStateFromCustomerInfo,
@@ -96,6 +97,30 @@ describe('RevenueCatBilling', () => {
 
     expect((await billing.purchase(packageStub)).isPro).toBe(true)
     expect((await billing.restore()).tier).toBe('pro')
+  })
+
+  test('presents the hosted paywall for will_pay and opens Customer Center', async () => {
+    const fake = fakePurchases(customerInfo({ will_pay: { isActive: true } }))
+    let paywallOptions: unknown
+    let customerCenterOpened = false
+    const ui = {
+      presentPaywallIfNeeded: async (options: unknown) => {
+        paywallOptions = options
+        return { result: PAYWALL_RESULT.PURCHASED }
+      },
+      presentCustomerCenter: async () => {
+        customerCenterOpened = true
+      },
+    }
+    const billing = new RevenueCatBilling(fake, undefined, ui)
+    await billing.configure({ apiKey: 'key', appUserId: 'account' })
+    await billing.presentPaywallIfNeeded()
+    await billing.presentCustomerCenter()
+
+    expect(paywallOptions).toMatchObject({
+      requiredEntitlementIdentifier: 'will_pay',
+    })
+    expect(customerCenterOpened).toBe(true)
   })
 
   test('removes its listener before signing out', async () => {

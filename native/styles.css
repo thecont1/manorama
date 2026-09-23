@@ -91,3 +91,82 @@ body {
 .native-list-card button:hover {
   background: rgba(var(--ink), .1);
 }
+
+.native-list-card > button + button,
+.native-list-card > button + form {
+  margin-top: 12px;
+}
+
+.native-paywall-shell {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--gallery-canvas);
+}
+
+.native-paywall-card {
+  position: relative;
+  width: min(100%, 460px);
+  padding: clamp(28px, 8vw, 64px);
+  border: 1px solid rgba(var(--ink), .14);
+  background: rgba(24, 26, 25, .8);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, .24);
+}
+
+.native-paywall-kicker {
+  margin: 0 0 28px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-paywall-card h1 {
+  margin: 0 0 16px;
+  font-size: clamp(30px, 7vw, 48px);
+  letter-spacing: -.055em;
+  line-height: 1;
+}
+
+.native-paywall-card > p:not(.native-paywall-kicker) {
+  min-height: 2.8em;
+  margin: 0 0 28px;
+  color: rgba(var(--ink), .7);
+  line-height: 1.55;
+}
+
+.native-paywall-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--ink), .7);
+  cursor: pointer;
+}
+
+.native-paywall-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.native-paywall-actions button {
+  border: 1px solid rgba(var(--ink), .42);
+  border-radius: 999px;
+  padding: 13px 18px;
+  background: transparent;
+  color: rgb(var(--ink));
+  cursor: pointer;
+}
+
+.native-paywall-card button:focus-visible {
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 3px;
+}
+
+.native-paywall-card button:disabled {
+  cursor: progress;
+  opacity: .5;
+}

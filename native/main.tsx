@@ -1,16 +1,49 @@
+import { useEffect, useMemo, useState } from 'hono/jsx'
 import { render } from 'hono/jsx/dom'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import GalleryList from './islands/GalleryList'
+import { RevenueCatBilling } from './lib/billing'
+import { authErrorMessage, beginDropboxSignIn, getSessionAppUserId, installNativeAuth } from './lib/session'
 import './styles.css'
 
 const root = document.getElementById('app')
 if (!root) throw new Error('Native app root is missing')
-
 const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
-render(<GalleryList apiBase={apiBase} />, root)
 
-/** Configure the native status bar and dismiss the launch splash screen. */
+function NativeApp() {
+  const [authError, setAuthError] = useState<string | null>(null)
+  const billing = useMemo(() => new RevenueCatBilling(), [])
+  const configureRevenueCat = async () => {
+    const apiKey = import.meta.env.VITE_REVENUECAT_API_KEY?.trim()
+    const appUserId = await getSessionAppUserId()
+    if (!apiKey || !appUserId) return
+    await billing.configure({ apiKey, appUserId })
+  }
+  const signIn = () => {
+    setAuthError(null)
+    void beginDropboxSignIn(apiBase).catch((reason) => setAuthError(authErrorMessage(reason)))
+  }
+  useEffect(() => {
+    let cleanup: (() => Promise<void>) | undefined
+    let active = true
+    void installNativeAuth(apiBase, setAuthError)
+      .then((removeListener) => {
+        cleanup = removeListener
+        if (active) return configureRevenueCat()
+        return undefined
+      })
+      .catch((reason) => setAuthError(authErrorMessage(reason)))
+    return () => {
+      active = false
+      void cleanup?.()
+    }
+  }, [billing])
+  return <GalleryList apiBase={apiBase} billing={billing} authError={authError} onSignIn={signIn} />
+}
+
+render(<NativeApp />, root)
+
 const configureNativeChrome = async () => {
   try {
     await StatusBar.setOverlaysWebView({ overlay: false })
@@ -21,8 +54,7 @@ const configureNativeChrome = async () => {
   try {
     await SplashScreen.hide()
   } catch {
-    // The browser build has no native splash screen to hide.
+    // Capacitor plugins are no-ops in the browser preview.
   }
 }
-
 void configureNativeChrome()

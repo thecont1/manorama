@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { createHmac } from 'node:crypto'
 import { resetGalleryStore } from './gallery-repository'
-import { resetUserStore, getUserByDropboxId } from './user-repository'
+import { resetUserStore, getUserByDropboxId, setUserTier, upsertUser } from './user-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from './test-fixtures'
 import {
   processRevenueCatWebhook,
@@ -82,7 +82,7 @@ describe('RevenueCat webhook tier sync', () => {
     const request = await signedRequest(payloadFor({
       id: 'event-2',
       type: 'EXPIRATION',
-      entitlement_ids: ['pro'],
+      entitlement_ids: ['will_pay'],
       expiration_at_ms: Date.now() - 1,
     }))
     const result = await processRevenueCatWebhook(request, env)
@@ -100,5 +100,66 @@ describe('RevenueCat webhook tier sync', () => {
     const result = await processRevenueCatWebhook(request, env)
     expect(result).toEqual({ status: 401, code: 'UNAUTHORIZED' })
   })
-})
 
+  test('reconciles both sides of a transfer event', async () => {
+    const source = 'dbid:AAAsource'
+    const destination = 'dbid:AAAdestination'
+    await upsertUser({ dropboxAccountId: source, displayName: 'Source Owner' })
+    await upsertUser({ dropboxAccountId: destination, displayName: 'Destination Owner' })
+    await setUserTier(source, 'pro')
+    const request = await signedRequest(payloadFor({
+      id: 'event-transfer',
+      type: 'TRANSFER',
+      app_user_id: undefined,
+      transferred_from: [source],
+      transferred_to: [destination],
+      event_timestamp_ms: Date.now(),
+    }))
+
+    const result = await processRevenueCatWebhook(request, env)
+    expect(result).toMatchObject({ status: 200, code: 'APPLIED', eventId: 'event-transfer' })
+    expect((await getUserByDropboxId(source))?.tier).toBe('free')
+    expect((await getUserByDropboxId(destination))?.tier).toBe('pro')
+  })
+
+  test('ignores an older delivery without changing the newer tier', async () => {
+    const account = TEST_OWNER.dropboxAccountId
+    const newer = await signedRequest(payloadFor({
+      id: 'event-newer',
+      type: 'INITIAL_PURCHASE',
+      event_timestamp_ms: 2_000,
+    }))
+    const older = await signedRequest(payloadFor({
+      id: 'event-older',
+      type: 'EXPIRATION',
+      entitlement_ids: ['will_pay'],
+      expiration_at_ms: Date.now() - 1,
+      event_timestamp_ms: 1_000,
+    }))
+
+    expect(await processRevenueCatWebhook(newer, env)).toMatchObject({ code: 'APPLIED', tier: 'pro' })
+    expect(await processRevenueCatWebhook(older, env)).toEqual({
+      status: 200,
+      code: 'IGNORED_STALE',
+      eventId: 'event-older',
+    })
+    expect((await getUserByDropboxId(account))?.tier).toBe('pro')
+  })
+
+  test('does not demote an account for an event without will_pay state', async () => {
+    await setUserTier(TEST_OWNER.dropboxAccountId, 'pro')
+    const request = await signedRequest(payloadFor({
+      id: 'event-unrelated',
+      type: 'INVOICE_ISSUANCE',
+      entitlement_ids: ['other_entitlement'],
+      event_timestamp_ms: 3_000,
+    }))
+
+    expect(await processRevenueCatWebhook(request, env)).toEqual({
+      status: 200,
+      code: 'IGNORED_ENTITLEMENT',
+      eventId: 'event-unrelated',
+    })
+    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('pro')
+  })
+})
