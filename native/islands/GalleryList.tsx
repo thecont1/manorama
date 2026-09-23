@@ -13,6 +13,7 @@ type Props = {
   owner?: string
   slug?: string
   onSignIn?: () => void
+  authError?: string | null
   billing?: RevenueCatBilling
 }
 
@@ -28,7 +29,7 @@ const selectionFromLocation = (): Selection => {
   }
 }
 
-export default function GalleryList({ apiBase, owner, slug, onSignIn, billing }: Props) {
+export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
@@ -112,7 +113,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, billing }:
           />
         </span>
         <h1>Open a gallery</h1>
-        <p>{error ?? 'Connect to manorama to view a public gallery.'}</p>
+        <p>{authError ?? error ?? 'Connect to manorama to view a public gallery.'}</p>
         {onSignIn && (
           <button type="button" onClick={onSignIn}>
             Sign in with Dropbox

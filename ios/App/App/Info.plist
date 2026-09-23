@@ -22,6 +22,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+<key>GADApplicationIdentifier</key>
+<string>ca-app-pub-3564536130489009~9987237398</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

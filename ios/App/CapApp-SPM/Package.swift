@@ -12,17 +12,17 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.5.2"),
-        .package(name: "AparajitaCapacitorSecureStorage", path: "../../../node_modules/@aparajita/capacitor-secure-storage"),
-        .package(name: "CapacitorCommunityAdmob", path: "../../../node_modules/@capacitor-community/admob"),
-        .package(name: "CapacitorApp", path: "../../../node_modules/@capacitor/app"),
-        .package(name: "CapacitorBrowser", path: "../../../node_modules/@capacitor/browser"),
-        .package(name: "CapacitorFilesystem", path: "../../../node_modules/@capacitor/filesystem"),
-        .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
-        .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
-        .package(name: "CapacitorSplashScreen", path: "../../../node_modules/@capacitor/splash-screen"),
-        .package(name: "CapacitorStatusBar", path: "../../../node_modules/@capacitor/status-bar"),
-        .package(name: "RevenuecatPurchasesCapacitor", path: "../../../node_modules/@revenuecat/purchases-capacitor"),
-        .package(name: "RevenuecatPurchasesCapacitorUi", path: "../../../node_modules/@revenuecat/purchases-capacitor-ui")
+        .package(name: "AparajitaCapacitorSecureStorage", path: "../../../../manorama/node_modules/@aparajita/capacitor-secure-storage"),
+        .package(name: "CapacitorCommunityAdmob", path: "../../../../manorama/node_modules/@capacitor-community/admob"),
+        .package(name: "CapacitorApp", path: "../../../../manorama/node_modules/@capacitor/app"),
+        .package(name: "CapacitorBrowser", path: "../../../../manorama/node_modules/@capacitor/browser"),
+        .package(name: "CapacitorFilesystem", path: "../../../../manorama/node_modules/@capacitor/filesystem"),
+        .package(name: "CapacitorPreferences", path: "../../../../manorama/node_modules/@capacitor/preferences"),
+        .package(name: "CapacitorShare", path: "../../../../manorama/node_modules/@capacitor/share"),
+        .package(name: "CapacitorSplashScreen", path: "../../../../manorama/node_modules/@capacitor/splash-screen"),
+        .package(name: "CapacitorStatusBar", path: "../../../../manorama/node_modules/@capacitor/status-bar"),
+        .package(name: "RevenuecatPurchasesCapacitor", path: "../../../../manorama/node_modules/@revenuecat/purchases-capacitor"),
+        .package(name: "RevenuecatPurchasesCapacitorUi", path: "../../../../manorama/node_modules/@revenuecat/purchases-capacitor-ui")
     ],
     targets: [
         .target(
