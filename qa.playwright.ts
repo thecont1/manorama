@@ -91,8 +91,10 @@ async function dismissCurtain(
 // reorders, creates). The dev seed plugin's reset seam restores canonical
 // state so a case's outcome never depends on what ran before it.
 test.beforeEach(async ({ request, page }) => {
-  // Reduced motion keeps the bobbing logo tab click-stable for every spec;
-  // the bob itself is verified under no-preference in its own test.
+  // Reduced motion keeps animated chrome click-stable for every spec.
+  // RULE: a spec that asserts an animation mid-flight (is-lifting, the
+  // logo bob, sweeps) must re-emulate no-preference first — under reduce
+  // the transition is ~0ms and intermediate states die in one frame.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reset = await request.post(`${BASE}/.dev-seed/reset`);
   expect(reset.status(), "dev seed reset — is this `bun run dev`?").toBe(204);
@@ -187,6 +189,10 @@ test("curtain uses larger brand type without entry labels", async ({
 });
 
 test("curtain lifts upward before it hides", async ({ page }) => {
+  // This spec asserts the lift itself — under the suite-wide reduced
+  // motion emulation the transition is ~0ms and is-lifting only exists
+  // for a frame, so run it with motion on.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
@@ -199,6 +205,8 @@ test("curtain lifts upward before it hides", async ({ page }) => {
 test("curtain reveal remains visible through a calmer lift before it hides", async ({
   page,
 }) => {
+  // Lift duration is asserted — motion required (see the spec above).
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
@@ -211,6 +219,8 @@ test("curtain reveal remains visible through a calmer lift before it hides", asy
 test("curtain accepts an upward swipe before it lifts away", async ({
   page,
 }) => {
+  // Lift class asserted — motion required.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY);
   const curtain = page.locator("[data-curtain]");
   await page.mouse.move(300, 520);
@@ -227,6 +237,71 @@ for (const vp of viewports) {
       viewport: { width: vp.width, height: vp.height },
       hasTouch: vp.hasTouch,
     });
+
+    test("the G selector shows every photograph and jumps on click", async ({ page }) => {
+      await dismissCurtain(page)
+      const count = await imageCount(page)
+      await page.keyboard.press("g")
+      const strip = page.locator(".viewer-filmstrip")
+      await expect(strip).toBeVisible()
+      const box = await strip.boundingBox()
+      expect(box).not.toBeNull()
+      expect(Math.abs((box!.y + box!.height / 2) - vp.height / 2)).toBeLessThan(3)
+      await expect(strip.locator("[data-grid-item]")).toHaveCount(count)
+      await expect(strip.locator("[aria-current='true']")).toHaveCount(1)
+      await strip.locator("[data-grid-item]").nth(Math.min(2, count - 1)).click()
+      await expect(strip).toBeHidden()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(Math.min(2, count - 1) + 1))
+    })
+
+    test("drag-scrolling the selector doesn't navigate; Escape and scrim dismiss", async ({ page }) => {
+      await dismissCurtain(page)
+      const before = await page.locator("[data-track] [aria-current='true']").getAttribute("data-index")
+      await page.keyboard.press("g")
+      const frame = page.locator(".viewer-filmstrip-frame")
+      const frameBox = await frame.boundingBox()
+      expect(frameBox).not.toBeNull()
+      const initial = await frame.evaluate((node) => node.scrollLeft)
+      await page.mouse.move(frameBox!.x + frameBox!.width * .7, frameBox!.y + frameBox!.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(frameBox!.x + frameBox!.width * .2, frameBox!.y + frameBox!.height / 2, { steps: 5 })
+      await page.mouse.up()
+      await expect.poll(() => frame.evaluate((node) => node.scrollLeft)).not.toBe(initial)
+      await expect(frame).toBeVisible()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", before!)
+      await page.keyboard.press("Escape")
+      await expect(frame).toBeHidden()
+      await page.keyboard.press("g")
+      await expect(frame).toBeVisible()
+      await page.locator(".filmstrip-scrim").click({ position: { x: 5, y: 5 } })
+      await expect(frame).toBeHidden()
+    })
+
+    test("the selector pink box follows arrows and hover; Enter commits", async ({ page }) => {
+      await dismissCurtain(page)
+      const count = await imageCount(page)
+      await page.keyboard.press("g")
+      const strip = page.locator(".viewer-filmstrip")
+      const active = strip.locator("[data-grid-active]")
+      const startIndex = await active.evaluate((item) => {
+        const items = [...item.parentElement!.querySelectorAll<HTMLElement>('[data-grid-item]')]
+        return items.indexOf(item as HTMLElement)
+      })
+      await expect(active).toHaveCSS("box-shadow", /rgb\(252, 15, 192\)/)
+      await page.keyboard.press("ArrowRight")
+      await page.keyboard.press("ArrowRight")
+      const arrowIndex = (startIndex + 2) % count
+      await expect(strip.locator("[data-grid-item]").nth(arrowIndex)).toHaveAttribute("data-grid-active", "true")
+      await expect(strip.locator("[data-grid-item]").nth(arrowIndex)).toBeFocused()
+      const hoverIndex = (arrowIndex + 2) % count
+      await strip.locator("[data-grid-item]").nth(hoverIndex).hover()
+      await expect(strip.locator("[data-grid-item]").nth(hoverIndex)).toHaveAttribute("data-grid-active", "true")
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(startIndex + 1))
+      await page.keyboard.press("Enter")
+      await expect(strip).toHaveClass(/is-closing/)
+      await expect(strip).toBeHidden()
+      await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", String(hoverIndex + 1))
+    })
 
     test("exactly one visible control during viewing", async ({ page }) => {
       await dismissCurtain(page);
@@ -528,6 +603,8 @@ for (const vp of viewports) {
 
     test("touch upward swipe lifts the opening curtain", async ({ page }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
+      // Lift class asserted — motion required.
+      await page.emulateMedia({ reducedMotion: "no-preference" });
       await page.goto(GALLERY);
       const client = await page.context().newCDPSession(page);
       const curtain = page.locator("[data-curtain]");
@@ -1031,16 +1108,17 @@ for (const vp of viewports) {
     }) => {
       await dismissCurtain(page);
       const seq = page.locator(".stage-seq");
+      const seqNum = seq.locator(".stage-seq-num");
       await expect(seq).toBeVisible();
-      await expect(seq).toHaveText("1");
+      await expect(seqNum).toHaveText("1");
       await expect(seq).toHaveAttribute(
         "aria-label",
-        `Photograph 1 of ${await imageCount(page)}`,
+        `Photograph 1 of ${await imageCount(page)} — open selector`,
       );
 
       // The bubble tracks the reported index as the strip advances.
       await advanceToNextImage(page);
-      await expect(seq).toHaveText("2");
+      await expect(seqNum).toHaveText("2");
 
       // With arrows on, it floats left of the button cluster; with them
       // off it still docks at the bottom-right corner alone.
@@ -1048,25 +1126,51 @@ for (const vp of viewports) {
         matchMedia("(pointer: coarse)").matches,
       );
       if (!coarse) {
-        // Hovering the bubble lights it and expands the count into the
-        // full tally — "2 of 30". The total rides a ::after, so read the
-        // computed content rather than textContent.
+        // Hover stretches the circle into a pill: the bare count swaps
+        // for the full tally plus the open hint.
+        const restBox = await seq.boundingBox();
         await seq.hover();
+        await expect(seq.locator(".stage-seq-tally")).toBeVisible();
+        await expect(seq.locator(".stage-seq-tally")).toHaveText(
+          `2 of ${await imageCount(page)} items`,
+        );
+        await expect(seq.locator(".stage-seq-hint")).toHaveText(
+          /open global/i,
+        );
         const lit = await seq.evaluate((el) => ({
           opacity: getComputedStyle(el).opacity,
           events: getComputedStyle(el).pointerEvents,
-          tally: getComputedStyle(el, "::after").content,
         }));
         expect(lit.opacity).toBe("1");
         expect(lit.events).toBe("auto");
-        expect(lit.tally).toBe(`"of ${await imageCount(page)}"`);
+        // The circle animates into the pill — poll the box until the
+        // expansion completes rather than reading one mid-flight frame.
+        await expect
+          .poll(async () => (await seq.boundingBox())!.width)
+          .toBeGreaterThan(restBox!.width + 40);
         await page.mouse.move(0, 0);
-        await expect(seq).toHaveText("2");
+        await expect(seqNum).toHaveText("2");
       }
+
+      // The bubble is a button — clicking it raises the selector.
+      await seq.click();
+      await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator(".viewer-filmstrip")).toBeHidden();
       await ensureNavArrows(page);
       const nextArrow = page.getByRole("button", {
         name: /next photograph/i,
       });
+      if (!coarse) {
+        // Hovering NEAR the counter (anywhere in the nav cluster)
+        // wakes the pill too.
+        await nextArrow.hover();
+        await expect(seq.locator(".stage-seq-detail")).toHaveCSS(
+          "opacity",
+          "1",
+        );
+        await page.mouse.move(0, 0);
+      }
       const seqBox = await seq.boundingBox();
       const nextBox = await nextArrow.boundingBox();
       expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
@@ -1316,7 +1420,7 @@ for (const vp of viewports) {
       const total = 9;
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
-      await expect(page.locator(".stage-seq")).toHaveText(`${total}`);
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText(`${total}`);
       const hidden = await endcap.boundingBox();
       expect(hidden!.x).toBeGreaterThanOrEqual(
         stageBox!.x + stageBox!.width - 1,
@@ -1336,7 +1440,7 @@ for (const vp of viewports) {
       await expect(reset).toBeVisible();
       await reset.click();
       await waitForTrackSettled(page);
-      await expect(page.locator(".stage-seq")).toHaveText("1");
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
       await expect(
         page.locator("[aria-current='true']"),
       ).toHaveAttribute("data-index", "1");

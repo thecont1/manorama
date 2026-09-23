@@ -114,6 +114,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [index, setIndex] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
+  const [gridOpen, setGridOpen] = useState(false)
+  const [gridSel, setGridSel] = useState(index)
+  const [gridClosing, setGridClosing] = useState(false)
+  const gridOpenRef = useRef(false)
   const [showArrows, setShowArrows] = useState(initialSettings.defaultShowArrows)
   // Vertical scroll keeps arrows off by default regardless of the
   // gallery-wide setting — the feed scrolls natively, so they're only
@@ -185,6 +189,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const trackRef = useRef<HTMLDivElement | null>(null)
   const modalRef = useRef<HTMLDivElement | null>(null)
   const infoModalRef = useRef<HTMLDivElement | null>(null)
+  const gridModalRef = useRef<HTMLDivElement | null>(null)
+  const filmstripFrameRef = useRef<HTMLDivElement | null>(null)
+  const filmstripPanRef = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null)
+  const scrollLeftAtDownRef = useRef(0)
+  const gridSuppressClickRef = useRef(false)
+  const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -193,10 +203,37 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // closures and render-synced values lag a setState call. The open/close
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
-  anyModalOpenRef.current = modalOpen || infoOpen
+  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
   const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
   const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
-  const closeModals = () => { anyModalOpenRef.current = false; setModalOpen(false); setInfoOpen(false) }
+  const openGrid = () => {
+    if (gridCloseTimerRef.current) {
+      clearTimeout(gridCloseTimerRef.current)
+      gridCloseTimerRef.current = null
+    }
+    anyModalOpenRef.current = true
+    gridOpenRef.current = true
+    setGridSel(indexRef.current)
+    setGridClosing(false)
+    setGridOpen(true)
+  }
+  const closeModals = () => {
+    anyModalOpenRef.current = false
+    gridOpenRef.current = false
+    setModalOpen(false)
+    setInfoOpen(false)
+    setGridOpen(false)
+    setGridClosing(false)
+  }
+  const requestCloseModals = () => {
+    if (!gridOpenRef.current) { closeModals(); return }
+    if (gridCloseTimerRef.current) return
+    setGridClosing(true)
+    gridCloseTimerRef.current = setTimeout(() => {
+      gridCloseTimerRef.current = null
+      closeModals()
+    }, 180)
+  }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
   const dragSamplesRef = useRef<DragSample[]>([])
@@ -732,7 +769,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
         event.preventDefault()
-        closeModals()
+        requestCloseModals()
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
@@ -749,6 +786,119 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // modal transition would unplug the handler for a few frames. The
     // gate reads anyModalOpenRef (written at event time) instead.
   }, [index, mode, images.length])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented) return
+      if (isTypingTarget(event.target as HTMLElement | null)) return
+      const actions = gridActionsRef.current
+      if (gridOpenRef.current) {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') { event.preventDefault(); actions.stepGridSel(event.key); return }
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); actions.commitGridSel(); return }
+      }
+      if (event.key === 'Escape' && gridOpenRef.current) { event.preventDefault(); actions.requestCloseModals(); return }
+      if (event.key !== 'g' && event.key !== 'G') return
+      if (!document.body.classList.contains('gallery-entered')) return
+      event.preventDefault()
+      if (gridOpenRef.current) actions.requestCloseModals()
+      else if (!anyModalOpenRef.current) actions.openGrid()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  useEffect(() => {
+    if (!gridOpen) return
+    setGridSel(indexRef.current)
+    const openedFrom = document.activeElement as HTMLElement
+    previousFocusRef.current = openedFrom
+    const frame = requestAnimationFrame(() => {
+      const container = filmstripFrameRef.current
+      const active = gridModalRef.current?.querySelector<HTMLElement>('[data-grid-active]')
+      if (container && active) container.scrollLeft = active.offsetLeft + active.offsetWidth / 2 - container.clientWidth / 2
+      active?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [gridOpen])
+
+  useEffect(() => {
+    if (gridOpen || modalOpen || infoOpen) return
+    if (previousFocusRef.current) {
+      previousFocusRef.current.focus({ preventScroll: true })
+      previousFocusRef.current = null
+    }
+  }, [gridOpen, modalOpen, infoOpen])
+
+  useEffect(() => {
+    if (!gridOpen) return
+    magnifierRef.current?.deactivate()
+    setMagnifierActive(false)
+  }, [gridOpen])
+
+  const startFilmstripPan = (event: PointerEvent) => {
+    const frame = filmstripFrameRef.current
+    if (!frame) return
+    filmstripPanRef.current = { pointerId: event.pointerId, x: event.clientX, scrollLeft: frame.scrollLeft }
+    scrollLeftAtDownRef.current = frame.scrollLeft
+    gridSuppressClickRef.current = false
+  }
+  const moveFilmstripPan = (event: PointerEvent) => {
+    const pan = filmstripPanRef.current
+    const frame = filmstripFrameRef.current
+    if (!pan || !frame || pan.pointerId !== event.pointerId) return
+    frame.scrollLeft = pan.scrollLeft - (event.clientX - pan.x)
+    if (Math.abs(frame.scrollLeft - scrollLeftAtDownRef.current) > 6) {
+      gridSuppressClickRef.current = true
+      if (!frame.hasPointerCapture(event.pointerId)) frame.setPointerCapture(event.pointerId)
+    }
+  }
+  const endFilmstripPan = (event: PointerEvent) => {
+    const frame = filmstripFrameRef.current
+    if (!filmstripPanRef.current || filmstripPanRef.current.pointerId !== event.pointerId) return
+    if (frame?.hasPointerCapture(event.pointerId)) frame.releasePointerCapture(event.pointerId)
+    filmstripPanRef.current = null
+  }
+  const wheelFilmstrip = (event: WheelEvent) => {
+    const frame = filmstripFrameRef.current
+    if (!frame) return
+    event.preventDefault()
+    const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+    const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? frame.clientWidth : 1
+    frame.scrollLeft += delta * factor
+  }
+  const selectFilmstripImage = (imageIndex: number) => {
+    if (gridSuppressClickRef.current) { gridSuppressClickRef.current = false; return }
+    if (gridCloseTimerRef.current) return
+    setGridSel(imageIndex)
+    setGridClosing(true)
+    gridCloseTimerRef.current = setTimeout(() => {
+      gridCloseTimerRef.current = null
+      closeModals()
+      goTo(imageIndex)
+    }, 180)
+  }
+  // Selection follows the pink box (data-grid-active), never DOM focus —
+  // arrows work whether or not a thumbnail has had time to take focus.
+  const gridItems = () => [...(gridModalRef.current?.querySelectorAll<HTMLButtonElement>('[data-grid-item]') ?? [])]
+  const stepGridSel = (key: string) => {
+    const items = gridItems()
+    if (!items.length) return
+    const current = Math.max(0, items.findIndex((el) => el.hasAttribute('data-grid-active')))
+    const next = key === 'Home' ? 0 : key === 'End' ? items.length - 1 : (current + (key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
+    setGridSel(next)
+    items[next]?.focus()
+    items[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
+  const commitGridSel = () => {
+    const sel = gridItems().findIndex((el) => el.hasAttribute('data-grid-active'))
+    if (sel >= 0) selectFilmstripImage(sel)
+  }
+  // The window key handler subscribes once and reaches these through a ref —
+  // deps like [gridOpen] would unplug it for a few frames on every open/close
+  // (hono/jsx re-arms passive effects asynchronously) and swallow a fast G.
+  const gridActionsRef = useRef({ openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel })
+  gridActionsRef.current = { openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel }
 
   // Magnifier availability is a media-query question, answered on the
   // client only: the server cannot know the pointer type, so the shortcut
@@ -811,12 +961,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // Opening either modal dismisses the lens: a loupe floating over a
   // dialog is both confusing and unreachable.
   useEffect(() => {
-    if (!modalOpen && !infoOpen) return
+    if (!modalOpen && !infoOpen && !gridOpen) return
     magnifierRef.current?.deactivate()
     setMagnifierActive(false)
-  }, [modalOpen, infoOpen])
+  }, [modalOpen, infoOpen, gridOpen])
 
   useEffect(() => () => {
+    if (gridCloseTimerRef.current) clearTimeout(gridCloseTimerRef.current)
     magnifierRef.current?.destroy()
     magnifierRef.current = null
   }, [])
@@ -1104,7 +1255,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // first frames after opening, before a passive effect could attach a
   // document listener).
   const onModalKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape') { event.preventDefault(); closeModals(); return }
+    if (event.key === 'Escape') { event.preventDefault(); requestCloseModals(); return }
     if (event.key !== 'Tab') return
     const modal = event.currentTarget as HTMLElement
     const focusable = [...modal.querySelectorAll<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hasAttribute('disabled'))
@@ -1284,7 +1435,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       index,
       frameActive: isFrameActive(imageIndex),
       galleryEntered,
-      blocked: modalOpen || infoOpen,
+      blocked: modalOpen || infoOpen || gridOpen,
       connection,
     })
 
@@ -1644,7 +1795,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-          <span class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length}`} title={`Photograph ${index + 1} of ${images.length}`} data-total={images.length}>{index + 1}</span>
+          <button type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open selector`} onClick={openGrid}>
+            <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
+            <span class="stage-seq-detail" aria-hidden="true">
+              <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
+              <span class="stage-seq-hint">open global</span>
+            </span>
+          </button>
           {arrowsVisible ? (
             <>
               <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
@@ -1655,6 +1812,48 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       </div>
 
       <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
+
+      {gridOpen ? <>
+        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+            event.preventDefault()
+            stepGridSel(event.key)
+            return
+          }
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            commitGridSel()
+            return
+          }
+          onModalKeyDown(event)
+        }}>
+          <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
+            <div class="viewer-filmstrip-track">
+              {images.map((image, imageIndex) => {
+                const video = isVideoItem(image)
+                const thumb = image.variants?.[0]?.src ?? image.placeholder
+                return <button
+                  type="button"
+                  class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
+                  data-grid-item
+                  data-grid-active={imageIndex === gridSel ? 'true' : undefined}
+                  aria-current={imageIndex === gridSel ? 'true' : undefined}
+                  aria-label={`${video ? 'Video' : 'Photograph'} ${imageIndex + 1} of ${images.length}`}
+                  onPointerMove={() => {
+                    if (filmstripPanRef.current || imageIndex === gridSel) return
+                    setGridSel(imageIndex)
+                  }}
+                  onClick={() => selectFilmstripImage(imageIndex)}
+                >
+                  <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                  {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
+                </button>
+              })}
+            </div>
+          </div>
+        </div>
+      </> : null}
 
       <div
         ref={modalRef}
@@ -1712,6 +1911,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
           <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
             <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
+            <p><kbd>G</kbd> photograph selector</p>
             <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
             <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
             {/* Pointer-gated: a loupe replacing the cursor means nothing

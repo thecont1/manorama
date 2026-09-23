@@ -135,7 +135,11 @@ button { color: inherit; }
    just left of the buttons (or of the ↑/↓ column in vertical — the
    absolute dock keeps it beside the group rather than inside the flow).
    When arrows are opted out the bubble takes the corner slot itself. */
-.stage-seq {
+/* The .stage-arrows prefix out-specifies the shared `.stage-arrows
+   button` rule — otherwise its border-radius: 50% renders the expanded
+   state as an ellipse and its transition list would drop the pill's
+   size animation. */
+.stage-arrows .stage-seq {
   position: absolute;
   right: 100%;
   top: 50%;
@@ -143,6 +147,7 @@ button { color: inherit; }
   margin-right: 8px;
   display: grid;
   place-items: center;
+  width: clamp(44px, 6.3svh, 59px);
   min-width: clamp(44px, 6.3svh, 59px);
   height: clamp(44px, 6.3svh, 59px);
   padding: 0 12px;
@@ -151,36 +156,71 @@ button { color: inherit; }
   background: rgba(10, 10, 10, .55);
   box-shadow: 2px 2px 0 rgba(var(--ink), .18);
   color: rgba(var(--ink), .85);
+  font-family: inherit;
   font-size: clamp(13px, 2svh, 18px);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   opacity: .5;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  overflow: hidden;
 }
-/* Hover wakes the bubble on mouse pointers only — on touch it stays
-   inert so it never eats a drag that starts on top of it. The tally
-   grows the pill leftward: right: 100% anchors its right edge. */
+/* Count fades back in after the pill has collapsed to circle size. */
+.stage-seq-num { transition: opacity 160ms ease 60ms; }
+/* The hover flyout: two centered lines that only exist inside the
+   expanded pill, so the resting circle stays a bare counter. */
+.stage-seq-detail {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 140ms ease;
+}
+.stage-seq-tally { font-size: clamp(12px, 1.75svh, 15px); font-weight: 600; }
+.stage-seq-hint { font-size: clamp(9px, 1.28svh, 10.5px); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: rgba(var(--ink), .62); }
+/* On mouse pointers the circle animates into a pill — its right edge
+   stays docked to the nav cluster, so the expansion reads as the bubble
+   stretching left, not jumping. Hovering anywhere in the nav cluster
+   counts as "near" the counter (the pill grows away from the arrows,
+   so it never occludes them). A soft overshoot easing makes the grow
+   feel like the pill inflates; un-hover settles back faster. The flyout
+   waits for the pill to have room before fading in. Focus-visible gets
+   the same treatment so keyboard users see the affordance too. */
 @media (hover: hover) and (pointer: fine) {
-  .stage-seq { pointer-events: auto; cursor: default; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
-  .stage-seq:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
-  /* The tally tucks under the count in small type — the number itself
-     stays exactly where it sat at rest. */
-  .stage-seq:hover::after {
-    content: 'of ' attr(data-total);
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: 18%;
-    font-size: clamp(9px, 1.35svh, 11px);
-    font-weight: 500;
-    letter-spacing: .05em;
-    color: rgba(var(--ink), .6);
-    white-space: nowrap;
+  .stage-arrows .stage-seq {
+    transition:
+      opacity 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      min-width 220ms cubic-bezier(.4, 0, .2, 1),
+      height 220ms cubic-bezier(.4, 0, .2, 1);
   }
+  .stage-seq:is(:hover, :focus-visible),
+  .stage-arrows:hover .stage-seq {
+    opacity: 1;
+    border-color: rgba(var(--ink), .8);
+    background: rgba(10, 10, 10, .82);
+    min-width: clamp(126px, 18svh, 168px);
+    height: clamp(52px, 7.4svh, 66px);
+    transition:
+      opacity 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease,
+      min-width 340ms cubic-bezier(.28, 1.35, .42, 1),
+      height 340ms cubic-bezier(.28, 1.35, .42, 1);
+  }
+  .stage-seq:is(:hover, :focus-visible) .stage-seq-num,
+  .stage-arrows:hover .stage-seq .stage-seq-num { opacity: 0; transition: opacity 110ms ease; }
+  .stage-seq:is(:hover, :focus-visible) .stage-seq-detail,
+  .stage-arrows:hover .stage-seq .stage-seq-detail { opacity: 1; transition: opacity 200ms ease 120ms; }
 }
+.stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
 /* No buttons to flank: the bubble claims the corner outright. */
 .stage-arrows--bare .stage-seq { right: 0; top: auto; bottom: 0; transform: none; margin-right: 0; }
 /* On touch the enabled arrows split to opposite corners — the bubble
@@ -1108,6 +1148,115 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
   font-size: 12px;
 }
 @media (prefers-reduced-motion: reduce) { .viewer-frame .frame-video { transition: none; } }
+
+/* G-key centered photograph selector. The strip is a modal choice surface,
+   not a second viewer: stage media sits behind the scrim and is blocked. */
+.filmstrip-scrim {
+  position: fixed;
+  z-index: 29;
+  inset: 0;
+  background: rgba(10, 10, 10, .62);
+  backdrop-filter: blur(6px);
+}
+.viewer-filmstrip {
+  position: fixed;
+  z-index: 30;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: clamp(110px, 20svh, 160px);
+  transform: translateY(-50%);
+  border-top: 1px solid rgba(244, 240, 232, .18);
+  border-bottom: 1px solid rgba(244, 240, 232, .18);
+  background: rgba(12, 14, 14, .68);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, .25);
+  animation: viewer-filmstrip-in 280ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.viewer-filmstrip-frame {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: pan-x;
+  user-select: none;
+}
+.viewer-filmstrip-frame:active { cursor: grabbing; }
+.viewer-filmstrip-track {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  gap: 0;
+  justify-content: center;
+}
+.viewer-filmstrip-item {
+  position: relative;
+  z-index: 0;
+  flex: 0 0 auto;
+  width: auto;
+  height: 100%;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  cursor: grab;
+}
+.viewer-filmstrip-item:active { cursor: grabbing; }
+.viewer-filmstrip-item::after {
+  position: absolute;
+  inset: 0;
+  border-right: 1px solid rgba(244, 240, 232, .25);
+  content: '';
+  pointer-events: none;
+}
+.viewer-filmstrip-item img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity .32s ease;
+}
+.viewer-filmstrip-item img.is-loaded { opacity: 1; }
+.viewer-filmstrip-item.is-active,
+.viewer-filmstrip-item:focus-visible { z-index: 1; box-shadow: inset 0 0 0 2px #fc0fc0; }
+.viewer-filmstrip.is-closing {
+  animation: viewer-filmstrip-out 180ms ease forwards;
+  transition: none;
+}
+.filmstrip-scrim.is-closing {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+@keyframes viewer-filmstrip-out {
+  from { opacity: 1; transform: translateY(-50%); }
+  to { opacity: 0; transform: translateY(calc(-50% - 8px)); }
+}
+.viewer-filmstrip-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  background: rgba(10, 10, 10, .74);
+  color: rgba(244, 240, 232, .92);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+@keyframes viewer-filmstrip-in {
+  from { opacity: 0; transform: translateY(calc(-50% + 10px)); }
+  to { opacity: 1; transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-arrows .stage-seq,
+  .viewer-filmstrip,
+  .viewer-filmstrip.is-closing,
+  .filmstrip-scrim.is-closing,
+  .viewer-filmstrip-item img { transition: none !important; animation: none !important; }
+}
 
 /* Admin rail: a video item keeps the photo thumbnail and gains a badge. */
 .admin-gallery-strip-item { position: relative; }

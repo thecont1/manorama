@@ -31,7 +31,7 @@ Every gallery lives at a clean public URL — `manorama.xyz/{you}/{gallery}` —
 The stage shows only your photographs — a small bobbing Manorama pill at the bottom edge is the only visible chrome. Press it (or wave the mouse near it) for display settings.
 
 - **Three ways to look**: a horizontal photostrip where images abut edge-to-edge, a vertical scroll, or one photograph at a time.
-- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet bubble at the bottom-right counts the photograph you're on — hover it to see the full tally ("5 of 56").
+- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet bubble at the bottom-right counts the photograph you're on — it's also a button: hover stretches it into a pill ("5 of 56 items" / "open global"), and click (or `G`) raises the selector filmstrip.
 - **`I`** opens the information sheet — position, caption, EXIF, Content Credentials. **`⇧I`** opens the standalone C2PA viewer in a new tab.
 - **`M`** on desktop summons a magnifier that follows your cursor at 3×.
 - **Video** plays ambient — muted and looping — with a megaphone for sound.
@@ -52,5 +52,7 @@ Free accounts keep up to **3 editable galleries**. Creates beyond that still wor
 Originals are never persisted — media streams through Manorama at view time and nothing is uploaded, transcoded, or modified. Deleting a gallery removes only Manorama's reference to it. The full policy lives at `/privacy`.
 
 ---
+
+`G` raises the selector: a filmstrip mid-screen. Drag to browse, hover or arrow keys move the pink box, click or Enter jumps to it.
 
 *For developers: architecture, media pipeline, the viewer contract, and deployment live in [TECH-SPEC.md](TECH-SPEC.md).*
