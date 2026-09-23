@@ -54,8 +54,9 @@ export class RevenueCatBilling {
   async identify(appUserId: string): Promise<BillingState> {
     const trimmed = appUserId.trim()
     if (!trimmed) throw new Error('RevenueCat app user ID is required')
+    const generation = this.sessionGeneration
     const result = await this.purchases.logIn({ appUserID: trimmed })
-    return this.applyCustomerInfo(result.customerInfo, this.sessionGeneration)
+    return this.applyCustomerInfo(result.customerInfo, generation)
   }
   async refresh(generation = this.sessionGeneration): Promise<BillingState> {
     const result = await this.purchases.getCustomerInfo()
@@ -63,12 +64,14 @@ export class RevenueCatBilling {
   }
   async offerings(): Promise<PurchasesOffering | null> { return (await this.purchases.getOfferings()).current }
   async purchase(aPackage: PurchasesPackage): Promise<BillingState> {
+    const generation = this.sessionGeneration
     const result = await this.purchases.purchasePackage({ aPackage })
-    return this.applyCustomerInfo(result.customerInfo, this.sessionGeneration)
+    return this.applyCustomerInfo(result.customerInfo, generation)
   }
   async restore(): Promise<BillingState> {
+    const generation = this.sessionGeneration
     const result = await this.purchases.restorePurchases()
-    return this.applyCustomerInfo(result.customerInfo, this.sessionGeneration)
+    return this.applyCustomerInfo(result.customerInfo, generation)
   }
   async signOut(): Promise<void> {
     this.sessionGeneration += 1
