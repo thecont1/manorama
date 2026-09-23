@@ -159,4 +159,62 @@ describe('RevenueCatBilling', () => {
     expect(billing.currentState).toBeUndefined()
     expect(seen).toEqual(['pro'])
   })
+
+  test('ignores a delayed purchase result after the account changes', async () => {
+    const paidInfo = customerInfo({ will_pay: { isActive: true } })
+    const freeInfo = customerInfo()
+    const fake = fakePurchases(paidInfo)
+    let finishPurchase!: () => void
+    fake.purchasePackage = async () => {
+      await new Promise<void>((resolve) => { finishPurchase = resolve })
+      return {
+        productIdentifier: 'yearly',
+        customerInfo: paidInfo,
+        transaction: {} as never,
+      }
+    }
+    const seen: string[] = []
+    const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
+    await billing.configure({ apiKey: 'key', appUserId: 'account-a' })
+
+    const purchase = billing.purchase(packageStub)
+    await Promise.resolve()
+    await billing.signOut()
+    fake.getCustomerInfo = async () => ({ customerInfo: freeInfo })
+    await billing.configure({ apiKey: 'key', appUserId: 'account-b' })
+    expect(billing.currentState?.tier).toBe('free')
+    expect(seen).toEqual(['pro', 'free'])
+
+    finishPurchase()
+    await purchase
+    expect(billing.currentState?.tier).toBe('free')
+    expect(seen).toEqual(['pro', 'free'])
+  })
+
+  test('ignores a delayed restore result after the account changes', async () => {
+    const paidInfo = customerInfo({ will_pay: { isActive: true } })
+    const freeInfo = customerInfo()
+    const fake = fakePurchases(paidInfo)
+    let finishRestore!: () => void
+    fake.restorePurchases = async () => {
+      await new Promise<void>((resolve) => { finishRestore = resolve })
+      return { customerInfo: paidInfo }
+    }
+    const seen: string[] = []
+    const billing = new RevenueCatBilling(fake, (state) => seen.push(state.tier))
+    await billing.configure({ apiKey: 'key', appUserId: 'account-a' })
+
+    const restore = billing.restore()
+    await Promise.resolve()
+    await billing.signOut()
+    fake.getCustomerInfo = async () => ({ customerInfo: freeInfo })
+    await billing.configure({ apiKey: 'key', appUserId: 'account-b' })
+    expect(billing.currentState?.tier).toBe('free')
+    expect(seen).toEqual(['pro', 'free'])
+
+    finishRestore()
+    await restore
+    expect(billing.currentState?.tier).toBe('free')
+    expect(seen).toEqual(['pro', 'free'])
+  })
 })
