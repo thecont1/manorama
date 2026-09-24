@@ -18,6 +18,7 @@ export default function GalleryShell({ settings, status, children }: Props) {
         role="button"
         tabIndex={0}
         aria-label="Enter gallery"
+        aria-describedby={status ? 'gallery-curtain-status' : undefined}
       >
         <div class="curtain-content">
           <span class="brand-mark-wrap curtain-logo-wrap">
@@ -33,7 +34,7 @@ export default function GalleryShell({ settings, status, children }: Props) {
           <p class="curtain-caption" data-curtain-caption>
             {settings.caption}
           </p>
-          {status && <p class="curtain-status" role="status">{status}</p>}
+          {status && <p id="gallery-curtain-status" class="curtain-status" role="status">{status}</p>}
         </div>
       </section>
       {children}

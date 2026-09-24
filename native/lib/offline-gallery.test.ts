@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { GalleryImage, GalleryManifest, VideoItem } from '../../app/lib/imagesource'
 import { defaultGallerySettings } from '../../app/lib/gallery-settings'
-import type { NativeGalleryResponse } from './api'
+import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import {
   EncryptedOfflineGalleryStore,
   OfflineGalleryUnavailableError,
@@ -205,6 +205,19 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await store.open(selection)).toBeUndefined()
   })
 
+  test('invalidates every encrypted entry for a gallery', async () => {
+    const { store, vault } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    await store.cache(selection, gallery)
+
+    await store.invalidate(selection)
+
+    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+    expect(await vault.read(galleryId, __private__.METADATA_ENTRY_ID)).toBeUndefined()
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-one'))).toBeUndefined()
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-two'))).toBeUndefined()
+  })
+
   test('reconstructs stills with short-lived URLs while retaining all manifest fields', async () => {
     const { store, urls } = makeHarness()
     await store.cache(selection, gallery)
@@ -301,6 +314,32 @@ describe('openGalleryNetworkFirst', () => {
     expect(opened.manifest.images[0]?.src).toBe('blob:offline-1')
   })
 
+  test('rethrows HTTP errors and invalidates a cache for deleted galleries', async () => {
+    const { store } = makeHarness()
+    await store.cache(selection, gallery)
+    const error = new NativeGalleryHttpError(404, 'Gallery not found')
+
+    await expect(openGalleryNetworkFirst({
+      selection,
+      store,
+      fetchOnline: async () => { throw error },
+    })).rejects.toBe(error)
+    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+  })
+
+  test('rethrows other HTTP errors without using a stale cache', async () => {
+    const { store } = makeHarness()
+    await store.cache(selection, gallery)
+    const error = new NativeGalleryHttpError(500, 'Server error')
+
+    await expect(openGalleryNetworkFirst({
+      selection,
+      store,
+      fetchOnline: async () => { throw error },
+    })).rejects.toBe(error)
+    expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 2 })
+  })
+
   test('preserves a calm network error when no complete cache exists', async () => {
     const { store } = makeHarness()
     const opening = openGalleryNetworkFirst({
@@ -326,6 +365,7 @@ describe('openGalleryNetworkFirst', () => {
       },
       async inspect() { return { status: 'missing', images: 0 } },
       async open() { return undefined },
+      async invalidate() {},
     }
 
     const opened = await openGalleryNetworkFirst({

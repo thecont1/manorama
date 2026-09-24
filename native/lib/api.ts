@@ -7,6 +7,13 @@ export type NativeGalleryResponse = {
   settings: GallerySettings
 }
 
+export class NativeGalleryHttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+    this.name = 'NativeGalleryHttpError'
+  }
+}
+
 export const normalizeApiBase = (value: string): string => value.replace(/\/+$/, '')
 
 const absoluteUrl = (value: string, apiBase: string): string => {
@@ -55,7 +62,7 @@ export const fetchGallery = async (
     { headers, signal },
   )
   const payload = await response.json().catch(() => ({})) as Partial<NativeGalleryResponse> & { error?: string }
-  if (!response.ok) throw new Error(payload.error || `Gallery request failed (${response.status})`)
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Gallery request failed (${response.status})`)
   if (!payload.manifest || !payload.settings) throw new Error('Gallery response was incomplete')
   return {
     manifest: nativeManifest(payload.manifest, apiBase),

@@ -1,7 +1,7 @@
 import type { GalleryImage, GalleryManifest, GalleryMediaItem, ImageVariant } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
-import type { NativeGalleryResponse } from './api'
+import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import { thumbnailEntryId } from './thumbs'
 import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
@@ -29,6 +29,7 @@ export interface OfflineGalleryStore {
   cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal): Promise<OfflineCacheResult>
   inspect(selection: GallerySelection): Promise<OfflineCacheInspection>
   open(selection: GallerySelection): Promise<OfflineGalleryLease | undefined>
+  invalidate(selection: GallerySelection): Promise<void>
 }
 
 export type OfflineFetchResponse = Pick<Response, 'ok' | 'status' | 'headers' | 'arrayBuffer'>
@@ -39,7 +40,7 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery'>
 type CachedImage = { id: string; entryId: string; mimeType: string }
 type OfflineMetadata = {
   version: typeof METADATA_VERSION
@@ -266,6 +267,11 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     return { status: 'complete', images: metadata.value.images.length }
   }
 
+  async invalidate(rawSelection: GallerySelection): Promise<void> {
+    const selection = requireSelection(rawSelection)
+    await this.vault.clearGallery(await offlineGalleryId(selection))
+  }
+
   async open(rawSelection: GallerySelection): Promise<OfflineGalleryLease | undefined> {
     const selection = requireSelection(rawSelection)
     const galleryId = await offlineGalleryId(selection)
@@ -333,6 +339,8 @@ export class OfflineGalleryUnavailableError extends Error {
   }
 }
 
+const CACHE_INVALIDATING_HTTP_STATUSES = new Set([401, 403, 404, 410])
+
 /** Online bytes win. A successful response returns before its cache fill settles. */
 export const openGalleryNetworkFirst = async (options: {
   selection: GallerySelection
@@ -346,6 +354,12 @@ export const openGalleryNetworkFirst = async (options: {
     return { ...gallery, source: 'online', cacheFill }
   } catch (networkError) {
     throwIfAborted(options.signal)
+    if (networkError instanceof NativeGalleryHttpError) {
+      if (CACHE_INVALIDATING_HTTP_STATUSES.has(networkError.status)) {
+        await options.store.invalidate(options.selection).catch(() => undefined)
+      }
+      throw networkError
+    }
     const cached = await options.store.open(options.selection)
     if (!cached) throw new OfflineGalleryUnavailableError(networkError)
     return cached
