@@ -51,6 +51,8 @@ export const galleryStatusMessage = (status: GalleryStatus): string => {
   return 'Connect to manorama to view a public gallery.'
 }
 
+/** Opens native galleries from the network or local vault and presents eligible
+ *  photo pairs in the fold layout when the device has two usable segments. */
 export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({

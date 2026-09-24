@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import type { GalleryImage } from './app/lib/imagesource'
 
 const nativeUrl = process.env.NATIVE_GALLERY_URL
 const apiPattern = '**/api/gallery/**'
@@ -34,6 +35,45 @@ const manifest = {
     imageAlts: {},
   },
 }
+
+const foldImage = (index: number, overrides: Partial<GalleryImage> = {}): GalleryImage => ({
+  ...manifest.manifest.images[0],
+  id: `fold-${index}`,
+  filename: `fold-${index}.svg`,
+  src: svg(`photograph ${index + 1}`),
+  alt: `Fold photograph ${index + 1}`,
+  ...overrides,
+})
+
+const installIOSFold = async (page: Page) => {
+  await page.addInitScript(() => {
+    Object.assign(window, {
+      __MANORAMA_IOS_FOLD__: {
+        horizontalSizeClass: 'regular',
+        verticalSizeClass: 'regular',
+        hinge: { axis: 'vertical', start: 700, size: 40 },
+      },
+    })
+  })
+}
+
+const openFoldFixture = async (
+  page: Page,
+  images: GalleryImage[] = Array.from({ length: 6 }, (_, index) => foldImage(index)),
+) => {
+  await installIOSFold(page)
+  await page.route(apiPattern, (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ...manifest, manifest: { ...manifest.manifest, images } }),
+  }))
+  await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+  await expect(page.locator('[data-curtain]')).toBeVisible()
+  await page.locator('[data-curtain]').click()
+  await expect(page.locator('[data-diptych-stage]')).toBeVisible()
+}
+
+const seqLabel = (photo: number) => `Photograph ${photo} of 6 — open selector`
 
 const describeIfConfigured = nativeUrl ? test.describe : test.describe.skip
 
@@ -137,5 +177,141 @@ describeIfConfigured('native fold runtime', () => {
     const second = await page.locator('[data-diptych-frame="2"]').boundingBox()
     expect(first).toMatchObject({ x: 0, y: 0, width: 700, height: 900 })
     expect(second).toMatchObject({ x: 740, y: 0, width: 700, height: 900 })
+  })
+
+  test('steps accumulate from the pending fold destination within one task', async ({ page }) => {
+    await openFoldFixture(page)
+    const seq = page.locator('.stage-seq')
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+    })
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(3))
+    await expect(page.locator('[data-diptych-frame="1"]')).toHaveAttribute('data-image-id', 'fold-2')
+    await expect(page.locator('[data-diptych-frame="2"]')).toHaveAttribute('data-image-id', 'fold-3')
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }))
+    })
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
+    await page.evaluate(() => {
+      const stage = document.querySelector('[data-stage]')
+      stage?.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }))
+      stage?.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }))
+    })
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(4))
+  })
+
+  for (const { deltaMode, deltaY } of [
+    { deltaMode: 0, deltaY: 12 },
+    { deltaMode: 1, deltaY: 1 },
+    { deltaMode: 2, deltaY: 1 },
+  ]) {
+    test(`normalises wheel deltaMode ${deltaMode} before the fold step threshold`, async ({ page }) => {
+      await openFoldFixture(page)
+      const seq = page.locator('.stage-seq')
+      await page.evaluate(([mode, delta]) => {
+        document.querySelector('[data-stage]')?.dispatchEvent(
+          new WheelEvent('wheel', { deltaY: delta, deltaMode: mode, bubbles: true, cancelable: true }))
+      }, [deltaMode, deltaY])
+      await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
+      await page.evaluate(([mode, delta]) => {
+        document.querySelector('[data-stage]')?.dispatchEvent(
+          new WheelEvent('wheel', { deltaY: -delta, deltaMode: mode, bubbles: true, cancelable: true }))
+      }, [deltaMode, deltaY])
+      await expect(seq).toHaveAttribute('aria-label', seqLabel(1))
+    })
+  }
+
+  test('ignores a canceled fold gesture and steps once on a completed drag', async ({ page }) => {
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(String(error)))
+    await openFoldFixture(page)
+    const seq = page.locator('.stage-seq')
+    await page.evaluate(() => {
+      document.querySelector('[data-stage]')?.addEventListener('pointerdown', (event) => {
+        ;(window as unknown as { __foldPointerId?: number }).__foldPointerId = (event as PointerEvent).pointerId
+      })
+    })
+    await page.mouse.move(500, 400)
+    await page.mouse.down()
+    await page.mouse.move(400, 400)
+    const pointerId = await page.evaluate(
+      () => (window as unknown as { __foldPointerId?: number }).__foldPointerId,
+    )
+    expect(typeof pointerId).toBe('number')
+    await page.evaluate((id: number) => {
+      document.querySelector('[data-stage]')?.dispatchEvent(
+        new PointerEvent('pointercancel', { bubbles: true, pointerId: id, pointerType: 'mouse', clientX: 400, clientY: 400 }))
+    }, pointerId as number)
+    await page.mouse.up()
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(1))
+    await page.mouse.move(500, 400)
+    await page.mouse.down()
+    await page.mouse.move(400, 400)
+    await page.mouse.up()
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
+    expect(pageErrors).toEqual([])
+  })
+
+  for (const withVariant of [true, false]) {
+    test(`shows the ${withVariant ? '256px variant' : 'placeholder'} while a HEIC source decodes, then swaps to the decoded blob`, async ({ page }) => {
+      let releaseSource: () => void = () => undefined
+      const sourceGate = new Promise<void>((resolve) => { releaseSource = resolve })
+      const preview = svg('heic preview')
+      const placeholder = svg('heic placeholder')
+      const images: GalleryImage[] = [
+        foldImage(0, {
+          filename: 'fold-source.heic',
+          src: '/fold-source.heic',
+          placeholder,
+          ...(withVariant ? { variants: [{ width: 256, src: preview, format: 'jpeg' }] } : {}),
+        }),
+        ...Array.from({ length: 5 }, (_, index) => foldImage(index + 1)),
+      ]
+      await page.route('**/fold-source.heic', async (route) => {
+        await sourceGate
+        await route.fulfill({
+          status: 200,
+          contentType: 'image/svg+xml',
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="900"><rect width="100%" height="100%" fill="#171817"/><text x="32" y="80" fill="#f3f0e8">decoded heic</text></svg>',
+        })
+      })
+      await openFoldFixture(page, images)
+      const first = page.locator('[data-diptych-frame="1"] img')
+      await expect(first).toHaveAttribute('src', withVariant ? preview : placeholder)
+      releaseSource()
+      await expect(first).toHaveAttribute('src', /^blob:/)
+      await expect.poll(() => first.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    })
+  }
+
+  test('keeps the raw wheel threshold in single mode on a one-segment shell', async ({ page }) => {
+    const images = Array.from({ length: 6 }, (_, index) => foldImage(index))
+    await page.route(apiPattern, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...manifest,
+        manifest: { ...manifest.manifest, images },
+        settings: { ...manifest.settings, defaultMode: 'single' },
+      }),
+    }))
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+    await expect(page.locator('[data-curtain]')).toBeVisible()
+    await page.locator('[data-curtain]').click()
+    const seq = page.locator('.stage-seq')
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(1))
+    await expect(page.locator('[data-diptych-stage]')).toHaveCount(0)
+    await page.evaluate(() => {
+      document.querySelector('[data-stage]')?.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: 1, deltaMode: 1, bubbles: true, cancelable: true }))
+    })
+    await page.waitForTimeout(300)
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(1))
+    await page.evaluate(() => {
+      document.querySelector('[data-stage]')?.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: 9, deltaMode: 1, bubbles: true, cancelable: true }))
+    })
+    await expect(seq).toHaveAttribute('aria-label', seqLabel(2))
   })
 })

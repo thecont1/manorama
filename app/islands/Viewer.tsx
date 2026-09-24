@@ -1088,13 +1088,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // page-mode wheels emit small deltas that would never reach the fold
       // step threshold otherwise.
       const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientWidth : 1
-      const delta = (Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX) * factor
+      const rawDelta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+      const delta = rawDelta * factor
       if (foldActiveRef.current) {
         if (Math.abs(delta) > 8) step(delta > 0 ? 1 : -1)
         return
       }
       if (mode === 'single') {
-        if (Math.abs(delta) > 8) step(delta > 0 ? 1 : -1)
+        if (Math.abs(rawDelta) > 8) step(rawDelta > 0 ? 1 : -1)
         return
       }
       renderX(currentXRef.current + delta * -1)
