@@ -8,8 +8,44 @@
   --native-safe-left: env(safe-area-inset-left, 0px);
 }
 
+/* fold.ts reads these values instead of guessing from a device UA. The
+   photograph panes keep the physical segment rectangles; safe-area values are
+   used only for controls and do not move the scrolling photo canvas. */
+@media (horizontal-viewport-segments: 2) {
+  :root {
+    --manorama-segment-left-0: env(viewport-segment-left 0 0);
+    --manorama-segment-top-0: env(viewport-segment-top 0 0);
+    --manorama-segment-width-0: env(viewport-segment-width 0 0);
+    --manorama-segment-height-0: env(viewport-segment-height 0 0);
+    --manorama-segment-left-1: env(viewport-segment-left 1 0);
+    --manorama-segment-top-1: env(viewport-segment-top 1 0);
+    --manorama-segment-width-1: env(viewport-segment-width 1 0);
+    --manorama-segment-height-1: env(viewport-segment-height 1 0);
+  }
+}
+
 body {
   padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
+}
+
+/* The diptych stage positions each figure by physical pane coordinates —
+   segment x/y are measured from the screen's corner, not from inside the
+   safe area. As an ordinary descendant of the padded body its origin would
+   sit one inset in, pushing both panes right and down off their physical
+   screens. While a diptych is mounted the body drops its padding so the
+   stage owns the whole viewport; controls keep their own env() insets, so
+   nothing interactive slides under the notch or the hinge. */
+body:has(.native-diptych) {
+  padding: 0;
+}
+
+.native-diptych {
+  z-index: 1;
+  touch-action: pan-y;
+}
+
+.native-diptych figure {
+  pointer-events: none;
 }
 
 .native-list-shell {

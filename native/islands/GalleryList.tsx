@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
-import type { GalleryManifest } from '../../app/lib/imagesource'
+import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
+import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
+import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
@@ -14,7 +16,9 @@ import {
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
 import { adFrameFor } from '../lib/ads'
+import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
+import Diptych, { type DiptychFrame } from './Diptych'
 
 type Props = {
   apiBase: string
@@ -47,6 +51,8 @@ export const galleryStatusMessage = (status: GalleryStatus): string => {
   return 'Connect to manorama to view a public gallery.'
 }
 
+/** Opens native galleries from the network or local vault and presents eligible
+ *  photo pairs in the fold layout when the device has two usable segments. */
 export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
@@ -58,6 +64,8 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
+  const [plateReady, setPlateReady] = useState(false)
+  const [foldLayout, setFoldLayout] = useState<FoldLayout | null>(null)
   const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [paywallOpen, setPaywallOpen] = useState(false)
@@ -138,15 +146,44 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   useEffect(() => {
     if (!manifest) return
     let active = true
+    setPlateReady(false)
     void adFrameFor({ tier: billingState?.isPro ? 'pro' : 'free' }).then((frame) => {
-      if (active) setPlate(frame)
+      if (active) {
+        setPlate(frame)
+        setPlateReady(true)
+      }
     })
     return () => { active = false }
   }, [manifest, billingState?.isPro])
 
+  useEffect(() => {
+    if (!manifest) return
+    const sync = () => setFoldLayout(readRuntimeFoldLayout())
+    sync()
+    return subscribeToRuntimeFoldLayout(sync)
+  }, [manifest])
+
   if (manifest && settings) {
     const source = new BundledSource(manifest)
     const runtimePlate = source.listWithPlate(plate).find(isAdFrame)
+    const foldImages = source.list()
+    const foldEligible = foldImages.length > 1 && foldImages.every((image) => !isVideoItem(image))
+    const renderFold = ({ frames, activeIndex, segments, dpr }: {
+      frames: readonly GalleryMediaItem[]
+      activeIndex: number
+      segments: NonNullable<FoldLayout>['segments']
+      dpr: number
+    }) => {
+      const diptychFrames: DiptychFrame[] = frames.map((image) => ({
+        id: image.id,
+        src: image.src,
+        width: image.width,
+        height: image.height,
+        alt: image.alt,
+        placeholder: image.placeholder,
+      }))
+      return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} />
+    }
     return (
       <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined}>
         <Viewer
@@ -154,6 +191,8 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           images={source.list()}
           settings={settings}
           plate={runtimePlate ?? null}
+          foldLayout={foldEligible && plateReady && !runtimePlate ? foldLayout : null}
+          foldRenderer={foldEligible ? renderFold : undefined}
         />
       </GalleryShell>
     )

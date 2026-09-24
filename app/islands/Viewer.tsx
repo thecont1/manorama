@@ -9,6 +9,7 @@ import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 import { AD_BANNER_HEIGHT, AD_BANNER_WIDTH, plateIndexFor, type AdFrame } from '../lib/adframe'
 import { clamp, glideEase } from '../lib/sizing'
+import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
 
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
@@ -17,6 +18,13 @@ type Props = {
   images: readonly GalleryMediaItem[]
   settings: GallerySettings
   plate?: AdFrame | null
+  foldLayout?: FoldLayout | null
+  foldRenderer?: (props: {
+    frames: readonly GalleryMediaItem[]
+    activeIndex: number
+    segments: readonly FoldSegment[]
+    dpr: number
+  }) => unknown
 }
 
 /** The standalone C2PA viewer is a sibling homebrand: `I` deep-links the
@@ -82,7 +90,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null }: Props) {
+export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -225,6 +233,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const navDestXRef = useRef<number | null>(null)
   const indexRef = useRef(index)
   const modeRef = useRef(mode)
+  const foldActiveRef = useRef(false)
+  // The fold index an in-flight step is heading for. Rapid wheel ticks and
+  // key repeats land before the next render commits, so each step anchors
+  // at this pending destination — the fold twin of navDestXRef.
+  const pendingFoldIndexRef = useRef<number | null>(null)
   const reportedIndexRef = useRef(index)
   // Seed a small window so the first vertical paint isn't placeholder-only;
   // the IntersectionObserver takes over immediately after mount.
@@ -250,6 +263,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const currentImage = images[index] ?? images[0]
   const plateIndex = plateIndexFor(images.length)
+  // Fold presentation is a native enhancement of strip mode. Ad plates retain
+  // the ordinary strip so the one-plate policy is never bypassed by a layout
+  // change; Pro galleries can use both physical segments without extra chrome.
+  const foldActive = mode === 'strip' && !plate && foldLayout?.mode === 'diptych' && Boolean(foldRenderer)
+  foldActiveRef.current = foldActive
   // The info panel speaks about whichever medium is on screen, and EXIF
   // only exists on photographs — narrow once here rather than at each use.
   const currentVideo = currentImage && isVideoItem(currentImage) ? currentImage : null
@@ -295,7 +313,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [plate, mode, images.length])
 
-  useEffect(() => { indexRef.current = index }, [index])
+  useLayoutEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
 
   // Background preference is global chrome: adopt the stored value after
@@ -453,14 +471,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // Pushing past the last photograph — drag, flick, or wheel — wakes
     // the endcard: its footprint rejoins the bounds and the gesture
     // carries straight into the reveal.
-    if (mode === 'strip' && !endcapRevealedRef.current && next < -bounds.max - 1) {
+    if (mode === 'strip' && !foldActiveRef.current && !endcapRevealedRef.current && next < -bounds.max - 1) {
       revealEndcap()
       bounds = getBounds()
     }
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
-    if (mode === 'strip') {
+    if (mode === 'strip' && !foldActiveRef.current) {
       setPlateActionability(false)
       queuePlateActionability()
     }
@@ -563,7 +581,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     } else {
       setIndex(next)
     }
-    if (mode === 'strip') {
+    if (mode === 'strip' && !foldActiveRef.current) {
       navDestXRef.current = -imageStart(next)
       settleTo(navDestXRef.current, instant)
     }
@@ -590,7 +608,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   const step = (direction: -1 | 1) => {
     if (!hasMultiple) return
-    if (mode === 'strip') {
+    if (foldActiveRef.current) {
+      const next = clamp((pendingFoldIndexRef.current ?? index) + direction, 0, images.length - 1)
+      pendingFoldIndexRef.current = next
+      goTo(next)
+    } else if (mode === 'strip') {
       const next = clamp(index + direction, 0, images.length - 1)
       goTo(next)
     } else if (mode === 'vertical') {
@@ -601,6 +623,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const advanceStripByViewport = (direction: -1 | 1) => {
+    if (foldActiveRef.current) { step(direction); return }
     if (mode !== 'strip') { step(direction); return }
     // The strip is bounded: forward at the end rests on the "The End."
     // card rather than wrapping; left arrow at the first image still
@@ -732,11 +755,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
+    if (foldActive) return
     boundsDirtyRef.current = true
     const target = mode === 'strip' ? -imageStart(index) : 0
     renderX(target, false)
     if (mode === 'vertical') requestAnimationFrame(() => document.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
-  }, [mode])
+  }, [mode, foldActive])
 
   const applyStageMetrics = () => {
     const stage = stageRef.current
@@ -746,7 +770,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: effectiveImageDpr(window.devicePixelRatio) }
     setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
     boundsDirtyRef.current = true
-    if (modeRef.current === 'strip') settleTo(-imageStart(indexRef.current), true)
+    if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
   }
 
   useLayoutEffect(() => {
@@ -782,16 +806,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     boundsDirtyRef.current = true
-    if (modeRef.current !== 'strip') return
+    if (modeRef.current !== 'strip' || foldActiveRef.current) return
     const frame = requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true, true))
     return () => cancelAnimationFrame(frame)
-  }, [stageSize])
+  }, [stageSize, foldActive])
 
   useEffect(() => () => {
     cancelPositionReport()
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
         event.preventDefault()
@@ -1055,23 +1079,31 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => window.removeEventListener('keydown', onKey)
   }, [index, images.length])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stage = stageRef.current
     if (!stage) return
     const onWheel = (event: WheelEvent) => {
       if (mode === 'vertical') return
       event.preventDefault()
-      const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
-      if (mode === 'single') {
+      // Normalise to pixels before any threshold or travel math: line- and
+      // page-mode wheels emit small deltas that would never reach the fold
+      // step threshold otherwise.
+      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientWidth : 1
+      const rawDelta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+      const delta = rawDelta * factor
+      if (foldActiveRef.current) {
         if (Math.abs(delta) > 8) step(delta > 0 ? 1 : -1)
         return
       }
-      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientWidth : 1
-      renderX(currentXRef.current + delta * factor * -1)
+      if (mode === 'single') {
+        if (Math.abs(rawDelta) > 8) step(rawDelta > 0 ? 1 : -1)
+        return
+      }
+      renderX(currentXRef.current + delta * -1)
     }
     stage.addEventListener('wheel', onWheel, { passive: false })
     return () => stage.removeEventListener('wheel', onWheel)
-  }, [mode, index])
+  }, [mode, index, foldActive])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -1104,6 +1136,41 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [mode, index])
 
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    if (!stage || !foldActive) return
+    let startX = 0
+    let pointerId: number | null = null
+    const onPointerDown = (event: PointerEvent) => {
+      if ((event.target as HTMLElement).closest('button')) return
+      startX = event.clientX
+      pointerId = event.pointerId
+      stage.setPointerCapture?.(event.pointerId)
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return
+      pointerId = null
+      stage.releasePointerCapture?.(event.pointerId)
+      const distance = event.clientX - startX
+      if (Math.abs(distance) > 42) step(distance < 0 ? 1 : -1)
+    }
+    // A canceled gesture is an interruption, not a swipe — release the
+    // tracked pointer without stepping the viewer.
+    const onPointerCancel = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return
+      pointerId = null
+      stage.releasePointerCapture?.(event.pointerId)
+    }
+    stage.addEventListener('pointerdown', onPointerDown)
+    stage.addEventListener('pointerup', onPointerUp)
+    stage.addEventListener('pointercancel', onPointerCancel)
+    return () => {
+      stage.removeEventListener('pointerdown', onPointerDown)
+      stage.removeEventListener('pointerup', onPointerUp)
+      stage.removeEventListener('pointercancel', onPointerCancel)
+    }
+  }, [foldActive, index])
+
   useEffect(() => {
     const stage = stageRef.current
     const logo = dotRef.current
@@ -1128,7 +1195,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       stage.classList.add('is-dragging')
     }
     const onPointerDown = (event: PointerEvent) => {
-      if (mode !== 'strip' || (event.target as HTMLElement).closest('button')) return
+      if (mode !== 'strip' || foldActiveRef.current || (event.target as HTMLElement).closest('button')) return
       beginDrag(event)
     }
     const onLogoDown = (event: PointerEvent) => {
@@ -1598,6 +1665,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }
 
+  const foldStartIndex = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
+  // Resolve displayable sources here — heicSrc lives in this component, so
+  // the renderer receives frames it can paint without knowing about HEIC.
+  // Undecoded HEICs show their 256px variant or placeholder, mirroring the
+  // ordinary frame's placeholder layer while libheif works.
+  const foldFrames = images.slice(foldStartIndex, foldStartIndex + 2).map((image) =>
+    isHeic(image)
+      ? { ...image, src: heicSrc[image.id] ?? image.variants?.[0]?.src ?? image.placeholder }
+      : image)
+  const foldActiveIndex = Math.max(0, index - foldStartIndex)
 
   return (
     <>
@@ -1616,7 +1693,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             through only the transparent gaps between tiles and the
             exposed canvas — never over photographs or UI. */}
         <SeededDoodleBackground enabled={background !== 'none'} />
-        <div
+        {foldActive && foldLayout && foldRenderer ? foldRenderer({
+          frames: foldFrames,
+          activeIndex: foldActiveIndex,
+          segments: foldLayout.segments,
+          dpr: stageSize.dpr,
+        }) : <div
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
@@ -1859,7 +1941,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               <button class="endcap-reset" onClick={backToStart}>Back to Start</button>
             </div>
           ) : null}
-        </div>
+        </div>}
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
