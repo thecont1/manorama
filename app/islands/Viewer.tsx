@@ -7,6 +7,7 @@ import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
+import { AD_BANNER_HEIGHT, AD_BANNER_WIDTH, plateIndexFor, type AdFrame } from '../lib/adframe'
 
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
@@ -14,6 +15,7 @@ type Props = {
   slug: string
   images: readonly GalleryMediaItem[]
   settings: GallerySettings
+  plate?: AdFrame | null
 }
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
@@ -106,7 +108,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, images: sourceImages, settings: initialSettings }: Props) {
+export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -258,6 +260,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const stripMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
+  const plateActionFrameRef = useRef<number | null>(null)
+  const plateActionableRef = useRef(false)
   const boundsRef = useRef({ min: 0, max: 0 })
   const boundsDirtyRef = useRef(true)
   // The "The End." card is mounted in the track but excluded from the
@@ -268,13 +272,54 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // join the tab order only while it is on screen — bounds math keeps
   // reading the ref synchronously.
   const [endcapRevealed, setEndcapRevealed] = useState(false)
+  const [plateActionable, setPlateActionable] = useState(false)
 
   const currentImage = images[index] ?? images[0]
+  const plateIndex = plateIndexFor(images.length)
   // The info panel speaks about whichever medium is on screen, and EXIF
   // only exists on photographs — narrow once here rather than at each use.
   const currentVideo = currentImage && isVideoItem(currentImage) ? currentImage : null
   const currentIsVideo = Boolean(currentVideo)
   const currentExif = currentImage && !isVideoItem(currentImage) ? currentImage.exif : undefined
+
+  const plateIsCentered = () => {
+    if (!plate || mode !== 'strip' || draggingRef.current || momentumRef.current !== null) return false
+    const stage = stageRef.current
+    const mount = trackRef.current?.querySelector<HTMLElement>('[data-ad-frame]')
+    if (!stage || !mount) return false
+    const stageRect = stage.getBoundingClientRect()
+    const mountRect = mount.getBoundingClientRect()
+    return Math.abs((mountRect.left + mountRect.width / 2) - (stageRect.left + stageRect.width / 2)) < 2
+  }
+
+  // Transform writes happen outside the render cycle. Re-measure after the
+  // browser has committed that transform so the CTA can enter the tab order
+  // when the plate actually settles, not only when some unrelated state change
+  // happens to re-render the island.
+  const queuePlateActionability = () => {
+    if (plateActionFrameRef.current !== null) return
+    plateActionFrameRef.current = requestAnimationFrame(() => {
+      plateActionFrameRef.current = null
+      const actionable = plateIsCentered()
+      plateActionableRef.current = actionable
+      setPlateActionable(actionable)
+    })
+  }
+
+  const setPlateActionability = (actionable: boolean) => {
+    plateActionableRef.current = actionable
+    setPlateActionable(actionable)
+  }
+
+  const plateCanActivate = () => plateActionableRef.current && !draggingRef.current && momentumRef.current === null
+
+  useEffect(() => {
+    queuePlateActionability()
+    return () => {
+      if (plateActionFrameRef.current !== null) cancelAnimationFrame(plateActionFrameRef.current)
+      plateActionFrameRef.current = null
+    }
+  }, [plate, mode, images.length])
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -440,6 +485,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
+    if (mode === 'strip') {
+      setPlateActionability(false)
+      queuePlateActionability()
+    }
     if (shouldReport) reportStripPosition()
     return value
   }
@@ -501,6 +550,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
         momentumRef.current = null
+        queuePlateActionability()
         if (reportOnComplete) reportStripPosition()
       }
     }
@@ -1094,6 +1144,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     let seqPress: { x: number; y: number } | null = null
     const beginDrag = (event: PointerEvent) => {
       stopMomentum()
+      setPlateActionability(false)
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current = currentXRef.current
@@ -1164,7 +1215,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         const bounds = getBounds()
         const atEdge = next === 0 || next === -bounds.max
         if (Math.abs(velocityPx) > (isTouch ? 0.18 : 0.25) && !atEdge) momentumRef.current = requestAnimationFrame(glide)
-        else momentumRef.current = null
+        else {
+          momentumRef.current = null
+          queuePlateActionability()
+        }
       }
       momentumRef.current = requestAnimationFrame(glide)
     }
@@ -1649,7 +1703,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 : undefined
             // The media box inside a capped frame.
             const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
-            return (
+            const photoFrame = (
               <figure
                 class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''}`}
                 data-image-id={image.id}
@@ -1799,6 +1853,24 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 )}
               </figure>
             )
+            if (plate && mode === 'strip' && plateIndex === imageIndex) {
+              return <>
+                <div
+                  class="viewer-frame viewer-ad-frame"
+                  data-ad-frame
+                  aria-label={`${plate.badge}: ${plate.advertiser}`}
+                  style={{ width: `${AD_BANNER_WIDTH + 48}px`, height: '100%', minWidth: `${AD_BANNER_WIDTH + 48}px`, minHeight: '100%', display: 'grid', placeItems: 'center', alignContent: 'center', padding: '24px', boxSizing: 'border-box', background: 'rgb(10, 10, 10)', color: 'rgb(244, 240, 232)', textAlign: 'center' }}
+                >
+                  <div data-ad-mount style={{ width: `${AD_BANNER_WIDTH}px`, height: `${AD_BANNER_HEIGHT}px`, display: 'grid', gap: '12px', placeItems: 'center', alignContent: 'center' }}>
+                    <span style={{ fontSize: '15px', lineHeight: '1', letterSpacing: '.08em', textTransform: 'uppercase' }}>{plate.badge}</span>
+                    <strong style={{ fontSize: '18px', lineHeight: '1.2' }}>{plate.headline ?? plate.advertiser}</strong>
+                    {plate.cta ? <a href={plate.cta.url} target="_blank" rel="noopener" tabIndex={plateActionable ? 0 : -1} onPointerDown={(event) => { if (!plateCanActivate()) event.preventDefault() }} onClick={(event) => { if (!plateCanActivate()) event.preventDefault() }} onKeyDown={(event) => { if (!plateCanActivate()) event.preventDefault() }} style={{ color: 'inherit', fontSize: '15px' }}>{plate.cta.label}</a> : null}
+                  </div>
+                </div>
+                {photoFrame}
+              </>
+            }
+            return photoFrame
           })}
           {/* The end of the strip: a borderless, full-height faux frame
               that slides in behind the last photograph, so reaching the

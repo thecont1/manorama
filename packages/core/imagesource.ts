@@ -122,6 +122,9 @@ export type GalleryManifest = {
   images: readonly GalleryMediaItem[]
 }
 
+import type { AdFrame, RuntimeGalleryItem } from './adframe'
+import { composePlate } from './adframe'
+
 export interface ImageSource {
   list(): readonly GalleryMediaItem[]
   url(id: string, variant?: number | 'original'): string
@@ -145,6 +148,11 @@ export class BundledSource implements ImageSource {
 
   list() {
     return this.manifest.images
+  }
+
+  /** Runtime-only native sequence; the web-facing list remains photographs. */
+  listWithPlate(adFrame: AdFrame | null | undefined): readonly RuntimeGalleryItem[] {
+    return composePlate(this.manifest.images, adFrame)
   }
 
   url(id: string, variant: number | 'original' = 'original') {
