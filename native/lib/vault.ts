@@ -137,6 +137,7 @@ export class EncryptedVault {
   private readonly maxBytes: number
   private readonly now: () => number
   private tail: Promise<void> = Promise.resolve()
+  private replacementSequence = 0
   constructor(options: VaultOptions = {}) {
     this.storage = options.storage ?? nativeStorage; this.keys = options.keys ?? nativeKeys; this.crypto = options.crypto ?? webCryptoProvider
     this.maxBytes = options.maxBytes ?? 256 * 1024 * 1024
@@ -167,15 +168,37 @@ export class EncryptedVault {
     let total = Object.values(index.entries).reduce((sum, entry) => sum + entry.bytes, 0)
     while (total > this.maxBytes) { const oldest = Object.values(index.entries).sort((a, b) => a.lastAccess - b.lastAccess)[0]; if (!oldest) break; total -= oldest.bytes; await this.removeEntry(index, oldest) }
   }
+  private replacementPath(galleryId: string, entryId: string): string {
+    const entropy = this.crypto.randomBytes(8)
+    if (entropy.length !== 8) throw new Error('Invalid replacement nonce')
+    this.replacementSequence += 1
+    return `${entryPath(galleryId, entryId)}.r${this.replacementSequence}-${toBase64(entropy)}`
+  }
   async write(galleryId: string, entryId: string, plaintext: Uint8Array): Promise<void> {
     return this.serial(async () => {
       const key = await this.loadKey(galleryId, true); if (!key) throw new Error('Missing vault key')
       const record = await pack(key, galleryId, entryId, plaintext, this.crypto); if (record.length > this.maxBytes) throw new VaultEntryTooLargeError()
-      const index = await this.loadIndex(); const id = entryKey(galleryId, entryId); const old = index.entries[id]; if (old) await this.storage.remove(old.path)
-      const path = entryPath(galleryId, entryId); const temporary = `${path}.tmp`; await this.storage.write(temporary, record)
-      if (this.storage.move) await this.storage.move(temporary, path)
-      else { await this.storage.write(path, record); await this.storage.remove(temporary) }
-      index.entries[id] = { galleryId, entryId, path, bytes: record.length, lastAccess: this.now() }; await this.evict(index); await this.saveIndex(index)
+      const index = await this.loadIndex(); const id = entryKey(galleryId, entryId); const old = index.entries[id]
+      const path = old ? this.replacementPath(galleryId, entryId) : entryPath(galleryId, entryId)
+      const temporary = `${path}.tmp`
+      await this.storage.write(temporary, record)
+      try {
+        if (this.storage.move) await this.storage.move(temporary, path)
+        else { await this.storage.write(path, record); await this.storage.remove(temporary) }
+      } catch (error) {
+        await this.storage.remove(temporary)
+        await this.storage.remove(path)
+        throw error
+      }
+      const nextIndex = { ...index, entries: { ...index.entries, [id]: { galleryId, entryId, path, bytes: record.length, lastAccess: this.now() } } }
+      await this.evict(nextIndex)
+      try {
+        await this.saveIndex(nextIndex)
+      } catch (error) {
+        await this.storage.remove(path)
+        throw error
+      }
+      if (old && old.path !== path) await this.storage.remove(old.path)
     })
   }
   async read(galleryId: string, entryId: string): Promise<Uint8Array | undefined> {

@@ -4,6 +4,7 @@ import { EncryptedVault, VAULT_INDEX_PATH, webCryptoProvider } from './vault'
 
 class MemoryStorage implements VaultStorageProvider {
   readonly files = new Map<string, Uint8Array>()
+  failMoveOnce = false
 
   async read(path: string) {
     const value = this.files.get(path)
@@ -19,6 +20,10 @@ class MemoryStorage implements VaultStorageProvider {
   }
 
   async move(from: string, to: string) {
+    if (this.failMoveOnce) {
+      this.failMoveOnce = false
+      throw new Error('Injected move failure')
+    }
     const value = this.files.get(from)
     if (!value) throw new Error(`Missing temporary file: ${from}`)
     this.files.set(to, value)
@@ -84,6 +89,33 @@ describe('EncryptedVault', () => {
     expect(await vault.read('gallery-a', 'frame-1')).toBeUndefined()
     expect(await vault.sizeBytes()).toBe(0)
     expect(storage.files.has(path)).toBe(false)
+  })
+
+  test('publishes a replacement before removing the old entry', async () => {
+    const { vault, storage } = makeVault()
+    await vault.write('gallery-a', 'frame-1', bytes('original'))
+    const before = JSON.parse(new TextDecoder().decode((await storage.read(VAULT_INDEX_PATH))!)) as { entries: Record<string, { path: string }> }
+    const oldPath = before.entries['gallery-a\u0000frame-1'].path
+
+    storage.failMoveOnce = true
+    await expect(vault.write('gallery-a', 'frame-1', bytes('replacement'))).rejects.toThrow('Injected move failure')
+
+    expect(text(await vault.read('gallery-a', 'frame-1'))).toBe('original')
+    expect(storage.files.has(oldPath)).toBe(true)
+    expect([...storage.files.keys()].some((path) => path.endsWith('.tmp'))).toBe(false)
+  })
+
+  test('removes the old ciphertext only after a replacement is committed', async () => {
+    const { vault, storage } = makeVault()
+    await vault.write('gallery-a', 'frame-1', bytes('original'))
+    const before = JSON.parse(new TextDecoder().decode((await storage.read(VAULT_INDEX_PATH))!)) as { entries: Record<string, { path: string }> }
+    const oldPath = before.entries['gallery-a\u0000frame-1'].path
+
+    await vault.write('gallery-a', 'frame-1', bytes('replacement'))
+
+    expect(text(await vault.read('gallery-a', 'frame-1'))).toBe('replacement')
+    expect(storage.files.has(oldPath)).toBe(false)
+    expect([...storage.files.keys()].some((path) => path.endsWith('.tmp'))).toBe(false)
   })
 
   test('evicts the least recently used entries at the configured cap', async () => {
