@@ -94,6 +94,12 @@ describeIfConfigured('native fold runtime', () => {
     await page.locator('[data-curtain]').click()
     await expect(page.locator('[data-diptych-stage]')).toBeVisible()
     await expect(page.locator('[data-diptych-frame]')).toHaveCount(2)
+    // Each frame must fill exactly its injected segment — a misplaced or
+    // overlapping pane fails here even though the count and order pass.
+    const first = await page.locator('[data-diptych-frame="1"]').boundingBox()
+    const second = await page.locator('[data-diptych-frame="2"]').boundingBox()
+    expect(first).toMatchObject({ x: 0, y: 0, width: 680, height: 900 })
+    expect(second).toMatchObject({ x: 760, y: 0, width: 680, height: 900 })
     await expect(page.locator('[data-diptych-frame="1"]')).toHaveAttribute('aria-current', 'true')
     await page.keyboard.press('ArrowRight')
     await expect(page.locator('[data-diptych-frame="2"]')).toHaveAttribute('aria-current', 'true')

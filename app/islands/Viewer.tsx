@@ -234,6 +234,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const indexRef = useRef(index)
   const modeRef = useRef(mode)
   const foldActiveRef = useRef(false)
+  // The fold index an in-flight step is heading for. Rapid wheel ticks and
+  // key repeats land before the next render commits, so each step anchors
+  // at this pending destination — the fold twin of navDestXRef.
+  const pendingFoldIndexRef = useRef<number | null>(null)
   const reportedIndexRef = useRef(index)
   // Seed a small window so the first vertical paint isn't placeholder-only;
   // the IntersectionObserver takes over immediately after mount.
@@ -309,7 +313,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [plate, mode, images.length])
 
-  useEffect(() => { indexRef.current = index }, [index])
+  useEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
 
   // Background preference is global chrome: adopt the stored value after
@@ -604,7 +608,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const step = (direction: -1 | 1) => {
     if (!hasMultiple) return
     if (foldActiveRef.current) {
-      goTo(index + direction)
+      const next = clamp((pendingFoldIndexRef.current ?? index) + direction, 0, images.length - 1)
+      pendingFoldIndexRef.current = next
+      goTo(next)
     } else if (mode === 'strip') {
       const next = clamp(index + direction, 0, images.length - 1)
       goTo(next)
@@ -1078,7 +1084,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onWheel = (event: WheelEvent) => {
       if (mode === 'vertical') return
       event.preventDefault()
-      const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+      // Normalise to pixels before any threshold or travel math: line- and
+      // page-mode wheels emit small deltas that would never reach the fold
+      // step threshold otherwise.
+      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientWidth : 1
+      const delta = (Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX) * factor
       if (foldActiveRef.current) {
         if (Math.abs(delta) > 8) step(delta > 0 ? 1 : -1)
         return
@@ -1087,8 +1097,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         if (Math.abs(delta) > 8) step(delta > 0 ? 1 : -1)
         return
       }
-      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.clientWidth : 1
-      renderX(currentXRef.current + delta * factor * -1)
+      renderX(currentXRef.current + delta * -1)
     }
     stage.addEventListener('wheel', onWheel, { passive: false })
     return () => stage.removeEventListener('wheel', onWheel)
@@ -1143,13 +1152,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       const distance = event.clientX - startX
       if (Math.abs(distance) > 42) step(distance < 0 ? 1 : -1)
     }
+    // A canceled gesture is an interruption, not a swipe — release the
+    // tracked pointer without stepping the viewer.
+    const onPointerCancel = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return
+      pointerId = null
+      stage.releasePointerCapture?.(event.pointerId)
+    }
     stage.addEventListener('pointerdown', onPointerDown)
     stage.addEventListener('pointerup', onPointerUp)
-    stage.addEventListener('pointercancel', onPointerUp)
+    stage.addEventListener('pointercancel', onPointerCancel)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointerup', onPointerUp)
-      stage.removeEventListener('pointercancel', onPointerUp)
+      stage.removeEventListener('pointercancel', onPointerCancel)
     }
   }, [foldActive, index])
 
@@ -1648,7 +1664,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }
 
   const foldStartIndex = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
-  const foldFrames = images.slice(foldStartIndex, foldStartIndex + 2)
+  // Resolve displayable sources here — heicSrc lives in this component, so
+  // the renderer receives frames it can paint without knowing about HEIC.
+  // Undecoded HEICs show their 256px variant or placeholder, mirroring the
+  // ordinary frame's placeholder layer while libheif works.
+  const foldFrames = images.slice(foldStartIndex, foldStartIndex + 2).map((image) =>
+    isHeic(image)
+      ? { ...image, src: heicSrc[image.id] ?? image.variants?.[0]?.src ?? image.placeholder }
+      : image)
   const foldActiveIndex = Math.max(0, index - foldStartIndex)
 
   return (
