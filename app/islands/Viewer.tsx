@@ -313,7 +313,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [plate, mode, images.length])
 
-  useEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
+  useLayoutEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
 
   // Background preference is global chrome: adopt the stored value after
@@ -815,7 +815,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     cancelPositionReport()
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
         event.preventDefault()
@@ -1079,7 +1079,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return () => window.removeEventListener('keydown', onKey)
   }, [index, images.length])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stage = stageRef.current
     if (!stage) return
     const onWheel = (event: WheelEvent) => {
@@ -1136,7 +1136,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
   }, [mode, index])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stage = stageRef.current
     if (!stage || !foldActive) return
     let startX = 0

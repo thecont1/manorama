@@ -223,6 +223,21 @@ describeIfConfigured('native fold runtime', () => {
     })
   }
 
+  test('accepts fold input immediately after an index commit', async ({ page }) => {
+    await openFoldFixture(page)
+    await page.evaluate(() => {
+      const seq = document.querySelector('.stage-seq')!
+      const observer = new MutationObserver(() => {
+        if (!seq.getAttribute('aria-label')?.startsWith('Photograph 2 of 6')) return
+        observer.disconnect()
+        document.querySelector('[data-stage]')!.dispatchEvent(new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }))
+      })
+      observer.observe(seq, { attributes: true, attributeFilter: ['aria-label'] })
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+    })
+    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', seqLabel(3))
+  })
+
   test('ignores a canceled fold gesture and steps once on a completed drag', async ({ page }) => {
     const pageErrors: string[] = []
     page.on('pageerror', (error) => pageErrors.push(String(error)))
