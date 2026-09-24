@@ -429,7 +429,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // a frame narrower than the viewport never reaches the left edge,
       // so leftmost-frame reporting would stall the counter one short.
       const x = -currentXRef.current
-      const nearest = x >= getBounds().max - 1 ? images.length - 1 : leftmostFrameIndex(x)
+      const max = getBounds().max
+      const nearest = max > 0 && x >= max - 1 ? images.length - 1 : leftmostFrameIndex(x)
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
