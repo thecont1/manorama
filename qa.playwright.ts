@@ -2503,6 +2503,7 @@ test.describe("video slides", () => {
   });
 
   test("the active slide autoplays muted and looping", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await dismissCurtain(page, videoGallery());
     const video = page.locator("video.frame-video").first();
     await expect(video).toHaveCount(1);
