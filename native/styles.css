@@ -1,4 +1,5 @@
 @import '../app/styles.css';
+@import './styles/display.css';
 
 :root {
   --native-safe-top: env(safe-area-inset-top, 0px);

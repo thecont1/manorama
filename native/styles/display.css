@@ -1,0 +1,75 @@
+/* Native display colour foundation.
+ *
+ * Images deliberately do not appear in this stylesheet: their source bytes,
+ * ICC profiles, and manifest metadata remain the image pipeline's concern.
+ * The base tokens are valid sRGB for older WebViews; only displays that
+ * advertise P3 receive the wider stage-chrome colours below.
+ */
+:root {
+  --native-display-gamut: srgb;
+  --native-stage-ink: rgb(243 240 232);
+  --native-stage-surface: rgb(10 10 10 / 0.72);
+  --native-stage-surface-strong: rgb(10 10 10 / 0.88);
+  --native-stage-border: rgb(243 240 232 / 0.18);
+  --native-stage-shadow: rgb(243 240 232 / 0.18);
+  --native-stage-accent: rgb(252 15 192);
+  --native-curtain-start: rgb(46 50 47 / 0.96);
+  --native-curtain-end: rgb(12 14 14 / 0.97);
+}
+
+/* The capability query is the switch, not UA detection. Browsers that do
+ * not expose P3 stay on the sRGB tokens above without a second code path. */
+@media (color-gamut: p3) {
+  :root {
+    --native-display-gamut: p3;
+    --native-stage-ink: color(display-p3 0.93 0.91 0.86);
+    --native-stage-surface: color(display-p3 0.04 0.04 0.04 / 0.72);
+    --native-stage-surface-strong: color(display-p3 0.04 0.04 0.04 / 0.88);
+    --native-stage-border: color(display-p3 0.93 0.91 0.86 / 0.18);
+    --native-stage-shadow: color(display-p3 0.93 0.91 0.86 / 0.18);
+    --native-stage-accent: color(display-p3 1 0 0.62);
+    --native-curtain-start: color(display-p3 0.18 0.20 0.18 / 0.96);
+    --native-curtain-end: color(display-p3 0.045 0.05 0.05 / 0.97);
+  }
+}
+
+/* Stage surfaces and controls only. No image sizing, source, filter, or
+ * rendering rules belong here, so the photograph path remains byte-for-byte
+ * and metadata-for-metadata unchanged. */
+:is(.viewer-stage, .magnifier-world) {
+  color: var(--native-stage-ink);
+}
+:is(.viewer-stage, .magnifier-world) .viewer-frame {
+  color: var(--native-stage-ink);
+}
+.stage-arrows button {
+  border-color: var(--native-stage-border);
+  background: var(--native-stage-surface);
+  box-shadow: 2px 2px 0 var(--native-stage-shadow);
+  color: var(--native-stage-ink);
+}
+.stage-arrows button:hover {
+  background: var(--native-stage-surface-strong);
+}
+.controls-modal {
+  color: var(--native-stage-ink);
+  background: var(--native-stage-surface);
+}
+.controls-panel {
+  border-color: var(--native-stage-border);
+  background: var(--native-stage-surface-strong);
+}
+.curtain {
+  color: var(--native-stage-ink);
+  background: linear-gradient(130deg, var(--native-curtain-start), var(--native-stage-surface-strong) 58%, var(--native-curtain-end));
+}
+.control-logo .brand-mark-wrap::before {
+  background: var(--native-stage-surface);
+  border-color: var(--native-stage-accent);
+  box-shadow: 4px 4px 0 var(--native-stage-shadow);
+}
+.control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap::before {
+  background: var(--native-stage-surface-strong);
+  border-color: var(--native-stage-accent);
+  box-shadow: 5px 5px 0 var(--native-stage-shadow);
+}
