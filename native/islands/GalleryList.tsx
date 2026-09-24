@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'hono/jsx'
+import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import type { GalleryManifest } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import GalleryShell from '../../app/components/GalleryShell'
@@ -7,6 +7,12 @@ import { BundledSource } from '../../app/lib/imagesource'
 import { isAdFrame } from '../../app/lib/adframe'
 import { fetchGallery, normalizeApiBase } from '../lib/api'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
+import {
+  OfflineGalleryUnavailableError,
+  openGalleryNetworkFirst,
+  productionOfflineGalleryStore,
+  type NetworkFirstGallery,
+} from '../lib/offline-gallery'
 import { adFrameFor } from '../lib/ads'
 import Paywall from './Paywall'
 
@@ -21,6 +27,7 @@ type Props = {
 }
 
 type Selection = { owner: string; slug: string }
+type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
 
 const selectionFromLocation = (): Selection => {
   if (typeof window === 'undefined') return { owner: '', slug: '' }
@@ -30,6 +37,14 @@ const selectionFromLocation = (): Selection => {
     owner: params.get('owner')?.trim() || path[0] || '',
     slug: params.get('slug')?.trim() || path[1] || '',
   }
+}
+
+export const galleryStatusMessage = (status: GalleryStatus): string => {
+  if (status === 'loading') return 'Opening gallery…'
+  if (status === 'offline') return 'Available offline. Full resolution returns with your connection.'
+  if (status === 'online') return 'Gallery connected.'
+  if (status === 'error') return 'That gallery could not be opened.'
+  return 'Connect to manorama to view a public gallery.'
 }
 
 export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState }: Props) {
@@ -43,37 +58,81 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
+  const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [paywallOpen, setPaywallOpen] = useState(false)
+  const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
   useEffect(() => {
     if (!selection.owner || !selection.slug) return
     const controller = new AbortController()
-    setError(null)
-    setManifest(null)
-    setSettings(null)
-    setPlate(null)
-    fetchGallery(
-      base,
-      selection.owner,
-      selection.slug,
-      controller.signal,
-    )
-      .then((payload) => {
-        setManifest(payload.manifest)
-        setSettings(payload.settings)
+    let active = true
+    let currentManifest: GalleryManifest | null = null
+    let currentStatus: GalleryStatus = 'idle'
+    const disposeLease = () => {
+      leaseRef.current?.dispose?.()
+      leaseRef.current = null
+    }
+    const applyGallery = (gallery: NetworkFirstGallery) => {
+      disposeLease()
+      leaseRef.current = gallery
+      currentManifest = gallery.manifest
+      currentStatus = gallery.source
+      setManifest(gallery.manifest)
+      setSettings(gallery.settings)
+      setStatus(gallery.source)
+      setError(null)
+      void gallery.cacheFill?.catch(() => {
+        // Viewing stays online if a background cache fill is interrupted or full.
       })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
+    }
+    const open = () => {
+      setError(null)
+      setStatus((previous) => previous === 'offline' ? previous : 'loading')
+      setPlate(null)
+      return openGalleryNetworkFirst({
+        selection,
+        store: productionOfflineGalleryStore,
+        signal: controller.signal,
+        fetchOnline: (signal) => fetchGallery(base, selection.owner, selection.slug, signal),
+      })
+        .then((gallery) => {
+          if (!active) {
+            gallery.dispose?.()
+            return
+          }
+          applyGallery(gallery)
+        })
+        .catch((reason: unknown) => {
+          if (!active || controller.signal.aborted) return
+          if (currentManifest && currentStatus === 'offline') return
+          currentManifest = null
+          currentStatus = 'error'
+          setManifest(null)
+          setSettings(null)
+          setStatus('error')
           setError(
-            reason instanceof Error
+            reason instanceof OfflineGalleryUnavailableError
               ? reason.message
-              : 'That gallery could not be opened',
+              : reason instanceof Error
+                ? reason.message
+                : galleryStatusMessage('error'),
           )
-        }
-      })
-    return () => controller.abort()
+        })
+    }
+
+    void open()
+    const upgradeWhenOnline = () => {
+      if (currentStatus === 'offline') void open()
+    }
+    window.addEventListener('online', upgradeWhenOnline)
+    return () => {
+      active = false
+      controller.abort()
+      window.removeEventListener('online', upgradeWhenOnline)
+      disposeLease()
+    }
   }, [base, selection.owner, selection.slug])
 
   useEffect(() => {
@@ -89,7 +148,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     const source = new BundledSource(manifest)
     const runtimePlate = source.listWithPlate(plate).find(isAdFrame)
     return (
-      <GalleryShell settings={settings}>
+      <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined}>
         <Viewer
           slug={manifest.slug}
           images={source.list()}
@@ -111,6 +170,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       slug: slugInput.trim(),
     }
     if (!next.owner || !next.slug) {
+      setStatus('error')
       setError('Enter both an owner and gallery slug')
       return
     }
@@ -118,9 +178,10 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   }
 
   const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value
+  const message = authError ?? error ?? galleryStatusMessage(status)
   return (
     <main class="native-list-shell">
-      <section class="native-list-card" aria-live="polite">
+      <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <span class="brand-mark-wrap">
           <img
             src="/manorama-merged-logo.png"
@@ -129,7 +190,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           />
         </span>
         <h1>Open a gallery</h1>
-        <p>{authError ?? error ?? 'Connect to manorama to view a public gallery.'}</p>
+        <p>{message}</p>
         {onSignIn && (
           <button type="button" onClick={onSignIn}>
             Sign in with Dropbox

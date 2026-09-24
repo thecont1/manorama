@@ -49,6 +49,15 @@ body {
   line-height: 1.55;
 }
 
+.curtain-status {
+  max-width: 36rem;
+  margin: 18px auto 0;
+  color: rgba(var(--ink), .58);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 .native-list-card form {
   display: grid;
   gap: 16px;

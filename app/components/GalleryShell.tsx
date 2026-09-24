@@ -3,11 +3,12 @@ import type { GallerySettings } from '../lib/gallery-settings'
 
 type Props = {
   settings: Pick<GallerySettings, 'title' | 'caption'>
+  status?: string
   children: Child
 }
 
 /** Shared public gallery chrome for SSR and the native client. */
-export default function GalleryShell({ settings, children }: Props) {
+export default function GalleryShell({ settings, status, children }: Props) {
   return (
     <main class="gallery-shell">
       <h1 class="sr-only">{settings.title}</h1>
@@ -32,6 +33,7 @@ export default function GalleryShell({ settings, children }: Props) {
           <p class="curtain-caption" data-curtain-caption>
             {settings.caption}
           </p>
+          {status && <p class="curtain-status" role="status">{status}</p>}
         </div>
       </section>
       {children}
