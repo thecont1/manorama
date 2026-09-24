@@ -2902,6 +2902,8 @@ test.describe("density-aware staging", () => {
     });
     const page = await context.newPage();
     await dismissCurtain(page, url);
+    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open selector');
+    await expect(page.locator('[data-image-id="tiny"]')).toHaveAttribute('aria-current', 'true');
     const frame = page.locator("[aria-current='true']");
     const img = frame.locator(".frame-img");
     await expect(img).toBeVisible();
