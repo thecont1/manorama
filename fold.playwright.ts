@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { expect, test, type Page } from '@playwright/test'
 import type { GalleryImage } from './app/lib/imagesource'
 
