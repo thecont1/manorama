@@ -28,6 +28,17 @@ body {
   padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
 }
 
+/* The diptych stage positions each figure by physical pane coordinates —
+   segment x/y are measured from the screen's corner, not from inside the
+   safe area. As an ordinary descendant of the padded body its origin would
+   sit one inset in, pushing both panes right and down off their physical
+   screens. While a diptych is mounted the body drops its padding so the
+   stage owns the whole viewport; controls keep their own env() insets, so
+   nothing interactive slides under the notch or the hinge. */
+body:has(.native-diptych) {
+  padding: 0;
+}
+
 .native-diptych {
   z-index: 1;
   touch-action: pan-y;

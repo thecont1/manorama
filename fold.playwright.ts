@@ -98,4 +98,38 @@ describeIfConfigured('native fold runtime', () => {
     await page.keyboard.press('ArrowRight')
     await expect(page.locator('[data-diptych-frame="2"]')).toHaveAttribute('aria-current', 'true')
   })
+
+  test('aligns panes to physical segment origins despite safe-area insets', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        __MANORAMA_IOS_FOLD__: {
+          horizontalSizeClass: 'regular',
+          verticalSizeClass: 'regular',
+          hinge: { axis: 'vertical', start: 700, size: 40 },
+        },
+      })
+      document.addEventListener('DOMContentLoaded', () => {
+        const style = document.createElement('style')
+        style.textContent = `:root {
+          --native-safe-top: 24px;
+          --native-safe-right: 16px;
+          --native-safe-bottom: 24px;
+          --native-safe-left: 16px;
+        }`
+        document.head.appendChild(style)
+      })
+    })
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+    await expect(page.locator('[data-curtain]')).toBeVisible()
+    await page.locator('[data-curtain]').click()
+    await expect(page.locator('[data-diptych-stage]')).toBeVisible()
+
+    // The hinge splits a 1440px screen into [0,700] and [740,1440] panes.
+    // Safe-area insets belong to the control layer: they must not push the
+    // photograph canvas off the physical pane origins.
+    const first = await page.locator('[data-diptych-frame="1"]').boundingBox()
+    const second = await page.locator('[data-diptych-frame="2"]').boundingBox()
+    expect(first).toMatchObject({ x: 0, y: 0, width: 700, height: 900 })
+    expect(second).toMatchObject({ x: 740, y: 0, width: 700, height: 900 })
+  })
 })
