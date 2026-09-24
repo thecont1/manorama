@@ -5,6 +5,7 @@ import { EncryptedVault, VAULT_INDEX_PATH, webCryptoProvider } from './vault'
 class MemoryStorage implements VaultStorageProvider {
   readonly files = new Map<string, Uint8Array>()
   failMoveOnce = false
+  failMoveTo: string | null = null
 
   async read(path: string) {
     const value = this.files.get(path)
@@ -20,6 +21,10 @@ class MemoryStorage implements VaultStorageProvider {
   }
 
   async move(from: string, to: string) {
+    if (this.failMoveTo === to) {
+      this.failMoveTo = null
+      throw new Error(`Injected move failure: ${to}`)
+    }
     if (this.failMoveOnce) {
       this.failMoveOnce = false
       throw new Error('Injected move failure')
@@ -116,6 +121,22 @@ describe('EncryptedVault', () => {
     expect(text(await vault.read('gallery-a', 'frame-1'))).toBe('replacement')
     expect(storage.files.has(oldPath)).toBe(false)
     expect([...storage.files.keys()].some((path) => path.endsWith('.tmp'))).toBe(false)
+  })
+
+  test('cleans a temporary index after index promotion fails', async () => {
+    const { vault, storage } = makeVault()
+    await vault.write('gallery-a', 'frame-1', bytes('original'))
+    const before = JSON.parse(new TextDecoder().decode((await storage.read(VAULT_INDEX_PATH))!)) as { entries: Record<string, { path: string }> }
+    const oldPath = before.entries['gallery-a\u0000frame-1'].path
+
+    storage.failMoveTo = VAULT_INDEX_PATH
+    await expect(vault.write('gallery-a', 'frame-1', bytes('replacement'))).rejects.toThrow('Injected move failure')
+
+    expect(storage.files.has(VAULT_INDEX_PATH)).toBe(true)
+    expect(storage.files.has(oldPath)).toBe(true)
+    expect([...storage.files.keys()].some((path) => path.endsWith('.tmp'))).toBe(false)
+    expect([...storage.files.keys()].some((path) => path.includes('.r'))).toBe(false)
+    expect(text(await vault.read('gallery-a', 'frame-1'))).toBe('original')
   })
 
   test('evicts the least recently used entries at the configured cap', async () => {

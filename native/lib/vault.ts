@@ -150,8 +150,13 @@ export class EncryptedVault {
     const bytes = encoder.encode(JSON.stringify(index))
     const temporary = `${VAULT_INDEX_PATH}.tmp`
     await this.storage.write(temporary, bytes)
-    if (this.storage.move) await this.storage.move(temporary, VAULT_INDEX_PATH)
-    else { await this.storage.write(VAULT_INDEX_PATH, bytes); await this.storage.remove(temporary) }
+    try {
+      if (this.storage.move) await this.storage.move(temporary, VAULT_INDEX_PATH)
+      else { await this.storage.write(VAULT_INDEX_PATH, bytes); await this.storage.remove(temporary) }
+    } catch (error) {
+      await this.storage.remove(temporary)
+      throw error
+    }
   }
   private async loadKey(galleryId: string, create: boolean): Promise<Uint8Array | null> {
     const name = galleryKey(galleryId); const value = await this.keys.get(name)
