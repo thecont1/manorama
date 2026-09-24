@@ -260,6 +260,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const stripMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
+  const plateActionFrameRef = useRef<number | null>(null)
+  const plateActionableRef = useRef(false)
   const boundsRef = useRef({ min: 0, max: 0 })
   const boundsDirtyRef = useRef(true)
   // The "The End." card is mounted in the track but excluded from the
@@ -270,6 +272,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // join the tab order only while it is on screen — bounds math keeps
   // reading the ref synchronously.
   const [endcapRevealed, setEndcapRevealed] = useState(false)
+  const [plateActionable, setPlateActionable] = useState(false)
 
   const currentImage = images[index] ?? images[0]
   const plateIndex = plateIndexFor(images.length)
@@ -288,6 +291,35 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const mountRect = mount.getBoundingClientRect()
     return Math.abs((mountRect.left + mountRect.width / 2) - (stageRect.left + stageRect.width / 2)) < 2
   }
+
+  // Transform writes happen outside the render cycle. Re-measure after the
+  // browser has committed that transform so the CTA can enter the tab order
+  // when the plate actually settles, not only when some unrelated state change
+  // happens to re-render the island.
+  const queuePlateActionability = () => {
+    if (plateActionFrameRef.current !== null) return
+    plateActionFrameRef.current = requestAnimationFrame(() => {
+      plateActionFrameRef.current = null
+      const actionable = plateIsCentered()
+      plateActionableRef.current = actionable
+      setPlateActionable(actionable)
+    })
+  }
+
+  const setPlateActionability = (actionable: boolean) => {
+    plateActionableRef.current = actionable
+    setPlateActionable(actionable)
+  }
+
+  const plateCanActivate = () => plateActionableRef.current && !draggingRef.current && momentumRef.current === null
+
+  useEffect(() => {
+    queuePlateActionability()
+    return () => {
+      if (plateActionFrameRef.current !== null) cancelAnimationFrame(plateActionFrameRef.current)
+      plateActionFrameRef.current = null
+    }
+  }, [plate, mode, images.length])
 
   useEffect(() => { indexRef.current = index }, [index])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -453,6 +485,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const value = clamp(next, -bounds.max, 0)
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
+    if (mode === 'strip') {
+      setPlateActionability(false)
+      queuePlateActionability()
+    }
     if (shouldReport) reportStripPosition()
     return value
   }
@@ -514,6 +550,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
         momentumRef.current = null
+        queuePlateActionability()
         if (reportOnComplete) reportStripPosition()
       }
     }
@@ -1107,6 +1144,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     let seqPress: { x: number; y: number } | null = null
     const beginDrag = (event: PointerEvent) => {
       stopMomentum()
+      setPlateActionability(false)
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current = currentXRef.current
@@ -1177,7 +1215,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         const bounds = getBounds()
         const atEdge = next === 0 || next === -bounds.max
         if (Math.abs(velocityPx) > (isTouch ? 0.18 : 0.25) && !atEdge) momentumRef.current = requestAnimationFrame(glide)
-        else momentumRef.current = null
+        else {
+          momentumRef.current = null
+          queuePlateActionability()
+        }
       }
       momentumRef.current = requestAnimationFrame(glide)
     }
@@ -1823,7 +1864,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                   <div data-ad-mount style={{ width: `${AD_BANNER_WIDTH}px`, height: `${AD_BANNER_HEIGHT}px`, display: 'grid', gap: '12px', placeItems: 'center', alignContent: 'center' }}>
                     <span style={{ fontSize: '15px', lineHeight: '1', letterSpacing: '.08em', textTransform: 'uppercase' }}>{plate.badge}</span>
                     <strong style={{ fontSize: '18px', lineHeight: '1.2' }}>{plate.headline ?? plate.advertiser}</strong>
-                    {plate.cta ? <a href={plate.cta.url} target="_blank" rel="noopener" tabIndex={plateIsCentered() ? 0 : -1} onPointerDown={(event) => { if (!plateIsCentered()) event.preventDefault() }} onClick={(event) => { if (!plateIsCentered()) event.preventDefault() }} onKeyDown={(event) => { if (!plateIsCentered()) event.preventDefault() }} style={{ color: 'inherit', fontSize: '15px' }}>{plate.cta.label}</a> : null}
+                    {plate.cta ? <a href={plate.cta.url} target="_blank" rel="noopener" tabIndex={plateActionable ? 0 : -1} onPointerDown={(event) => { if (!plateCanActivate()) event.preventDefault() }} onClick={(event) => { if (!plateCanActivate()) event.preventDefault() }} onKeyDown={(event) => { if (!plateCanActivate()) event.preventDefault() }} style={{ color: 'inherit', fontSize: '15px' }}>{plate.cta.label}</a> : null}
                   </div>
                 </div>
                 {photoFrame}
