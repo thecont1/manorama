@@ -3,7 +3,7 @@ import { render } from 'hono/jsx/dom'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import GalleryList from './islands/GalleryList'
-import { RevenueCatBilling } from './lib/billing'
+import { RevenueCatBilling, type BillingState } from './lib/billing'
 import { authErrorMessage, beginDropboxSignIn, getSessionAppUserId, installNativeAuth } from './lib/session'
 import './styles.css'
 
@@ -13,7 +13,8 @@ const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
 
 function NativeApp() {
   const [authError, setAuthError] = useState<string | null>(null)
-  const billing = useMemo(() => new RevenueCatBilling(), [])
+  const [billingState, setBillingState] = useState<BillingState | undefined>(undefined)
+  const billing = useMemo(() => new RevenueCatBilling(undefined, setBillingState), [])
   const configureRevenueCat = async () => {
     const apiKey = import.meta.env.VITE_REVENUECAT_API_KEY?.trim()
     const appUserId = await getSessionAppUserId()
@@ -39,7 +40,7 @@ function NativeApp() {
       void cleanup?.()
     }
   }, [billing])
-  return <GalleryList apiBase={apiBase} billing={billing} authError={authError} onSignIn={signIn} />
+  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} authError={authError} onSignIn={signIn} />
 }
 
 render(<NativeApp />, root)

@@ -4,8 +4,10 @@ import type { GallerySettings } from '../../app/lib/gallery-settings'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
+import { isAdFrame } from '../../app/lib/adframe'
 import { fetchGallery, normalizeApiBase } from '../lib/api'
-import type { RevenueCatBilling } from '../lib/billing'
+import type { BillingState, RevenueCatBilling } from '../lib/billing'
+import { adFrameFor } from '../lib/ads'
 import Paywall from './Paywall'
 
 type Props = {
@@ -15,6 +17,7 @@ type Props = {
   onSignIn?: () => void
   authError?: string | null
   billing?: RevenueCatBilling
+  billingState?: BillingState
 }
 
 type Selection = { owner: string; slug: string }
@@ -29,7 +32,7 @@ const selectionFromLocation = (): Selection => {
   }
 }
 
-export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing }: Props) {
+export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
@@ -39,6 +42,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [slugInput, setSlugInput] = useState(selection.slug)
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
   const [settings, setSettings] = useState<GallerySettings | null>(null)
+  const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
   const [error, setError] = useState<string | null>(null)
   const [paywallOpen, setPaywallOpen] = useState(false)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
@@ -49,6 +53,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     setError(null)
     setManifest(null)
     setSettings(null)
+    setPlate(null)
     fetchGallery(
       base,
       selection.owner,
@@ -71,14 +76,25 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     return () => controller.abort()
   }, [base, selection.owner, selection.slug])
 
+  useEffect(() => {
+    if (!manifest) return
+    let active = true
+    void adFrameFor({ tier: billingState?.isPro ? 'pro' : 'free' }).then((frame) => {
+      if (active) setPlate(frame)
+    })
+    return () => { active = false }
+  }, [manifest, billingState?.isPro])
+
   if (manifest && settings) {
     const source = new BundledSource(manifest)
+    const runtimePlate = source.listWithPlate(plate).find(isAdFrame)
     return (
       <GalleryShell settings={settings}>
         <Viewer
           slug={manifest.slug}
           images={source.list()}
           settings={settings}
+          plate={runtimePlate ?? null}
         />
       </GalleryShell>
     )
