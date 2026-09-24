@@ -362,7 +362,7 @@ export default defineConfig(() => ({
       // galleries for the ~40s live rescan. These tool-managed dirs write
       // files on their own schedule (vendo's embedded Postgres keeps its
       // data + WAL under .vendo/data), so keep them out of the watch set.
-      ignored: ['**/.vendo/**', '**/.playwright-mcp/**', '**/.wrangler/**'],
+      ignored: ['**/.vendo/**', '**/.playwright-mcp/**', '**/.wrangler/**', '.worktrees/**'],
     },
   },
   build: {
