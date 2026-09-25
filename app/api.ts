@@ -13,6 +13,7 @@ import { getUserByDropboxId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
+import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppression, type AdSuppressionKind } from './lib/ads-visibility'
 
 type RequestBody = { url?: string; order?: string[]; quick?: boolean }
 
@@ -218,6 +219,37 @@ export const createManoramaApi = () => {
     if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
     const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images: gallery.images }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
+  })
+  // Public: the native shell asks before composing plates. Geo-IP comes from
+  // Cloudflare's request metadata — the viewer's region is answered, never
+  // persisted (invariant 1 covers bytes; the same spirit covers this).
+  api.get('/api/ads/visibility', async (c) => {
+    const region = ((c.req.raw as { cf?: { country?: string } }).cf?.country ?? '').toUpperCase()
+    const day = new Date().toISOString().slice(0, 10)
+    const suppressedBy = await adSuppressionFor(day, region, dbEnv(c))
+    return c.json({ show: suppressedBy === null, day, region, suppressedBy })
+  })
+  api.use('/api/ads/suppressions', requireSession())
+  api.use('/api/ads/suppressions/*', requireSession())
+  api.get('/api/ads/suppressions', async (c) => {
+    return c.json({ suppressions: await listAdSuppressions(dbEnv(c)) })
+  })
+  api.put('/api/ads/suppressions', async (c) => {
+    const body = await c.req.json<{ kind?: string; value?: string; suppressed?: boolean }>()
+      .catch((): { kind?: string; value?: string; suppressed?: boolean } => ({}))
+    const kind = body.kind === 'region' ? 'region' : body.kind === 'day' ? 'day' : null
+    const value = (body.value ?? '').trim()
+    if (!kind) return c.json({ error: 'A suppression needs kind (day|region)' }, 400)
+    if (kind === 'day' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return c.json({ error: 'Day suppressions take a YYYY-MM-DD value' }, 400)
+    }
+    if (kind === 'region' && !/^[A-Z]{2}$/.test(value.toUpperCase())) {
+      return c.json({ error: 'Region suppressions take an ISO-3166 alpha-2 code' }, 400)
+    }
+    const normalized = kind === 'region' ? value.toUpperCase() : value
+    if (body.suppressed === false) await clearAdSuppression(kind, normalized, dbEnv(c))
+    else await setAdSuppression(kind, normalized, dbEnv(c))
+    return c.json({ ok: true })
   })
   api.use('/api/galleries', requireSession())
   api.use('/api/galleries/*', requireSession())
