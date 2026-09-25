@@ -1417,6 +1417,21 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 }
 .endcap-reset:hover { color: rgba(var(--ink), .9); }
 .endcap-reset:focus-visible { color: rgba(var(--ink), .9); outline: 1px solid rgba(var(--ink), .5); outline-offset: 3px; }
+/* The in-strip plate wears the endcap's clothes — borderless faux frame,
+   wordmark display face — with the required disclosure set small above the
+   headline and the width capped so longer creative still reads as a card. */
+.viewer-ad-frame { max-width: 30rem; }
+.ad-plate-badge {
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(11px, 1.5svh, 14px);
+  font-weight: 500;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
+  opacity: .55;
+  margin-bottom: 14px;
+}
+.ad-plate-headline { display: block; max-width: 100%; }
 /* The photo grid and content sit above the decorative doodle layer. */
 .viewer-track { position: relative; z-index: 1; }
 /* Vertical scroll mode: the stage itself is the scroll container, and an

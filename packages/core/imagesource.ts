@@ -123,7 +123,7 @@ export type GalleryManifest = {
 }
 
 import type { AdFrame, RuntimeGalleryItem } from './adframe'
-import { composePlate } from './adframe'
+import { composePlate, platePositionsFor } from './adframe'
 
 export interface ImageSource {
   list(): readonly GalleryMediaItem[]
@@ -150,9 +150,11 @@ export class BundledSource implements ImageSource {
     return this.manifest.images
   }
 
-  /** Runtime-only native sequence; the web-facing list remains photographs. */
-  listWithPlate(adFrame: AdFrame | null | undefined): readonly RuntimeGalleryItem[] {
-    return composePlate(this.manifest.images, adFrame)
+  /** Runtime-only native sequence; the web-facing list remains photographs.
+   *  `seedKey` decides where the cadence lands (callers pass gallery+day so a
+   *  re-opened gallery keeps yesterday's layout). */
+  listWithPlate(adFrame: AdFrame | null | undefined, seedKey = ''): readonly RuntimeGalleryItem[] {
+    return composePlate(this.manifest.images, adFrame, platePositionsFor(this.manifest.images.length, seedKey))
   }
 
   url(id: string, variant: number | 'original' = 'original') {
