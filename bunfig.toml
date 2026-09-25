@@ -1,0 +1,8 @@
+[test]
+# Mount tests render islands through hono/jsx/dom, whose intrinsic renderers
+# (form/input/button/...) are copied into base.js's tag table on the first
+# jsx() evaluation in the process. A file that only stringifies components can
+# flip that flag before this import runs, which leaves handler-bearing
+# elements childless in every later DOM mount. Preloading the DOM renderer
+# first keeps the order honest.
+preload = ["./test/hono-jsx-dom.ts"]
