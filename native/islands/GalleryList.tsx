@@ -19,6 +19,7 @@ import { adFrameFor, type AdPolicyInput } from '../lib/ads'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
 import Diptych, { type DiptychFrame } from './Diptych'
+import GlobalView from './GlobalView'
 import '../styles/account-ad.css'
 
 type Props = {
@@ -74,6 +75,10 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [paywallOpen, setPaywallOpen] = useState(false)
+  const [globalViewOpen, setGlobalViewOpen] = useState(false)
+  // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
+  // remount when the same gallery is re-entered at a different frame.
+  const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
   const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
@@ -187,6 +192,17 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     return subscribeToRuntimeFoldLayout(sync)
   }, [manifest])
 
+  const openGlobalFrame = (next: Selection, index: number) => {
+    setGlobalViewOpen(false)
+    if (next.owner === selection.owner && next.slug === selection.slug) {
+      // Same gallery: bump the remount nonce so the viewer re-seeds at index.
+      setFrameKick((kick) => ({ index, nonce: kick.nonce + 1 }))
+      return
+    }
+    setFrameKick({ index, nonce: 0 })
+    setSelection(next)
+  }
+
   if (manifest && settings) {
     const source = new BundledSource(manifest)
     const runtimePlate = source.listWithPlate(plate).find(isAdFrame)
@@ -209,16 +225,37 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       return <Diptych frames={diptychFrames} segments={segments} dpr={dpr} activeIndex={activeIndex} />
     }
     return (
-      <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined}>
-        <Viewer
-          slug={manifest.slug}
-          images={source.list()}
-          settings={settings}
-          plate={runtimePlate ?? null}
-          foldLayout={foldEligible && plateReady && !runtimePlate ? foldLayout : null}
-          foldRenderer={foldEligible ? renderFold : undefined}
-        />
-      </GalleryShell>
+      <>
+        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined}>
+          <Viewer
+            key={`${manifest.slug}:${frameKick.nonce}`}
+            slug={manifest.slug}
+            images={source.list()}
+            settings={settings}
+            plate={runtimePlate ?? null}
+            initialIndex={frameKick.index}
+            foldLayout={foldEligible && plateReady && !runtimePlate ? foldLayout : null}
+            foldRenderer={foldEligible ? renderFold : undefined}
+          />
+        </GalleryShell>
+        <button
+          type="button"
+          class="native-global-open"
+          onClick={() => setGlobalViewOpen(true)}
+          aria-label="Global view — every frame on this device"
+        >
+          Index
+        </button>
+        {globalViewOpen ? (
+          <GlobalView
+            store={productionOfflineGalleryStore}
+            tier={billingState?.tier}
+            current={selection}
+            onOpenFrame={openGlobalFrame}
+            onClose={() => setGlobalViewOpen(false)}
+          />
+        ) : null}
+      </>
     )
   }
 
@@ -237,6 +274,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       setError('Enter both an owner and gallery slug')
       return
     }
+    setFrameKick({ index: 0, nonce: 0 })
     setSelection(next)
   }
 
@@ -246,6 +284,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   // paint that learns the tier, so no stale creative can outlive a change.
   const accountAdFrame = billingState?.tier === 'free' ? accountAd : null
   return (
+    <>
     <main class="native-list-shell">
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <header class="native-account-header">
@@ -294,6 +333,9 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             View subscription options
           </button>
         )}
+        <button type="button" onClick={() => setGlobalViewOpen(true)}>
+          Global view
+        </button>
         <form onSubmit={openGallery}>
           <label>
             Owner
@@ -323,5 +365,15 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
         </form>
       </section>
     </main>
+    {globalViewOpen ? (
+      <GlobalView
+        store={productionOfflineGalleryStore}
+        tier={billingState?.tier}
+        current={manifest ? selection : null}
+        onOpenFrame={openGlobalFrame}
+        onClose={() => setGlobalViewOpen(false)}
+      />
+    ) : null}
+    </>
   )
 }

@@ -31,6 +31,27 @@ export type OfflineGallerySummary =
   | { status: 'cached'; galleryId: string; owner: string; slug: string; title: string; images: number }
   | { status: 'corrupt'; galleryId: string }
 
+/** A frame-level catalog entry for the global grid: honest dimensions and alt
+ *  from the manifest, vault addressing from the cached-image record. No object
+ *  URLs are minted here — the grid materializes them lazily per visible cell. */
+export type OfflineGridFrame = {
+  id: string
+  entryId: string
+  mimeType: string
+  width: number
+  height: number
+  alt: string
+  index: number
+}
+
+export type OfflineGridGallery = {
+  galleryId: string
+  owner: string
+  slug: string
+  title: string
+  frames: OfflineGridFrame[]
+}
+
 export interface OfflineGalleryStore {
   cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal): Promise<OfflineCacheResult>
   inspect(selection: GallerySelection): Promise<OfflineCacheInspection>
@@ -39,6 +60,16 @@ export interface OfflineGalleryStore {
   /** Every gallery the vault knows about, including ones whose metadata is
    *  missing or unreadable — those are listed as corrupt so they stay purgeable. */
   listGalleries(): Promise<OfflineGallerySummary[]>
+  /** Frame catalog for one cached gallery; undefined when its metadata is
+   *  missing, corrupt, or still in flight (cache fills write metadata last). */
+  gridGallery(galleryId: string): Promise<OfflineGridGallery | undefined>
+  /** Frame catalogs for every readable cached gallery; corrupt entries are
+   *  skipped rather than listed because their frames cannot be addressed. */
+  listGridGalleries(): Promise<OfflineGridGallery[]>
+  /** Decrypted thumbnail bytes for one frame. Reads do not touch the LRU:
+   *  scanning the grid visits every gallery, and counting that as use would
+   *  flush the eviction signal a purge-cap decision relies on. */
+  readThumbnail(galleryId: string, entryId: string): Promise<Uint8Array | undefined>
   /** Purge one gallery by vault identity and release its live object URLs. */
   purgeGallery(galleryId: string): Promise<void>
   /** Cryptographic erasure of every cached gallery and every live object URL. */
@@ -424,6 +455,39 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       )
     }
     return summaries
+  }
+
+  async gridGallery(galleryId: string): Promise<OfflineGridGallery | undefined> {
+    const metadata = await this.readMetadataById(galleryId)
+    if (metadata.status !== 'ready') return undefined
+    return {
+      galleryId,
+      owner: metadata.value.owner,
+      slug: metadata.value.slug,
+      title: metadata.value.manifest.title,
+      frames: metadata.value.manifest.images.map((image, index) => ({
+        id: image.id,
+        entryId: metadata.value.images[index].entryId,
+        mimeType: metadata.value.images[index].mimeType,
+        width: image.width,
+        height: image.height,
+        alt: image.alt,
+        index,
+      })),
+    }
+  }
+
+  async listGridGalleries(): Promise<OfflineGridGallery[]> {
+    const grids: OfflineGridGallery[] = []
+    for (const galleryId of await this.vault.listGalleryIds()) {
+      const grid = await this.gridGallery(galleryId)
+      if (grid) grids.push(grid)
+    }
+    return grids
+  }
+
+  async readThumbnail(galleryId: string, entryId: string): Promise<Uint8Array | undefined> {
+    return this.vault.read(galleryId, entryId, { touch: false })
   }
 
   async purgeGallery(galleryId: string): Promise<void> {
