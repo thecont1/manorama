@@ -1,0 +1,1 @@
+import 'hono/jsx/dom'
