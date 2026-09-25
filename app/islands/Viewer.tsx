@@ -18,6 +18,10 @@ type Props = {
   images: readonly GalleryMediaItem[]
   settings: GallerySettings
   plate?: AdFrame | null
+  /** Mount-time frame entry — the global grid lands the stage on the tapped
+   *  frame instead of the first photograph. Applied once; later navigation
+   *  belongs to the viewer. */
+  initialIndex?: number
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -90,12 +94,12 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null, initialIndex = 0, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
-  const [index, setIndex] = useState(0)
+  const [index, setIndex] = useState(() => clamp(initialIndex, 0, Math.max(0, sourceImages.length - 1)))
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [gridOpen, setGridOpen] = useState(false)
@@ -772,6 +776,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     boundsDirtyRef.current = true
     if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
   }
+
+  // Enter-at-frame: instant and pre-paint, so the curtain lifts onto the
+  // tapped photograph rather than the strip travelling to it in view.
+  const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
+  useLayoutEffect(() => {
+    if (entryFrameRef.current === null) return
+    const target = entryFrameRef.current
+    entryFrameRef.current = null
+    goTo(target, true)
+  }, [])
 
   useLayoutEffect(() => {
     applyStageMetrics()
