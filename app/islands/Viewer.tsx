@@ -233,6 +233,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const navDestXRef = useRef<number | null>(null)
   const indexRef = useRef(index)
   const modeRef = useRef(mode)
+  const plateRef = useRef(plate)
   const foldActiveRef = useRef(false)
   // The fold index an in-flight step is heading for. Rapid wheel ticks and
   // key repeats land before the next render commits, so each step anchors
@@ -274,8 +275,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const currentIsVideo = Boolean(currentVideo)
   const currentExif = currentImage && !isVideoItem(currentImage) ? currentImage.exif : undefined
 
+  // The pointer handlers bind once per mode change, but the plate prop
+  // resolves asynchronously after mount — plateRef keeps this predicate
+  // reading the live prop instead of the mount-time closure's.
   const plateIsCentered = () => {
-    if (!plate || mode !== 'strip' || draggingRef.current || momentumRef.current !== null) return false
+    if (!plateRef.current || mode !== 'strip' || draggingRef.current || momentumRef.current !== null) return false
     const stage = stageRef.current
     const mount = trackRef.current?.querySelector<HTMLElement>('[data-ad-frame]')
     if (!stage || !mount) return false
@@ -314,6 +318,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   }, [plate, mode, images.length])
 
   useLayoutEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
+  useLayoutEffect(() => { plateRef.current = plate })
   useEffect(() => { modeRef.current = mode }, [mode])
 
   // Background preference is global chrome: adopt the stored value after
@@ -1184,6 +1189,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     // the native click event, so each press is replayed here).
     let logoPress: { x: number; y: number } | null = null
     let seqPress: { x: number; y: number } | null = null
+    // The ad CTA gets the same replay: capturing the pointer onto the stage
+    // suppresses the anchor's native click, so an untravelled release opens
+    // the href from here. `armed` samples actionability before beginDrag
+    // clears it — a tap that lands while the strip is still gliding stays
+    // inert even though it is what stops the motion.
+    let adPress: { x: number; y: number; href: string; armed: boolean } | null = null
     const beginDrag = (event: PointerEvent) => {
       stopMomentum()
       setPlateActionability(false)
@@ -1196,6 +1207,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     }
     const onPointerDown = (event: PointerEvent) => {
       if (mode !== 'strip' || foldActiveRef.current || (event.target as HTMLElement).closest('button')) return
+      const adAnchor = (event.target as HTMLElement).closest('a[href]')
+      if (adAnchor?.closest('[data-ad-mount]')) {
+        adPress = {
+          x: event.clientX,
+          y: event.clientY,
+          href: (adAnchor as HTMLAnchorElement).href,
+          armed: plateActionableRef.current && !draggingRef.current && momentumRef.current === null,
+        }
+      }
       beginDrag(event)
     }
     const onLogoDown = (event: PointerEvent) => {
@@ -1227,6 +1247,18 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       draggingRef.current = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
+      if (adPress) {
+        const press = adPress
+        adPress = null
+        const travelled = Math.hypot(event.clientX - press.x, event.clientY - press.y)
+        if (event.type === 'pointerup' && travelled < 6 && press.armed) {
+          window.open(press.href, '_blank', 'noopener')
+        }
+        // The tap consumed the cleared actionability without a transform
+        // write, so re-measure — a plate still settled at centre re-arms.
+        queuePlateActionability()
+        return
+      }
       if (logoPress) {
         const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
         logoPress = null
