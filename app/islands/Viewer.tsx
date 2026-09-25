@@ -243,6 +243,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // at this pending destination — the fold twin of navDestXRef.
   const pendingFoldIndexRef = useRef<number | null>(null)
   const reportedIndexRef = useRef(index)
+  // The frame a programmatic goTo was asked to land on. Position
+  // reporting may not override it while that frame is on stage —
+  // entering at a near-end photograph end-docks the strip before its
+  // left edge can dock, and the gesture rule would otherwise report
+  // the last photograph instead of the requested one.
+  const explicitIndexRef = useRef<number | null>(null)
   // Seed a small window so the first vertical paint isn't placeholder-only;
   // the IntersectionObserver takes over immediately after mount.
   const [verticalActive, setVerticalActive] = useState<ReadonlySet<number>>(() => new Set([0, 1, 2]))
@@ -423,6 +429,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     return nearest
   }
 
+  // Whether any part of a frame spans the stage's visible window —
+  // the visibility check that lets an explicit destination survive
+  // end-dock reporting only when the photograph is truly on stage.
+  const frameOnStage = (frameIndex: number, leftEdge: number) => {
+    const stage = stageRef.current
+    const frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${frameIndex + 1}"]`)
+    if (!stage || !frame) return false
+    return frame.offsetLeft < leftEdge + stage.clientWidth && frame.offsetLeft + frame.offsetWidth > leftEdge
+  }
+
   // The endcard joins the pan range the first time a gesture pushes past
   // the last photograph, and is disarmed by its own "Back to Start" link
   // so a return visit earns the reveal again.
@@ -450,9 +466,14 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       // Docked at the strip's end the last photograph owns the position:
       // a frame narrower than the viewport never reaches the left edge,
       // so leftmost-frame reporting would stall the counter one short.
+      // An explicit goTo destination outranks that inference while the
+      // requested frame is on stage — it just cannot reach the edge.
       const x = -currentXRef.current
       const max = getBounds().max
-      const nearest = max > 0 && x >= max - 1 ? images.length - 1 : leftmostFrameIndex(x)
+      const explicit = explicitIndexRef.current
+      const nearest = max > 0 && x >= max - 1
+        ? (explicit !== null && frameOnStage(explicit, x) ? explicit : images.length - 1)
+        : leftmostFrameIndex(x)
       if (reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
@@ -474,19 +495,28 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     let bounds = getBounds()
     // Pushing past the last photograph — drag, flick, or wheel — wakes
     // the endcard: its footprint rejoins the bounds and the gesture
-    // carries straight into the reveal.
-    if (mode === 'strip' && !foldActiveRef.current && !endcapRevealedRef.current && next < -bounds.max - 1) {
+    // carries straight into the reveal. Programmatic re-docks settle
+    // silently instead, so entering at the tail never shows the card
+    // uninvited.
+    if (shouldReport && mode === 'strip' && !foldActiveRef.current && !endcapRevealedRef.current && next < -bounds.max - 1) {
       revealEndcap()
       bounds = getBounds()
     }
     const value = clamp(next, -bounds.max, 0)
+    const moved = value !== currentXRef.current
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
     if (mode === 'strip' && !foldActiveRef.current) {
       setPlateActionability(false)
       queuePlateActionability()
     }
-    if (shouldReport) reportStripPosition()
+    if (shouldReport) {
+      // Input-driven motion (drag, wheel, momentum) retires any pending
+      // explicit destination: the strip now reports where it landed. A
+      // report that moved nothing — an idle tap on the stage — must not.
+      if (moved) explicitIndexRef.current = null
+      reportStripPosition()
+    }
     return value
   }
 
@@ -563,6 +593,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const next = clamp(nextIndex, 0, images.length - 1)
     cancelPositionReport()
     reportedIndexRef.current = next
+    explicitIndexRef.current = next
     if (mode === 'single' && next !== index && !instant) {
       const dir = next > index ? 'fwd' : 'back'
       const beginSweep = () => {
@@ -629,6 +660,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const advanceStripByViewport = (direction: -1 | 1) => {
     if (foldActiveRef.current) { step(direction); return }
     if (mode !== 'strip') { step(direction); return }
+    // Viewport paging is gesture-like: no single frame was requested,
+    // so any explicit destination stops counting here.
+    explicitIndexRef.current = null
     // The strip is bounded: forward at the end rests on the "The End."
     // card rather than wrapping; left arrow at the first image still
     // jumps to the last.

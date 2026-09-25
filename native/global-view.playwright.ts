@@ -75,6 +75,33 @@ test('indexes the open gallery offline and lands the stage on the tapped frame',
   await expect(page.locator('.stage-seq-tally')).toContainText('8 of 12', { timeout: 5000 })
 })
 
+test('lands the stage on a tapped frame that cannot dock at the left edge', async ({ page }) => {
+  await openFixture(page)
+  await enableGlobalView(page)
+
+  // Photograph 11's left edge lies past the strip's maximum scroll, so the
+  // entry end-docks — the requested frame is fully on stage and must own
+  // the position instead of the docked-end rule reporting photograph 12.
+  await page.locator('[data-grid-frame]').nth(10).click()
+  await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
+})
+
+test('lands the stage on the last of two rapid frame taps', async ({ page }) => {
+  await openFixture(page)
+  await enableGlobalView(page)
+
+  await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
+
+  // Two selections fire before the first remount can settle: the latest
+  // request is the only one allowed to commit.
+  await page.evaluate(() => {
+    const cells = document.querySelectorAll<HTMLElement>('[data-grid-frame]')
+    cells[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    cells[10]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+  })
+  await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
+})
+
 test('stays off by default and remembers the choice', async ({ page }) => {
   await openFixture(page)
   await page.getByRole('button', { name: /Global view/ }).click()
