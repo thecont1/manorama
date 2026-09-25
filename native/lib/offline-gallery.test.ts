@@ -372,6 +372,9 @@ describe('openGalleryNetworkFirst', () => {
       async open() { return undefined },
       async invalidate() {},
       async listGalleries() { return [] },
+      async gridGallery() { return undefined },
+      async listGridGalleries() { return [] },
+      async readThumbnail() { return undefined },
       async purgeGallery() {},
       async purgeAll() {},
     }
@@ -479,5 +482,77 @@ describe('EncryptedOfflineGalleryStore catalog and purge', () => {
     await expect(fill).rejects.toThrow('cleared while this write was in flight')
     expect(await vault.listGalleryIds()).toEqual([])
     expect(await gated.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+  })
+})
+
+describe('EncryptedOfflineGalleryStore grid catalog', () => {
+  test('gridGallery returns manifest-aligned frames without minting URLs', async () => {
+    const { store, urls } = makeHarness()
+    await store.cache(selection, gallery)
+    const galleryId = await offlineGalleryId(selection)
+
+    const grid = await store.gridGallery(galleryId)
+    expect(grid).toBeDefined()
+    expect(grid).toMatchObject({ owner: 'photographer', slug: 'quiet-light', title: 'Quiet light' })
+    expect(grid!.frames).toHaveLength(2)
+    expect(grid!.frames[0]).toMatchObject({
+      id: 'stable-one',
+      entryId: thumbnailEntryId('stable-one'),
+      mimeType: 'image/jpeg',
+      width: 2400,
+      height: 1600,
+      index: 0,
+    })
+    expect(grid!.frames[1]).toMatchObject({ id: 'stable-two', index: 1 })
+    // The catalog is metadata-only: no thumbnail URLs are created up front.
+    expect(urls.created).toEqual([])
+  })
+
+  test('gridGallery is undefined for missing or corrupt metadata', async () => {
+    const { store, vault } = makeHarness()
+    await store.cache(selection, gallery)
+    const galleryId = await offlineGalleryId(selection)
+
+    expect(await store.gridGallery('offline-gallery:v1:unknown')).toBeUndefined()
+    await vault.write(galleryId, __private__.METADATA_ENTRY_ID, new TextEncoder().encode('{bad json'))
+    expect(await store.gridGallery(galleryId)).toBeUndefined()
+  })
+
+  test('listGridGalleries spans cached galleries and skips corrupt ones', async () => {
+    const { store, vault } = makeHarness()
+    await store.cache(selection, gallery)
+    const other = { owner: 'photographer', slug: 'second-album' }
+    await store.cache(other, {
+      ...gallery,
+      manifest: { ...manifest, slug: other.slug, title: 'Second album' },
+      settings: { ...gallery.settings },
+    })
+    const otherId = await offlineGalleryId(other)
+    await vault.write(otherId, __private__.METADATA_ENTRY_ID, new TextEncoder().encode('{bad json'))
+
+    const grids = await store.listGridGalleries()
+    expect(grids).toHaveLength(1)
+    expect(grids[0].slug).toBe('quiet-light')
+  })
+
+  test('readThumbnail returns decrypted bytes without touching the LRU', async () => {
+    const { store, vault } = makeHarness()
+    await store.cache(selection, gallery)
+    const galleryId = await offlineGalleryId(selection)
+    const entryId = thumbnailEntryId('stable-two')
+
+    const reads: { touch?: boolean }[] = []
+    const originalRead = vault.read.bind(vault)
+    vault.read = ((g: string, e: string, opts?: { touch?: boolean }) => {
+      reads.push(opts ?? {})
+      return originalRead(g, e, opts)
+    }) as typeof vault.read
+
+    const bytes = await store.readThumbnail(galleryId, entryId)
+    expect(bytes).toEqual(secondBytes)
+    // Grid reads carry touch:false — scanning every gallery must not shuffle
+    // the eviction order a cap decision relies on.
+    expect(reads).toEqual([{ touch: false }])
+    expect(await store.readThumbnail(galleryId, 'no-such-entry')).toBeUndefined()
   })
 })

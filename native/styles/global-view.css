@@ -1,0 +1,175 @@
+/* Global view (#27): a quiet contact sheet over the stage. Cells keep honest
+   aspect inside a square frame — object-fit: contain, never cover — because
+   the no-crop rule applies to thumbnails too. content-visibility skips
+   offscreen cells so a 500-frame grid paints like a short one. */
+
+.native-global-view {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: rgba(10, 10, 10, .97);
+  color: rgba(var(--ink), .92);
+}
+
+.native-global-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top)) 20px 12px;
+  border-bottom: 1px solid rgba(var(--ink), .12);
+}
+
+.native-global-kicker {
+  margin: 0 0 4px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.native-global-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.native-global-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.native-global-toggle,
+.native-global-close,
+.native-global-enable {
+  padding: 8px 14px;
+  border: 1px solid rgba(var(--ink), .22);
+  background: transparent;
+  color: rgba(var(--ink), .85);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.native-global-toggle:hover,
+.native-global-close:hover,
+.native-global-enable:hover {
+  border-color: rgba(var(--ink), .5);
+}
+
+.native-global-explainer {
+  max-width: 480px;
+  padding: 32px 20px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  justify-self: center;
+}
+
+.native-global-explainer p {
+  margin: 0;
+  line-height: 1.55;
+  color: rgba(var(--ink), .78);
+}
+
+.native-global-enable {
+  justify-self: start;
+}
+
+.native-global-note {
+  margin: 0;
+  padding: 24px 20px;
+  color: rgba(var(--ink), .62);
+  line-height: 1.55;
+}
+
+.native-global-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px calc(40px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 28px;
+  align-content: start;
+}
+
+.native-global-gallery h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 500;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.native-global-gallery-meta {
+  color: rgba(var(--ink), .55);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.native-global-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 4px;
+}
+
+.native-global-cell {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  background: rgba(var(--ink), .06);
+  cursor: pointer;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  content-visibility: auto;
+  contain-intrinsic-size: 96px;
+}
+
+.native-global-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.native-global-cell:focus-visible {
+  outline: 2px solid rgba(var(--ink), .85);
+  outline-offset: -2px;
+}
+
+.native-global-count {
+  padding-top: 0;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* The entry affordance floats over the stage corner, inside the safe area —
+   reachable mid-strip without joining the viewer's own chrome. */
+.native-global-open {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  z-index: 30;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .55);
+  color: rgba(var(--ink), .85);
+  font: inherit;
+  font-size: 12px;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  letter-spacing: .08em;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.native-global-open:hover {
+  border-color: rgba(var(--ink), .5);
+}
