@@ -1,18 +1,24 @@
 /// <reference types="node" />
 import { expect, test, type Page } from '@playwright/test'
+import { platePositionsFor } from '../app/lib/adframe'
 import type { GalleryImage } from '../app/lib/imagesource'
 
 /**
- * Browser coverage for the ad plate rules (#23). Two mounts, both real:
+ * Browser coverage for the ad plate rules (#19). Two mounts, both real:
  *
  *  - `/?owner=fixture&slug=ads-fixture` drives the shipped app — GalleryList
- *    opens through fetchGallery, resolves the plate through adFrameFor and
- *    composes it via BundledSource.listWithPlate exactly as production does.
+ *    opens through fetchGallery and resolves the creative through adFrameFor.
  *    Unresolved billing in the browser preview is treated as free, so the
  *    house fallback plate is what a reviewer would see.
  *  - `/ads-fixture.html` mounts the same real GalleryShell + Viewer seam with
  *    the tier pinned, because billingState cannot be injected into main.tsx
  *    without a test seam in production code.
+ *
+ * The current rules: house plates ride the strip for every tier (Pro is
+ * house-only — the AdMob adapter is never called for it), placed on a seeded
+ * ~25-image cadence that re-rolls per gallery per UTC day, styled like the
+ * "The End." card, inert while the strip moves, and actionable only when the
+ * plate holding the CTA is dead-center and settled.
  *
  * Unlike the fold spec this suite must never pass quietly: without the
  * fixture server it fails outright, because "no plate observed" is only
@@ -29,6 +35,7 @@ if (!nativeUrl) {
 }
 
 const apiPattern = '**/api/gallery/**'
+const todayKey = () => new Date().toISOString().slice(0, 10)
 const svg = (label: string) =>
   `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="900"><rect width="100%" height="100%" fill="#171817"/><text x="32" y="80" fill="#f3f0e8">${label}</text></svg>`)}`
 
@@ -95,8 +102,8 @@ const openedUrls = async ({ page, popups }: Opened): Promise<string[]> => [
 ]
 
 /** The shipped path: main.tsx -> GalleryList -> fetchGallery -> adFrameFor ->
- *  listWithPlate -> Viewer, with the manifest routed in place of the worker. */
-const openApp = async (page: Page, photoCount = 24): Promise<Opened> => {
+ *  Viewer, with the manifest routed in place of the worker. */
+const openApp = async (page: Page, photoCount = 36): Promise<Opened> => {
   const body = JSON.stringify(galleryPayload(photoCount))
   const popups: string[] = []
   await stubWindowOpen(page, popups)
@@ -113,7 +120,7 @@ const openApp = async (page: Page, photoCount = 24): Promise<Opened> => {
 /** The pinned-tier fixture: same real Viewer and adFrameFor policy, with the
  *  entitlement set before load — never a runtime switch the app could ship. */
 const openFixture = async (page: Page, options: { photoCount?: number; tier: 'free' | 'pro' }) => {
-  const photoCount = options.photoCount ?? 24
+  const photoCount = options.photoCount ?? 36
   const body = JSON.stringify(galleryPayload(photoCount))
   const popups: string[] = []
   await stubWindowOpen(page, popups)
@@ -128,24 +135,24 @@ const openFixture = async (page: Page, options: { photoCount?: number; tier: 'fr
   return { body, page, popups }
 }
 
-/** Drags the strip so the plate lands dead-center on the stage. Pointer
- *  deltas round per event, so one drag lands within a few px of the target —
+/** Drags the strip so a plate lands dead-center on the stage. Pointer deltas
+ *  round per event, so one drag lands within a few px of the target —
  *  corrective passes close the rest. Each pass ends with a slow tail so the
- *  release settles instead of gliding. plateIsCentered wants < 2px. */
-const centerPlate = async (page: Page) => {
+ *  release settles instead of gliding. Centering wants < 2px. `nth` picks
+ *  the plate when more than one rides the strip. */
+const centerPlate = async (page: Page, nth = 0) => {
   const stage = page.locator('.viewer-stage')
-  const plate = page.locator('[data-ad-frame]')
-  await expect(plate).toBeVisible()
+  await expect(page.locator('[data-ad-frame]').nth(nth)).toBeVisible()
 
   for (let pass = 0; pass < 8; pass += 1) {
-    const centers = await page.evaluate(() => {
+    const centers = await page.evaluate((index) => {
       const stageRect = document.querySelector('.viewer-stage')!.getBoundingClientRect()
-      const plateRect = document.querySelector('[data-ad-frame]')!.getBoundingClientRect()
+      const plateRect = document.querySelectorAll('[data-ad-frame]')[index].getBoundingClientRect()
       return {
         stage: stageRect.left + stageRect.width / 2,
         plate: plateRect.left + plateRect.width / 2,
       }
-    })
+    }, nth)
     const residual = centers.plate - centers.stage
     if (Math.abs(residual) < 1) return
 
@@ -167,45 +174,81 @@ const centerPlate = async (page: Page) => {
   throw new Error('Plate never reached stage center')
 }
 
-const plateCta = (page: Page) => page.locator('[data-ad-frame] [data-ad-mount] a')
+const plateCta = (page: Page, nth = 0) => page.locator('[data-ad-frame] .ad-plate-cta').nth(nth)
 
 test.describe('native ad plate rules', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('places exactly one plate at the midpoint of a 24-photo gallery', async ({ page }) => {
-    await openApp(page, 24)
+  test('seeds plates on the ~25-image cadence, styled like the endcard', async ({ page }) => {
+    await openApp(page, 60)
 
-    await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
-    // floor(24 / 2) = 12: the plate sits after the twelfth photograph, never
-    // first or last.
-    await expect(page.locator('[data-index="12"] + [data-ad-frame]')).toHaveCount(1)
-    await expect(page.locator('[data-ad-frame] + [data-index="13"]')).toHaveCount(1)
+    // 60 photographs always carries exactly two plates: first lands in the
+    // 21–29 window, the next ~25 later, and a third can never fit.
+    const expected = platePositionsFor(60, `ads-fixture:${todayKey()}`)
+    expect(expected).toHaveLength(2)
+
+    const frames = page.locator('[data-ad-frame]')
+    await expect(frames).toHaveCount(2)
+    const positions = await frames.evaluateAll((nodes) =>
+      nodes.map((node) => Number((node as HTMLElement).dataset.adPosition)))
+    expect(positions).toEqual([...expected])
+
+    for (const pos of positions) {
+      await expect(page.locator(`[data-ad-position="${pos}"]`)).toHaveClass(/viewer-endcap/)
+      // data-index is 1-based: a plate at photo-position pos sits after the
+      // pos-th photograph and before the next.
+      await expect(page.locator(`[data-index="${pos}"] + [data-ad-position="${pos}"] + [data-index="${pos + 1}"]`)).toHaveCount(1)
+      await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-badge`)).toHaveText('Sponsored')
+      await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-headline`)).toContainText('photographs')
+    }
+    // Plates are never endpoints: a photo leads and a photo trails each.
+    await expect(page.locator('[data-track] [data-index]')).toHaveCount(60)
   })
 
-  test('suppresses the plate entirely in a 5-photo gallery', async ({ page }) => {
-    await openApp(page, 5)
+  test('keeps the same-day layout stable and re-rolls it on a new day', async ({ page }) => {
+    // Same seed, second mount: identical placement, not a fresh shuffle.
+    await openApp(page, 200)
+    const first = await page.locator('[data-ad-frame]').evaluateAll((nodes) =>
+      nodes.map((node) => Number((node as HTMLElement).dataset.adPosition)))
+    expect(first).toEqual([...platePositionsFor(200, `ads-fixture:${todayKey()}`)])
 
+    // A different UTC day is a different seed — positions re-roll.
+    await page.clock.install({ time: new Date('2026-10-01T12:00:00Z') })
+    await openApp(page, 200)
+    const second = await page.locator('[data-ad-frame]').evaluateAll((nodes) =>
+      nodes.map((node) => Number((node as HTMLElement).dataset.adPosition)))
+    const expected = platePositionsFor(200, 'ads-fixture:2026-10-01')
+    expect(second).toEqual([...expected])
+    expect(second).not.toEqual(first)
+  })
+
+  test('suppresses plates entirely in short galleries', async ({ page }) => {
+    await openApp(page, 5)
     await expect(page.locator('[data-track]')).toBeVisible()
     await expect(page.locator('[data-ad-frame]')).toHaveCount(0)
-    await expect(page.locator('[data-track] [data-index]')).toHaveCount(5)
+
+    // 22 photographs is still below the earliest possible cadence window.
+    await openApp(page, 22)
+    await expect(page.locator('[data-ad-frame]')).toHaveCount(0)
+    await expect(page.locator('[data-track] [data-index]')).toHaveCount(22)
   })
 
   test('keeps the position readout and item count photograph-only', async ({ page }) => {
-    await openApp(page, 24)
+    await openApp(page, 36)
 
-    await expect(page.locator('[data-track] [data-index]')).toHaveCount(24)
+    await expect(page.locator('[data-track] [data-index]')).toHaveCount(36)
     const seq = page.locator('.stage-seq')
-    await expect(seq).toHaveAttribute('aria-label', /of 24/)
-    await expect(page.locator('.stage-seq-tally')).toContainText('of 24')
+    await expect(seq).toHaveAttribute('aria-label', /of 36/)
+    await expect(page.locator('.stage-seq-tally')).toContainText('of 36')
 
     // With the plate centered the counter still speaks photographs.
     await centerPlate(page)
-    await expect(seq).toHaveAttribute('aria-label', /of 24/)
-    await expect(page.locator('.stage-seq-tally')).toContainText('of 24')
+    await expect(seq).toHaveAttribute('aria-label', /of 36/)
+    await expect(page.locator('.stage-seq-tally')).toContainText('of 36')
   })
 
   test('keeps the CTA inert through drag, momentum and off-center rest', async ({ page }) => {
-    const opened = await openApp(page, 24)
+    const opened = await openApp(page, 36)
     const cta = plateCta(page)
     await expect(cta).toHaveCount(1)
 
@@ -258,7 +301,7 @@ test.describe('native ad plate rules', () => {
   })
 
   test('activates the CTA only when the plate is centered and settled', async ({ page }) => {
-    const opened = await openApp(page, 24)
+    const opened = await openApp(page, 36)
     const cta = plateCta(page)
 
     await centerPlate(page)
@@ -281,16 +324,52 @@ test.describe('native ad plate rules', () => {
     expect(await openedUrls(opened)).toHaveLength(2)
   })
 
-  test('renders no plate for a pro entitlement', async ({ page }) => {
-    await openFixture(page, { photoCount: 24, tier: 'pro' })
+  test('arms only the plate actually centered when several ride the strip', async ({ page }) => {
+    await openApp(page, 60)
 
-    await expect(page.locator('[data-track]')).toBeVisible()
+    // Center the SECOND plate — only its own CTA may arm.
+    await centerPlate(page, 1)
+    await expect(plateCta(page, 1)).toHaveAttribute('tabindex', '0', { timeout: 5000 })
+    await expect(plateCta(page, 0)).toHaveAttribute('tabindex', '-1')
+
+    // Slide back to the first plate: the arm moves with it.
+    await centerPlate(page, 0)
+    await expect(plateCta(page, 0)).toHaveAttribute('tabindex', '0', { timeout: 5000 })
+    await expect(plateCta(page, 1)).toHaveAttribute('tabindex', '-1')
+  })
+
+  test('pro sees the house plate on the cadence, never third-party inventory', async ({ page }) => {
+    await openFixture(page, { photoCount: 36, tier: 'pro' })
+
+    // Pro's promise is "no ad network": the adapter is never consulted and
+    // the manorama-owned creative rides the same seeded placement.
+    const expected = platePositionsFor(36, `ads-fixture:${todayKey()}`)
+    expect(expected).toHaveLength(1)
+    const frame = page.locator('[data-ad-frame]')
+    await expect(frame).toHaveCount(1)
+    await expect(frame).toHaveClass(/viewer-endcap/)
+    await expect(frame).toHaveAttribute('aria-label', 'Sponsored: manorama')
+    await expect(page.locator('[data-track] [data-index]')).toHaveCount(36)
+  })
+
+  test('the master switch hides every plate when the Worker says so', async ({ page }) => {
+    // Suppressed for this viewer's day/region — the strip composes none.
+    const popups: string[] = []
+    await stubWindowOpen(page, popups)
+    await page.route(apiPattern, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(galleryPayload(60)) }))
+    await page.route('**/api/ads/visibility', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ show: false, day: '2026-10-01', region: 'IN', suppressedBy: 'region' }) }))
+    await page.route('**/manorama.xyz*', (route) => route.fulfill({ status: 200, body: 'ok' }))
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=ads-fixture`)
+    await enterGallery(page)
+
     await expect(page.locator('[data-ad-frame]')).toHaveCount(0)
-    await expect(page.locator('[data-track] [data-index]')).toHaveCount(24)
+    await expect(page.locator('[data-track] [data-index]')).toHaveCount(60)
   })
 
   test('leaves the stored manifest bytes unchanged after real viewing', async ({ page }) => {
-    const { body } = await openFixture(page, { photoCount: 24, tier: 'free' })
+    const { body } = await openFixture(page, { photoCount: 36, tier: 'free' })
 
     const atOpen = await page.evaluate(
       () => (window as unknown as { __MANORAMA_AD_FIXTURE_STATE__: { imagesJsonAtOpen: string } }).__MANORAMA_AD_FIXTURE_STATE__.imagesJsonAtOpen,
@@ -305,7 +384,7 @@ test.describe('native ad plate rules', () => {
     await page.waitForTimeout(400)
 
     // The same in-page manifest object must serialize byte-identically —
-    // listWithPlate is runtime-only, never written back.
+    // plates are runtime-only, never written back.
     const after = await page.evaluate(
       () => JSON.stringify((window as unknown as { __MANORAMA_AD_FIXTURE_STATE__: { manifest: { images: unknown } } }).__MANORAMA_AD_FIXTURE_STATE__.manifest.images),
     )

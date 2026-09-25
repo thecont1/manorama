@@ -3,8 +3,8 @@
  *  index.html — none of this ships in the Capacitor bundle.
  *
  *  The page mirrors the exact seam GalleryList uses to present a gallery:
- *  the manifest arrives through fetchGallery, the plate through the real
- *  adFrameFor policy, and composition through BundledSource.listWithPlate.
+ *  the manifest arrives through fetchGallery and the plate through the real
+ *  adFrameFor policy; the Viewer places it on the seeded cadence.
  *  The only test seams are __MANORAMA_AD_FIXTURE__ (the tier to resolve,
  *  pinned before load so the fixture never needs a runtime switch) and
  *  __MANORAMA_AD_FIXTURE_STATE__, which lets the spec compare the stored
@@ -14,7 +14,7 @@ import GalleryShell from '../app/components/GalleryShell'
 import Viewer from '../app/islands/Viewer'
 import { BundledSource } from '../app/lib/imagesource'
 import type { GalleryManifest } from '../app/lib/imagesource'
-import { isAdFrame } from '../app/lib/adframe'
+
 import { adFrameFor } from './lib/ads'
 import { fetchGallery } from './lib/api'
 import './styles.css'
@@ -38,7 +38,6 @@ const gallery = await fetchGallery(window.location.origin, 'fixture', 'ads-fixtu
 const manifest = gallery.manifest
 const plate = await adFrameFor({ tier: config.tier ?? 'free' })
 const source = new BundledSource(manifest)
-const runtimePlate = source.listWithPlate(plate).find(isAdFrame) ?? null
 
 window.__MANORAMA_AD_FIXTURE_STATE__ = {
   manifest,
@@ -47,7 +46,7 @@ window.__MANORAMA_AD_FIXTURE_STATE__ = {
 
 render(
   <GalleryShell settings={gallery.settings}>
-    <Viewer slug={manifest.slug} images={source.list()} settings={gallery.settings} plate={runtimePlate} />
+    <Viewer slug={manifest.slug} images={source.list()} settings={gallery.settings} plate={plate} />
   </GalleryShell>,
   root,
 )

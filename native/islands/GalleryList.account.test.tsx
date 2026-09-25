@@ -141,17 +141,49 @@ describe('account slot entitlement', () => {
     expect(cta?.textContent).toContain('Explore manorama')
   })
 
-  test('pro renders no slot and never asks for a creative', async () => {
-    let requests = 0
-    const loader: Loader = async () => {
-      requests += 1
+  test('pro renders the slot under its own tier — the loader sees pro', async () => {
+    const inputs: AdPolicyInput[] = []
+    const loader: Loader = async (input) => {
+      inputs.push(input)
       return houseFrame()
     }
     const { container } = mount({ billing: entitlement('pro'), loader })
     await settle()
 
-    expect(slots(container)).toHaveLength(0)
-    expect(requests).toBe(0)
+    // House plates are for every tier; Pro's promise is only that no
+    // third-party network is ever consulted, which lives in the policy.
+    expect(slots(container)).toHaveLength(1)
+    expect(inputs).toHaveLength(1)
+    expect(inputs[0].tier).toBe('pro')
+  })
+
+  test('the master switch hides the slot for a resolved free tier', async () => {
+    const inputs: AdPolicyInput[] = []
+    const loader: Loader = async (input) => {
+      inputs.push(input)
+      return houseFrame()
+    }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
+      if (url.includes('/api/ads/visibility')) {
+        return new Response(JSON.stringify({ show: false, day: '2026-10-01' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return originalFetch(input, init)
+    }) as typeof fetch
+    try {
+      const { container } = mount({ billing: entitlement('free'), loader })
+      await settle()
+
+      // The loader is asked with the suppression in effect and resolves to
+      // nothing; the render gate independently refuses a stale slot.
+      expect(inputs.at(-1)?.visible).toBe(false)
+      expect(slots(container)).toHaveLength(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   test('unresolved entitlement renders no slot and never asks for a creative', async () => {
@@ -167,43 +199,53 @@ describe('account slot entitlement', () => {
     expect(requests).toBe(0)
   })
 
-  test('free to pro removes the slot without leaving a gap behind', async () => {
-    const { container, controls } = mount({ billing: entitlement('free') })
+  test('free to pro keeps the slot while re-resolving under the new tier', async () => {
+    const inputs: AdPolicyInput[] = []
+    const loader: Loader = async (input) => {
+      inputs.push(input)
+      return houseFrame()
+    }
+    const { container, controls } = mount({ billing: entitlement('free'), loader })
     await settle()
     expect(slots(container)).toHaveLength(1)
 
     flushSync(() => controls.setBilling(entitlement('pro')))
 
-    // The same paint that learns Pro: no async wait, no placeholder box left
-    // in the header where the slot used to be.
-    expect(slots(container)).toHaveLength(0)
-    const header = container.querySelector('.native-account-header')
-    expect(header).not.toBeNull()
-    expect(header?.childElementCount).toBe(1)
+    // House plates span tiers: the paint that learns Pro keeps the slot —
+    // no gap opens in the header where it used to be.
+    expect(slots(container)).toHaveLength(1)
 
     await settle()
-    expect(slots(container)).toHaveLength(0)
+    expect(slots(container)).toHaveLength(1)
+    expect(inputs.at(-1)?.tier).toBe('pro')
   })
 })
 
 describe('account slot resolution lifecycle', () => {
-  test('a creative resolved after pro is known cannot resurrect the slot', async () => {
-    const pending: { resolve?: (frame: AdFrame | null) => void } = {}
+  test('a creative resolved after the tier changed cannot overwrite the new one', async () => {
+    const pending: { resolve?: (frame: AdFrame | null) => void }[] = []
     const loader: Loader = () =>
       new Promise((resolve) => {
-        pending.resolve = resolve
+        pending.push({ resolve })
       })
     const { container, controls } = mount({ billing: entitlement('free'), loader })
     await settle()
     // The request went out while free and is still in flight.
-    expect(pending.resolve).toBeDefined()
+    expect(pending).toHaveLength(1)
     expect(slots(container)).toHaveLength(0)
 
     flushSync(() => controls.setBilling(entitlement('pro')))
-    pending.resolve?.(houseFrame({ id: 'late-creative', headline: 'Late creative' }))
+    await settle()
+    // The tier change issues a fresh request under the new tier.
+    expect(pending).toHaveLength(2)
+    pending[1].resolve?.(houseFrame({ id: 'pro-creative', headline: 'Pro creative' }))
     await settle()
 
-    expect(slots(container)).toHaveLength(0)
+    // The stale free-tier resolution lands after and must not overwrite it.
+    pending[0].resolve?.(houseFrame({ id: 'late-creative', headline: 'Late creative' }))
+    await settle()
+    expect(slots(container)).toHaveLength(1)
+    expect(container.innerHTML).toContain('Pro creative')
     expect(container.innerHTML).not.toContain('Late creative')
   })
 

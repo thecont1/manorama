@@ -17,11 +17,21 @@ describe('native ad policy', () => {
     await expect(adFrameFor({ tier: 'free', adapter: { loadMediumRectangle: async () => null } })).resolves.toBe(HOUSE_AD_FRAME)
   })
 
-  test('does not request or compose an ad for pro', async () => {
+  test('pro sees the house plate and never triggers a network fill', async () => {
     let calls = 0
     const adapter: BannerAdAdapter = { loadMediumRectangle: async () => { calls += 1; return HOUSE_AD_FRAME } }
-    await expect(adFrameFor({ tier: 'pro', adapter })).resolves.toBeNull()
+    await expect(adFrameFor({ tier: 'pro', adapter })).resolves.toBe(HOUSE_AD_FRAME)
     expect(calls).toBe(0)
+  })
+
+  test('the master switch hides plates for every tier without a request', async () => {
+    let calls = 0
+    const adapter: BannerAdAdapter = { loadMediumRectangle: async () => { calls += 1; return HOUSE_AD_FRAME } }
+    await expect(adFrameFor({ tier: 'free', adapter, visible: false })).resolves.toBeNull()
+    await expect(adFrameFor({ tier: 'pro', adapter, visible: false })).resolves.toBeNull()
+    expect(calls).toBe(0)
+    // Unanswered is not suppressed.
+    await expect(adFrameFor({ tier: 'free', adapter, visible: undefined })).resolves.toBe(HOUSE_AD_FRAME)
   })
 
   test('actionability requires both rest and centering', () => {

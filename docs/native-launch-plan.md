@@ -114,46 +114,56 @@ Transparency through the plugin, default to non-personalised, do not request IDF
 covers UMP consent and ATT helpers on iOS
 ([capacitor-community/admob](https://github.com/capacitor-community/admob)).
 
-#### Placement 1 — the plate: one ad per gallery, at the 50% mark
+#### Placement 1 — the plate: house creative on a seeded ~25-image cadence
 
-A single ad frame enters the strip like a photograph does. Rules, all testable:
+House plates enter the strip like a photograph does — mounted as a borderless faux
+frame in the same language as the "The End." card. Rules, all testable:
 
-1. **Exactly one per gallery.** Never two, never a rotation.
-2. **Position:** the midpoint of the manifest, and never the first or last frame. The opening
-   and the closing belong to the photographer.
-3. **Suppressed below 8 items.** In a five-frame gallery a midpoint ad is a fifth of the
-   experience. Short galleries carry no plate.
-4. **Runtime-only insertion.** The plate is composed into the runtime sequence by
-   `BundledSource`; it is **never written into `imagesJson`**. The stored manifest stays the
-   photographer's record, and a pro upgrade needs no migration.
-5. **Not counted.** Position readout, item numbering and keyboard stepping count photographs.
-   "7 of 24" never includes an ad.
-6. **Presented as a mount, not a fill.** The creative sits centred on the same stable plain
-   canvas the photographs sit on, with generous surround, at its own honest size. Never
-   stretched, cropped or upscaled to fill the stage — AdMob's own playbook says to avoid
-   stretching or cropping advertiser assets
-   ([Native Ads Playbook](https://admob.google.com/home/resources/native-ads-playbook/)),
-   which is simply manorama's existing invariant applied to someone else's picture.
-7. **Labelled in the existing quiet vocabulary,** alongside where the `VIDEO · mm:ss` chip
-   lives. AdMob requires a visible `Ad` / `Advertisement` / `Sponsored` badge of at least 15px,
-   rendered in your own code for native formats, plus the AdChoices overlay
-   ([AdMob](https://support.google.com/admob/answer/6329638)).
-8. **Click safety — the most important line in this section.** The plate is inert while the
-   strip is in motion and becomes tappable only once the frame is at rest and centred. A
-   swipe-through strip is an accidental-click machine, and AdMob policy explicitly wants a
-   clear boundary and padding between ad and content
-   ([placement guidance](https://note.com/adinnovation/n/n3fe2e1d8c1ab?hl=en)). Invalid click
-   traffic gets AdMob accounts suspended; this is a ban risk, not a polish item.
-9. **`I` on a plate** shows the advertiser, not EXIF. No C2PA claim is ever implied for an ad.
-10. **Pro:** the plate is never composed in. No gap, no placeholder, no trace.
+1. **Cadence, not rotation.** A plate lands around every 25th photograph, jittered
+   ±4 positions from a seeded draw so it never reads as a metronome — never the
+   first frame, never the last, never two adjacent.
+2. **The draw re-rolls per gallery per UTC day.** `platePositionsFor(count,
+   slug:date)` is deterministic inside the day — a re-opened strip keeps the
+   morning's layout — and re-seeded tomorrow. Short galleries fall below the
+   first window (~21st image) and simply carry no plate.
+3. **Runtime-only insertion.** Positions are composed into the runtime sequence;
+   the plate is **never written into `imagesJson`**. The stored manifest stays the
+   photographer's record, and a tier change needs no migration.
+4. **Not counted.** Position readout, item numbering and keyboard stepping count
+   photographs. "7 of 24" never includes an ad.
+5. **Dressed like the endcard.** A plate is the same borderless faux frame as
+   "The End." — stable plain canvas, wordmark display face, honest size, never
+   stretched, cropped or upscaled to fill the stage. The disclosure badge keeps
+   the small quiet type.
+6. **Labelled in the existing quiet vocabulary.** AdMob requires a visible
+   `Ad` / `Advertisement` / `Sponsored` badge of at least 15px, rendered in your
+   own code for native formats, plus the AdChoices overlay
+   ([AdMob](https://support.google.com/admob/answer/6329638)). House plates carry
+   the same label — `Sponsored`, not "ad-free-looking editorial."
+7. **Click safety — the most important line in this section, now per plate.** A
+   CTA arms only while *its own* plate is dead-centre on the stage with the strip
+   at rest; taps during a drag or glide stay inert even though they stop the
+   motion. A swipe-through strip is an accidental-click machine, and invalid
+   click traffic gets AdMob accounts suspended; this is a ban risk, not polish.
+8. **`I` on a plate** shows the advertiser, not EXIF. No C2PA claim is ever
+   implied for an ad.
+9. **Every tier sees house plates; Pro is house-only.** The cadence applies to
+   all users, but the AdMob adapter is never consulted for Pro — the house
+   plate *is* the Pro creative. Book pose suppresses the cadence entirely: a
+   diptych spread cannot carry a plate.
+10. **The master user holds the kill switch.** Plates are suppressed when the
+    owner toggles them off for the day or for the viewer's region — the region
+    decision arrives via the Worker (geo-IP), with an explicit "show" fallback
+    when the region can't be determined.
 
 #### Placement 2 — the account page slot
 
-Top-right of the dashboard header, opposite the logo and welcome line. One fixed slot, no
-rotation while the page is open, rendered inside manorama's own type scale so it reads as part
-of the page's design rather than an injection. **Native app only** — the web dashboard stays
-clean, which is the web-as-supporting-actor thesis expressed in the product rather than the
-pitch deck.
+Top-right of the dashboard header, opposite the logo and welcome line. One fixed
+slot, no rotation while the page is open, rendered inside manorama's own type
+scale so it reads as part of the page's design rather than an injection. **Native
+app only** — the web dashboard stays clean. Every resolved tier sees it (the
+creative follows the same rule as the strip: Pro gets the house frame), and the
+master switch suppresses it together with the strip plates.
 
 #### Format reality, and the seam to the in-house server
 
@@ -191,12 +201,12 @@ Three adapters, in order of arrival — the viewer only ever knows `AdFrame`:
 | --- | --- | --- | --- |
 | B1 | `npm install @revenuecat/purchases-capacitor && npx cap sync`; configure API keys; wire the existing `tier` column to entitlement `pro` ([RevenueCat docs](https://www.revenuecat.com/docs/getting-started/installation/capacitor)) | `native/lib/billing.ts` | `customerInfo.entitlements.active.pro` gates vault size and ads |
 | B2 | Products in App Store Connect: `manorama_pro_monthly`, `manorama_pro_yearly`, `manorama_forever` (one-time). Offerings configured in the RevenueCat dashboard | dashboard only | Products fetch on device |
-| B3 | Paywall: **Free** (3 galleries, small vault, one plate per gallery, account slot), **Pro** (99 galleries, unlimited vault, no ads anywhere, P2P host later), **Forever** (one-time). Copy plain and unhurried; no countdown timers, no dark patterns | `native/islands/Paywall.tsx` | Purchase → entitlement → both placements vanish, verified end to end in sandbox |
-| B4 | `AdFrame` interface + `admob-banner` adapter + the plate composer in `BundledSource`. Implements rules 1–10 above | `packages/core/adframe.ts`, `native/lib/ads.ts` | Plate appears at midpoint of a 24-item gallery, absent from a 5-item one, absent for pro |
+| B3 | Paywall: **Free** (3 galleries, small vault, house + network plates on the cadence, account slot), **Pro** (99 galleries, unlimited vault, house plates only — no third-party ad network — P2P host later), **Forever** (one-time). Copy plain and unhurried; no countdown timers, no dark patterns | `native/islands/Paywall.tsx` | Purchase → entitlement → Pro creative is the house frame, verified end to end in sandbox |
+| B4 | `AdFrame` interface + `admob-banner` adapter + the seeded cadence composer. Implements rules 1–10 above | `packages/core/adframe.ts`, `native/lib/ads.ts` | Plates land on the seeded ~25-image cadence (deterministic per gallery-day), absent below ~22 items, house-only for pro |
 | B5 | **Server seam.** RevenueCat webhook → Worker endpoint → `setUserTier` (the existing trusted seam that also promotes unexpired pipeline galleries). Never write the D1 `tier` column directly | `app/routes/api/revenuecat-webhook.ts` | Sandbox purchase promotes pipeline galleries in one idempotent batch |
-| B6 | Account page slot, native dashboard header top-right | `native/islands/GalleryList.tsx` | Renders for free, absent for pro |
+| B6 | Account page slot, native dashboard header top-right | `native/islands/GalleryList.tsx` | Renders for every resolved tier (house creative for pro), hidden while entitlement is unresolved |
 | B7 | **House fallback plate** — a designed manorama plate shown when no paid ad fills. Cheap, and it means the slot is never an empty void, including in front of an App Store reviewer whose test device may fill nothing | `native/lib/ads.ts` | Ad-fill failure shows the house plate, not a blank frame |
-| B8 | Playwright: plate position, suppression below 8 items, exclusion from the position readout, inert-while-moving click safety, pro absence, manifest left unmodified | `native/ads.playwright.ts` | All six assertions green |
+| B8 | Playwright: seeded cadence + per-day re-roll, endcard styling, suppression in short galleries, exclusion from the position readout, inert-while-moving click safety, per-plate arming when several ride the strip, pro gets the house plate, manifest left unmodified | `native/ads.playwright.ts` | All assertions green |
 
 `setUserTier` already handles tier + pipeline promotion atomically. B5 must call it and nothing
 else — a direct `tier` UPDATE would leave a pro account with locked galleries.

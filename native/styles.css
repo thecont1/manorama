@@ -138,6 +138,38 @@ body:has(.native-diptych) {
   background: rgba(var(--ink), .1);
 }
 
+/* The master's plate switch sits under the actions — quieter than the
+   controls it governs, and honest about what it is reporting. */
+.native-plate-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 22px 0 6px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(var(--ink), .1);
+}
+
+.native-plate-switch-state {
+  flex: 1 1 auto;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-plate-switch button {
+  padding: 7px 12px;
+  border-color: rgba(var(--ink), .24);
+  font-size: 13px;
+}
+
+.native-plate-switch button:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
 .native-list-card > button + button,
 .native-list-card > button + form {
   margin-top: 12px;

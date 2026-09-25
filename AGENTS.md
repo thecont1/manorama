@@ -46,11 +46,13 @@ works, and will be reverted.
    pass through as part of the image bytes. This is the reason the project exists; treat it
    as load-bearing.
 3. **Ads obey the ten plate rules** in `docs/native-launch-plan.md` §B and issue #19,
-   enforced by tests in #23 — one per gallery, at the midpoint, never first or last,
-   suppressed below 8 items, never written into `imagesJson`, never counted in the position
-   readout, never stretched or cropped, never tappable while the strip is in motion, never
-   present for pro. The click-safety rule is a policy and account-suspension risk, not
-   polish.
+   enforced by the browser suite — house plates on a seeded ~25-image cadence that
+   re-rolls per gallery per UTC day, never first or last or adjacent, suppressed in
+   short galleries, never written into `imagesJson`, never counted in the position
+   readout, dressed like the "The End." card, never stretched or cropped, each CTA
+   tappable only while its own plate is centred and the strip is at rest, house-only
+   for pro, suppressed for everyone by the master per-day/per-region switch. The
+   click-safety rule is a policy and account-suspension risk, not polish.
 4. **No private Apple APIs.** Any WebKit `_features` frame-rate trick is an automatic App
    Store rejection. The supported lever is `CADisableMinimumFrameDurationOnPhone` in
    `Info.plist`.

@@ -7,7 +7,7 @@ import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
-import { AD_BANNER_HEIGHT, AD_BANNER_WIDTH, plateIndexFor, type AdFrame } from '../lib/adframe'
+import { platePositionsFor, type AdFrame } from '../lib/adframe'
 import { clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
 
@@ -259,7 +259,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
   const plateActionFrameRef = useRef<number | null>(null)
-  const plateActionableRef = useRef(false)
+  const armedPlatePosRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
   const boundsDirtyRef = useRef(true)
   // The "The End." card is mounted in the track but excluded from the
@@ -270,15 +270,20 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // join the tab order only while it is on screen — bounds math keeps
   // reading the ref synchronously.
   const [endcapRevealed, setEndcapRevealed] = useState(false)
-  const [plateActionable, setPlateActionable] = useState(false)
+  const [armedPlatePos, setArmedPlatePos] = useState<number | null>(null)
 
   const currentImage = images[index] ?? images[0]
-  const plateIndex = plateIndexFor(images.length)
-  // Fold presentation is a native enhancement of strip mode. Ad plates retain
-  // the ordinary strip so the one-plate policy is never bypassed by a layout
-  // change; Pro galleries can use both physical segments without extra chrome.
-  const foldActive = mode === 'strip' && !plate && foldLayout?.mode === 'diptych' && Boolean(foldRenderer)
+  // Fold presentation is a native enhancement of strip mode. A diptych spread
+  // cannot carry a plate, so book pose suppresses the cadence entirely rather
+  // than cropping it into a segment.
+  const foldActive = mode === 'strip' && foldLayout?.mode === 'diptych' && Boolean(foldRenderer)
   foldActiveRef.current = foldActive
+  // Plate positions re-roll once per gallery per UTC day — a re-opened strip
+  // keeps the morning's layout instead of re-shuffling on every mount.
+  const platePositions = useMemo(
+    () => (plate && !foldActive ? platePositionsFor(images.length, `${slug}:${new Date().toISOString().slice(0, 10)}`) : []),
+    [plate, foldActive, images.length, slug],
+  )
   // The info panel speaks about whichever medium is on screen, and EXIF
   // only exists on photographs — narrow once here rather than at each use.
   const currentVideo = currentImage && isVideoItem(currentImage) ? currentImage : null
@@ -288,14 +293,22 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // The pointer handlers bind once per mode change, but the plate prop
   // resolves asynchronously after mount — plateRef keeps this predicate
   // reading the live prop instead of the mount-time closure's.
-  const plateIsCentered = () => {
-    if (!plateRef.current || mode !== 'strip' || draggingRef.current || momentumRef.current !== null) return false
+  const plateMountCentered = (mount: Element | null | undefined): boolean => {
     const stage = stageRef.current
-    const mount = trackRef.current?.querySelector<HTMLElement>('[data-ad-frame]')
     if (!stage || !mount) return false
     const stageRect = stage.getBoundingClientRect()
     const mountRect = mount.getBoundingClientRect()
     return Math.abs((mountRect.left + mountRect.width / 2) - (stageRect.left + stageRect.width / 2)) < 2
+  }
+
+  // Several plates can ride one strip; only the settled, centred one arms its
+  // CTA — they are far enough apart that at most one can ever be centred.
+  const centeredPlatePosition = (): number | null => {
+    if (!plateRef.current || mode !== 'strip' || draggingRef.current || momentumRef.current !== null) return null
+    for (const mount of trackRef.current?.querySelectorAll<HTMLElement>('[data-ad-frame]') ?? []) {
+      if (plateMountCentered(mount)) return Number(mount.dataset.adPosition)
+    }
+    return null
   }
 
   // Transform writes happen outside the render cycle. Re-measure after the
@@ -306,18 +319,19 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (plateActionFrameRef.current !== null) return
     plateActionFrameRef.current = requestAnimationFrame(() => {
       plateActionFrameRef.current = null
-      const actionable = plateIsCentered()
-      plateActionableRef.current = actionable
-      setPlateActionable(actionable)
+      const pos = centeredPlatePosition()
+      armedPlatePosRef.current = pos
+      setArmedPlatePos(pos)
     })
   }
 
-  const setPlateActionability = (actionable: boolean) => {
-    plateActionableRef.current = actionable
-    setPlateActionable(actionable)
+  const setPlateActionability = (pos: number | null) => {
+    armedPlatePosRef.current = pos
+    setArmedPlatePos(pos)
   }
 
-  const plateCanActivate = () => plateActionableRef.current && !draggingRef.current && momentumRef.current === null
+  const plateCanActivate = (pos: number) =>
+    armedPlatePosRef.current === pos && !draggingRef.current && momentumRef.current === null
 
   useEffect(() => {
     queuePlateActionability()
@@ -512,7 +526,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     currentXRef.current = value
     trackRef.current?.style.setProperty('transform', `translate3d(${value}px, 0, 0)`)
     if (mode === 'strip' && !foldActiveRef.current) {
-      setPlateActionability(false)
+      setPlateActionability(null)
       queuePlateActionability()
     }
     if (shouldReport) {
@@ -1245,7 +1259,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     let adPress: { x: number; y: number; href: string; armed: boolean } | null = null
     const beginDrag = (event: PointerEvent) => {
       stopMomentum()
-      setPlateActionability(false)
+      setPlateActionability(null)
       draggingRef.current = true
       lastPointerRef.current = { x: event.clientX, y: event.clientY }
       dragTargetXRef.current = currentXRef.current
@@ -1256,12 +1270,13 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const onPointerDown = (event: PointerEvent) => {
       if (mode !== 'strip' || foldActiveRef.current || (event.target as HTMLElement).closest('button')) return
       const adAnchor = (event.target as HTMLElement).closest('a[href]')
-      if (adAnchor?.closest('[data-ad-mount]')) {
+      const adFrame = adAnchor?.closest('[data-ad-frame]')
+      if (adAnchor && adFrame) {
         adPress = {
           x: event.clientX,
           y: event.clientY,
           href: (adAnchor as HTMLAnchorElement).href,
-          armed: plateActionableRef.current && !draggingRef.current && momentumRef.current === null,
+          armed: plateMountCentered(adFrame) && !draggingRef.current && momentumRef.current === null,
         }
       }
       beginDrag(event)
@@ -1990,19 +2005,31 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                 )}
               </figure>
             )
-            if (plate && mode === 'strip' && plateIndex === imageIndex) {
+            // A plate is a borderless faux frame in the track — same language
+            // as the "The End." card, set in the wordmark's display face with
+            // the disclosure label kept small above the headline.
+            if (plate && mode === 'strip' && platePositions.includes(imageIndex)) {
               return <>
                 <div
-                  class="viewer-frame viewer-ad-frame"
+                  class="viewer-endcap viewer-ad-frame"
                   data-ad-frame
+                  data-ad-position={imageIndex}
                   aria-label={`${plate.badge}: ${plate.advertiser}`}
-                  style={{ width: `${AD_BANNER_WIDTH + 48}px`, height: '100%', minWidth: `${AD_BANNER_WIDTH + 48}px`, minHeight: '100%', display: 'grid', placeItems: 'center', alignContent: 'center', padding: '24px', boxSizing: 'border-box', background: 'rgb(10, 10, 10)', color: 'rgb(244, 240, 232)', textAlign: 'center' }}
                 >
-                  <div data-ad-mount style={{ width: `${AD_BANNER_WIDTH}px`, height: `${AD_BANNER_HEIGHT}px`, display: 'grid', gap: '12px', placeItems: 'center', alignContent: 'center' }}>
-                    <span style={{ fontSize: '15px', lineHeight: '1', letterSpacing: '.08em', textTransform: 'uppercase' }}>{plate.badge}</span>
-                    <strong style={{ fontSize: '18px', lineHeight: '1.2' }}>{plate.headline ?? plate.advertiser}</strong>
-                    {plate.cta ? <a href={plate.cta.url} target="_blank" rel="noopener" tabIndex={plateActionable ? 0 : -1} onPointerDown={(event) => { if (!plateCanActivate()) event.preventDefault() }} onClick={(event) => { if (!plateCanActivate()) event.preventDefault() }} onKeyDown={(event) => { if (!plateCanActivate()) event.preventDefault() }} style={{ color: 'inherit', fontSize: '15px' }}>{plate.cta.label}</a> : null}
-                  </div>
+                  <span class="ad-plate-badge">{plate.badge}</span>
+                  <span class="ad-plate-headline">{plate.headline ?? plate.advertiser}</span>
+                  {plate.cta ? (
+                    <a
+                      class="endcap-reset ad-plate-cta"
+                      href={plate.cta.url}
+                      target="_blank"
+                      rel="noopener"
+                      tabIndex={armedPlatePos === imageIndex ? 0 : -1}
+                      onPointerDown={(event) => { if (!plateCanActivate(imageIndex)) event.preventDefault() }}
+                      onClick={(event) => { if (!plateCanActivate(imageIndex)) event.preventDefault() }}
+                      onKeyDown={(event) => { if (!plateCanActivate(imageIndex)) event.preventDefault() }}
+                    >{plate.cta.label}</a>
+                  ) : null}
                 </div>
                 {photoFrame}
               </>
