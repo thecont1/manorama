@@ -1,0 +1,47 @@
+/* Account surface house slot (#21): one labelled slot in the card header,
+   opposite the logo, in normal document flow so it can never sit over the
+   sign-in, subscription or open-gallery controls. The header wraps when the
+   card is narrow — portrait phones drop the slot onto its own line, right
+   aligned under the logo, instead of squeezing the brand mark. */
+
+.native-account-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.native-account-ad {
+  flex: 1 1 96px;
+  max-width: 240px;
+  margin-left: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--ink), .18);
+  background: rgba(0, 0, 0, .18);
+}
+
+.native-account-ad-badge {
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.native-account-ad-headline {
+  color: rgb(var(--ink));
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.native-account-ad-cta {
+  color: rgb(var(--ink));
+  font-size: 14px;
+  line-height: 1.2;
+}

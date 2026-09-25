@@ -21,6 +21,11 @@ class MemoryStorage implements VaultStorageProvider {
   async read(path: string) { return this.files.get(path)?.slice() ?? null }
   async write(path: string, bytes: Uint8Array) { this.files.set(path, bytes.slice()) }
   async remove(path: string) { this.files.delete(path) }
+  async list(root: string) {
+    return [...this.files.entries()]
+      .filter(([path]) => path === root || path.startsWith(`${root}/`))
+      .map(([path, bytes]) => ({ path, bytes: bytes.length }))
+  }
   async move(from: string, to: string) {
     const bytes = this.files.get(from)
     if (!bytes) throw new Error(`Missing temporary file: ${from}`)
@@ -366,6 +371,9 @@ describe('openGalleryNetworkFirst', () => {
       async inspect() { return { status: 'missing', images: 0 } },
       async open() { return undefined },
       async invalidate() {},
+      async listGalleries() { return [] },
+      async purgeGallery() {},
+      async purgeAll() {},
     }
 
     const opened = await openGalleryNetworkFirst({
@@ -381,5 +389,95 @@ describe('openGalleryNetworkFirst', () => {
     releaseCache()
     await opened.cacheFill
     expect(cacheFinished).toBe(true)
+  })
+})
+
+describe('EncryptedOfflineGalleryStore catalog and purge', () => {
+  test('lists cached galleries with decrypted identity and count', async () => {
+    const { store } = makeHarness()
+    await store.cache(selection, gallery)
+    const other = { owner: 'photographer', slug: 'second-album' }
+    await store.cache(other, {
+      ...gallery,
+      manifest: { ...manifest, slug: other.slug, title: 'Second album' },
+      settings: { ...gallery.settings, title: 'Second album' },
+    })
+
+    const summaries = await store.listGalleries()
+    expect(summaries).toHaveLength(2)
+    const quiet = summaries.find((entry) => entry.status === 'cached' && entry.slug === 'quiet-light')
+    expect(quiet).toMatchObject({ status: 'cached', owner: 'photographer', title: 'Quiet light', images: 2 })
+    const second = summaries.find((entry) => entry.status === 'cached' && entry.slug === 'second-album')
+    expect(second).toMatchObject({ status: 'cached', title: 'Second album', images: 2 })
+  })
+
+  test('lists a gallery with missing or unreadable metadata as corrupt', async () => {
+    const { store, vault } = makeHarness()
+    await store.cache(selection, gallery)
+    const galleryId = await offlineGalleryId(selection)
+    await vault.write(galleryId, __private__.METADATA_ENTRY_ID, new TextEncoder().encode('{bad json'))
+
+    const summaries = await store.listGalleries()
+    expect(summaries).toEqual([{ status: 'corrupt', galleryId }])
+    // Listing is a display path: the corrupt record is reported, not deleted.
+    expect(await vault.read(galleryId, __private__.METADATA_ENTRY_ID, { touch: false })).toBeDefined()
+  })
+
+  test('purgeGallery removes the vault entries and releases live object URLs', async () => {
+    const { store, vault, urls } = makeHarness()
+    await store.cache(selection, gallery)
+    const opened = await store.open(selection)
+    expect(opened).toBeDefined()
+    const galleryId = await offlineGalleryId(selection)
+
+    await store.purgeGallery(galleryId)
+
+    expect(urls.revoked.sort()).toEqual(['blob:offline-1', 'blob:offline-2'])
+    expect(await vault.listGalleryIds()).toEqual([])
+    expect(await store.listGalleries()).toEqual([])
+    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
+  })
+
+  test('purgeAll removes every gallery and every live object URL', async () => {
+    const { store, vault, urls } = makeHarness()
+    await store.cache(selection, gallery)
+    const other = { owner: 'photographer', slug: 'second-album' }
+    await store.cache(other, {
+      ...gallery,
+      manifest: { ...manifest, slug: other.slug },
+      settings: { ...gallery.settings },
+    })
+    await store.open(selection)
+    await store.open(other)
+
+    await store.purgeAll()
+
+    expect(urls.revoked).toHaveLength(4)
+    expect(await vault.listGalleryIds()).toEqual([])
+  })
+
+  test('a purge during a cache fill stops the fill from repopulating the vault', async () => {
+    const { store, vault } = makeHarness()
+    let releaseFetch!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFetch = resolve })
+    let calls = 0
+    const gated = new EncryptedOfflineGalleryStore({
+      vault,
+      fetchImage: async () => {
+        calls += 1
+        if (calls === 1) await gate
+        return new Response(firstBytes.slice(), { headers: { 'content-type': 'image/jpeg' } })
+      },
+    })
+    const galleryId = await offlineGalleryId(selection)
+
+    const fill = gated.cache(selection, gallery)
+    await Promise.resolve()
+    await gated.purgeGallery(galleryId)
+    releaseFetch()
+
+    await expect(fill).rejects.toThrow('cleared while this write was in flight')
+    expect(await vault.listGalleryIds()).toEqual([])
+    expect(await gated.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
 })

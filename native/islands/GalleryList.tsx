@@ -6,7 +6,7 @@ import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
-import { isAdFrame } from '../../app/lib/adframe'
+import { isAdFrame, type AdFrame } from '../../app/lib/adframe'
 import { fetchGallery, normalizeApiBase } from '../lib/api'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
@@ -15,10 +15,11 @@ import {
   productionOfflineGalleryStore,
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
-import { adFrameFor } from '../lib/ads'
+import { adFrameFor, type AdPolicyInput } from '../lib/ads'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
 import Diptych, { type DiptychFrame } from './Diptych'
+import '../styles/account-ad.css'
 
 type Props = {
   apiBase: string
@@ -28,6 +29,9 @@ type Props = {
   authError?: string | null
   billing?: RevenueCatBilling
   billingState?: BillingState
+  /** House-policy loader for the account slot. Production never passes this;
+   *  tests inject it to stage a slow resolution against an entitlement change. */
+  accountAdLoader?: (input: AdPolicyInput) => Promise<AdFrame | null>
 }
 
 type Selection = { owner: string; slug: string }
@@ -53,7 +57,7 @@ export const galleryStatusMessage = (status: GalleryStatus): string => {
 
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
-export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState }: Props) {
+export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
@@ -65,6 +69,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
   const [plateReady, setPlateReady] = useState(false)
+  const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [foldLayout, setFoldLayout] = useState<FoldLayout | null>(null)
   const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -156,6 +161,25 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     return () => { active = false }
   }, [manifest, billingState?.isPro])
 
+  // The account slot asks once per entitlement state, so ordinary re-renders
+  // can never rotate the creative while the page is open. Unresolved
+  // entitlement makes no request at all: defaulting unknown to Free would
+  // flash a returning subscriber an ad they paid to remove. The card's render
+  // gate drops the slot the instant Pro is known, and this cleanup marks any
+  // resolution still in flight stale — including after an unmount.
+  const galleryOpen = Boolean(manifest && settings)
+  useEffect(() => {
+    if (galleryOpen || billingState?.tier !== 'free') {
+      setAccountAd(null)
+      return
+    }
+    let active = true
+    void accountAdLoader({ tier: 'free' }).then((frame) => {
+      if (active) setAccountAd(frame)
+    })
+    return () => { active = false }
+  }, [galleryOpen, billingState?.tier])
+
   useEffect(() => {
     if (!manifest) return
     const sync = () => setFoldLayout(readRuntimeFoldLayout())
@@ -218,16 +242,46 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
 
   const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value
   const message = authError ?? error ?? galleryStatusMessage(status)
+  // Render gate: Pro or unresolved entitlement drops the slot in the same
+  // paint that learns the tier, so no stale creative can outlive a change.
+  const accountAdFrame = billingState?.tier === 'free' ? accountAd : null
   return (
     <main class="native-list-shell">
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
-        <span class="brand-mark-wrap">
-          <img
-            src="/manorama-merged-logo.png"
-            alt="manorama"
-            class="native-list-logo"
-          />
-        </span>
+        <header class="native-account-header">
+          <span class="brand-mark-wrap">
+            <img
+              src="/manorama-merged-logo.png"
+              alt="manorama"
+              class="native-list-logo"
+            />
+          </span>
+          {accountAdFrame ? (
+            <aside
+              class="native-account-ad"
+              data-account-ad
+              aria-label={`${accountAdFrame.badge}: ${accountAdFrame.advertiser}`}
+            >
+              <span class="native-account-ad-badge">{accountAdFrame.badge}</span>
+              <strong class="native-account-ad-headline">
+                {accountAdFrame.headline ?? accountAdFrame.advertiser}
+              </strong>
+              {accountAdFrame.cta ? (
+                // The account page has no strip in motion, so the same CTA the
+                // viewer renders is always actionable here; _blank keeps the
+                // tap out of the app's own webview.
+                <a
+                  class="native-account-ad-cta"
+                  href={accountAdFrame.cta.url}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {accountAdFrame.cta.label}
+                </a>
+              ) : null}
+            </aside>
+          ) : null}
+        </header>
         <h1>Open a gallery</h1>
         <p>{message}</p>
         {onSignIn && (

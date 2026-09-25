@@ -1,0 +1,172 @@
+/* Vault settings (#28): a quiet utility surface. Usage numbers carry the same
+   typographic weight as the gallery-open card so the surface reads as one
+   product, while destructive actions stay plainly marked and never styled as
+   primary. */
+
+.native-vault-shell {
+  min-height: 100%;
+  display: grid;
+  place-items: start center;
+  padding: 24px 16px calc(48px + env(safe-area-inset-bottom));
+}
+
+.native-vault-card {
+  width: min(100%, 560px);
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+  border: 1px solid rgba(var(--ink), .18);
+  background: rgba(0, 0, 0, .22);
+}
+
+.native-vault-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.native-vault-header h1,
+.native-vault-card h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.native-vault-card h2 {
+  font-size: 15px;
+}
+
+.native-vault-lede,
+.native-vault-note {
+  margin: 0;
+  color: rgba(var(--ink), .62);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.native-vault-close {
+  color: rgba(var(--ink), .72);
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--ink), .18);
+  border-radius: 999px;
+}
+
+.native-vault-usage {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.native-vault-usage > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(var(--ink), .12);
+}
+
+.native-vault-usage dt {
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-vault-usage dd {
+  margin: 0;
+  font-size: 17px;
+}
+
+.native-vault-usage-total dd {
+  font-weight: 600;
+}
+
+.native-vault-cap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.native-vault-cap > span {
+  font-size: 14px;
+}
+
+.native-vault-cap select {
+  appearance: none;
+  color: rgb(var(--ink));
+  background: rgba(0, 0, 0, .3);
+  border: 1px solid rgba(var(--ink), .24);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+}
+
+.native-vault-galleries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.native-vault-galleries li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--ink), .12);
+}
+
+.native-vault-gallery-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.native-vault-gallery-meta strong {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.native-vault-gallery-meta span {
+  color: rgba(var(--ink), .62);
+  font-size: 12px;
+}
+
+.native-vault-danger,
+.native-vault-forget {
+  color: rgb(255, 158, 140);
+  border: 1px solid rgba(255, 158, 140, .4);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.native-vault-forget {
+  justify-self: start;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.native-vault-danger[disabled],
+.native-vault-forget[disabled],
+.native-vault-cap select[disabled] {
+  opacity: .55;
+}
+
+.native-vault-failure {
+  margin: 0;
+  color: rgb(255, 158, 140);
+  font-size: 13px;
+  line-height: 1.5;
+}

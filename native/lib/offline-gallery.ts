@@ -25,11 +25,24 @@ export type OfflineGalleryLease = NativeGalleryResponse & {
   dispose(): void
 }
 
+/** What the settings/catalog surfaces may know about a cached gallery:
+ *  identity from the vault, title and counts from decrypted metadata. */
+export type OfflineGallerySummary =
+  | { status: 'cached'; galleryId: string; owner: string; slug: string; title: string; images: number }
+  | { status: 'corrupt'; galleryId: string }
+
 export interface OfflineGalleryStore {
   cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal): Promise<OfflineCacheResult>
   inspect(selection: GallerySelection): Promise<OfflineCacheInspection>
   open(selection: GallerySelection): Promise<OfflineGalleryLease | undefined>
   invalidate(selection: GallerySelection): Promise<void>
+  /** Every gallery the vault knows about, including ones whose metadata is
+   *  missing or unreadable — those are listed as corrupt so they stay purgeable. */
+  listGalleries(): Promise<OfflineGallerySummary[]>
+  /** Purge one gallery by vault identity and release its live object URLs. */
+  purgeGallery(galleryId: string): Promise<void>
+  /** Cryptographic erasure of every cached gallery and every live object URL. */
+  purgeAll(): Promise<void>
 }
 
 export type OfflineFetchResponse = Pick<Response, 'ok' | 'status' | 'headers' | 'arrayBuffer'>
@@ -40,7 +53,7 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds'>
 type CachedImage = { id: string; entryId: string; mimeType: string }
 type OfflineMetadata = {
   version: typeof METADATA_VERSION
@@ -119,8 +132,12 @@ const isSettings = (value: unknown): value is GallerySettings => {
     isStringRecord(value.imageCaptions) && isStringRecord(value.imageAlts)
 }
 
-const isMetadata = (value: unknown, selection: GallerySelection): value is OfflineMetadata => {
-  if (!isRecord(value) || value.version !== METADATA_VERSION || value.owner !== selection.owner || value.slug !== selection.slug) return false
+/** Structural validation without a claimed identity: the catalog reads owner
+ *  and slug out of the encrypted record rather than comparing against one. */
+const isMetadataRecord = (value: unknown): value is OfflineMetadata => {
+  if (!isRecord(value) || value.version !== METADATA_VERSION ||
+    typeof value.owner !== 'string' || value.owner.length === 0 ||
+    typeof value.slug !== 'string' || value.slug.length === 0) return false
   const manifest = value.manifest
   if (!isManifest(manifest) || !isSettings(value.settings) || !Array.isArray(value.images) ||
     value.images.length !== manifest.images.length) return false
@@ -131,6 +148,9 @@ const isMetadata = (value: unknown, selection: GallerySelection): value is Offli
       typeof candidate.mimeType === 'string' && candidate.mimeType.length > 0
   })
 }
+
+const isMetadata = (value: unknown, selection: GallerySelection): value is OfflineMetadata =>
+  isMetadataRecord(value) && value.owner === selection.owner && value.slug === selection.slug
 
 const remoteVariant = (variant: ImageVariant): boolean =>
   Number.isFinite(variant.width) && variant.width > 0 && /^https?:\/\//i.test(variant.src)
@@ -173,6 +193,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
   private readonly vault: OfflineVault
   private readonly fetchImage: OfflineImageFetch
   private readonly objectUrls: OfflineObjectUrlProvider
+  /** Live decrypted object URLs, by gallery. A confirmed purge revokes them so
+   *  "erased" never leaves a readable copy held by an open lease. */
+  private readonly liveUrls = new Map<string, Set<string>>()
 
   constructor(options: {
     vault: OfflineVault
@@ -184,8 +207,35 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     this.objectUrls = options.objectUrls ?? defaultObjectUrls
   }
 
-  private async readMetadata(selection: GallerySelection, galleryId: string): Promise<MetadataRead> {
-    const bytes = await this.vault.read(galleryId, METADATA_ENTRY_ID)
+  private trackUrl(galleryId: string, url: string): void {
+    let urls = this.liveUrls.get(galleryId)
+    if (!urls) this.liveUrls.set(galleryId, (urls = new Set()))
+    urls.add(url)
+  }
+
+  private releaseUrls(galleryId?: string): void {
+    const release = (urls: Set<string>) => { for (const url of urls) this.objectUrls.revoke(url) }
+    if (galleryId === undefined) {
+      for (const urls of this.liveUrls.values()) release(urls)
+      this.liveUrls.clear()
+      return
+    }
+    const urls = this.liveUrls.get(galleryId)
+    if (urls) {
+      release(urls)
+      this.liveUrls.delete(galleryId)
+    }
+  }
+
+  private untrackUrl(galleryId: string, url: string): void {
+    const urls = this.liveUrls.get(galleryId)
+    if (!urls) return
+    urls.delete(url)
+    if (urls.size === 0) this.liveUrls.delete(galleryId)
+  }
+
+  private async readMetadata(selection: GallerySelection, galleryId: string, touch = true): Promise<MetadataRead> {
+    const bytes = await this.vault.read(galleryId, METADATA_ENTRY_ID, { touch })
     if (!bytes) return { status: 'missing' }
     try {
       const value: unknown = JSON.parse(decoder.decode(bytes))
@@ -200,7 +250,28 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     }
   }
 
+  /** Catalog read: no identity claim, no LRU touch, and no cleanup side
+   *  effects — a corrupt record is reported, not silently deleted. */
+  private async readMetadataById(galleryId: string): Promise<MetadataRead> {
+    const bytes = await this.vault.read(galleryId, METADATA_ENTRY_ID, { touch: false })
+    if (!bytes) return { status: 'missing' }
+    try {
+      const value: unknown = JSON.parse(decoder.decode(bytes))
+      return isMetadataRecord(value) ? { status: 'ready', value } : { status: 'corrupt' }
+    } catch {
+      return { status: 'corrupt' }
+    } finally {
+      bytes.fill(0)
+    }
+  }
+
   async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal): Promise<OfflineCacheResult> {
+    // Captured synchronously at call time, before the gallery ID resolves: a
+    // purge bumps the vault's mutation epoch inside its serialized boundary,
+    // and every write below hands back the epoch this fill started under. A
+    // confirmed purge can never be followed by a stale fill quietly
+    // repopulating the vault — the fill dies on its next write instead.
+    const guard = { since: this.vault.epoch() }
     const selection = requireSelection(rawSelection)
     const galleryId = await offlineGalleryId(selection)
     // Invalidate the commit record first. A failed refresh may leave encrypted
@@ -225,7 +296,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         throwIfAborted(signal)
         if (bytes.length === 0) throw new Error('Offline image response was empty')
         const entryId = thumbnailEntryId(image.id)
-        await this.vault.write(galleryId, entryId, bytes)
+        await this.vault.write(galleryId, entryId, bytes, guard)
         cachedImages.push({ id: image.id, entryId, mimeType })
       } finally {
         bytes.fill(0)
@@ -244,7 +315,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const metadataBytes = encoder.encode(JSON.stringify(metadata))
     try {
       // Metadata is the commit record: an interrupted fill never advertises a partial cache.
-      await this.vault.write(galleryId, METADATA_ENTRY_ID, metadataBytes)
+      await this.vault.write(galleryId, METADATA_ENTRY_ID, metadataBytes, guard)
     } finally {
       metadataBytes.fill(0)
     }
@@ -254,10 +325,11 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
   async inspect(rawSelection: GallerySelection): Promise<OfflineCacheInspection> {
     const selection = requireSelection(rawSelection)
     const galleryId = await offlineGalleryId(selection)
-    const metadata = await this.readMetadata(selection, galleryId)
+    // Inspection is a probe, not a viewing: it must not move LRU order.
+    const metadata = await this.readMetadata(selection, galleryId, false)
     if (metadata.status !== 'ready') return { status: metadata.status, images: 0 }
     for (const image of metadata.value.images) {
-      const bytes = await this.vault.read(galleryId, image.entryId)
+      const bytes = await this.vault.read(galleryId, image.entryId, { touch: false })
       if (!bytes) {
         await this.vault.remove(galleryId, METADATA_ENTRY_ID)
         return { status: 'incomplete', images: 0 }
@@ -269,7 +341,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
 
   async invalidate(rawSelection: GallerySelection): Promise<void> {
     const selection = requireSelection(rawSelection)
-    await this.vault.clearGallery(await offlineGalleryId(selection))
+    const galleryId = await offlineGalleryId(selection)
+    await this.vault.clearGallery(galleryId)
+    this.releaseUrls(galleryId)
   }
 
   async open(rawSelection: GallerySelection): Promise<OfflineGalleryLease | undefined> {
@@ -290,6 +364,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         try {
           const url = this.objectUrls.create(bytes, image.mimeType)
           urls.push(url)
+          this.trackUrl(galleryId, url)
           localById.set(image.id, url)
         } finally {
           bytes.fill(0)
@@ -316,13 +391,51 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         dispose: () => {
           if (disposed) return
           disposed = true
-          for (const url of urls) this.objectUrls.revoke(url)
+          for (const url of urls) {
+            this.objectUrls.revoke(url)
+            this.untrackUrl(galleryId, url)
+          }
         },
       }
     } catch {
-      for (const url of urls) this.objectUrls.revoke(url)
+      for (const url of urls) {
+        this.objectUrls.revoke(url)
+        this.untrackUrl(galleryId, url)
+      }
       return undefined
     }
+  }
+
+  async listGalleries(): Promise<OfflineGallerySummary[]> {
+    const summaries: OfflineGallerySummary[] = []
+    for (const galleryId of await this.vault.listGalleryIds()) {
+      const metadata = await this.readMetadataById(galleryId)
+      summaries.push(
+        metadata.status === 'ready'
+          ? {
+              status: 'cached',
+              galleryId,
+              owner: metadata.value.owner,
+              slug: metadata.value.slug,
+              title: metadata.value.manifest.title,
+              images: metadata.value.images.length,
+            }
+          : { status: 'corrupt', galleryId },
+      )
+    }
+    return summaries
+  }
+
+  async purgeGallery(galleryId: string): Promise<void> {
+    // The vault's deletion checks run first: live URLs are released only after
+    // the purge is confirmed, so a failed erase never blanks a healthy view.
+    await this.vault.clearGallery(galleryId)
+    this.releaseUrls(galleryId)
+  }
+
+  async purgeAll(): Promise<void> {
+    await this.vault.clear()
+    this.releaseUrls()
   }
 }
 
