@@ -226,13 +226,15 @@ export const createManoramaApi = () => {
   api.get('/api/ads/visibility', async (c) => {
     const region = ((c.req.raw as { cf?: { country?: string } }).cf?.country ?? '').toUpperCase()
     const day = new Date().toISOString().slice(0, 10)
-    const suppressedBy = await adSuppressionFor(day, region, dbEnv(c))
+    // A missing ad_suppressions table (migration not yet run) means the same
+    // thing as an empty one: nothing is suppressed.
+    const suppressedBy = await adSuppressionFor(day, region, dbEnv(c)).catch(() => null)
     return c.json({ show: suppressedBy === null, day, region, suppressedBy })
   })
   api.use('/api/ads/suppressions', requireSession())
   api.use('/api/ads/suppressions/*', requireSession())
   api.get('/api/ads/suppressions', async (c) => {
-    return c.json({ suppressions: await listAdSuppressions(dbEnv(c)) })
+    return c.json({ suppressions: await listAdSuppressions(dbEnv(c)).catch(() => []) })
   })
   api.put('/api/ads/suppressions', async (c) => {
     const body = await c.req.json<{ kind?: string; value?: string; suppressed?: boolean }>()
