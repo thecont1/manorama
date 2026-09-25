@@ -135,7 +135,7 @@ describe('vault cap policy', () => {
 })
 
 describe('vault settings controller', () => {
-  test('snapshot reports the resolved cap, preference and honest usage', async () => {
+  test('snapshot applies the resolved cap and reports the vault cap in force', async () => {
     const { controller, vault, store, persistence } = makeController({ tier: () => 'pro' })
     await saveVaultCapPreference(512 * 1024 * 1024, persistence)
     await store.cache({ owner: 'photographer', slug: 'quiet-light' }, {
@@ -148,8 +148,23 @@ describe('vault settings controller', () => {
     expect(snapshot.preference).toBe(512 * 1024 * 1024)
     expect(snapshot.galleries).toHaveLength(1)
     expect(snapshot.usage.measuredBytes).toBeGreaterThan(0)
-    // Reading settings never applies the preference: the vault still holds its
-    // default cap until selectCap or applyVaultCap is called.
+    // The stored Pro cap is applied on read: writes after this point evict
+    // under 512 MiB, not the stale default.
+    expect(vault.cap).toBe(512 * 1024 * 1024)
+  })
+
+  test('a later snapshot re-applies the cap when the entitlement changes', async () => {
+    let tier: NativeTier | undefined = 'pro'
+    const { controller, vault, persistence } = makeController({ tier: () => tier })
+    await saveVaultCapPreference(512 * 1024 * 1024, persistence)
+    await controller.snapshot()
+    expect(vault.cap).toBe(512 * 1024 * 1024)
+
+    // Downgrade to free: the next read narrows the applied cap to the Free
+    // ceiling without evicting existing copies.
+    tier = 'free'
+    const snapshot = await controller.snapshot()
+    expect(snapshot.cap).toBe(FREE_VAULT_CAP_BYTES)
     expect(vault.cap).toBe(FREE_VAULT_CAP_BYTES)
   })
 

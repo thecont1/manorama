@@ -40,14 +40,15 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
   const [snapshot, setSnapshot] = useState<VaultSettingsSnapshot | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [armed, setArmed] = useState<PendingAction | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [actionFailure, setActionFailure] = useState<string | null>(null)
+  const [refreshFailure, setRefreshFailure] = useState<string | null>(null)
 
   const refresh = async () => {
     try {
       setSnapshot(await controller.snapshot())
-      setFailure(null)
+      setRefreshFailure(null)
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'Storage details are unavailable')
+      setRefreshFailure(error instanceof Error ? error.message : 'Storage details are unavailable')
     }
   }
 
@@ -57,17 +58,19 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
 
   const run = async (action: PendingAction, work: () => Promise<unknown>) => {
     setPending(action)
-    setFailure(null)
+    setActionFailure(null)
     try {
       await work()
       setArmed(null)
-      await refresh()
     } catch (error) {
       // A failed purge stays armed for retry rather than pretending it worked.
-      setFailure(error instanceof Error ? error.message : 'The change could not be completed')
+      setActionFailure(error instanceof Error ? error.message : 'The change could not be completed')
     } finally {
       setPending(null)
     }
+    // A completed action still re-reads state; a failed refresh reports
+    // separately and never claims the action itself should be retried.
+    await refresh()
   }
 
   const selectCap = (raw: string) => {
@@ -205,9 +208,14 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
           Galleries stay on manorama — only this device's copies are removed.
         </p>
 
-        {failure ? (
+        {actionFailure ? (
           <p class="native-vault-failure" role="alert">
-            {failure} — your galleries were not changed. Tap the same action to try again.
+            {actionFailure} — on-device copies may have changed. Tap the same action to try again.
+          </p>
+        ) : null}
+        {refreshFailure ? (
+          <p class="native-vault-note" role="alert">
+            {refreshFailure} — showing the last successful read.
           </p>
         ) : null}
       </section>

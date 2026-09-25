@@ -84,6 +84,7 @@ const summaries: OfflineGallerySummary[] = [
 type FakeController = VaultSettingsController & {
   calls: { selectCap: VaultCapPreference[]; purgeGallery: string[]; purgeAll: number }
   failNextPurge: boolean
+  failNextSnapshot: boolean
   snapshotValue: VaultSettingsSnapshot
 }
 
@@ -92,6 +93,7 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
   return {
     calls,
     failNextPurge: false,
+    failNextSnapshot: false,
     snapshotValue: {
       cap: FREE_VAULT_CAP_BYTES,
       preference: undefined,
@@ -99,7 +101,13 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
       galleries: [...summaries],
       ...snapshot,
     },
-    async snapshot() { return this.snapshotValue },
+    async snapshot() {
+      if (this.failNextSnapshot) {
+        this.failNextSnapshot = false
+        throw new Error('Filesystem enumeration unavailable')
+      }
+      return this.snapshotValue
+    },
     async selectCap(preference) {
       calls.selectCap.push(preference)
       this.snapshotValue = { ...this.snapshotValue, cap: preference === null ? null : preference, preference }
@@ -222,6 +230,27 @@ describe('VaultSettings island', () => {
     await settle()
     expect(controller.calls.purgeGallery).toEqual(['gid-quiet'])
     expect(row()).toBeNull()
+  })
+
+  test('a refresh failure after a completed purge does not claim the action failed', async () => {
+    const controller = makeController()
+    const container = mount(controller, 'free')
+    await settle()
+
+    const row = () => container.querySelector('[data-vault-gallery="gid-quiet"]')
+    click(row()?.querySelector('button'))
+    await settle()
+    controller.failNextSnapshot = true
+    click(row()?.querySelector('button'))
+    await settle()
+
+    // The purge ran — the failure is only the post-action refresh.
+    expect(controller.calls.purgeGallery).toEqual(['gid-quiet'])
+    expect(container.innerHTML).toContain('Filesystem enumeration unavailable')
+    // No retry prompt: the action completed, and nothing should invite
+    // repeating a destructive step that already ran.
+    expect(container.innerHTML).not.toContain('try again')
+    expect(container.innerHTML).toContain('last successful read')
   })
 
   test('forget everything needs two taps and clears every gallery', async () => {

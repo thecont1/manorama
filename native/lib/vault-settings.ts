@@ -91,7 +91,7 @@ export interface VaultSettingsController {
 }
 
 export const createVaultSettingsController = (options: {
-  vault: Pick<EncryptedVault, 'usage' | 'setCap' | 'evictToCap'>
+  vault: Pick<EncryptedVault, 'usage' | 'setCap' | 'evictToCap' | 'cap'>
   store: Pick<OfflineGalleryStore, 'listGalleries' | 'purgeGallery' | 'purgeAll'>
   /** Read at call time: a purchase or restore mid-session must take effect now. */
   tier: () => NativeTier | undefined
@@ -101,9 +101,13 @@ export const createVaultSettingsController = (options: {
   return {
     async snapshot() {
       const preference = await loadVaultCapPreference(persistence)
-      const cap = resolveVaultCap(options.tier(), preference)
+      // Snapshot is the apply seam: the resolved cap reaches the vault on
+      // every read — startup and post-purchase alike — before a later write
+      // could evict under the stale default. Reporting vault.cap keeps the
+      // UI honest about what is actually enforced.
+      applyVaultCap(options.vault, options.tier(), preference)
       const [usage, galleries] = await Promise.all([options.vault.usage(), options.store.listGalleries()])
-      return { cap, preference, usage, galleries }
+      return { cap: options.vault.cap, preference, usage, galleries }
     },
     async selectCap(preference) {
       assertCapAllowed(options.tier(), preference)

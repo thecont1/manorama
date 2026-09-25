@@ -200,7 +200,16 @@ const nativeStorage: VaultStorageProvider = {
     const files: VaultFileStat[] = []
     const walk = async (directory: string): Promise<void> => {
       let listing: Awaited<ReturnType<typeof Filesystem.readdir>> | undefined
-      try { listing = await Filesystem.readdir({ path: directory, directory: VAULT_DIRECTORY }) } catch { return }
+      try {
+        listing = await Filesystem.readdir({ path: directory, directory: VAULT_DIRECTORY })
+      } catch (error) {
+        // A missing vault directory is an empty listing; anything else —
+        // permissions, IO faults — must surface, or usage and purge would
+        // trust a partial walk. 'Folder does not exist.' is the web fallback.
+        const code = (error as { code?: string }).code
+        if (code !== 'OS-PLUG-FILE-0008' && !/does not exist/i.test(describeError(error))) throw error
+        return
+      }
       for (const entry of listing.files) {
         const path = `${directory}/${entry.name}`
         if (entry.type === 'directory') { await walk(path); continue }
@@ -337,7 +346,11 @@ export class EncryptedVault {
     const entropy = this.crypto.randomBytes(8)
     if (entropy.length !== 8) throw new Error('Invalid replacement nonce')
     this.replacementSequence += 1
-    return `${entryPath(galleryId, entryId)}.r${this.replacementSequence}-${toBase64(entropy)}`
+    // The entropy must stay a single path segment: a '/' in the suffix would
+    // bury the file in a subdirectory and vaultFilePathIdentity — which reads
+    // only the final segment — could no longer attribute it to a gallery.
+    const suffix = toBase64(entropy).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+    return `${entryPath(galleryId, entryId)}.r${this.replacementSequence}-${suffix}`
   }
   /**
    * Brings index-recorded entry bytes under the current cap by dropping the

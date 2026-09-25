@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { VaultKeyProvider, VaultStorageProvider } from './vault'
-import { EncryptedVault, VAULT_INDEX_PATH, VAULT_ROOT, webCryptoProvider, __private__ } from './vault'
+import { EncryptedVault, VAULT_INDEX_PATH, VAULT_ROOT, vaultFilePathIdentity, webCryptoProvider, __private__ } from './vault'
 
 class MemoryStorage implements VaultStorageProvider {
   readonly files = new Map<string, Uint8Array>()
@@ -370,5 +370,31 @@ describe('EncryptedVault settings surface', () => {
     expect(usage.indexedBytes).toBe(0)
     expect(usage.orphanBytes).toBeGreaterThan(0)
     expect(usage.measuredBytes).toBeGreaterThan(0)
+  })
+
+  test('a rewritten entry keeps a single-segment path with gallery identity', async () => {
+    const storage = new MemoryStorage()
+    const keys = new MemoryKeys()
+    let now = 0
+    const vault = new EncryptedVault({
+      storage,
+      keys,
+      // 0xff entropy base64-encodes to '/', which used to split the
+      // replacement filename into a subdirectory and strip its identity.
+      crypto: { ...webCryptoProvider, randomBytes: (length) => new Uint8Array(length).fill(0xff) },
+      now: () => ++now,
+    })
+    await vault.write('gallery-a', 'frame-1', bytes('one'))
+    await vault.write('gallery-a', 'frame-1', bytes('two'))
+
+    const replacements = [...storage.files.keys()].filter((path) => path.includes('.r'))
+    expect(replacements).toHaveLength(1)
+    const segments = replacements[0].split('/')
+    expect(segments.at(-1)).toMatch(/^g\..+\.e\..+\.bin\.r\d+-[A-Za-z0-9_-]+$/)
+    expect(vaultFilePathIdentity(replacements[0])).toEqual({ galleryId: 'gallery-a', entryId: 'frame-1' })
+
+    const usage = await vault.usage()
+    const gallery = usage.galleries.find((entry) => entry.galleryId === 'gallery-a')
+    expect(gallery?.measuredBytes).toBeGreaterThan(0)
   })
 })
