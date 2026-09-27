@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { VIDEO_STRIP_MAX_STAGE_HEIGHT, VIDEO_VERTICAL_MAX_STAGE_WIDTH, effectiveImageDpr, imageStageSize, videoStageSize } from './image-staging'
+import { VIDEO_STRIP_MAX_STAGE_HEIGHT, VIDEO_VERTICAL_MAX_STAGE_WIDTH, deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from './image-staging'
 
 const STAGE = { stageWidthCssPx: 1440, stageHeightCssPx: 900 }
 const EPSILON = 1e-6
@@ -30,6 +30,26 @@ describe('effectiveImageDpr', () => {
     for (const dpr of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, undefined]) {
       expect(effectiveImageDpr(dpr)).toBe(1)
     }
+  })
+})
+
+describe('deviceImageDpr', () => {
+  test('honours the reported ratio uncapped', () => {
+    for (const dpr of DPRS) expect(deviceImageDpr(dpr)).toBe(dpr)
+  })
+
+  test('zero, negative, NaN, Infinity and undefined still fall back to 1', () => {
+    for (const dpr of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, undefined]) {
+      expect(deviceImageDpr(dpr)).toBe(1)
+    }
+  })
+
+  test('imageStageSize honours a trusted 3x ratio instead of capping at 2', () => {
+    const source = { mode: 'strip' as const, naturalWidthPx: 2600, naturalHeightPx: 1000, ...STAGE }
+    const trusted = imageStageSize({ ...source, dpr: 3, trustDeviceDpr: true })
+    near(trusted.height, 1000 / 3)
+    const web = imageStageSize({ ...source, dpr: 3 })
+    near(web.height, 1000 / 2)
   })
 })
 
