@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { D1Database } from '@cloudflare/workers-types'
 import { createManoramaApi } from './api'
-import { createNativeHandoffToken, createSessionToken, SESSION_COOKIE } from './lib/dropbox-session'
+import { createNativeHandoffToken, createSessionToken, SESSION_COOKIE } from './lib/session'
 import { upsertUser } from './lib/user-repository'
 import { TEST_SESSION_SECRET } from './lib/test-fixtures'
 
@@ -36,8 +36,12 @@ beforeAll(async () => {
   db = proxy.env.DB
   await applyMigration(db, '0001_users_and_galleries.sql')
   await applyMigration(db, '0002_gallery_retention.sql')
-  await applyMigration(db, '0005_device_galleries.sql')
-})
+  await applyMigration(db, '0003_revenuecat_event_ordering.sql')
+  await applyMigration(db, '0004_ad_suppressions.sql')
+  await applyMigration(db, '0005_provider_neutral_accounts.sql')
+  await applyMigration(db, '0006_auth_flows.sql')
+  await applyMigration(db, '0007_device_galleries.sql')
+}, 15_000)
 
 afterAll(async () => {
   await proxy?.dispose()
@@ -50,7 +54,7 @@ const seedOwner = async (displayName = 'Device Owner') => {
   const id = `dbid:AAATESTdevgal${ownerSeq}`
   const slug = `devgal-${ownerSeq}`
   await db
-    .prepare('INSERT INTO users (dropbox_account_id, owner_slug, display_name) VALUES (?, ?, ?)')
+    .prepare('INSERT INTO users (account_id, owner_slug, display_name) VALUES (?, ?, ?)')
     .bind(id, slug, displayName)
     .run()
   const token = await createSessionToken(id, TEST_SESSION_SECRET)
@@ -345,7 +349,7 @@ describe('device catalogue public gallery link', () => {
 describe('device catalogue storage failures', () => {
   test('a missing DB binding answers 503 and writes nothing', async () => {
     const id = 'dbid:AAATESTnodbbinding'
-    await upsertUser({ dropboxAccountId: id, displayName: 'No Binding' })
+    await upsertUser({ accountId: id, displayName: 'No Binding' })
     const bearer = `Bearer ${await createSessionToken(id, TEST_SESSION_SECRET)}`
     const noDb = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
     expect((await api.request('/api/device-galleries', { headers: { Authorization: bearer } }, noDb)).status).toBe(503)
@@ -360,7 +364,7 @@ describe('device catalogue storage failures', () => {
   test('an unmigrated database answers 503 rather than falling back', async () => {
     const id = 'dbid:AAATESTstaledb'
     await db
-      .prepare('INSERT INTO users (dropbox_account_id, owner_slug, display_name) VALUES (?, ?, ?)')
+      .prepare('INSERT INTO users (account_id, owner_slug, display_name) VALUES (?, ?, ?)')
       .bind(id, 'stale-db', 'Stale DB')
       .run()
     const bearer = `Bearer ${await createSessionToken(id, TEST_SESSION_SECRET)}`
@@ -378,7 +382,7 @@ describe('device catalogue storage failures', () => {
       const leftover = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'device_galleries'").first()
       expect(leftover).toBeNull()
     } finally {
-      await applyMigration(db, '0005_device_galleries.sql')
+      await applyMigration(db, '0007_device_galleries.sql')
     }
   })
 })

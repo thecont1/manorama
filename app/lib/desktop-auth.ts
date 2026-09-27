@@ -1,22 +1,28 @@
 import { jwtVerify, SignJWT } from 'jose'
-import { NATIVE_HANDOFF_TTL_SECONDS, sessionKey } from './dropbox-session'
+import { pkceChallenge } from './auth-flows'
+import { NATIVE_HANDOFF_TTL_SECONDS, sessionKey } from './session'
+
+/**
+ * The desktop (Tauri) sign-in handoff. The OAuth callback cannot mint a
+ * bearer session into the app directly, so it redirects to the desktop
+ * URL scheme carrying a one-minute, purpose-bound token that embeds the
+ * app's PKCE code_challenge. The app then POSTs the token plus its secret
+ * verifier to /api/auth/desktop/exchange and gets the normal session —
+ * the token is worthless to anyone who does not hold the verifier.
+ */
 
 export const DESKTOP_CALLBACK = 'in.thecontrarian.manorama.desktop://auth/callback'
-export const DESKTOP_CHALLENGE_COOKIE = 'manorama_oauth_desktop_challenge'
 
 export const isDesktopChallenge = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value)
 
-export const desktopCodeChallenge = async (verifier: string) => {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
-  return btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
+export const desktopCodeChallenge = pkceChallenge
 
 const DESKTOP_VERIFIER_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/
 
-export const createDesktopHandoffToken = (dropboxAccountId: string, secret: string, codeChallenge: string) => {
+export const createDesktopHandoffToken = (accountId: string, secret: string, codeChallenge: string) => {
   if (!isDesktopChallenge(codeChallenge)) throw new Error('A desktop handoff requires a valid code challenge')
-  return new SignJWT({ sub: dropboxAccountId, typ: 'desktop-handoff', codeChallenge })
+  return new SignJWT({ sub: accountId, typ: 'desktop-handoff', codeChallenge })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(`${NATIVE_HANDOFF_TTL_SECONDS}s`)

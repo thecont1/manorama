@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS device_galleries (
-  owner_id TEXT NOT NULL REFERENCES users(dropbox_account_id),
+  owner_id TEXT NOT NULL REFERENCES users(account_id),
   id TEXT NOT NULL,
   title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120),
   source_kind TEXT NOT NULL CHECK(source_kind IN ('folder', 'card')),

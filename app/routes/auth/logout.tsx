@@ -1,5 +1,5 @@
 import { deleteCookie } from 'hono/cookie'
-import { SESSION_COOKIE } from '../../lib/dropbox-session'
+import { SESSION_COOKIE } from '../../lib/session'
 
 const signOut = (c: Parameters<typeof deleteCookie>[0]) => {
   deleteCookie(c, SESSION_COOKIE, { path: '/' })

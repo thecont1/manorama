@@ -7,7 +7,7 @@ import {
   isDesktopChallenge,
   verifyDesktopHandoffToken,
 } from './desktop-auth'
-import { createNativeHandoffToken, createSessionToken, sessionKey } from './dropbox-session'
+import { createNativeHandoffToken, createSessionToken, sessionKey } from './session'
 import { resetUserStore } from './user-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from './test-fixtures'
 
@@ -34,19 +34,19 @@ describe('desktop handoff token', () => {
   test('round-trips account id only for the matching verifier', async () => {
     const verifier = 'a'.repeat(43)
     const challenge = await desktopCodeChallenge(verifier)
-    const token = await createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET, challenge)
-    expect(await verifyDesktopHandoffToken(token, TEST_SESSION_SECRET, verifier)).toBe(TEST_OWNER.dropboxAccountId)
+    const token = await createDesktopHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET, challenge)
+    expect(await verifyDesktopHandoffToken(token, TEST_SESSION_SECRET, verifier)).toBe(TEST_OWNER.accountId)
     expect(await verifyDesktopHandoffToken(token, TEST_SESSION_SECRET, 'b'.repeat(43))).toBeNull()
   })
 
   test('create rejects a malformed challenge', () => {
-    expect(() => createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET, 'not-a-challenge')).toThrow()
-    expect(() => createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET, '')).toThrow()
+    expect(() => createDesktopHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET, 'not-a-challenge')).toThrow()
+    expect(() => createDesktopHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET, '')).toThrow()
   })
 
   test('verify rejects a missing, malformed, or mistyped verifier', async () => {
     const challenge = await desktopCodeChallenge('c'.repeat(43))
-    const token = await createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET, challenge)
+    const token = await createDesktopHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET, challenge)
     expect(await verifyDesktopHandoffToken(token, TEST_SESSION_SECRET, '')).toBeNull()
     expect(await verifyDesktopHandoffToken(token, TEST_SESSION_SECRET, 'too short')).toBeNull()
     expect(await verifyDesktopHandoffToken(token, TEST_SESSION_SECRET, null as unknown as string)).toBeNull()
@@ -56,10 +56,10 @@ describe('desktop handoff token', () => {
     const verifier = 'd'.repeat(50)
     const challenge = await desktopCodeChallenge(verifier)
     expect(await verifyDesktopHandoffToken('not-a-jwt', TEST_SESSION_SECRET, verifier)).toBeNull()
-    const wrongSecret = await createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, 'a-different-secret-that-is-long-enough', challenge)
+    const wrongSecret = await createDesktopHandoffToken(TEST_OWNER.accountId, 'a-different-secret-that-is-long-enough', challenge)
     expect(await verifyDesktopHandoffToken(wrongSecret, TEST_SESSION_SECRET, verifier)).toBeNull()
     const now = Math.floor(Date.now() / 1000)
-    const expired = await new SignJWT({ sub: TEST_OWNER.dropboxAccountId, typ: 'desktop-handoff', codeChallenge: challenge })
+    const expired = await new SignJWT({ sub: TEST_OWNER.accountId, typ: 'desktop-handoff', codeChallenge: challenge })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt(now - 120)
       .setExpirationTime(now - 60)
@@ -70,17 +70,17 @@ describe('desktop handoff token', () => {
   test('verify rejects session and native handoff tokens and foreign typ claims', async () => {
     const verifier = 'e'.repeat(43)
     const challenge = await desktopCodeChallenge(verifier)
-    const session = await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const session = await createSessionToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)
     expect(await verifyDesktopHandoffToken(session, TEST_SESSION_SECRET, verifier)).toBeNull()
-    const native = await createNativeHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const native = await createNativeHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)
     expect(await verifyDesktopHandoffToken(native, TEST_SESSION_SECRET, verifier)).toBeNull()
-    const foreign = await new SignJWT({ sub: TEST_OWNER.dropboxAccountId, typ: 'desktop-handoff ' })
+    const foreign = await new SignJWT({ sub: TEST_OWNER.accountId, typ: 'desktop-handoff ' })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
       .setExpirationTime('60s')
       .sign(sessionKey(TEST_SESSION_SECRET))
     expect(await verifyDesktopHandoffToken(foreign, TEST_SESSION_SECRET, verifier)).toBeNull()
-    const wrongChallenge = await new SignJWT({ sub: TEST_OWNER.dropboxAccountId, typ: 'desktop-handoff', codeChallenge: await desktopCodeChallenge('z'.repeat(43)) })
+    const wrongChallenge = await new SignJWT({ sub: TEST_OWNER.accountId, typ: 'desktop-handoff', codeChallenge: await desktopCodeChallenge('z'.repeat(43)) })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
       .setExpirationTime('60s')
@@ -109,7 +109,7 @@ describe('desktop exchange endpoint', () => {
   test('mints a working session for a valid handoff and verifier', async () => {
     const verifier = RFC7636_VERIFIER
     const challenge = await desktopCodeChallenge(verifier)
-    const handoff = await createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET, challenge)
+    const handoff = await createDesktopHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET, challenge)
     const response = await exchange({ handoffToken: handoff, codeVerifier: verifier })
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
@@ -124,7 +124,7 @@ describe('desktop exchange endpoint', () => {
 
   test('rejects wrong or missing verifiers, wrong types, and foreign tokens with a generic 401', async () => {
     const challenge = await desktopCodeChallenge('f'.repeat(43))
-    const handoff = await createDesktopHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET, challenge)
+    const handoff = await createDesktopHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET, challenge)
     expect((await exchange({ handoffToken: handoff, codeVerifier: 'g'.repeat(43) })).status).toBe(401)
     expect((await exchange({ handoffToken: handoff })).status).toBe(401)
     expect((await exchange({ codeVerifier: 'f'.repeat(43) })).status).toBe(401)
@@ -133,9 +133,9 @@ describe('desktop exchange endpoint', () => {
     expect((await exchange(null)).status).toBe(401)
     expect((await exchange([handoff, 'f'.repeat(43)])).status).toBe(401)
     expect((await exchange('{broken', true)).status).toBe(401)
-    const session = await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const session = await createSessionToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)
     expect((await exchange({ handoffToken: session, codeVerifier: 'f'.repeat(43) })).status).toBe(401)
-    const native = await createNativeHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const native = await createNativeHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)
     expect((await exchange({ handoffToken: native, codeVerifier: 'f'.repeat(43) })).status).toBe(401)
     for (const rejected of [await exchange({ handoffToken: session, codeVerifier: 'x' })]) {
       expect(await rejected.json()).toEqual({ error: 'Authentication could not be completed' })
@@ -145,7 +145,7 @@ describe('desktop exchange endpoint', () => {
   test('rejects a handoff for a deleted account with a generic 401', async () => {
     const verifier = 'h'.repeat(43)
     const challenge = await desktopCodeChallenge(verifier)
-    const handoff = await createDesktopHandoffToken('dbid:AAADELETEDuser', TEST_SESSION_SECRET, challenge)
+    const handoff = await createDesktopHandoffToken('acct_00000000-0000-4000-8000-000000000000', TEST_SESSION_SECRET, challenge)
     const response = await exchange({ handoffToken: handoff, codeVerifier: verifier })
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ error: 'Authentication could not be completed' })

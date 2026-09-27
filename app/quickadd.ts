@@ -48,23 +48,28 @@ const showSignInPanel = (root: HTMLElement, sourceUrl: string) => {
     const local = root.dataset.provider === 'local'
     working.innerHTML = `
       <h1 class="quickadd-title">Sign in to open this album</h1>
-      <p class="quickadd-copy">${local ? 'This dev server can sign you in locally before it builds your gallery.' : 'Manorama needs a Dropbox sign-in before it can build your gallery.'}</p>
-      <a class="landing-signin quickadd-signin" data-quickadd-signin href="${local ? '/.dev-seed/login' : '/auth/dropbox'}">${local ? 'Sign in (dev)' : 'Sign Up or Sign In with Dropbox'}</a>
+      <p class="quickadd-copy">${local ? 'This dev server can sign you in locally before it builds your gallery.' : 'Manorama needs a sign-in before it can build your gallery.'}</p>
+      ${local
+        ? '<a class="landing-signin quickadd-signin" data-quickadd-signin href="/.dev-seed/login">Sign in (dev)</a>'
+        : '<a class="landing-signin quickadd-signin" data-quickadd-signin href="/auth/dropbox">Continue with Dropbox</a>'
+          + '<a class="landing-signin quickadd-signin" data-quickadd-signin href="/auth/google">Continue with Google</a>'
+          + '<a class="landing-signin quickadd-signin" data-quickadd-signin href="/auth/apple">Sign in with Apple</a>'}
       <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>`
     working.dataset.panel = 'signin'
   }
   wireSignIn(sourceUrl)
 }
 
-/** Points the sign-in button back at this exact URL, fragment included,
- *  and stashes the link as a cookie-expiry fallback. */
+/** Points every sign-in link back at this exact URL, fragment included,
+ *  and stashes the link as a fallback. */
 const wireSignIn = (sourceUrl: string) => {
-  const button = document.querySelector<HTMLAnchorElement>('[data-quickadd-signin]')
-  // The server chose the sign-in endpoint — Dropbox OAuth normally, the
-  // dev login for local-folder quick-adds — so keep its href and just
-  // attach the return address.
-  const base = button?.getAttribute('href') ?? '/auth/dropbox'
-  if (button) button.href = `${base}?next=${encodeURIComponent(location.href)}`
+  // The server chose the sign-in endpoints — the three providers
+  // normally, the dev login for local-folder quick-adds — so keep each
+  // href and just attach the return address.
+  for (const button of document.querySelectorAll<HTMLAnchorElement>('[data-quickadd-signin]')) {
+    const base = button.getAttribute('href')
+    if (base) button.href = `${base}?next=${encodeURIComponent(location.href)}`
+  }
   try {
     localStorage.setItem(PENDING_KEY, sourceUrl)
   } catch {

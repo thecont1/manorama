@@ -1,7 +1,7 @@
 import { createApp } from 'honox/server'
 import { createManoramaApi } from './api'
 import openapiDocument from '../openapi.json'
-import type { HonoSessionEnv, SessionEnv } from './lib/dropbox-session'
+import type { HonoSessionEnv, SessionEnv } from './lib/session'
 import type { RuntimeEnv } from './api'
 import { expirePipelineGalleries } from './lib/gallery-expiry'
 import { deleteExpiredPipelineGallery, listExpiredPipelineGalleries } from './lib/gallery-repository'

@@ -18,7 +18,7 @@ export default createRoute(async (c) => {
 
   const slug = c.req.param('slug') ?? ''
   const gallery = await getGallery(
-    user.dropboxAccountId,
+    user.accountId,
     slug,
     c.env as GalleryEnv,
   )

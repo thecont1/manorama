@@ -1,5 +1,5 @@
 import {
-  getUserByDropboxId,
+  getUserByAccountId,
   setUserTier,
   type BillingEventOrder,
   type UserRepositoryEnv,
@@ -81,16 +81,17 @@ const eventUserIds = (event: RevenueCatEvent) => [
   ...(event.aliases ?? []),
 ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
 
-const dbAccountIds = (ids: unknown[]) => Array.from(new Set(
-  ids.filter((id): id is string => typeof id === 'string' && id.startsWith('dbid:')),
-))
+const isAccountId = (id: unknown): id is string => typeof id === 'string'
+  && (id.startsWith('dbid:') || /^acct_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))
+
+const recognizedAccountIds = (ids: unknown[]) => Array.from(new Set(ids.filter(isAccountId)))
 
 const eventAccountIds = (event: RevenueCatEvent) => event.type === 'TRANSFER'
   ? {
-      from: dbAccountIds(event.transferred_from ?? []),
-      to: dbAccountIds(event.transferred_to ?? []),
+      from: recognizedAccountIds(event.transferred_from ?? []),
+      to: recognizedAccountIds(event.transferred_to ?? []),
     }
-  : { from: [], to: dbAccountIds(eventUserIds(event)) }
+  : { from: [], to: recognizedAccountIds(eventUserIds(event)) }
 
 const isProEvent = (event: RevenueCatEvent) =>
   event.entitlement_ids?.includes(REVENUECAT_PRO_ENTITLEMENT) === true
@@ -145,7 +146,7 @@ export const processRevenueCatWebhook = async (
   let knownAccount = false
   let applied = 0
   for (const accountId of accountIds) {
-    const user = await getUserByDropboxId(accountId, env)
+    const user = await getUserByAccountId(accountId, env)
     if (!user) continue
     knownAccount = true
     const tier = accounts.from.includes(accountId) && event.type === 'TRANSFER'

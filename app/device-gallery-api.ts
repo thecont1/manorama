@@ -4,7 +4,7 @@ import { DEVICE_GALLERY_ID_PATTERN, parseDeviceGalleryInput } from '../packages/
 import { deleteDeviceGallery, listDeviceGalleries, putDeviceGallery, type DeviceGalleryEnv } from './lib/device-gallery-repository'
 import { getStoredGallery } from './lib/gallery-repository'
 import { isGalleryExpired } from './lib/gallery-policy'
-import { accessEnvOf, resolveManoramaSession, type HonoSessionEnv } from './lib/dropbox-session'
+import { accessEnvOf, resolveManoramaSession, type HonoSessionEnv } from './lib/session'
 
 const dbEnv = (c: { env: unknown }) => c.env as DeviceGalleryEnv
 
@@ -39,7 +39,7 @@ export const createDeviceGalleryApi = () => {
   api.get('/api/device-galleries', async (c) => {
     const session = c.get('manoramaSession')
     try {
-      const galleries = await listDeviceGalleries(session.dropboxAccountId, dbEnv(c))
+      const galleries = await listDeviceGalleries(session.accountId, dbEnv(c))
       return c.json({ galleries })
     } catch {
       return c.json({ error: 'The device gallery list is temporarily unavailable' }, 503)
@@ -59,14 +59,14 @@ export const createDeviceGalleryApi = () => {
     if (input.publicGallerySlug !== undefined) {
       let linked = null as Awaited<ReturnType<typeof getStoredGallery>>
       try {
-        linked = await getStoredGallery(session.dropboxAccountId, input.publicGallerySlug, dbEnv(c))
+        linked = await getStoredGallery(session.accountId, input.publicGallerySlug, dbEnv(c))
       } catch {
         return c.json({ error: 'The device gallery list is temporarily unavailable' }, 503)
       }
       if (!linked || isGalleryExpired(linked)) return c.json({ error: 'That device gallery is invalid' }, 400)
     }
     try {
-      const gallery = await putDeviceGallery(session.dropboxAccountId, id, input, dbEnv(c))
+      const gallery = await putDeviceGallery(session.accountId, id, input, dbEnv(c))
       return c.json({ gallery })
     } catch {
       return c.json({ error: 'That device gallery could not be saved' }, 503)
@@ -78,7 +78,7 @@ export const createDeviceGalleryApi = () => {
     const id = c.req.param('id')
     if (!DEVICE_GALLERY_ID_PATTERN.test(id)) return c.json({ error: 'That device gallery was not found' }, 404)
     try {
-      const deleted = await deleteDeviceGallery(session.dropboxAccountId, id, dbEnv(c))
+      const deleted = await deleteDeviceGallery(session.accountId, id, dbEnv(c))
       if (!deleted) return c.json({ error: 'That device gallery was not found' }, 404)
       return c.json({ ok: true })
     } catch {

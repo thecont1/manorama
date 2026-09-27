@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { createHmac } from 'node:crypto'
 import { POST } from './revenuecat-webhook'
 import { resetGalleryStore } from '../../lib/gallery-repository'
-import { getUserByDropboxId, resetUserStore } from '../../lib/user-repository'
+import { getUserByAccountId, resetUserStore } from '../../lib/user-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from '../../lib/test-fixtures'
 
 const authorization = 'revenuecat-test-auth'
@@ -18,7 +18,7 @@ const body = JSON.stringify({
   event: {
     id: 'route-event-1',
     type: 'INITIAL_PURCHASE',
-    app_user_id: TEST_OWNER.dropboxAccountId,
+    app_user_id: TEST_OWNER.accountId,
     entitlement_ids: ['will_pay'],
   },
 })
@@ -57,7 +57,7 @@ describe('RevenueCat webhook route', () => {
       code: 'APPLIED',
       eventId: 'route-event-1',
     })
-    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('pro')
+    expect((await getUserByAccountId(TEST_OWNER.accountId))?.tier).toBe('pro')
   })
 
   test('routes an invalid signature to the JSON 401 response', async () => {
