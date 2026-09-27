@@ -1,4 +1,5 @@
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
@@ -14,6 +15,8 @@ import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
 import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppression, type AdSuppressionKind } from './lib/ads-visibility'
+import { createDeviceGalleryApi } from './device-gallery-api'
+import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 
 type RequestBody = { url?: string; order?: string[]; quick?: boolean }
 
@@ -174,7 +177,7 @@ export const createManoramaApi = () => {
   api.use('/api/*', async (c, next) => {
     const origin = c.req.header('Origin')
     let allowed = false
-    if (origin === 'capacitor://localhost') allowed = true
+    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost') allowed = true
     if (origin) {
       try {
         const url = new URL(origin)
@@ -186,18 +189,21 @@ export const createManoramaApi = () => {
     if (allowed) {
       c.header('Access-Control-Allow-Origin', origin!)
       c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-      c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
-      c.header('Vary', 'Origin')
+      c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     }
+    c.header('Vary', 'Origin')
     if (c.req.method === 'OPTIONS') return c.body(null, 204)
     await next()
   })
+  api.route('/', createDeviceGalleryApi())
   /** Exchanges the one-minute deep-link handoff for the normal seven-day
    * bearer session. The handoff is purpose-bound and never accepted as an API
    * bearer token itself. */
   api.post('/api/auth/native/exchange', async (c) => {
-    const payload = await c.req.json<{ handoffToken?: string }>().catch((): { handoffToken?: string } => ({}))
-    const handoffToken = payload.handoffToken?.trim()
+    c.header('Cache-Control', 'no-store')
+    const payload: unknown = await c.req.json().catch(() => null)
+    const rawToken = payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>).handoffToken : undefined
+    const handoffToken = typeof rawToken === 'string' ? rawToken.trim() : ''
     const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
     if (!handoffToken || !secret) return c.json({ error: 'Authentication could not be completed' }, 401)
     let dropboxAccountId: string | null = null
@@ -209,6 +215,25 @@ export const createManoramaApi = () => {
     if (!dropboxAccountId) return c.json({ error: 'That sign-in link is invalid' }, 401)
     const user = await getUserByDropboxId(dropboxAccountId, dbEnv(c))
     if (!user) return c.json({ error: 'That account is no longer available' }, 401)
+    const token = await createSessionToken(user.dropboxAccountId, secret)
+    return c.json({ token, ownerSlug: user.ownerSlug })
+  })
+  api.post('/api/auth/desktop/exchange', bodyLimit({ maxSize: 8192 }), async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const payload: unknown = await c.req.json().catch(() => null)
+    const body = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : {}
+    const handoffToken = body.handoffToken
+    const codeVerifier = body.codeVerifier
+    const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
+    if (typeof handoffToken !== 'string' || typeof codeVerifier !== 'string' || !secret) {
+      return c.json({ error: 'Authentication could not be completed' }, 401)
+    }
+    const dropboxAccountId = await verifyDesktopHandoffToken(handoffToken, secret, codeVerifier)
+    if (!dropboxAccountId) return c.json({ error: 'Authentication could not be completed' }, 401)
+    const user = await getUserByDropboxId(dropboxAccountId, dbEnv(c))
+    if (!user) return c.json({ error: 'Authentication could not be completed' }, 401)
     const token = await createSessionToken(user.dropboxAccountId, secret)
     return c.json({ token, ownerSlug: user.ownerSlug })
   })

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { getPlatformProxy } from 'wrangler'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -136,6 +136,10 @@ const sharedD1Database = async () => {
   }
   return sharedD1.proxy.env.DB
 }
+
+beforeAll(async () => {
+  await sharedD1Database()
+}, 15_000)
 
 afterAll(async () => {
   await sharedD1?.proxy.dispose()

@@ -52,7 +52,7 @@ const MIN_SECRET_BYTES = 32
 /** Encodes the signing secret, rejecting values whose UTF-8 encoding is
  *  shorter than 32 bytes. Both signing and verification use this gate so
  *  a weak secret fails consistently rather than silently. */
-const sessionKey = (secret: string) => {
+export const sessionKey = (secret: string) => {
   const trimmed = secret.trim()
   const bytes = new TextEncoder().encode(trimmed)
   if (bytes.length < MIN_SECRET_BYTES) {
@@ -80,13 +80,14 @@ export const createNativeHandoffToken = (dropboxAccountId: string, secret: strin
     .sign(sessionKey(secret))
 
 export const verifyNativeHandoffToken = async (token: string, secret: string) => {
-  const { payload } = await jwtVerify(token, sessionKey(secret))
+  const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
   if (payload.typ !== 'native-handoff') return null
   return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
 }
 
 const verifySessionToken = async (token: string, secret: string) => {
-  const { payload } = await jwtVerify(token, sessionKey(secret))
+  const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
+  if (payload.typ !== undefined) return null
   return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
 }
 
