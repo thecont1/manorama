@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { getPlatformProxy } from 'wrangler'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -75,7 +75,7 @@ const memoryBackend = async (): Promise<Backend> => {
   return {
     env: undefined,
     seedUser: async (tier = 'free', id = OWNER) => {
-      await upsertUser({ dropboxAccountId: id, displayName: 'Test Owner' })
+      await upsertUser({ accountId: id, displayName: 'Test Owner' })
       if (tier === 'pro') await setUserTier(id, 'pro')
     },
     seedRetained: seedViaRepo(undefined),
@@ -93,6 +93,9 @@ const sharedD1Database = async () => {
     })
     await applyMigration(proxy.env.DB, '0001_users_and_galleries.sql')
     await applyMigration(proxy.env.DB, '0002_gallery_retention.sql')
+    await applyMigration(proxy.env.DB, '0003_revenuecat_event_ordering.sql')
+    await applyMigration(proxy.env.DB, '0004_ad_suppressions.sql')
+    await applyMigration(proxy.env.DB, '0005_provider_neutral_accounts.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB
@@ -106,13 +109,14 @@ afterAll(async () => {
 const d1Backend = async (): Promise<Backend> => {
   const db = await sharedD1Database()
   await db.prepare('DELETE FROM galleries').run()
+  await db.prepare('DELETE FROM auth_identities').run()
   await db.prepare('DELETE FROM users').run()
   const env: GalleryEnv = { DB: db }
   return {
     env,
     seedUser: async (tier = 'free', id = OWNER) => {
       await db
-        .prepare('INSERT INTO users (dropbox_account_id, owner_slug, display_name, tier) VALUES (?, ?, ?, ?)')
+        .prepare('INSERT INTO users (account_id, owner_slug, display_name, tier) VALUES (?, ?, ?, ?)')
         .bind(id, `u-${id.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, 'Test Owner', tier)
         .run()
     },
@@ -147,33 +151,41 @@ const expectReadOnly = async (work: Promise<unknown>) => {
 }
 
 describe('migration 0002 on a legacy database', () => {
-  test('pre-existing rows become retained galleries with no expiry', async () => {
-    const proxy = await getPlatformProxy<{ DB: D1Database }>({
+  // This rehearsal needs the pre-0005 schema, so it cannot share the
+  // migrated database below — it gets its own proxy, started in setup so
+  // local-D1 cold-start contention stays out of the behavioral budget.
+  let proxy: Awaited<ReturnType<typeof getPlatformProxy<{ DB: D1Database }>>>
+  let db: D1Database
+
+  beforeAll(async () => {
+    proxy = await getPlatformProxy<{ DB: D1Database }>({
       configPath: `${repoRoot}/wrangler.toml`,
       persist: false,
     })
-    const db = proxy.env.DB
-    try {
-      await applyMigration(db, '0001_users_and_galleries.sql')
-      await db.prepare('INSERT INTO users (dropbox_account_id, owner_slug, display_name) VALUES (?, ?, ?)')
-        .bind(OWNER, 'test-owner', 'Test Owner').run()
-      await db.prepare(`INSERT INTO galleries (slug, owner_id, title, caption, date, source_url, images_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind('legacy', OWNER, 'Legacy', '', '', 'https://www.dropbox.com/scl/fo/legacy', '[]', '2026-01-01T00:00:00.000Z')
-        .run()
-      await applyMigration(db, '0002_gallery_retention.sql')
+    db = proxy.env.DB
+    await applyMigration(db, '0001_users_and_galleries.sql')
+    await db.prepare('INSERT INTO users (dropbox_account_id, owner_slug, display_name) VALUES (?, ?, ?)')
+      .bind(OWNER, 'test-owner', 'Test Owner').run()
+    await db.prepare(`INSERT INTO galleries (slug, owner_id, title, caption, date, source_url, images_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind('legacy', OWNER, 'Legacy', '', '', 'https://www.dropbox.com/scl/fo/legacy', '[]', '2026-01-01T00:00:00.000Z')
+      .run()
+    await applyMigration(db, '0002_gallery_retention.sql')
+  }, 15_000)
 
-      const row = await db.prepare('SELECT retention, expires_at FROM galleries WHERE slug = ?')
-        .bind('legacy').first<{ retention: string; expires_at: string | null }>()
-      expect(row?.retention).toBe('retained')
-      expect(row?.expires_at).toBeNull()
+  afterAll(async () => {
+    await proxy.dispose()
+  })
 
-      const record = await getStoredGallery(OWNER, 'legacy', { DB: db })
-      expect(record?.retention).toBe('retained')
-      expect(record?.expiresAt).toBeNull()
-    } finally {
-      await proxy.dispose()
-    }
+  test('pre-existing rows become retained galleries with no expiry', async () => {
+    const row = await db.prepare('SELECT retention, expires_at FROM galleries WHERE slug = ?')
+      .bind('legacy').first<{ retention: string; expires_at: string | null }>()
+    expect(row?.retention).toBe('retained')
+    expect(row?.expires_at).toBeNull()
+
+    const record = await getStoredGallery(OWNER, 'legacy', { DB: db })
+    expect(record?.retention).toBe('retained')
+    expect(record?.expiresAt).toBeNull()
   })
 })
 

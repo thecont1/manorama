@@ -1,6 +1,6 @@
 import { decodeStripeAccountRef } from './stripe-account-ref'
 import {
-  getUserByDropboxId,
+  getUserByAccountId,
   setUserTier,
   type BillingEventOrder,
   type UserRepositoryEnv,
@@ -71,7 +71,7 @@ export const verifyStripeSignature = async (
 /**
  * Verifies and applies one Stripe event. The mutating events are
  * `checkout.session.completed` and `checkout.session.async_payment_succeeded`:
- * the Payment Link carries the owner's Dropbox account ID hex-encoded in
+ * the Payment Link carries the owner's account ID hex-encoded in
  * `client_reference_id` (Stripe drops any other charset), and promotion goes
  * through `setUserTier` so pipeline galleries are retained in the same batch.
  * Only a settled session promotes — `checkout.session.completed` can arrive
@@ -120,7 +120,7 @@ export const processStripeWebhook = async (
   const accountId = ref ? decodeStripeAccountRef(ref) ?? ref : ''
   if (!accountId) return { status: 200 as const, code: 'IGNORED_IDENTITY' as const, eventId: event.id }
 
-  if (!(await getUserByDropboxId(accountId, env))) {
+  if (!(await getUserByAccountId(accountId, env))) {
     return { status: 200 as const, code: 'IGNORED_UNKNOWN_ACCOUNT' as const, eventId: event.id }
   }
   const order: BillingEventOrder | undefined = Number.isSafeInteger(event.created)

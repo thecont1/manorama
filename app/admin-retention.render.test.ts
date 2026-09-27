@@ -42,7 +42,7 @@ const renderDashboard = async (seed: () => Promise<void>) => {
   resetGalleryStore()
   const user = await seedTestUser()
   await seed()
-  const cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
+  const cookie = await sessionCookieFor(TEST_OWNER.accountId)
   const response = await buildApp().request(`/${user.ownerSlug}`, { headers: { Cookie: cookie } }, env)
   expect(response.status).toBe(200)
   return response.text()
@@ -58,11 +58,11 @@ const cardSection = (html: string, slug: string) => {
 
 const seedPipelineOwner = async () => {
   for (let index = 0; index < 3; index += 1) {
-    await createGallery(TEST_OWNER.dropboxAccountId, {
+    await createGallery(TEST_OWNER.accountId, {
       slug: `kept-${index}`, title: `Kept ${index}`, caption: '', date: '', images: [image(`k-${index}`)],
     })
   }
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'locked',
     title: 'Locked',
     caption: '',
@@ -121,9 +121,9 @@ describe('the dashboard renders retention state', () => {
 
   test('a pro dashboard reports paid availability, and the cap message when full', async () => {
     const html = await renderDashboard(async () => {
-      await setUserTier(TEST_OWNER.dropboxAccountId, 'pro')
+      await setUserTier(TEST_OWNER.accountId, 'pro')
       for (let index = 0; index < 3; index += 1) {
-        await createGallery(TEST_OWNER.dropboxAccountId, {
+        await createGallery(TEST_OWNER.accountId, {
           slug: `kept-${index}`, title: `Kept ${index}`, caption: '', date: '', images: [image(`k-${index}`)],
         })
       }
@@ -142,9 +142,9 @@ describe('the dashboard renders retention state', () => {
 
   test('a pro owner at 99 sees the persistent limit copy', async () => {
     const html = await renderDashboard(async () => {
-      await setUserTier(TEST_OWNER.dropboxAccountId, 'pro')
+      await setUserTier(TEST_OWNER.accountId, 'pro')
       for (let index = 0; index < 99; index += 1) {
-        await createGallery(TEST_OWNER.dropboxAccountId, {
+        await createGallery(TEST_OWNER.accountId, {
           slug: `full-${index}`, title: `Full ${index}`, caption: '', date: '', images: [image(`f-${index}`)],
         })
       }

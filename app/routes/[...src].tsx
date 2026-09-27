@@ -1,7 +1,8 @@
 import { createRoute } from 'honox/factory'
 import { embeddedSourceCandidate } from '../lib/sources'
 import { localFolderCandidate } from '../lib/local-source'
-import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/dropbox-session'
+import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
+import { SignInLinks } from '../lib/signin'
 import { getCookie } from 'hono/cookie'
 
 /**
@@ -101,18 +102,17 @@ export default createRoute(async (c, next) => {
                   ? 'Sign in and the dev server will read that folder straight off this machine — nothing is uploaded.'
                   : 'Sign in and Manorama will turn that link into a gallery you can share. We only ever read public links.'}
               </p>
-              <a class="landing-signin quickadd-signin" data-quickadd-signin href={detected.provider === 'local' ? '/.dev-seed/login' : '/auth/dropbox'}>
-                {detected.provider === 'local' ? (
-                  'Sign in (dev)'
-                ) : (
-                  <>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z" fill="currentColor" />
-                    </svg>
-                    {getCookie(c, RETURNING_COOKIE) ? 'Sign in with Dropbox' : 'Sign Up or Sign In with Dropbox'}
-                  </>
-                )}
-              </a>
+              {detected.provider === 'local' ? (
+                <a class="landing-signin quickadd-signin" data-quickadd-signin href="/.dev-seed/login">
+                  Sign in (dev)
+                </a>
+              ) : (
+                <SignInLinks
+                  returning={!!getCookie(c, RETURNING_COOKIE)}
+                  anchorClass="quickadd-signin"
+                  anchorAttrs={{ 'data-quickadd-signin': true }}
+                />
+              )}
               <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>
             </div>
           )}

@@ -4,7 +4,7 @@ import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import GalleryList from './islands/GalleryList'
 import { RevenueCatBilling, type BillingState } from './lib/billing'
-import { authErrorMessage, beginDropboxSignIn, getSessionAppUserId, installNativeAuth } from './lib/session'
+import { authErrorMessage, beginProviderSignIn, getSessionAppUserId, installNativeAuth, type AuthProvider } from './lib/session'
 import './styles.css'
 
 const root = document.getElementById('app')
@@ -21,9 +21,9 @@ function NativeApp() {
     if (!apiKey || !appUserId) return
     await billing.configure({ apiKey, appUserId })
   }
-  const signIn = () => {
+  const signIn = (provider: AuthProvider) => {
     setAuthError(null)
-    void beginDropboxSignIn(apiBase).catch((reason) => setAuthError(authErrorMessage(reason)))
+    void beginProviderSignIn(provider, apiBase).catch((reason) => setAuthError(authErrorMessage(reason)))
   }
   useEffect(() => {
     let cleanup: (() => Promise<void>) | undefined

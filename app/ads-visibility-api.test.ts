@@ -15,7 +15,7 @@ beforeAll(async () => {
   resetGalleryStore()
   resetAdSuppressionStore()
   await seedTestUser()
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
   api = createManoramaApi()
 })
 

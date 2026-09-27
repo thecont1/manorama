@@ -3,7 +3,7 @@ import { createRoute } from 'honox/factory'
 import Admin from '../islands/Admin'
 import { listGalleries, toSummary, type GalleryEnv } from '../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../lib/user-repository'
-import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
+import { accessEnvOf, resolveManoramaSession } from '../lib/session'
 
 type RuntimeEnv = {
   PUBLIC_HOST?: string
@@ -23,9 +23,9 @@ export default createRoute(async (c) => {
   // away before any gallery data is read.
   const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
   if (!session) return c.redirect('/')
-  if (session.id !== `dropbox:${user.dropboxAccountId}`) return c.notFound()
+  if (session.id !== `account:${user.accountId}`) return c.notFound()
 
-  const galleries = await listGalleries(user.dropboxAccountId, c.env as GalleryEnv)
+  const galleries = await listGalleries(user.accountId, c.env as GalleryEnv)
   const requestHost = new URL(c.req.url).host
   const paymentLink = env.STRIPE_PRO_PAYMENT_LINK ?? ''
   // A test-mode Payment Link must never reach the public host — if the
@@ -43,7 +43,7 @@ export default createRoute(async (c) => {
         ownerName={user.displayName}
         publicHost={env.PUBLIC_HOST || requestHost}
         tier={user.tier}
-        accountId={user.dropboxAccountId}
+        accountId={user.accountId}
         upgradeUrl={upgradeUrl}
       />
       {/* Vendo is disabled platform-wide for now: no surface mounts here

@@ -101,7 +101,7 @@ const main = async () => {
   const usersResponse = await fetch(D1_QUERY_URL(accountId), {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sql: 'SELECT owner_slug FROM users WHERE dropbox_account_id = ?', params: [ownerId] }),
+    body: JSON.stringify({ sql: 'SELECT owner_slug FROM users WHERE account_id = ?', params: [ownerId] }),
   })
   if (!usersResponse.ok) {
     console.error(`D1 users query failed (${usersResponse.status})`)

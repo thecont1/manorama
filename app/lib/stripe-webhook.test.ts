@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { createHmac } from 'node:crypto'
 import { resetGalleryStore } from './gallery-repository'
-import { resetUserStore, getUserByDropboxId, setUserTier } from './user-repository'
+import { resetUserStore, getUserByAccountId, setUserTier } from './user-repository'
 import { seedTestUser, TEST_OWNER } from './test-fixtures'
 import { processStripeWebhook, verifyStripeSignature } from './stripe-webhook'
 import { encodeStripeAccountRef } from './stripe-account-ref'
@@ -57,16 +57,16 @@ describe('Stripe signature verification', () => {
 describe('Stripe webhook tier sync', () => {
   test('promotes the client_reference_id account through setUserTier', async () => {
     const request = await signedRequest(payloadFor({
-      client_reference_id: TEST_OWNER.dropboxAccountId,
+      client_reference_id: TEST_OWNER.accountId,
     }))
     const result = await processStripeWebhook(request, env)
     expect(result).toEqual({ status: 200, code: 'APPLIED', eventId: 'evt_1', tier: 'pro' })
-    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('pro')
+    expect((await getUserByAccountId(TEST_OWNER.accountId))?.tier).toBe('pro')
   })
 
   test('resolves the hex-encoded reference the payment link actually carries', async () => {
-    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
-    const encoded = encodeStripeAccountRef(TEST_OWNER.dropboxAccountId)
+    await setUserTier(TEST_OWNER.accountId, 'free')
+    const encoded = encodeStripeAccountRef(TEST_OWNER.accountId)
     // The encoded ref is what survives Stripe's client_reference_id charset.
     expect(encoded).toMatch(/^[0-9a-f]+$/)
     const request = await signedRequest(payloadFor({ client_reference_id: encoded }, { id: 'evt_encoded' }))
@@ -79,9 +79,9 @@ describe('Stripe webhook tier sync', () => {
   })
 
   test('does not promote while the payment is still unsettled', async () => {
-    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
+    await setUserTier(TEST_OWNER.accountId, 'free')
     const request = await signedRequest(payloadFor(
-      { client_reference_id: TEST_OWNER.dropboxAccountId, payment_status: 'unpaid' },
+      { client_reference_id: TEST_OWNER.accountId, payment_status: 'unpaid' },
       { id: 'evt_unpaid' },
     ))
     expect(await processStripeWebhook(request, env)).toEqual({
@@ -89,13 +89,13 @@ describe('Stripe webhook tier sync', () => {
       code: 'IGNORED_UNPAID',
       eventId: 'evt_unpaid',
     })
-    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('free')
+    expect((await getUserByAccountId(TEST_OWNER.accountId))?.tier).toBe('free')
   })
 
   test('applies checkout.session.async_payment_succeeded once the payment lands', async () => {
-    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
+    await setUserTier(TEST_OWNER.accountId, 'free')
     const request = await signedRequest(payloadFor(
-      { client_reference_id: TEST_OWNER.dropboxAccountId },
+      { client_reference_id: TEST_OWNER.accountId },
       {
         id: 'evt_async',
         type: 'checkout.session.async_payment_succeeded',
@@ -114,7 +114,7 @@ describe('Stripe webhook tier sync', () => {
   test('rejects an unsigned delivery without changing tier', async () => {
     const request = new Request('https://manorama.xyz/api/stripe-webhook', {
       method: 'POST',
-      body: payloadFor({ client_reference_id: TEST_OWNER.dropboxAccountId }, { id: 'evt_2' }),
+      body: payloadFor({ client_reference_id: TEST_OWNER.accountId }, { id: 'evt_2' }),
     })
     expect(await processStripeWebhook(request, env)).toEqual({ status: 401, code: 'INVALID_SIGNATURE' })
   })
@@ -132,14 +132,14 @@ describe('Stripe webhook tier sync', () => {
   })
 
   test('ignores a replayed or older delivery', async () => {
-    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
+    await setUserTier(TEST_OWNER.accountId, 'free')
     const nowSeconds = Math.floor(Date.now() / 1000)
     const newer = await signedRequest(payloadFor(
-      { client_reference_id: TEST_OWNER.dropboxAccountId },
+      { client_reference_id: TEST_OWNER.accountId },
       { id: 'evt_newer', created: nowSeconds + 2_000 },
     ))
     const older = await signedRequest(payloadFor(
-      { client_reference_id: TEST_OWNER.dropboxAccountId },
+      { client_reference_id: TEST_OWNER.accountId },
       { id: 'evt_older', created: nowSeconds + 1_000 },
     ))
     expect(await processStripeWebhook(newer, env)).toMatchObject({ code: 'APPLIED', tier: 'pro' })

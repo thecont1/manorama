@@ -24,7 +24,7 @@ let cookie = ''
 const setupAuth = async () => {
   if (cookie) return
   await seedTestUser()
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
 }
 
 const request = (path: string, init?: RequestInit) => api.request(path, init, env)

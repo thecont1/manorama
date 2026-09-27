@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import type { Context, Handler, Next } from 'hono'
 import { contextStorage } from 'honox/server/context-storage'
 import { createManoramaApi } from './api'
-import type { HonoSessionEnv } from './lib/dropbox-session'
+import type { HonoSessionEnv } from './lib/session'
 import renderer from './routes/_renderer'
 import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
@@ -26,8 +26,8 @@ beforeAll(async () => {
   resetUserStore()
   resetGalleryStore()
   await seedTestUser()
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'test-gallery',
     title: 'Test Gallery',
     caption: '',
@@ -149,7 +149,7 @@ describe('owner dashboard authentication', () => {
   })
 
   test('a signed-in owner cannot open another owner\'s dashboard', async () => {
-    await seedTestUser({ dropboxAccountId: 'dbid:AAATOTHERuser', displayName: 'Other Owner' })
+    await seedTestUser({ accountId: 'dbid:AAATOTHERuser', displayName: 'Other Owner' })
     const response = await page().request('/other-owner', authed(), env)
     expect(response.status).toBe(404)
   })
@@ -174,13 +174,17 @@ describe('the landing page is the sign-in door', () => {
     return app
   }
 
-  test('anonymous visitors get the landing page with the Dropbox button', async () => {
+  test('anonymous visitors get the landing page provider chooser', async () => {
     const response = await page().request('/', undefined, env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
-    expect(html).toContain('Sign Up or Sign In with Dropbox')
+    expect(html).toContain('Continue with Dropbox')
+    expect(html).toContain('Continue with Google')
+    expect(html).toContain('Sign in with Apple')
     expect(html).toContain('href="/auth/dropbox"')
+    expect(html).toContain('href="/auth/google"')
+    expect(html).toContain('href="/auth/apple"')
   })
 
   test('a browser that signed in before gets the shorter sign-in label', async () => {
@@ -188,7 +192,9 @@ describe('the landing page is the sign-in door', () => {
     expect(response.status).toBe(200)
     const html = await response.text()
     expect(html).toContain('Sign in with Dropbox')
-    expect(html).not.toContain('Sign Up or Sign In')
+    expect(html).toContain('Sign in with Google')
+    expect(html).toContain('Sign in with Apple')
+    expect(html).not.toContain('Continue with')
   })
 
   test('a failed sign-in shows the quiet retry note', async () => {

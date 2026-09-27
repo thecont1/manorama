@@ -10,7 +10,7 @@ declare module 'bun:test' {
   type TestFn = () => void | Promise<void>
   const describe: (name: string, fn: () => void) => void
   const test: (name: string, fn: TestFn, timeout?: number) => void
-  const beforeAll: (fn: TestFn) => void
+  const beforeAll: (fn: TestFn, timeout?: number) => void
   const beforeEach: (fn: TestFn) => void
   const afterAll: (fn: TestFn) => void
   const afterEach: (fn: TestFn) => void

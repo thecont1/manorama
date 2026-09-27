@@ -1,5 +1,7 @@
 import type { GalleryManifest, GalleryMediaItem, ImageVariant, VideoCaptionTrack } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
+import type { GallerySummary } from '../../app/lib/gallery-repository'
+import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { getSessionToken } from './session'
 
 export type NativeGalleryResponse = {
@@ -49,17 +51,20 @@ export const nativeManifest = (manifest: GalleryManifest, apiBase: string): Gall
   images: manifest.images.map((item) => rewriteItem(item, apiBase)),
 })
 
+const bearerHeaders = async (): Promise<{ Authorization: string } | undefined> => {
+  const token = await getSessionToken()
+  return token ? { Authorization: `Bearer ${token}` } : undefined
+}
+
 export const fetchGallery = async (
   apiBase: string,
   owner: string,
   slug: string,
   signal?: AbortSignal,
 ): Promise<NativeGalleryResponse> => {
-  const token = await getSessionToken()
-  const headers = token ? { Authorization: `Bearer ${token}` } : undefined
   const response = await fetch(
     `${normalizeApiBase(apiBase)}/api/gallery/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`,
-    { headers, signal },
+    { headers: await bearerHeaders(), signal },
   )
   const payload = await response.json().catch(() => ({})) as Partial<NativeGalleryResponse> & { error?: string }
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Gallery request failed (${response.status})`)
@@ -68,4 +73,36 @@ export const fetchGallery = async (
     manifest: nativeManifest(payload.manifest, apiBase),
     settings: payload.settings,
   }
+}
+
+/** The signed-in account's own gallery summaries — the same rows the web
+ *  dashboard lists, so the phone can offer them without a typed slug. */
+export const fetchAccountGalleries = async (
+  apiBase: string,
+  signal?: AbortSignal,
+): Promise<GallerySummary[]> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries`, {
+    headers: await bearerHeaders(),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { galleries?: GallerySummary[]; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Gallery list request failed (${response.status})`)
+  if (!Array.isArray(payload.galleries)) throw new Error('Gallery list response was incomplete')
+  return payload.galleries
+}
+
+/** The private device catalogue the Mac publishes: metadata only, no paths
+ *  or file lists, so it is safe to show on a signed-in phone. */
+export const fetchDeviceGalleries = async (
+  apiBase: string,
+  signal?: AbortSignal,
+): Promise<DeviceGallery[]> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/device-galleries`, {
+    headers: await bearerHeaders(),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { galleries?: DeviceGallery[]; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Device gallery list request failed (${response.status})`)
+  if (!Array.isArray(payload.galleries)) throw new Error('Device gallery list response was incomplete')
+  return payload.galleries
 }
