@@ -1,90 +1,53 @@
 # Privacy Policy
 
-Last updated: 23 September 2026
+Last updated: 27 September 2026
 
-Manorama is a photo-gallery app at manorama.xyz. This page explains what we do and don't collect, and why.
+Manorama is a place to share and look at photographs. This policy covers manorama.xyz and the Manorama mobile app. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
 
-## The Users of Manorama
+## Who this is for
 
-All kinds of people love and use Manorama. And they rise in three categories. The rules are different for each:
+### Just looking
 
-#### Just Looking
+Open a public gallery link without an account. We do not keep a history of galleries you view or run page-view analytics. A link is unlisted, not private: anyone who has it can open it. Your browser may remember display choices; the app may keep encrypted offline copies on your device.
 
-Anyone with a gallery link. No sign-in, no account, no data collected. You open a gallery link, you get immersed in the experience. We have no clue who you are. Why not write in to say hello?
+### Making galleries
 
-#### Can Touch
+Sign in with Dropbox. We keep your account ID, name, verified email (if supplied), public address, plan, and the details needed to show your galleries. We never see your Dropbox password or keep its sign-in token. Photos stay at the source; deleting a gallery here never deletes the originals.
 
-People who create and manage galleries. When you sign in with Dropbox, you get up to three editable galleries. Any further galleries that get added are available to you for 30 days and then removed unless you upgrade. We keep a small record of who you are so your galleries have a home.
+### Pro or Forever
 
-#### Will Pay
+Paid plans use the same account data. RevenueCat and your app store handle purchases; Manorama receives plan status, not card details. You can keep more galleries and a larger device vault. You may still see Manorama’s own labeled placements, but not third-party ad-network placements.
 
-(coming soon) — same sign-in, up to 99 galleries, richer customisation, and the *Ask Manu* assistant.
+## Where photographs go
 
-## Just Looking: we collect nothing
+Your photographs and videos stay with the public source you chose: Dropbox, Google Drive, iCloud Shared Albums, or MEGA. For each gallery, we keep its title, caption, public source link, media names and descriptive details, order, and any expiry date. When someone opens a gallery, Manorama fetches media from that source and passes it through to the viewer; we do not keep copies of the image or video bytes on our server. Today only iCloud Shared Albums can include video — the other sources supply photographs. Source services may process requests under their own privacy policies. A shared album or folder must remain publicly reachable for a gallery to work.
 
-When someone shares a gallery link with you, you can open it without signing in. We don't set cookies on your device, we don't run analytics, we don't track page views, and we don't record who you are. Your browser asks our server for the page, our server fetches the photos from the gallery owner's linked cloud folder and passes them through — that's the entire interaction.
+If an image includes Content Credentials — information about where an image came from and how it changed — verification happens on the viewer’s device when requested. We do not upload its provenance record for that check. Link previews may fetch a cover image transiently; they are not a stored photo library.
 
-One small exception to "we store nothing": if you change how a gallery looks — the layout, or whether photos get borders — your browser remembers that choice in its own local storage, keyed to that gallery. It is not a cookie, it never reaches our server, and we can't see it. Clearing your browser's site data forgets it entirely.
+## On your device
 
-## Can Touch: what we store and why
+The web app may remember gallery display choices and the editor’s theme in browser storage. These preferences are not sent to Manorama. Clearing site data removes them.
 
-Signing in with Dropbox creates a small record about you in our database. Here's exactly what we keep, and why each piece exists:
+The mobile app can keep photographs and gallery details in a vault — the app’s encrypted storage on your device — for offline viewing and its optional image grid. Galleries that include video are not cached for offline use today. Its encryption keys stay on that device, and the vault is excluded from cloud backup. A cached image is either the source’s own bytes or a smaller version the source provides; nothing from the vault is saved to Manorama’s servers. Offline copies stay until the app evicts them, you remove a gallery from the vault, you choose “Forget everything,” or you uninstall the app. Removing an online gallery or account does not automatically clear copies already on another device; clear the local vault separately.
 
-| What | Why |
-|---|---|
-| Your Dropbox account ID | This is how we know it's you. It's an immutable identifier Dropbox assigns to your account — we never see your Dropbox password. |
-| Your display name | So we can greet you on your dashboard and credit you as the gallery owner. |
-| Your email (only if Dropbox has verified it) | So we can reach you if something goes wrong with your account or galleries. We only store it if Dropbox confirms it's real. |
-| Your chosen URL slug (e.g. `manorama.xyz/your-name`) | This is the public address for your galleries. You can change it anytime. |
-| Your account tier (`free`) | To enforce gallery limits: free accounts keep 3 editable galleries plus temporary ones that expire after 30 days; paid accounts keep up to 99. |
+## Ads and purchases
 
-We also store metadata about each gallery you create: the title, caption, the public link you pasted (Dropbox, Google Drive, iCloud, or MEGA), a list of media filenames and dimensions (photographs, and videos when an iCloud shared album contains them), and the gallery's retention state — whether it is retained or temporary, and if temporary, its expiry date. This lets us render your gallery without re-scanning the source folder on every visit.
+Today the website and mobile app show only Manorama’s labeled house placements. On the website, signed-in paying viewers see only house placements. We plan non-personalized third-party website ads in gallery strips for visitors without a Dropbox sign-in and signed-in Free viewers; these ads are not enabled yet. A paid viewer must sign in on the web for us to recognize their plan; while signed out, they appear anonymous. We will identify the website ad provider and explain its data use, consent choices, and browser storage before enabling it. In the mobile app, Google AdMob ads for Free users are also planned but not enabled. Even non-personalized ad providers may receive technical request data such as IP address and device details. We do not plan to request Apple’s advertising identifier.
 
-Your browser also keeps your own preferences — the editor's light/dark theme, and per-gallery viewing choices — in its local storage. Like the viewer's, this never reaches our server.
+RevenueCat and your app store process purchases and restores. They may process purchase, device, and account-linked information under their own policies. Manorama receives active-plan status and purchase-event references to set your plan — never your payment-card details.
 
-## We don't store your photographs or videos
+## Cookies, retention, and your choices
 
-Manorama never copies, downloads, or caches your media. When a viewer opens your gallery, our server fetches each photograph — or, for an iCloud shared album containing video, each clip and its poster frame — directly from the linked source and streams it to their browser on demand. The media data passes through our server but is never written to disk; originals and video responses carry `no-store` cache headers. Video is proxied exactly like photographs: we never transcode it, never store it, and a seek simply forwards your browser's byte range to the source. We store only the source link and media metadata (filenames, dimensions, duration, alt text), never the pixels themselves.
+Looking at a gallery without signing in does not require a Manorama login cookie. Signing in on the web uses short-lived safety cookies, a login cookie lasting up to seven days, and a returning-visitor hint lasting up to one year. Signing out clears the login cookie; you can clear the returning hint with browser site data. In the app, a sign-in token is kept in secure device storage.
 
-## Content Credentials (C2PA)
+An owner’s account and retained gallery details remain until deleted. A Free owner’s extra temporary galleries expire after 30 days unless upgraded in time. You can delete a gallery from your dashboard; that removes its Manorama record, not the source files. There is no self-service account-delete control yet. Ask us to access, correct, export, or delete your account information and associated gallery records. Rights vary by location, and service providers may keep their own records under their policies.
 
-Some photographs carry embedded Content Credentials — provenance information that records how an image was created and whether it's been edited. If a photo has them, a viewer can verify them by clicking the logo at the bottom of the gallery. This verification happens entirely in the viewer's browser: the image is downloaded to their device and checked locally. The provenance data never goes to our server.
+## Services and what comes next
 
-## What we don't keep
+Cloudflare hosts Manorama and may handle request details such as IP address and time for delivery and security. Dropbox handles sign-in. The linked photo provider supplies the media. The website and mobile app may request fonts from Google. In the app, RevenueCat and the app store handle purchases. We do not sell your account or gallery records or use them to personalize ads.
 
-- **No Dropbox passwords.** Dropbox handles authentication; we never see your password.
-- **No Dropbox access tokens.** We exchange the sign-in code for your account details and then discard the token. We don't keep long-lived access to your Dropbox.
-- **No browsing history.** We don't record which galleries you view or how long you spend on them.
-- **No advertising cookies.** There are none.
+We are exploring opt-in, session-only nearby sharing, on-device photo suggestions, and a desktop app. These are not active collection or sharing practices today. We will update this policy before any of them changes what leaves your device or who receives it.
 
-## Third-party services
+## Contact and changes
 
-A few companies process data on Manorama's behalf:
-
-- **Dropbox** — handles sign-in and may host the photos. When you sign in, Dropbox shares your account ID, name, and verified email with us. When a gallery is viewed, our server fetches images from the owner's public shared link. Dropbox's own privacy policy covers what they do on their side.
-- **Google Drive, iCloud, and MEGA** — if a gallery's photos or videos live on one of these, our server fetches them from the owner's public link when the gallery is viewed. We never sign in to these services and share no account data with them; their privacy policies cover their side.
-- **Cloudflare** — hosts the app and handles web traffic. Cloudflare may log request metadata (like IP addresses and timestamps) as part of keeping the site online and protected from abuse. Cloudflare's privacy policy covers what they do on their side.
-
-## Your session
-
-When you sign in, we place a cookie on your device that keeps you logged in for 7 days. The cookie contains only your Dropbox account ID, signed with a secret that lives on our server. It's not shared with anyone, and you can clear it anytime by signing out.
-
-## Data retention
-
-Galleries are yours to delete: the dashboard's delete action removes the gallery's Manorama record immediately, and nothing at the source is ever touched. Temporary galleries — the extra galleries a free account can hold beyond its three editable ones — are removed automatically at their deadline, 30 days after creation; the dashboard shows that deadline, and we send no emails or reminders before it arrives. Your account record itself stays until you ask us to delete it — there's no self-service delete button for the account yet — write to us and we'll remove your account and all associated gallery metadata. Deleting your account does not touch your Dropbox files; it only removes your Manorama record.
-
-## Your rights (GDPR and friends)
-
-Depending on where you live — the GDPR in the EU/UK, CCPA in California, and their equivalents elsewhere — you have the right to know what we hold about you, correct it, export it, or have it deleted. Our honest answer is that we hold very little: account owners have the small record described above, and visitors have nothing at all. Write to us and we'll show you, fix it, or erase it. We don't profile you, we don't make automated decisions about you, and we don't keep data longer than your account needs it.
-
-## We don't sell your data
-
-We don't sell, rent, or share your personal data with anyone for advertising or commercial purposes. The only data that leaves our system goes to Dropbox (for sign-in and image fetching), Google Drive, iCloud, and MEGA (for image fetching, when a gallery's photos live there), and Cloudflare (for hosting), all of which are necessary to run the app.
-
-## Changes to this policy
-
-If we change what we collect or how we use it, we'll update this page and bump the date at the top.
-
-## Contact
-
-For privacy questions, feel free to reach out to app developer [Mahesh Shantaram](https://thecontrarian.in/#contact).
+For privacy questions or requests, contact [Mahesh Shantaram](https://thecontrarian.in/#contact). If our practices change, we will update this page and its date.
