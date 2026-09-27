@@ -22,7 +22,10 @@ export const uploadProviderLabel = (id: UploadProviderId): string =>
  *  the device — it is only handed to `readFile`. */
 export type UploadFile = { name: string; path: string }
 
-export type UploadAlbum = { name: string; files: UploadFile[] }
+/** `id` is the catalogue record's stable identifier — providers use it to
+ * keep the same gallery in the same remote folder across retries and to
+ * keep two galleries that share a title in different folders. */
+export type UploadAlbum = { name: string; id?: string; files: UploadFile[] }
 
 export type UploadProgress = {
   /** 1-based index of the file currently uploading. */

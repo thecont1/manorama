@@ -173,7 +173,7 @@ export type ShareDeps = {
 export const shareLocalGallery = async (deps: ShareDeps): Promise<ShareOutcome> => {
   if (!(await deps.confirm())) return { status: 'cancelled' }
   try {
-    const album = { name: sanitizeUploadName(deps.record.title), files: uploadFilesFor(deps.record) }
+    const album = { name: sanitizeUploadName(deps.record.title), id: deps.record.id, files: uploadFilesFor(deps.record) }
     const { shareUrl } = await deps.provider.uploadAlbum(album, deps.readFile, deps.onProgress)
     const published = await createGalleryFromShareLink(deps.apiBase, deps.token, shareUrl, deps.fetcher ?? fetch)
     await linkDeviceGallery(deps.apiBase, deps.token, deps.record, deps.catalogue, published.slug, deps.fetcher ?? fetch)

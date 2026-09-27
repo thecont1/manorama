@@ -26,7 +26,8 @@ fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
 
 /// The only way a path enters a scope: the renderer asks for a pick, Rust
 /// shows the folder dialog, and the directory the user picked — never a
-/// path the renderer supplied — is what gets granted.
+/// path the renderer supplied — is what gets granted. The pick is then
+/// recorded as provenance so launch-time re-grants stay inside it.
 #[tauri::command]
 fn pick_gallery_root(app: AppHandle) -> Result<Option<String>, String> {
     let Some(picked) = app.dialog().file().blocking_pick_folder() else {
@@ -36,33 +37,19 @@ fn pick_gallery_root(app: AppHandle) -> Result<Option<String>, String> {
         return Ok(None);
     };
     allow_root(&app, &dir)?;
+    private_store::record_gallery_root(&app, &dir.to_string_lossy())?;
     Ok(Some(dir.to_string_lossy().to_string()))
 }
 
-/// Re-grants every saved root — runtime scopes reset each launch, so the
-/// catalogue is re-registered on start and after a card remounts. The paths
-/// are read out of the private catalogue here rather than accepted from the
-/// renderer, same boundary as `pick_gallery_root`.
+/// Re-grants every picker-approved root — runtime scopes reset each launch,
+/// so approval is re-registered on start and after a card remounts. The
+/// catalogue is renderer-writable and cannot be trusted for grants; the
+/// provenance file can only be appended to by the picker itself.
 #[tauri::command]
 fn register_saved_gallery_roots(app: AppHandle) -> Result<(), String> {
-    let Ok(Some(contents)) = private_store::read_private_file(app.clone(), "catalogue.json".into())
-    else {
-        return Ok(());
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) else {
-        return Ok(());
-    };
-    let Some(galleries) = value.get("galleries").and_then(|g| g.as_array()) else {
-        return Ok(());
-    };
-    for root in galleries
-        .iter()
-        .filter_map(|g| g.get("rootPath").and_then(|p| p.as_str()))
-    {
+    for root in private_store::saved_gallery_roots(&app) {
         // A vanished mount (ejected card) must not fail the batch.
-        if !root.trim().is_empty() {
-            let _ = allow_root(&app, &PathBuf::from(root.trim()));
-        }
+        let _ = allow_root(&app, &PathBuf::from(root));
     }
     Ok(())
 }

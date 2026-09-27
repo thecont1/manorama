@@ -22,10 +22,10 @@ export const pickGalleryFolder = async (): Promise<string | null> => {
 }
 
 /**
- * Re-grants both scopes to every saved root on launch and after a remount —
- * both scopes are runtime state and reset when the app restarts. Rust reads
- * the paths out of the private catalogue itself rather than trusting a
- * renderer-supplied argument.
+ * Re-grants both scopes to every picker-approved root on launch and after a
+ * remount — both scopes are runtime state and reset when the app restarts.
+ * Rust keeps the list itself: the renderer-writable catalogue is never the
+ * source of a grant.
  */
 export const registerSavedGalleryRoots = async (): Promise<void> =>
   invoke('register_saved_gallery_roots')

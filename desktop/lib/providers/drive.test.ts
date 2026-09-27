@@ -99,8 +99,8 @@ describe('uploadAlbum', () => {
     const provider = createDriveUploadProvider({ fetcher: counting, getToken: async () => 'access-token' })
     const result = await provider.uploadAlbum(album, async () => new Uint8Array([5, 5, 5]))
 
-    // Two folder lookups, two folder creates, one resumable init + PUT,
-    // one permission grant — in that order.
+    // One lookup for the shared root — the album folder is always created
+    // fresh — then one resumable init + PUT and one permission grant.
     const kinds = calls.map((call) =>
       call.url.includes('q=') ? 'find'
       : call.url.includes('uploadType=resumable') ? 'init'
@@ -108,7 +108,7 @@ describe('uploadAlbum', () => {
       : call.url.includes('/permissions') ? 'perm'
       : 'create',
     )
-    expect(kinds).toEqual(['find', 'create', 'find', 'create', 'init', 'put', 'perm'])
+    expect(kinds).toEqual(['find', 'create', 'create', 'init', 'put', 'perm'])
     const albumCreate = calls.filter((c) => c.url.endsWith('drive/v3/files'))[1]!
     const albumBody = JSON.parse(albumCreate.init!.body as string)
     expect(albumBody.name).toBe('Trip')

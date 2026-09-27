@@ -35,7 +35,11 @@ import type {
 const RPC_BASE = 'https://api.dropboxapi.com/2'
 const CONTENT_BASE = 'https://content.dropboxapi.com/2'
 
-const albumFolderPath = (albumName: string): string => `/manorama/${albumName}`
+/** The gallery's stable id pins the folder so two galleries that share a
+ * title land in different folders, and a retry resolves to the same folder
+ * (and its existing shared link) instead of a renamed duplicate. */
+const albumFolderPath = (albumName: string, albumId?: string): string =>
+  `/manorama/${albumName}${albumId ? `-${albumId.slice(0, 8)}` : ''}`
 
 // --- Pure request shapes (asserted directly by tests) ----------------------
 
@@ -133,7 +137,7 @@ export const createDropboxUploadProvider = (deps?: {
     onProgress?: (progress: UploadProgress) => void,
   ): Promise<{ shareUrl: string }> => {
     const accessToken = await token()
-    const folder = albumFolderPath(album.name)
+    const folder = albumFolderPath(album.name, album.id)
     for (let index = 0; index < album.files.length; index += 1) {
       const file = album.files[index]!
       const bytes = await readFile(file.path)

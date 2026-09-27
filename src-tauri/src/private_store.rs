@@ -20,6 +20,12 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 /// A keychain plugin is the documented upgrade path for both.
 const PRIVATE_FILES: &[&str] = &["session.json", "catalogue.json", "providers.json"];
 
+/// Provenance for filesystem scopes — which directories actually came out
+/// of the picker. Deliberately NOT in PRIVATE_FILES: the renderer can write
+/// the catalogue but can never forge an entry here, so launch-time scope
+/// re-grants cover picked roots only.
+const ROOTS_FILE: &str = "roots.json";
+
 fn private_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     if !PRIVATE_FILES.contains(&name) {
         return Err("Unknown private file".into());
@@ -29,6 +35,14 @@ fn private_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
         .app_config_dir()
         .map_err(|e| e.to_string())?
         .join(name))
+}
+
+fn roots_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join(ROOTS_FILE))
 }
 
 #[tauri::command]
@@ -41,9 +55,9 @@ pub fn read_private_file(app: AppHandle, name: String) -> Result<Option<String>,
     }
 }
 
-#[tauri::command]
-pub fn write_private_file(app: AppHandle, name: String, contents: String) -> Result<(), String> {
-    let path = private_path(&app, &name)?;
+/// Atomic write at mode 0600 — shared by the renderer-visible private files
+/// and the Rust-only provenance file.
+fn write_0600(path: &PathBuf, contents: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -63,9 +77,40 @@ pub fn write_private_file(app: AppHandle, name: String, contents: String) -> Res
     let mut file = options.open(&tmp).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-    file.write_all(contents.as_bytes()).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    file.write_all(contents).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn write_private_file(app: AppHandle, name: String, contents: String) -> Result<(), String> {
+    let path = private_path(&app, &name)?;
+    write_0600(&path, contents.as_bytes())
+}
+
+/// Records a picker-approved root. Called from `pick_gallery_root` in Rust —
+/// it is not a command — so the file only ever contains directories the
+/// user actually chose.
+pub(crate) fn record_gallery_root(app: &AppHandle, root: &str) -> Result<(), String> {
+    let mut roots = saved_gallery_roots(app);
+    if roots.iter().any(|saved| saved == root) {
+        return Ok(());
+    }
+    roots.push(root.to_string());
+    let contents = serde_json::to_string(&roots).map_err(|e| e.to_string())?;
+    write_0600(&roots_path(app)?, contents.as_bytes())
+}
+
+/// The directories the picker has approved across this install's lifetime —
+/// the authorization source for launch-time scope re-grants.
+pub(crate) fn saved_gallery_roots(app: &AppHandle) -> Vec<String> {
+    let Ok(path) = roots_path(app) else {
+        return Vec::new();
+    };
+    let Ok(contents) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<String>>(&contents).unwrap_or_default()
 }
 
 #[tauri::command]

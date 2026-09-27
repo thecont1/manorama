@@ -100,6 +100,31 @@ describe('uploadAlbum', () => {
     ])
   })
 
+  test('the gallery id pins the folder — same-title galleries cannot collide and a retry resolves to the same path', async () => {
+    const { calls, fetcher } = captureFetch((url) => {
+      if (url.includes('files/upload')) return new Response('{}', { status: 200 })
+      if (url.includes('create_shared_link_with_settings')) {
+        return new Response(JSON.stringify({ url: 'https://www.dropbox.com/sh/x' }), { status: 200 })
+      }
+      return new Response('{}', { status: 404 })
+    })
+    const provider = createDropboxUploadProvider({ fetcher, getToken: async () => 'access-token' })
+    for (const id of ['aaaaaaaa-0000', 'bbbbbbbb-0000', 'aaaaaaaa-0000']) {
+      await provider.uploadAlbum(
+        { name: 'Trip', id, files: [{ name: 'one.jpg', path: '/local/root/one.jpg' }] },
+        async () => new Uint8Array([1]),
+      )
+    }
+    const uploads = calls.filter((call) => call.url.includes('files/upload'))
+    const folders = uploads.map((upload) => {
+      const path = JSON.parse((upload.init!.headers as Record<string, string>)['Dropbox-API-Arg']!).path as string
+      return path.slice(0, path.lastIndexOf('/'))
+    })
+    // Two distinct folders — and the repeat of aaaaaaaa-0000 went back to
+    // the first one rather than a renamed sibling.
+    expect(folders).toEqual(['/manorama/Trip-aaaaaaaa', '/manorama/Trip-bbbbbbbb', '/manorama/Trip-aaaaaaaa'])
+  })
+
   test('reuses the existing folder link on shared_link_already_exists', async () => {
     const { calls, fetcher } = captureFetch((url) => {
       if (url.includes('files/upload')) return new Response('{}', { status: 200 })

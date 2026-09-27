@@ -135,6 +135,14 @@ export const createDriveUploadProvider = (deps?: {
 }): UploadProvider => {
   const fetcher = deps?.fetcher ?? fetch
 
+  const createFolder = async (token: string, name: string, parentId?: string): Promise<string> => {
+    const create = driveCreateFolderRequest(token, name, parentId)
+    const created = await fetcher(create.url, create.init)
+    const payload = (await created.json().catch(() => ({}))) as DriveFileResponse
+    if (!created.ok || !payload.id) throw await driveError(created, `The ${name} folder could not be created.`)
+    return payload.id
+  }
+
   const ensureFolder = async (token: string, name: string, parentId?: string): Promise<string> => {
     const find = driveFindFolderRequest(token, name, parentId)
     const found = await fetcher(find.url, find.init)
@@ -143,11 +151,7 @@ export const createDriveUploadProvider = (deps?: {
       const id = payload.files?.[0]?.id
       if (id) return id
     }
-    const create = driveCreateFolderRequest(token, name, parentId)
-    const created = await fetcher(create.url, create.init)
-    const payload = (await created.json().catch(() => ({}))) as DriveFileResponse
-    if (!created.ok || !payload.id) throw await driveError(created, `The ${name} folder could not be created.`)
-    return payload.id
+    return createFolder(token, name, parentId)
   }
 
   const uploadAlbum = async (
@@ -157,7 +161,9 @@ export const createDriveUploadProvider = (deps?: {
   ): Promise<{ shareUrl: string }> => {
     const token = await (deps?.getToken?.() ?? accessTokenFor('drive', fetcher))
     const manoramaId = await ensureFolder(token, MANORAMA_FOLDER)
-    const albumId = await ensureFolder(token, album.name, manoramaId)
+    // A fresh folder per upload — reusing a name-matched folder would let
+    // two galleries that share a title commingle their files.
+    const albumId = await createFolder(token, album.name, manoramaId)
     for (let index = 0; index < album.files.length; index += 1) {
       const file = album.files[index]!
       const bytes = await readFile(file.path)
