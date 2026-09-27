@@ -164,8 +164,18 @@ export const installDesktopAuth = async (
   apiBase: string,
   onSignedIn: (session: DesktopSession) => void,
   onError: (message: string) => void,
+  onOtherUrl?: (url: string) => void,
 ): Promise<() => Promise<void>> => {
   const handle = (url: string) => {
+    // Non-handoff URLs on our scheme — provider OAuth redirects under
+    // //oauth/* — route to the caller's handler rather than erroring a
+    // sign-in that was never theirs to complete.
+    if (!handoffFromDeepLink(url)) {
+      if (onOtherUrl) {
+        onOtherUrl(url)
+        return
+      }
+    }
     void completeDesktopSignIn(url, apiBase).then(onSignedIn).catch((reason: unknown) => {
       onError(reason instanceof Error && reason.message.trim() ? reason.message : 'Sign-in could not be completed. Please try again.')
     })

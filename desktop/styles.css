@@ -38,6 +38,7 @@ body {
 .desktop-account button,
 .desktop-toolbar button,
 .desktop-gallery-actions button,
+.desktop-share button,
 .desktop-paste button {
   font: inherit;
   color: inherit;
@@ -51,13 +52,15 @@ body {
 .desktop-account button:hover,
 .desktop-toolbar button:hover,
 .desktop-gallery-actions button:hover,
+.desktop-share button:hover,
 .desktop-paste button:hover {
   border-color: #555;
 }
 
 .desktop-account button:disabled,
 .desktop-toolbar button:disabled,
-.desktop-gallery-actions button:disabled {
+.desktop-gallery-actions button:disabled,
+.desktop-share button:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -212,6 +215,82 @@ body {
   opacity: 0.65;
   font-size: 0.9rem;
   grid-column: 1 / -1;
+}
+
+/* The share sheet: an inline panel inside the gallery card — provider
+   choice, connect, explicit confirmation, progress, result. */
+.desktop-share {
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 0.75rem;
+  background: #0d0d0d;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.desktop-share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.desktop-share-header h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.desktop-share-providers {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.desktop-share-provider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.desktop-share-provider-name {
+  font-size: 0.92rem;
+}
+
+.desktop-share-provider-note {
+  font-size: 0.8rem;
+  opacity: 0.55;
+}
+
+.desktop-share-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  opacity: 0.65;
+}
+
+.desktop-share-confirm p,
+.desktop-share-connecting p,
+.desktop-share-progress p,
+.desktop-share-done p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.desktop-share-confirm,
+.desktop-share-connecting,
+.desktop-share-progress,
+.desktop-share-done {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.desktop-share-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.desktop-share-done a {
+  color: inherit;
 }
 
 .desktop-back {

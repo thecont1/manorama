@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { exists, readDir } from '@tauri-apps/plugin-fs'
+import { exists, readDir, readFile } from '@tauri-apps/plugin-fs'
 import type { LocalScanEntry } from './local-scan'
 
 /**
@@ -45,3 +45,11 @@ export const pathExists = async (path: string): Promise<boolean> => {
 
 /** Display URL for a referenced original — the asset protocol, never a copy. */
 export const assetUrl = (path: string): string => convertFileSrc(path)
+
+/**
+ * The raw bytes of a file inside a granted root — used ONLY by the
+ * explicit share flow, which uploads them byte-for-byte to the chosen
+ * provider. The same runtime scope that gates `readDir` gates this: a
+ * path outside a picked root rejects.
+ */
+export const readFileBytes = async (path: string): Promise<Uint8Array> => readFile(path)

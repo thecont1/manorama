@@ -23,6 +23,8 @@ import {
 import { assetUrl, pathExists, pickGalleryFolder, readDirEntries, registerGalleryRoot } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
+import { handleProviderDeepLink } from '../lib/providers/oauth'
+import ShareFlow from './ShareFlow'
 import {
   beginDesktopSignIn,
   clearSession,
@@ -60,8 +62,9 @@ type DimsMap = Map<string, { w: number; h: number }>
 
 /**
  * The desktop shell: a catalogue of user-picked folders and memory cards,
- * each referenced in place. No copying, no watching, no upload — a manual
- * rescan is the only inventory refresh.
+ * each referenced in place. No copying, no watching — a manual rescan is
+ * the only inventory refresh, and the per-gallery "Share…" sheet is the
+ * only path by which bytes leave the device.
  */
 export default function Catalogue({ apiBase }: { apiBase: string }) {
   const base = normalizeApiBase(apiBase)
@@ -75,6 +78,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [pasteUrl, setPasteUrl] = useState('')
   const [busy, setBusy] = useState(false)
+  const [shareGalleryId, setShareGalleryId] = useState<string | null>(null)
   const dimsRef = useRef<DimsMap>(new Map())
 
   const persistCatalogue = useCallback(async (next: LocalCatalogue) => {
@@ -132,6 +136,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           void runSync(next, signedIn)
         },
         setAuthError,
+        // Everything else on our scheme is a provider OAuth redirect —
+        // those complete the pending upload-provider connect, not sign-in.
+        handleProviderDeepLink,
       ).catch(() => undefined) ?? undefined
     })()
     return () => {
@@ -386,10 +393,26 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <button type="button" onClick={() => void rescan(record)}>
                   Rescan
                 </button>
+                <button
+                  type="button"
+                  disabled={state === 'unavailable'}
+                  onClick={() => setShareGalleryId(shareGalleryId === record.id ? null : record.id)}
+                >
+                  Share…
+                </button>
                 <button type="button" onClick={() => void remove(record)}>
                   Remove
                 </button>
               </div>
+              {shareGalleryId === record.id && catalogue ? (
+                <ShareFlow
+                  record={record}
+                  catalogue={catalogue}
+                  apiBase={base}
+                  session={session}
+                  onClose={() => setShareGalleryId(null)}
+                />
+              ) : null}
               {open ? (
                 <div class="desktop-grid">
                   {record.items.map((item, index) => (

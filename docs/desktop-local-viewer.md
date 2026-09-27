@@ -11,14 +11,19 @@ source returns.
 
 ```
 src-tauri/              Tauri v2 shell. identifier in.thecontrarian.manorama.desktop
-  src/lib.rs            register_gallery_root command + plugin wiring
+  src/lib.rs            register_gallery_root, OAuth loopback commands, plugin wiring
   src/private_store.rs  allowlisted JSON writes under the app config dir (0600)
-  capabilities/         read-only fs listing, dialog open, deep-link, opener
+  capabilities/         read-only fs (listing + file bytes in picked roots),
+                        dialog open, deep-link, opener
 desktop/                vite SPA root (mirrors native/)
   lib/local-scan.ts     pure scan: image extensions, one subdir level, sort, cap
   lib/catalogue.ts      local catalogue model + the metadata-only sync projection
   lib/session.ts        PKCE, desktop auth URL, deep-link parse, exchange, token store
   lib/sync.ts           PUT /api/device-galleries/:id per record; quiet failures
+  lib/share.ts          explicit-share orchestration: confirm gate → provider
+                        upload → POST /api/galleries {url} → device link
+  lib/providers/        UploadProvider interface + Dropbox/Drive OAuth+upload
+                        (see docs/desktop-uploads.md)
   lib/tauri.ts          the only module with plugin imports — the UI's adapter
   islands/Catalogue.tsx pick → grid → shared Viewer
 vite.config.desktop.ts  standalone client build (dist → src-tauri frontendDist)
@@ -40,12 +45,14 @@ protocol scope (for `convertFileSrc`). Neither scope ever contains `**`, and
 the granted set resets every launch, so the catalogue re-registers every
 saved root on start.
 
-`session.json` and `catalogue.json` live under the app config dir, written
-through the `write_private_file` command at mode 0600. The command allowlist
-is fixed inside Rust, so the fs plugin — which is read-only — cannot be
-turned into a writer. **Upgrade path:** a maintained OS-keychain plugin
-(e.g. a v2-compatible keyring plugin) can replace `session.json` later
-without touching the catalogue or the exchange flow.
+`session.json`, `catalogue.json`, and `providers.json` live under the app
+config dir, written through the `write_private_file` command at mode 0600.
+The command allowlist is fixed inside Rust, so the fs plugin — which is
+read-only — cannot be turned into a writer. `providers.json` holds the
+upload lane's refresh tokens (docs/desktop-uploads.md). **Upgrade path:** a
+maintained OS-keychain plugin (e.g. a v2-compatible keyring plugin) can
+replace `session.json` later without touching the catalogue or the exchange
+flow.
 
 ## Sign-in
 
@@ -66,7 +73,9 @@ fails the exchange — start a fresh sign-in and re-paste.
 
 ## Deliberately absent
 
-- No upload or sharing code paths — `publicGallerySlug` is never sent.
+- No ambient upload paths — `publicGallerySlug` is sent only by the
+  explicit share flow in `docs/desktop-uploads.md`; nothing uploads on
+  open, rescan, or launch.
 - No watch folders or background monitoring — manual rescan only.
 - No server-side file lists — the PUT body is title, sourceKind, itemCount,
   deviceId, deviceLabel. `packages/core/device-gallery.ts` rejects anything

@@ -6,13 +6,18 @@ use tauri::{AppHandle, Manager};
 use std::os::unix::fs::PermissionsExt;
 
 /// App-private JSON documents under the app config dir: the session token,
-/// the local gallery catalogue, and the install-stable device record.
+/// the local gallery catalogue, the provider OAuth grants for the upload
+/// lane, and the install-stable device record.
 ///
 /// A fixed allowlist — never a caller-supplied path — keeps these three
 /// commands from becoming a general file-write primitive. The fs plugin's
 /// JS surface stays read-only, so the only writer in the whole app is this
 /// file, and it only writes inside the app config dir.
-const PRIVATE_FILES: &[&str] = &["session.json", "catalogue.json"];
+///
+/// `providers.json` holds refresh tokens for Dropbox/Drive upload access —
+/// more sensitive than the session file and stored at the same 0600 mode.
+/// A keychain plugin is the documented upgrade path for both.
+const PRIVATE_FILES: &[&str] = &["session.json", "catalogue.json", "providers.json"];
 
 fn private_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     if !PRIVATE_FILES.contains(&name) {
