@@ -16,8 +16,10 @@
     "app",
     "packages",
     "native",
+    "desktop",
     "vendo",
     "vite.config.ts",
-    "vite.config.native.ts"
+    "vite.config.native.ts",
+    "vite.config.desktop.ts"
   ]
 }
