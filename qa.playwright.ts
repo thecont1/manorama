@@ -921,12 +921,26 @@ for (const vp of viewports) {
       // retention tail — while the whole set stays bounded.
       await page.evaluate(() => {
         const stage = document.querySelector<HTMLElement>("[data-stage]")!;
-        for (let n = 0; n < 120; n += 1) {
+        const track = document.querySelector<HTMLElement>("[data-track]")!;
+        const fifth = track.querySelector<HTMLElement>('[data-index="5"]')!;
+        const currentX =
+          stage.getBoundingClientRect().left - track.getBoundingClientRect().left;
+        const steps = Math.ceil((fifth.offsetLeft - currentX + 48) / 48);
+        for (let n = 0; n < steps; n += 1) {
           stage.dispatchEvent(
             new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 48 }),
           );
         }
       });
+      await expect
+        .poll(async () =>
+          Number(
+            await page
+              .locator('[data-track] [aria-current="true"]')
+              .getAttribute("data-index"),
+          ),
+        )
+        .toBeGreaterThanOrEqual(5);
       await expect.poll(count).toBeGreaterThan(7);
       expect(await count()).toBeLessThanOrEqual(13);
     });
