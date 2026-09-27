@@ -107,13 +107,16 @@ describe('web ad frame request policy', () => {
     expect(await webAdFrameForRequest(pageRequest(await sessionCookieFor(proViewer)), sessionEnv, suppliedFrame)).toBe(WEB_HOUSE_AD_FRAME)
   })
 
-  test('a session-store failure degrades to anonymous instead of failing the render', async () => {
+  test('a session-store failure serves only the house plate, never a network frame', async () => {
     const brokenDbEnv = {
       HOST_API_JWT_SECRET: TEST_SESSION_SECRET,
       DB: { prepare: () => { throw new Error('d1 down') } } as unknown as D1Database,
     }
-    const cookie = await sessionCookieFor(freeViewer)
-    expect(await webAdFrameForRequest(pageRequest(cookie), brokenDbEnv, suppliedFrame)).toBe(suppliedFrame)
+    // The viewer may be pro — an unverifiable tier must never see a network frame.
+    const proCookie = await sessionCookieFor(proViewer)
+    expect(await webAdFrameForRequest(pageRequest(proCookie), brokenDbEnv, suppliedFrame)).toBe(WEB_HOUSE_AD_FRAME)
+    // No cookie means the lookup SUCCEEDED as anonymous — network frame as normal.
+    expect(await webAdFrameForRequest(pageRequest(), brokenDbEnv, suppliedFrame)).toBe(suppliedFrame)
   })
 
   test('a day suppression hides the plate for every viewer', async () => {

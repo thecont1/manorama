@@ -122,10 +122,18 @@ export const webAdFrameForRequest = async (
   networkFrame?: AdFrame | null,
 ): Promise<AdFrame | null> => {
   // The plate lookup is auxiliary to the render — a session-store failure
-  // degrades to anonymous, never to a failed gallery page.
-  const session = await resolveManoramaSession(request, env).catch(() => null)
+  // must not fail the gallery page. Track it separately from "no session":
+  // a failed lookup cannot prove the viewer is anonymous or free, so the
+  // only safe frame is the house plate — never the network's.
+  const lookup = await resolveManoramaSession(request, env)
+    .then((session) => ({ session, failed: false }))
+    .catch(() => ({ session: null, failed: true }))
   const day = new Date().toISOString().slice(0, 10)
   const region = ((request as { cf?: { country?: string } }).cf?.country ?? '').toUpperCase()
   const suppressedBy = await adSuppressionFor(day, region, env).catch(() => null)
-  return webAdFrameFor(session?.tier ?? 'anonymous', networkFrame, suppressedBy === null)
+  return webAdFrameFor(
+    lookup.session?.tier ?? 'anonymous',
+    lookup.failed ? undefined : networkFrame,
+    suppressedBy === null,
+  )
 }
