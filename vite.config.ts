@@ -56,18 +56,18 @@ const manoramaDevSeed = (): Plugin => {
     users.resetUserStore()
     galleries.resetGalleryStore()
     const owner = await users.upsertUser({
-      dropboxAccountId: 'dbid:AAATESTowner1',
+      accountId: 'dbid:AAATESTowner1',
       displayName: 'thecontrarian',
       email: 'mahesh@manorama.xyz',
     })
     // Pro: the admin page mounts the real Vendo surface only for pro tier,
     // and the vendo-surface spec drives that launcher.
-    await users.setUserTier(owner.dropboxAccountId, 'pro')
+    await users.setUserTier(owner.accountId, 'pro')
     // A second free-tier owner (slug `retention-qa`, no galleries) gives
     // the retention/density specs an isolated account whose gallery count
     // never depends on which provider vars happen to be set.
     await users.upsertUser({
-      dropboxAccountId: 'dbid:AAATESTretention',
+      accountId: 'dbid:AAATESTretention',
       displayName: 'Retention QA',
       email: 'retention-qa@manorama.xyz',
     })
@@ -165,7 +165,7 @@ const manoramaDevSeed = (): Plugin => {
           .then(async () => {
             const secret = process.env.HOST_API_JWT_SECRET?.trim()
             if (!secret) throw new Error('HOST_API_JWT_SECRET is not set')
-            const session = await server.ssrLoadModule('/app/lib/dropbox-session.ts') as unknown as typeof import('./app/lib/dropbox-session')
+            const session = await server.ssrLoadModule('/app/lib/session.ts') as unknown as typeof import('./app/lib/session')
             const token = await session.createSessionToken('dbid:AAATESTowner1', secret)
             const query = req.url?.split('?')[1] ?? ''
             const next = new URLSearchParams(query).get('next')

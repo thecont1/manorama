@@ -6,7 +6,7 @@ import sharp from 'sharp'
 import renderer from './routes/_renderer'
 import viewerPage from './routes/[owner]/[slug]'
 import { createManoramaApi } from './api'
-import { resetUserStore, getUserByDropboxId, setUserTier, upsertUser } from './lib/user-repository'
+import { resetUserStore, getUserByAccountId, setUserTier, upsertUser } from './lib/user-repository'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { clearAdSuppression, resetAdSuppressionStore, setAdSuppression } from './lib/ads-visibility'
@@ -29,8 +29,8 @@ let ownerSlug: string
 let freeViewerCookie = ''
 let proViewerCookie = ''
 
-const FREE_VIEWER = { dropboxAccountId: 'dbid:AAATESTviewerF1', displayName: 'Free Viewer', email: 'free@viewer.test' }
-const PRO_VIEWER = { dropboxAccountId: 'dbid:AAATESTviewerP1', displayName: 'Pro Viewer', email: 'pro@viewer.test' }
+const FREE_VIEWER = { accountId: 'dbid:AAATESTviewerF1', displayName: 'Free Viewer', email: 'free@viewer.test' }
+const PRO_VIEWER = { accountId: 'dbid:AAATESTviewerP1', displayName: 'Pro Viewer', email: 'pro@viewer.test' }
 
 const photo: GalleryMediaItem = {
   id: 'p-1',
@@ -88,27 +88,27 @@ beforeAll(async () => {
   resetGalleryStore()
   resetAdSuppressionStore()
   await seedTestUser()
-  ownerSlug = (await getUserByDropboxId(TEST_OWNER.dropboxAccountId))!.ownerSlug
+  ownerSlug = (await getUserByAccountId(TEST_OWNER.accountId))!.ownerSlug
   await upsertUser(FREE_VIEWER)
   await upsertUser(PRO_VIEWER)
-  await setUserTier(PRO_VIEWER.dropboxAccountId, 'pro')
-  freeViewerCookie = await sessionCookieFor(FREE_VIEWER.dropboxAccountId)
-  proViewerCookie = await sessionCookieFor(PRO_VIEWER.dropboxAccountId)
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await setUserTier(PRO_VIEWER.accountId, 'pro')
+  freeViewerCookie = await sessionCookieFor(FREE_VIEWER.accountId)
+  proViewerCookie = await sessionCookieFor(PRO_VIEWER.accountId)
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'mixed',
     title: 'Mixed Gallery',
     caption: 'Photographs and moving pictures',
     date: '',
     images: [photo, video],
   })
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'video-first',
     title: 'Video First',
     caption: '',
     date: '',
     images: [video, photo],
   })
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'long-album',
     title: 'Long Album',
     caption: '',

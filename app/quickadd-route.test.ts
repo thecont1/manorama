@@ -50,8 +50,8 @@ beforeAll(async () => {
   resetGalleryStore()
   const user = await seedTestUser()
   ownerSlug = user.ownerSlug
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'kashmir',
     title: 'Kashmir',
     caption: '',
@@ -141,7 +141,9 @@ describe('the quick-add catch-all renders for provider links', () => {
     const response = await app.request('/https://mega.nz/folder/AbCdEf12', {}, env)
     const html = await response.text()
     expect(html).toContain('data-mode="signin"')
-    expect(html).toContain('Sign Up or Sign In with Dropbox')
+    expect(html).toContain('href="/auth/dropbox"')
+    expect(html).toContain('href="/auth/google"')
+    expect(html).toContain('href="/auth/apple"')
   })
 
   test('a signed-in visitor gets the working panel — zero clicks', async () => {

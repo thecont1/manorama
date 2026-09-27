@@ -14,6 +14,13 @@ VENDO_BASE_URL = "https://manorama.xyz"
 # HOST_API_JWT_SECRET signs the Dropbox session cookie.
 # GOOGLE_DRIVE_API_KEY enables public Google Drive folder ingestion
 # (iCloud shared albums need no secret).
+# Stripe web billing: STRIPE_PRO_PAYMENT_LINK is a public buy.stripe.com URL
+# (safe in vars). STRIPE_WEBHOOK_SIGNING_SECRET is a SECRET:
+# `bunx wrangler secret put STRIPE_WEBHOOK_SIGNING_SECRET`.
+# The link below is TEST mode for local dev — the dashboard suppresses
+# test-mode links on the public host, so the live link MUST land here
+# before launch or Upgrade degrades to a mailto.
+STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
 
 [[d1_databases]]
 binding = "DB"

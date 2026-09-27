@@ -1,11 +1,11 @@
 import { jwtVerify, SignJWT } from 'jose'
 import type { MiddlewareHandler } from 'hono'
-import { getUserByDropboxId, type UserRepositoryEnv } from './user-repository'
+import { getUserByAccountId, type UserRepositoryEnv } from './user-repository'
 
 /**
  * Manorama's session layer. A Dropbox OAuth sign-in mints an HS256 JWT
  * (signed with HOST_API_JWT_SECRET) into the `manorama_session` cookie.
- * The token carries only the immutable Dropbox account ID as `sub`;
+ * The token carries only the immutable account ID as `sub`;
  * everything user-visible (owner slug, tier) is loaded fresh from the
  * user repository on every request, so a slug or tier change applies
  * immediately without re-issuing cookies.
@@ -26,10 +26,10 @@ export const RETURNING_COOKIE = 'manorama_returning'
 export const RETURNING_TTL_SECONDS = 365 * 24 * 60 * 60
 
 export type ManoramaSession = {
-  /** Stable principal: the Dropbox account ID, never an email. */
-  id: `dropbox:${string}`
-  /** The raw Dropbox account ID — the repository owner key. */
-  dropboxAccountId: string
+  /** Stable principal: the account ID, never an email. */
+  id: `account:${string}`
+  /** The raw account ID — the repository owner key. */
+  accountId: string
   ownerSlug: string
   name: string
   email?: string
@@ -51,8 +51,9 @@ const MIN_SECRET_BYTES = 32
 
 /** Encodes the signing secret, rejecting values whose UTF-8 encoding is
  *  shorter than 32 bytes. Both signing and verification use this gate so
- *  a weak secret fails consistently rather than silently. */
-const sessionKey = (secret: string) => {
+ *  a weak secret fails consistently rather than silently. Exported for the
+ *  sibling token minters in desktop-auth, which share the same key. */
+export const sessionKey = (secret: string) => {
   const trimmed = secret.trim()
   const bytes = new TextEncoder().encode(trimmed)
   if (bytes.length < MIN_SECRET_BYTES) {
@@ -61,9 +62,9 @@ const sessionKey = (secret: string) => {
   return bytes
 }
 
-/** Signs a session token for a Dropbox account ID. */
-export const createSessionToken = (dropboxAccountId: string, secret: string) =>
-  new SignJWT({ sub: dropboxAccountId })
+/** Signs a session token for an account ID. */
+export const createSessionToken = (accountId: string, secret: string) =>
+  new SignJWT({ sub: accountId })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
@@ -72,21 +73,22 @@ export const createSessionToken = (dropboxAccountId: string, secret: string) =>
 /** A one-minute, purpose-bound token that is safe to carry through the native
  * custom URL scheme. It is exchanged for the normal bearer session over HTTPS;
  * the long-lived session token never appears in the deep link. */
-export const createNativeHandoffToken = (dropboxAccountId: string, secret: string) =>
-  new SignJWT({ sub: dropboxAccountId, typ: 'native-handoff' })
+export const createNativeHandoffToken = (accountId: string, secret: string) =>
+  new SignJWT({ sub: accountId, typ: 'native-handoff' })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(`${NATIVE_HANDOFF_TTL_SECONDS}s`)
     .sign(sessionKey(secret))
 
 export const verifyNativeHandoffToken = async (token: string, secret: string) => {
-  const { payload } = await jwtVerify(token, sessionKey(secret))
+  const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
   if (payload.typ !== 'native-handoff') return null
   return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
 }
 
 const verifySessionToken = async (token: string, secret: string) => {
-  const { payload } = await jwtVerify(token, sessionKey(secret))
+  const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
+  if (payload.typ !== undefined) return null
   return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
 }
 
@@ -130,20 +132,22 @@ export async function resolveManoramaSession(
 ): Promise<ManoramaSession | null> {
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return null
-  const token = cookieValue(request, SESSION_COOKIE) ?? bearerValue(request)
+  const token = request.headers.get('Authorization') !== null
+    ? bearerValue(request)
+    : cookieValue(request, SESSION_COOKIE)
   if (!token) return null
-  let dropboxAccountId: string | null
+  let accountId: string | null
   try {
-    dropboxAccountId = await verifySessionToken(token, secret)
+    accountId = await verifySessionToken(token, secret)
   } catch {
     return null
   }
-  if (!dropboxAccountId) return null
-  const user = await getUserByDropboxId(dropboxAccountId, env)
+  if (!accountId) return null
+  const user = await getUserByAccountId(accountId, env)
   if (!user) return null
   const session: ManoramaSession = {
-    id: `dropbox:${user.dropboxAccountId}`,
-    dropboxAccountId: user.dropboxAccountId,
+    id: `account:${user.accountId}`,
+    accountId: user.accountId,
     ownerSlug: user.ownerSlug,
     name: user.displayName,
     tier: user.tier,

@@ -1,15 +1,7 @@
 import { createRoute } from 'honox/factory'
 import { getCookie } from 'hono/cookie'
-import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/dropbox-session'
-
-const DropboxGlyph = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path
-      d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z"
-      fill="currentColor"
-    />
-  </svg>
-)
+import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
+import { SignInLinks } from '../lib/signin'
 
 export default createRoute(async (c) => {
   // The landing page doubles as the sign-in door: editors arriving with a
@@ -26,10 +18,7 @@ export default createRoute(async (c) => {
       <div class="landing-brand">
         <span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" /><span class="brand-tld" aria-hidden="true">.xyz</span></span>
         <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <a class="landing-signin" href="/auth/dropbox">
-          <DropboxGlyph />
-          {returning ? 'Sign in with Dropbox' : 'Sign Up or Sign In with Dropbox'}
-        </a>
+        <SignInLinks returning={returning} />
         {failed ? <p class="landing-note">Sign-in didn&rsquo;t complete. Please try again.</p> : null}
       </div>
       <footer class="site-footer">

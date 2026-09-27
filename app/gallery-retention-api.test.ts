@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import sharp from 'sharp'
 import { createManoramaApi } from './api'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
-import { getUserByDropboxId, resetUserStore, setUserTier, upsertUser } from './lib/user-repository'
+import { getUserByAccountId, resetUserStore, setUserTier, upsertUser } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { paidGalleryLimitError, PIPELINE_LOCK_MESSAGE } from './lib/gallery-policy'
 import type { GalleryImage } from './lib/imagesource'
@@ -22,17 +22,17 @@ beforeEach(async () => {
   resetUserStore()
   resetGalleryStore()
   await seedTestUser()
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
-  ownerSlug = (await getUserByDropboxId(TEST_OWNER.dropboxAccountId))!.ownerSlug
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
+  ownerSlug = (await getUserByAccountId(TEST_OWNER.accountId))!.ownerSlug
 })
 
 const seedGalleries = async () => {
   for (let index = 0; index < 3; index += 1) {
-    await createGallery(TEST_OWNER.dropboxAccountId, {
+    await createGallery(TEST_OWNER.accountId, {
       slug: `kept-${index}`, title: `Kept ${index}`, caption: '', date: '', images: [image(`k-${index}`)],
     })
   }
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'locked',
     title: 'Locked',
     caption: '',
@@ -130,7 +130,7 @@ describe('a pipeline gallery is read-only through the session API', () => {
 
   test('an expired pipeline gallery is already gone — edits and refresh 404 while delete still works', async () => {
     await seedGalleries()
-    await createGallery(TEST_OWNER.dropboxAccountId, {
+    await createGallery(TEST_OWNER.accountId, {
       slug: 'gone',
       title: 'Gone',
       caption: '',
@@ -159,7 +159,7 @@ describe('a paid owner at the retained cap', () => {
   const PAID = 'dbid:AAATESTpaid99'
 
   test('POST of a new source answers the typed limit response', async () => {
-    const paid = await upsertUser({ dropboxAccountId: PAID, displayName: 'Paid Owner' })
+    const paid = await upsertUser({ accountId: PAID, displayName: 'Paid Owner' })
     await setUserTier(PAID, 'pro')
     for (let index = 0; index < 99; index += 1) {
       await createGallery(PAID, {
@@ -213,7 +213,7 @@ describe('pipeline OG cards are never cached', () => {
 
   test('a pipeline gallery with nothing to composite redirects with no-store', async () => {
     await seedGalleries()
-    await createGallery(TEST_OWNER.dropboxAccountId, {
+    await createGallery(TEST_OWNER.accountId, {
       slug: 'empty-pipe', title: 'Empty', caption: '', date: '', images: [],
     })
     const response = await api.request(`/api/og/${ownerSlug}/empty-pipe`, {}, env)

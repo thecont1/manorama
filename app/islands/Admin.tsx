@@ -3,6 +3,8 @@ import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
+import type { AuthProvider } from '../lib/identity-repository'
+import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -10,6 +12,8 @@ type Props = {
   ownerName?: string
   publicHost: string
   tier?: 'free' | 'pro'
+  accountId?: string
+  upgradeUrl?: string
 }
 type EditableField = 'title' | 'caption' | 'slug'
 type Editing = { slug: string; field: EditableField } | null
@@ -23,6 +27,15 @@ type GalleryDrag = {
   images: GallerySummary['images']
 }
 type Theme = 'light' | 'dark'
+type AccountIdentity = { provider: AuthProvider; displayName?: string; email?: string }
+
+const SIGN_IN_METHODS: readonly { provider: AuthProvider; name: string }[] = [
+  { provider: 'dropbox', name: 'Dropbox' },
+  { provider: 'google', name: 'Google' },
+  { provider: 'apple', name: 'Apple' },
+]
+const signInMethodName = (provider: string) =>
+  SIGN_IN_METHODS.find((method) => method.provider === provider)?.name ?? provider
 
 const THEME_KEY = 'manorama:theme'
 const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
@@ -72,7 +85,7 @@ const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M
 const SourceIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5v9A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 19 8h-7.5L9.5 5.5A1.5 1.5 0 0 0 8.5 5H5a1.5 1.5 0 0 0-1.5 1.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /><path d="M3.5 8.5h17" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
 
 /** Renders the owner's dashboard for importing, editing, and managing galleries. */
-export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free' }: Props) {
+export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free', accountId, upgradeUrl }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [sourceUrl, setSourceUrl] = useState('')
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -101,10 +114,68 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
   const [busy, setBusy] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  // The account's sign-in methods — null until the identities answer lands.
+  const [identities, setIdentities] = useState<AccountIdentity[] | null>(null)
+  const [identityNote, setIdentityNote] = useState('')
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
   }, [])
+
+  const refreshIdentities = async () => {
+    try {
+      const response = await fetch('/api/account/identities')
+      const payload = await response.json() as { identities?: AccountIdentity[] }
+      if (response.ok && payload.identities) setIdentities(payload.identities)
+    } catch {
+      // A failed read just leaves the methods list hidden.
+    }
+  }
+
+  // The OAuth link callback lands back here on `?linked=` / `?link=conflict`;
+  // the params become a one-line note and are stripped so a refresh is quiet.
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const response = await fetch('/api/account/identities')
+        const payload = await response.json() as { identities?: AccountIdentity[] }
+        if (active && response.ok && payload.identities) setIdentities(payload.identities)
+      } catch {
+        // A failed read just leaves the methods list hidden.
+      }
+    })()
+    const params = new URLSearchParams(window.location.search)
+    const linked = params.get('linked')
+    if (linked) {
+      setIdentityNote(`${signInMethodName(linked)} connected.`)
+    } else if (params.get('link') === 'conflict') {
+      setIdentityNote('That sign-in method belongs to a different account.')
+    }
+    if (params.has('linked') || params.has('link')) {
+      params.delete('linked')
+      params.delete('link')
+      window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
+    }
+    return () => { active = false }
+  }, [])
+
+  const removeIdentity = async (provider: AuthProvider) => {
+    try {
+      const response = await fetch(`/api/account/identities/${provider}`, { method: 'DELETE' })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) {
+        setIdentityNote(payload.error === 'last-identity'
+          ? 'Keep at least one way to sign in.'
+          : 'That sign-in method could not be removed.')
+        return
+      }
+      setIdentityNote('')
+      await refreshIdentities()
+    } catch {
+      setIdentityNote('That sign-in method could not be removed.')
+    }
+  }
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof localStorage === 'undefined') return 'dark'
@@ -489,6 +560,37 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               onBlur={() => { void saveOwnerSlug() }}
             /></p>
             <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
+            {identities || identityNote ? (
+              <section class="admin-identities" aria-label="Sign-in methods">
+                <p class="admin-identities-heading">Sign-in methods</p>
+                {identities ? (
+                  <ul class="admin-identities-list">
+                    {SIGN_IN_METHODS.map((method) => {
+                      const linked = identities.find((identity) => identity.provider === method.provider)
+                      return (
+                        <li key={method.provider} class="admin-identity">
+                          {linked ? (
+                            <>
+                              <span>
+                                {method.name}
+                                {linked.displayName ? ` · ${linked.displayName}` : ''}
+                                {linked.email ? ` · ${linked.email}` : ''}
+                              </span>
+                              {identities.length > 1 ? (
+                                <button type="button" class="admin-row-action" onClick={() => { void removeIdentity(method.provider) }}>remove</button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <a class="admin-text-link" href={`/auth/${method.provider}?link=1`}>Connect {method.name}</a>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : null}
+                {identityNote ? <p class="admin-identities-note">{identityNote}</p> : null}
+              </section>
+            ) : null}
           </div>
         </div>
         <div class="admin-display-toggles" role="group" aria-label="Display preferences">
@@ -521,7 +623,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
             <p>Temporary · {Math.max(0, Math.ceil((Date.parse(gallery.expiresAt) - now) / 86_400_000))} days left</p>
             <p>Expires <time dateTime={gallery.expiresAt}>{gallery.expiresAt.replace('T', ' ').replace('.000Z', ' UTC')}</time>. Permanently removed from Manorama after 30 days unless you upgrade before expiry.</p>
-            <p>{PIPELINE_LOCK_MESSAGE} <a href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade</a></p>
+            {/* client_reference_id is how the Stripe webhook maps a
+                completed checkout back to this account — hex-encoded because
+                Stripe drops ids outside its safe charset. Never strip it. */}
+            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>

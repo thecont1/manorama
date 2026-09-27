@@ -9,7 +9,7 @@ import {
   type GalleryRecord,
 } from '../../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../../lib/user-repository'
-import { accessEnvOf } from '../../lib/dropbox-session'
+import { accessEnvOf } from '../../lib/session'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
 
@@ -20,7 +20,7 @@ export default createRoute(async (c) => {
 
   const slug = c.req.param('slug') ?? ''
   const gallery = await getGallery(
-    user.dropboxAccountId,
+    user.accountId,
     slug,
     c.env as GalleryEnv,
   )

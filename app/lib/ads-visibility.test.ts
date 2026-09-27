@@ -95,8 +95,8 @@ describe('web ad frame request policy', () => {
 
   beforeEach(async () => {
     resetUserStore()
-    await upsertUser({ dropboxAccountId: freeViewer, displayName: 'Free Viewer' })
-    await upsertUser({ dropboxAccountId: proViewer, displayName: 'Pro Viewer' })
+    await upsertUser({ accountId: freeViewer, displayName: 'Free Viewer' })
+    await upsertUser({ accountId: proViewer, displayName: 'Pro Viewer' })
     await setUserTier(proViewer, 'pro')
   })
 

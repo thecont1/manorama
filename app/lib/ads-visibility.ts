@@ -1,6 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import type { AdFrame } from './adframe'
-import { resolveManoramaSession, type SessionEnv } from './dropbox-session'
+import { resolveManoramaSession, type SessionEnv } from './session'
 
 /**
  * Master plate suppression. The owner can hide house plates for a UTC day or

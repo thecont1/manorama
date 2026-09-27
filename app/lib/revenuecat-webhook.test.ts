@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { createHmac } from 'node:crypto'
 import { resetGalleryStore } from './gallery-repository'
-import { resetUserStore, getUserByDropboxId, setUserTier, upsertUser } from './user-repository'
+import { resetUserStore, getUserByAccountId, setUserTier, upsertUser } from './user-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from './test-fixtures'
 import {
   processRevenueCatWebhook,
@@ -17,7 +17,7 @@ const payloadFor = (event: Record<string, unknown>) => JSON.stringify({
   event: {
     id: 'event-1',
     type: 'INITIAL_PURCHASE',
-    app_user_id: TEST_OWNER.dropboxAccountId,
+    app_user_id: TEST_OWNER.accountId,
     entitlement_ids: ['will_pay'],
     ...event,
   },
@@ -75,7 +75,7 @@ describe('RevenueCat webhook tier sync', () => {
     const request = await signedRequest(payloadFor({ type: 'INITIAL_PURCHASE' }))
     const result = await processRevenueCatWebhook(request, env)
     expect(result).toEqual({ status: 200, code: 'APPLIED', eventId: 'event-1', tier: 'pro' })
-    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('pro')
+    expect((await getUserByAccountId(TEST_OWNER.accountId))?.tier).toBe('pro')
   })
 
   test('revokes pro for an expiration event', async () => {
@@ -87,7 +87,7 @@ describe('RevenueCat webhook tier sync', () => {
     }))
     const result = await processRevenueCatWebhook(request, env)
     expect(result).toEqual({ status: 200, code: 'APPLIED', eventId: 'event-2', tier: 'free' })
-    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('free')
+    expect((await getUserByAccountId(TEST_OWNER.accountId))?.tier).toBe('free')
   })
 
   test('rejects an unauthenticated delivery without changing tier', async () => {
@@ -104,8 +104,8 @@ describe('RevenueCat webhook tier sync', () => {
   test('reconciles both sides of a transfer event', async () => {
     const source = 'dbid:AAAsource'
     const destination = 'dbid:AAAdestination'
-    await upsertUser({ dropboxAccountId: source, displayName: 'Source Owner' })
-    await upsertUser({ dropboxAccountId: destination, displayName: 'Destination Owner' })
+    await upsertUser({ accountId: source, displayName: 'Source Owner' })
+    await upsertUser({ accountId: destination, displayName: 'Destination Owner' })
     await setUserTier(source, 'pro')
     const request = await signedRequest(payloadFor({
       id: 'event-transfer',
@@ -118,12 +118,59 @@ describe('RevenueCat webhook tier sync', () => {
 
     const result = await processRevenueCatWebhook(request, env)
     expect(result).toMatchObject({ status: 200, code: 'APPLIED', eventId: 'event-transfer' })
-    expect((await getUserByDropboxId(source))?.tier).toBe('free')
-    expect((await getUserByDropboxId(destination))?.tier).toBe('pro')
+    expect((await getUserByAccountId(source))?.tier).toBe('free')
+    expect((await getUserByAccountId(destination))?.tier).toBe('pro')
+  })
+
+  test('promotes a known acct_-keyed account through the same path', async () => {
+    const accountId = 'acct_12345678-1234-4abc-8def-0123456789ab'
+    await upsertUser({ accountId, displayName: 'Acct Owner' })
+    const request = await signedRequest(payloadFor({ id: 'event-acct', app_user_id: accountId }))
+    const result = await processRevenueCatWebhook(request, env)
+    expect(result).toEqual({ status: 200, code: 'APPLIED', eventId: 'event-acct', tier: 'pro' })
+    expect((await getUserByAccountId(accountId))?.tier).toBe('pro')
+  })
+
+  test('reconciles a legacy-to-new transfer on the same path', async () => {
+    const source = 'dbid:AAAlegacysrc'
+    const destination = 'acct_abcdef12-3456-4abc-8def-0123456789ab'
+    await upsertUser({ accountId: source, displayName: 'Legacy Source' })
+    await upsertUser({ accountId: destination, displayName: 'New Destination' })
+    await setUserTier(source, 'pro')
+    const request = await signedRequest(payloadFor({
+      id: 'event-mixed-transfer',
+      type: 'TRANSFER',
+      app_user_id: undefined,
+      transferred_from: [source],
+      transferred_to: [destination],
+      event_timestamp_ms: Date.now(),
+    }))
+
+    const result = await processRevenueCatWebhook(request, env)
+    expect(result).toMatchObject({ status: 200, code: 'APPLIED', eventId: 'event-mixed-transfer' })
+    expect((await getUserByAccountId(source))?.tier).toBe('free')
+    expect((await getUserByAccountId(destination))?.tier).toBe('pro')
+  })
+
+  test('ignores anonymous and malformed recipients', async () => {
+    for (const id of ['$RCAnonymousID:abc123', 'someone@example.com', 'acct_not-a-uuid', 42]) {
+      const request = await signedRequest(payloadFor({ id: `event-ignored-${id}`, app_user_id: id }))
+      expect(await processRevenueCatWebhook(request, env))
+        .toEqual({ status: 200, code: 'IGNORED_IDENTITY', eventId: `event-ignored-${id}` })
+    }
+  })
+
+  test('ignores account-shaped ids that match no account', async () => {
+    const request = await signedRequest(payloadFor({
+      id: 'event-unknown',
+      app_user_id: 'acct_00000000-0000-4000-8000-000000000000',
+    }))
+    expect(await processRevenueCatWebhook(request, env))
+      .toEqual({ status: 200, code: 'IGNORED_UNKNOWN_ACCOUNT', eventId: 'event-unknown' })
   })
 
   test('ignores an older delivery without changing the newer tier', async () => {
-    const account = TEST_OWNER.dropboxAccountId
+    const account = TEST_OWNER.accountId
     const newer = await signedRequest(payloadFor({
       id: 'event-newer',
       type: 'INITIAL_PURCHASE',
@@ -143,11 +190,11 @@ describe('RevenueCat webhook tier sync', () => {
       code: 'IGNORED_STALE',
       eventId: 'event-older',
     })
-    expect((await getUserByDropboxId(account))?.tier).toBe('pro')
+    expect((await getUserByAccountId(account))?.tier).toBe('pro')
   })
 
   test('does not demote an account for an event without will_pay state', async () => {
-    await setUserTier(TEST_OWNER.dropboxAccountId, 'pro')
+    await setUserTier(TEST_OWNER.accountId, 'pro')
     const request = await signedRequest(payloadFor({
       id: 'event-unrelated',
       type: 'INVOICE_ISSUANCE',
@@ -160,6 +207,6 @@ describe('RevenueCat webhook tier sync', () => {
       code: 'IGNORED_ENTITLEMENT',
       eventId: 'event-unrelated',
     })
-    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('pro')
+    expect((await getUserByAccountId(TEST_OWNER.accountId))?.tier).toBe('pro')
   })
 })
