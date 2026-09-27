@@ -37,6 +37,52 @@ bunx tauri dev              # vite dev server + unbundled app
 bunx tauri build --debug    # unsigned .app + .dmg under src-tauri/target/debug/bundle
 ```
 
+## Signed and notarised release build
+
+`bunx tauri build` produces a Developer ID-signed `.app` and `.dmg` under
+`src-tauri/target/release/bundle/`. The signing identity and hardened runtime
+are pinned in `tauri.conf.json` (`bundle.macOS.signingIdentity`,
+`hardenedRuntime: true`).
+
+**No entitlements file, deliberately.** Nothing here needs a hardened-runtime
+exception (no JIT, no unsigned dylibs, no DYLD). The network and
+user-selected-file entitlements only take effect under App Sandbox, which is
+off: `register_gallery_root` re-grants saved roots at launch from stored
+paths, and sandboxed re-access would need security-scoped bookmarks
+(`com.apple.security.files.bookmarks.app-scope` plus picker plumbing that
+does not exist yet). Adding inert entitlements would be misleading, not
+safer.
+
+```sh
+bunx tauri build            # sign + bundle; artifacts under src-tauri/target/release/bundle/
+
+# verify before submitting
+codesign --verify --deep --strict --verbose=2 \
+  src-tauri/target/release/bundle/macos/manorama.app
+codesign -dvvv src-tauri/target/release/bundle/macos/manorama.app
+# expect: Authority=Developer ID Application: … (373K7W3LKU), runtime flag, Timestamp
+
+# notarise the DMG (keychain profile "notarytool", one-time via
+# `xcrun notarytool store-credentials`), wait for the verdict
+xcrun notarytool submit \
+  src-tauri/target/release/bundle/dmg/manorama_0.1.0_aarch64.dmg \
+  --keychain-profile "notarytool" --wait
+# on rejection: xcrun notarytool log <submission-id> --keychain-profile notarytool
+
+# staple the ticket and confirm Gatekeeper accepts the image
+xcrun stapler staple \
+  src-tauri/target/release/bundle/dmg/manorama_0.1.0_aarch64.dmg
+xcrun stapler validate \
+  src-tauri/target/release/bundle/dmg/manorama_0.1.0_aarch64.dmg
+spctl -a -t open --context context:primary-signature -vv \
+  src-tauri/target/release/bundle/dmg/manorama_0.1.0_aarch64.dmg
+# expect: accepted, source=Notarized Developer ID
+```
+
+The `.app` inside the DMG should also pass `spctl -a -t exec -vv` with
+`source=Notarized Developer ID` once the ticket exists (the staple rides on
+the DMG; the app is assessed against the notarisation record).
+
 ## Scopes and storage
 
 Both filesystem scopes are runtime-only: `register_gallery_root` grants the

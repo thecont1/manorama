@@ -45,7 +45,9 @@
       "icons/icon.icns"
     ],
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "Developer ID Application: Mahesh Shantaram (373K7W3LKU)",
+      "hardenedRuntime": true
     }
   }
 }
