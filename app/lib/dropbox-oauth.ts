@@ -6,20 +6,16 @@
  *
  * There is deliberately no sign-up flow on our side: Dropbox creates
  * accounts, we only accept signed-in Dropbox users.
+ *
+ * Transaction state (CSRF state, post-login destination, handoff flavour)
+ * lives in the `auth_flows` table via app/lib/auth-flows.ts — not in
+ * cookies — so the same machinery serves every provider.
  */
 
 export type DropboxOauthEnv = {
   DROPBOX_APP_KEY?: string
   DROPBOX_APP_SECRET?: string
 }
-
-export const OAUTH_STATE_COOKIE = 'manorama_oauth_state'
-export const OAUTH_NATIVE_COOKIE = 'manorama_oauth_native'
-
-/** Optional post-login destination, set alongside the state cookie by
- * /auth/dropbox?next=… (e.g. the Vendo MCP door's returnTo) and consumed
- * by the callback. Same-origin only — verified at use time. */
-export const OAUTH_NEXT_COOKIE = 'manorama_oauth_next'
 
 export type DropboxAccount = {
   dropboxAccountId: string
@@ -29,20 +25,6 @@ export type DropboxAccount = {
 
 const oauthConfigured = (env: DropboxOauthEnv) =>
   Boolean(env.DROPBOX_APP_KEY && env.DROPBOX_APP_SECRET)
-
-/** The redirect back to our callback, derived from the request origin so
- * production (https://manorama.xyz) and local dev both work — register
- * both in the Dropbox app console. */
-export const callbackUrl = (request: Request) =>
-  new URL('/auth/dropbox/callback', request.url).toString()
-
-/** Random state for CSRF protection: stored in a short-lived cookie
- * before the redirect, verified on the way back. */
-export const newState = () => {
-  const bytes = new Uint8Array(16)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-}
 
 export const dropboxAuthorizeUrl = (redirectUri: string, state: string, env: DropboxOauthEnv) => {
   if (!oauthConfigured(env)) throw new Error('Dropbox app credentials are not configured')
@@ -66,9 +48,10 @@ export const fetchDropboxAccount = async (
   code: string,
   redirectUri: string,
   env: DropboxOauthEnv,
+  fetcher: typeof fetch = fetch,
 ): Promise<DropboxAccount> => {
   if (!oauthConfigured(env)) throw new Error('Dropbox app credentials are not configured')
-  const tokenResponse = await fetch('https://api.dropbox.com/oauth2/token', {
+  const tokenResponse = await fetcher('https://api.dropbox.com/oauth2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -84,7 +67,7 @@ export const fetchDropboxAccount = async (
   const token = await tokenResponse.json() as { access_token?: string }
   if (!token.access_token) throw new Error('Dropbox sign-in could not be completed')
 
-  const accountResponse = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
+  const accountResponse = await fetcher('https://api.dropboxapi.com/2/users/get_current_account', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token.access_token}` },
     signal: withTimeout(),

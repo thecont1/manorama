@@ -1,5 +1,30 @@
 import { describe, expect, test } from 'bun:test'
-import { NATIVE_CALLBACK_URL, __private__, authErrorMessage } from './session'
+import { NATIVE_CALLBACK_URL, __private__, authErrorMessage, beginProviderSignIn } from './session'
+
+describe('beginProviderSignIn', () => {
+  test('opens the chosen provider auth route with the native handoff flag', async () => {
+    const opened: string[] = []
+    const realWindow = globalThis.window
+    // The Capacitor web fallback calls window.open; stub it to capture the URL.
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { open: (url: string) => { opened.push(url); return null } },
+    })
+    try {
+      await beginProviderSignIn('apple', 'https://manorama.xyz/')
+      await beginProviderSignIn('google', 'https://manorama.xyz')
+      await beginProviderSignIn('dropbox', 'https://manorama.xyz')
+      expect(opened).toEqual([
+        'https://manorama.xyz/auth/apple?native=1',
+        'https://manorama.xyz/auth/google?native=1',
+        'https://manorama.xyz/auth/dropbox?native=1',
+      ])
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: realWindow })
+    }
+  })
+})
 
 describe('native OAuth callback', () => {
   test('uses the manorama custom scheme and auth host', () => {

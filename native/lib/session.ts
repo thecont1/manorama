@@ -1,6 +1,9 @@
 import { SecureStorage } from '@aparajita/capacitor-secure-storage'
 import { App } from '@capacitor/app'
 import { Browser } from '@capacitor/browser'
+import type { AuthProvider } from '../../app/lib/identity-repository'
+
+export type { AuthProvider }
 
 type NativeTokenResponse = { token?: string; ownerSlug?: string }
 const SESSION_TOKEN_KEY = 'manorama.session-token'
@@ -46,8 +49,8 @@ export const getSessionAppUserId = async (): Promise<string | undefined> => {
   }
 }
 
-export const beginDropboxSignIn = async (apiBase: string): Promise<void> => {
-  const url = new URL('/auth/dropbox', `${apiBase.replace(/\/+$/, '')}/`)
+export const beginProviderSignIn = async (provider: AuthProvider, apiBase: string): Promise<void> => {
+  const url = new URL(`/auth/${provider}`, `${apiBase.replace(/\/+$/, '')}/`)
   url.searchParams.set('native', '1')
   await Browser.open({ url: url.toString(), toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }

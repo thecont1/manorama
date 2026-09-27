@@ -1,4 +1,5 @@
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
@@ -8,12 +9,14 @@ import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from '.
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
-import { createSessionToken, requireSession, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/dropbox-session'
-import { getUserByDropboxId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { createSessionToken, requireSession, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { getUserByAccountId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
 import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppression, type AdSuppressionKind } from './lib/ads-visibility'
+import { verifyDesktopHandoffToken } from './lib/desktop-auth'
+import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 
 type RequestBody = { url?: string; order?: string[]; quick?: boolean }
 
@@ -56,7 +59,7 @@ const requireEditableGallery = (): MiddlewareHandler<HonoSessionEnv> =>
   async (c, next) => {
     const session = c.get('manoramaSession')
     try {
-      const gallery = await getStoredGallery(session.dropboxAccountId, c.req.param('slug') ?? '', dbEnv(c))
+      const gallery = await getStoredGallery(session.accountId, c.req.param('slug') ?? '', dbEnv(c))
       // Expired pipeline rows linger until the daily sweep; logically they
       // are already gone, so they miss with 404 rather than READ_ONLY.
       if (gallery && isGalleryExpired(gallery)) return c.json({ error: 'That gallery was not found' }, 404)
@@ -174,7 +177,7 @@ export const createManoramaApi = () => {
   api.use('/api/*', async (c, next) => {
     const origin = c.req.header('Origin')
     let allowed = false
-    if (origin === 'capacitor://localhost') allowed = true
+    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost') allowed = true
     if (origin) {
       try {
         const url = new URL(origin)
@@ -186,7 +189,7 @@ export const createManoramaApi = () => {
     if (allowed) {
       c.header('Access-Control-Allow-Origin', origin!)
       c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-      c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
+      c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
       c.header('Vary', 'Origin')
     }
     if (c.req.method === 'OPTIONS') return c.body(null, 204)
@@ -200,22 +203,44 @@ export const createManoramaApi = () => {
     const handoffToken = payload.handoffToken?.trim()
     const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
     if (!handoffToken || !secret) return c.json({ error: 'Authentication could not be completed' }, 401)
-    let dropboxAccountId: string | null = null
+    let accountId: string | null = null
     try {
-      dropboxAccountId = await verifyNativeHandoffToken(handoffToken, secret)
+      accountId = await verifyNativeHandoffToken(handoffToken, secret)
     } catch {
       return c.json({ error: 'That sign-in link has expired' }, 401)
     }
-    if (!dropboxAccountId) return c.json({ error: 'That sign-in link is invalid' }, 401)
-    const user = await getUserByDropboxId(dropboxAccountId, dbEnv(c))
+    if (!accountId) return c.json({ error: 'That sign-in link is invalid' }, 401)
+    const user = await getUserByAccountId(accountId, dbEnv(c))
     if (!user) return c.json({ error: 'That account is no longer available' }, 401)
-    const token = await createSessionToken(user.dropboxAccountId, secret)
+    const token = await createSessionToken(user.accountId, secret)
+    return c.json({ token, ownerSlug: user.ownerSlug })
+  })
+  /** The desktop (Tauri) twin of the native exchange: the handoff carries
+   * the app's PKCE code_challenge and is only redeemable by whoever holds
+   * the matching verifier, so the deep link alone is worthless. */
+  api.post('/api/auth/desktop/exchange', bodyLimit({ maxSize: 8192 }), async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const payload: unknown = await c.req.json().catch(() => null)
+    const body = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : {}
+    const handoffToken = body.handoffToken
+    const codeVerifier = body.codeVerifier
+    const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
+    if (typeof handoffToken !== 'string' || typeof codeVerifier !== 'string' || !secret) {
+      return c.json({ error: 'Authentication could not be completed' }, 401)
+    }
+    const accountId = await verifyDesktopHandoffToken(handoffToken, secret, codeVerifier)
+    if (!accountId) return c.json({ error: 'Authentication could not be completed' }, 401)
+    const user = await getUserByAccountId(accountId, dbEnv(c))
+    if (!user) return c.json({ error: 'Authentication could not be completed' }, 401)
+    const token = await createSessionToken(user.accountId, secret)
     return c.json({ token, ownerSlug: user.ownerSlug })
   })
   api.get('/api/gallery/:owner/:slug', async (c) => {
     const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
     if (!user) return c.json({ error: 'That gallery was not found' }, 404)
-    const gallery = await getGallery(user.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+    const gallery = await getGallery(user.accountId, c.req.param('slug'), dbEnv(c))
     if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
     const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images: gallery.images }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
@@ -261,7 +286,7 @@ export const createManoramaApi = () => {
   api.get('/api/galleries', async (c) => {
     const session = c.get('manoramaSession')
     try {
-      const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
+      const galleries = await listGalleries(session.accountId, dbEnv(c))
       return c.json({ galleries: galleries.map(toSummary) })
     } catch {
       return c.json({ error: 'The gallery list is temporarily unavailable' }, 503)
@@ -289,7 +314,7 @@ export const createManoramaApi = () => {
       // the provider. Without this a revisit pays a full album scan just
       // to be told 409 — and a provider hiccup would turn a known-good
       // link into a 422 instead of a redirect.
-      const existingBefore = (await listGalleries(session.dropboxAccountId, dbEnv(c)))
+      const existingBefore = (await listGalleries(session.accountId, dbEnv(c)))
         .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, payload.url!))
       if (existingBefore) return c.json({
         error: 'A gallery from that link already exists',
@@ -297,7 +322,7 @@ export const createManoramaApi = () => {
         galleryUrl: galleryUrlFor(session.ownerSlug, existingBefore.slug),
       }, 409)
       const scan = await scanSource(payload.url, envOf(c))
-      const galleries = await listGalleries(session.dropboxAccountId, dbEnv(c))
+      const galleries = await listGalleries(session.accountId, dbEnv(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       // A revisit to /<share-url> must reopen the gallery that link already
       // produced, so the 409 carries the existing gallery and its address.
@@ -335,7 +360,7 @@ export const createManoramaApi = () => {
       // pass the count and exceed the limit. Retry on slug conflict
       // (a concurrent create may have grabbed the same slug).
       for (let attempt = 0; ; attempt++) {
-        const result = await createGalleryWithinLimit(session.dropboxAccountId, {
+        const result = await createGalleryWithinLimit(session.accountId, {
           slug,
           title,
           caption: '',
@@ -359,7 +384,7 @@ export const createManoramaApi = () => {
         if (result.reason === 'duplicate-source') {
           // Lost the race to a concurrent create of the same link — resolve
           // the winner so this caller still gets somewhere to go.
-          const existing = (await listGalleries(session.dropboxAccountId, dbEnv(c))).find((item) => item.sourceUrl === scan.sourceUrl)
+          const existing = (await listGalleries(session.accountId, dbEnv(c))).find((item) => item.sourceUrl === scan.sourceUrl)
           return c.json({
             error: 'A gallery from that link already exists',
             ...(existing ? { gallery: toSummary(existing), galleryUrl: galleryUrlFor(session.ownerSlug, existing.slug) } : {}),
@@ -388,11 +413,11 @@ export const createManoramaApi = () => {
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
     if (title === undefined && caption === undefined && !order && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
     try {
-      let gallery = nextSlug !== undefined ? await updateGallerySlug(session.dropboxAccountId, c.req.param('slug'), nextSlug, dbEnv(c)) : await getGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+      let gallery = nextSlug !== undefined ? await updateGallerySlug(session.accountId, c.req.param('slug'), nextSlug, dbEnv(c)) : await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-      if (order) gallery = await updateGalleryOrder(session.dropboxAccountId, gallery.slug, order, dbEnv(c))
+      if (order) gallery = await updateGalleryOrder(session.accountId, gallery.slug, order, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-      if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(session.dropboxAccountId, gallery.slug, { title, caption }, dbEnv(c))
+      if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(session.accountId, gallery.slug, { title, caption }, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(gallery) })
     } catch (error) {
@@ -404,7 +429,7 @@ export const createManoramaApi = () => {
   api.delete('/api/galleries/:slug', async (c) => {
     const session = c.get('manoramaSession')
     try {
-      const deleted = await deleteGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+      const deleted = await deleteGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!deleted) return c.json({ error: 'That gallery cannot be deleted' }, 404)
       return c.json({ ok: true })
     } catch {
@@ -415,7 +440,7 @@ export const createManoramaApi = () => {
   api.post('/api/galleries/:slug/refresh', requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     try {
-      const gallery = await getGallery(session.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+      const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (!gallery.sourceUrl) return c.json({ error: 'Only link-sourced galleries can be refreshed' }, 400)
       const scan = await scanSource(gallery.sourceUrl, envOf(c))
@@ -431,7 +456,7 @@ export const createManoramaApi = () => {
       const refreshed = retained.concat(scan.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
       // Persist only the refreshed images, not the stale gallery metadata
       // read before the scan — a concurrent metadata change is preserved.
-      const updated = await updateGalleryImages(session.dropboxAccountId, gallery.slug, refreshed, dbEnv(c))
+      const updated = await updateGalleryImages(session.accountId, gallery.slug, refreshed, dbEnv(c))
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
@@ -447,11 +472,42 @@ export const createManoramaApi = () => {
     const payload = await c.req.json<{ ownerSlug?: string }>().catch((): { ownerSlug?: string } => ({}))
     if (typeof payload.ownerSlug !== 'string') return c.json({ error: 'Provide a new URL' }, 400)
     try {
-      const user = await updateOwnerSlug(session.dropboxAccountId, payload.ownerSlug, dbEnv(c))
+      const user = await updateOwnerSlug(session.accountId, payload.ownerSlug, dbEnv(c))
       return c.json({ ownerSlug: user.ownerSlug })
     } catch (error) {
       if (error instanceof OwnerSlugError) return c.json({ error: error.message }, 422)
       return c.json({ error: 'That URL could not be changed' }, 503)
+    }
+  })
+
+  /** The sign-in methods bound to the account. Provider subjects never
+   *  leave the server — the list is only what the UI shows. */
+  api.get('/api/account/identities', async (c) => {
+    const session = c.get('manoramaSession')
+    const identities = await listIdentities(session.accountId, dbEnv(c))
+      .then((rows) => rows.map((row) => ({
+        provider: row.provider,
+        ...(row.displayName ? { displayName: row.displayName } : {}),
+        ...(row.email ? { email: row.email } : {}),
+      })))
+      .catch(() => null)
+    if (!identities) return c.json({ error: 'The sign-in methods are temporarily unavailable' }, 503)
+    return c.json({ identities })
+  })
+
+  api.delete('/api/account/identities/:provider', async (c) => {
+    const session = c.get('manoramaSession')
+    const provider = c.req.param('provider')
+    if (provider !== 'dropbox' && provider !== 'google' && provider !== 'apple') {
+      return c.json({ error: 'That sign-in method was not found' }, 404)
+    }
+    try {
+      const removed = await unlinkIdentity(session.accountId, provider as AuthProvider, dbEnv(c))
+      if (!removed) return c.json({ error: 'That sign-in method was not found' }, 404)
+      return c.json({ ok: true })
+    } catch (error) {
+      if (error instanceof LastIdentityError) return c.json({ error: 'last-identity' }, 409)
+      return c.json({ error: 'That sign-in method could not be removed' }, 503)
     }
   })
 
@@ -593,7 +649,7 @@ export const createManoramaApi = () => {
     try {
       const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
       if (!user) return noStore(fallback())
-      const gallery = await getGallery(user.dropboxAccountId, c.req.param('slug'), dbEnv(c))
+      const gallery = await getGallery(user.accountId, c.req.param('slug'), dbEnv(c))
       const first = gallery?.images?.[0] as GalleryMediaItem | undefined
       const pipeline = gallery?.retention === 'pipeline'
       if (!first) return noStore(fallback())

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { createSessionToken, requireSession, SESSION_COOKIE, type HonoSessionEnv } from '../app/lib/dropbox-session'
+import { createSessionToken, requireSession, SESSION_COOKIE, type HonoSessionEnv } from '../app/lib/session'
 import { resetUserStore, setUserTier } from '../app/lib/user-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from '../app/lib/test-fixtures'
 import { createVendoAuth } from './server'
@@ -14,9 +14,9 @@ beforeAll(async () => {
   resetUserStore()
   await seedTestUser()
   // Ask Manu is pro-gated: the principal tests need a pro-tier owner.
-  await setUserTier(TEST_OWNER.dropboxAccountId, 'pro')
-  cookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)}`
-  forgedCookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.dropboxAccountId, 'a-different-secret-that-is-long-enough')}`
+  await setUserTier(TEST_OWNER.accountId, 'pro')
+  cookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)}`
+  forgedCookie = `${SESSION_COOKIE}=${await createSessionToken(TEST_OWNER.accountId, 'a-different-secret-that-is-long-enough')}`
 })
 
 const request = (headers?: Record<string, string>) =>
@@ -46,14 +46,33 @@ describe('Vendo principals resolve from the Manorama Dropbox session', () => {
     expect(await auth.principal(request({ Cookie: stranger }))).toBeNull()
   })
 
-  test('a valid pro session produces the dropbox principal', async () => {
+  test('a valid pro session produces the account principal', async () => {
     const auth = createVendoAuth(env)
     expect(await auth.principal(request({ Cookie: cookie })))
-      .toEqual({ kind: 'user', subject: `dropbox:${TEST_OWNER.dropboxAccountId}` })
+      .toEqual({ kind: 'user', subject: `account:${TEST_OWNER.accountId}` })
+  })
+
+  test('a persisted oauth subject resolves the same account under either prefix', async () => {
+    const auth = createVendoAuth(env)
+    for (const subject of [
+      `account:${TEST_OWNER.accountId}`,
+      `dropbox:${TEST_OWNER.accountId}`,
+      TEST_OWNER.accountId,
+    ]) {
+      expect(await auth.oauth?.principal?.(subject)).toEqual({ kind: 'user', subject })
+    }
+  })
+
+  test('oauth subjects for free or unknown accounts refuse', async () => {
+    await seedTestUser({ accountId: 'dbid:AAAFREESUB', displayName: 'Free Subject' })
+    const auth = createVendoAuth(env)
+    expect(await auth.oauth?.principal?.(`account:dbid:AAAFREESUB`)).toBeNull()
+    expect(await auth.oauth?.principal?.('account:dbid:AAAUNKNOWN')).toBeNull()
+    expect(await auth.oauth?.principal?.('dropbox:dbid:AAAUNKNOWN')).toBeNull()
   })
 
   test('a free-tier session gets no principal — Ask Manu is pro', async () => {
-    await seedTestUser({ dropboxAccountId: 'dbid:AAAFREEuser1', displayName: 'Free User' })
+    await seedTestUser({ accountId: 'dbid:AAAFREEuser1', displayName: 'Free User' })
     const freeCookie = `${SESSION_COOKIE}=${await createSessionToken('dbid:AAAFREEuser1', TEST_SESSION_SECRET)}`
     const auth = createVendoAuth(env)
     expect(await auth.principal(request({ Cookie: freeCookie }))).toBeNull()
@@ -65,7 +84,7 @@ describe('Vendo principals resolve from the Manorama Dropbox session', () => {
     const auth = createVendoAuth(env)
     expect(await auth.facts?.(request({ Cookie: cookie })))
       .toEqual({ email: TEST_OWNER.email })
-    const noEmail = await seedTestUser({ dropboxAccountId: 'dbid:AAANOEMAILuser', displayName: 'No Email', email: undefined })
+    const noEmail = await seedTestUser({ accountId: 'dbid:AAANOEMAILuser', displayName: 'No Email', email: undefined })
     expect(noEmail.email).toBeUndefined()
     const noEmailCookie = `${SESSION_COOKIE}=${await createSessionToken('dbid:AAANOEMAILuser', TEST_SESSION_SECRET)}`
     expect(await auth.facts?.(request({ Cookie: noEmailCookie }))).toBeUndefined()

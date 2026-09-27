@@ -16,7 +16,7 @@ import {
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
-import { getSessionToken } from '../lib/session'
+import { getSessionToken, type AuthProvider } from '../lib/session'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
@@ -28,7 +28,7 @@ type Props = {
   apiBase: string
   owner?: string
   slug?: string
-  onSignIn?: () => void
+  onSignIn?: (provider: AuthProvider) => void
   authError?: string | null
   billing?: RevenueCatBilling
   billingState?: BillingState
@@ -372,9 +372,19 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
         <h1>Open a gallery</h1>
         <p>{message}</p>
         {onSignIn && (
-          <button type="button" onClick={onSignIn}>
-            Sign in with Dropbox
-          </button>
+          // App Review 4.8: a third-party sign-in must sit beside Sign in
+          // with Apple, given no less prominence — Apple leads the list.
+          <>
+            <button type="button" onClick={() => onSignIn('apple')}>
+              Sign in with Apple
+            </button>
+            <button type="button" onClick={() => onSignIn('google')}>
+              Continue with Google
+            </button>
+            <button type="button" onClick={() => onSignIn('dropbox')}>
+              Continue with Dropbox
+            </button>
+          </>
         )}
         {billing && (
           <button type="button" onClick={() => setPaywallOpen(true)}>

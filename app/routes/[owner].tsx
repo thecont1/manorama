@@ -3,7 +3,7 @@ import { createRoute } from 'honox/factory'
 import Admin from '../islands/Admin'
 import { listGalleries, toSummary, type GalleryEnv } from '../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../lib/user-repository'
-import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
+import { accessEnvOf, resolveManoramaSession } from '../lib/session'
 
 type RuntimeEnv = {
   PUBLIC_HOST?: string
@@ -22,9 +22,9 @@ export default createRoute(async (c) => {
   // away before any gallery data is read.
   const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
   if (!session) return c.redirect('/')
-  if (session.id !== `dropbox:${user.dropboxAccountId}`) return c.notFound()
+  if (session.id !== `account:${user.accountId}`) return c.notFound()
 
-  const galleries = await listGalleries(user.dropboxAccountId, c.env as GalleryEnv)
+  const galleries = await listGalleries(user.accountId, c.env as GalleryEnv)
   return c.render(
     <Fragment>
       <Admin
