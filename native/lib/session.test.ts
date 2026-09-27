@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { NATIVE_CALLBACK_URL, __private__, authErrorMessage, beginProviderSignIn } from './session'
+import {
+  NATIVE_CALLBACK_URL,
+  __private__,
+  authErrorMessage,
+  beginProviderSignIn,
+  clearSessionToken,
+  getOwnerSlug,
+  getSessionToken,
+  setOwnerSlug,
+} from './session'
 
 describe('beginProviderSignIn', () => {
   test('opens the chosen provider auth route with the native handoff flag', async () => {
@@ -67,6 +76,102 @@ describe('native OAuth callback', () => {
     } finally {
       globalThis.fetch = fetcher
       Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorage })
+    }
+  })
+})
+
+describe('owner slug persistence', () => {
+  const TOKEN_KEY = 'capacitor-storage_manorama.session-token'
+  const SLUG_KEY = 'capacitor-storage_manorama.owner-slug'
+  const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+
+  /** The SecureStorage web fallback keeps prefixed keys in localStorage;
+   *  this stub mirrors it the way the browser preview does. */
+  const installLocalStorage = () => {
+    const data = new Map<string, string>()
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: (key: string) => (data.has(key) ? data.get(key)! : null),
+        setItem: (key: string, value: string) => void data.set(key, String(value)),
+        removeItem: (key: string) => void data.delete(key),
+        key: (index: number) => [...data.keys()][index] ?? null,
+        get length() { return data.size },
+        clear: () => data.clear(),
+      },
+    })
+    return data
+  }
+  const restoreLocalStorage = () => {
+    if (localStorageDescriptor) {
+      Object.defineProperty(globalThis, 'localStorage', localStorageDescriptor)
+    } else {
+      delete (globalThis as Record<string, unknown>).localStorage
+    }
+  }
+
+  test('persists the owner slug returned by the native exchange beside the token', async () => {
+    const data = installLocalStorage()
+    const fetcher = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ token: 'signed-session-token', ownerSlug: 'quiet-owner' }), { status: 200 })
+    ) as typeof fetch
+    try {
+      expect(await __private__.exchangeHandoff(`${NATIVE_CALLBACK_URL}?handoff=abc`, 'https://manorama.xyz')).toBe(true)
+      expect(data.get(TOKEN_KEY)).toBe('signed-session-token')
+      expect(data.get(SLUG_KEY)).toBe('quiet-owner')
+      expect(await getSessionToken()).toBe('signed-session-token')
+      expect(await getOwnerSlug()).toBe('quiet-owner')
+    } finally {
+      globalThis.fetch = fetcher
+      restoreLocalStorage()
+    }
+  })
+
+  test('drops a stale owner slug when an exchange answers without one', async () => {
+    const data = installLocalStorage()
+    data.set(SLUG_KEY, 'previous-owner')
+    const fetcher = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ token: 'signed-session-token' }), { status: 200 })
+    ) as typeof fetch
+    try {
+      expect(await __private__.exchangeHandoff(`${NATIVE_CALLBACK_URL}?handoff=abc`, 'https://manorama.xyz')).toBe(true)
+      expect(await getOwnerSlug()).toBeUndefined()
+      expect(data.has(SLUG_KEY)).toBe(false)
+    } finally {
+      globalThis.fetch = fetcher
+      restoreLocalStorage()
+    }
+  })
+
+  test('clearSessionToken removes the owner slug with the token', async () => {
+    const data = installLocalStorage()
+    data.set(TOKEN_KEY, 'signed-session-token')
+    data.set(SLUG_KEY, 'quiet-owner')
+    try {
+      await clearSessionToken()
+      expect(data.has(TOKEN_KEY)).toBe(false)
+      expect(data.has(SLUG_KEY)).toBe(false)
+      expect(await getSessionToken()).toBeUndefined()
+      expect(await getOwnerSlug()).toBeUndefined()
+    } finally {
+      restoreLocalStorage()
+    }
+  })
+
+  test('getOwnerSlug ignores blank or missing values', async () => {
+    const data = installLocalStorage()
+    try {
+      expect(await getOwnerSlug()).toBeUndefined()
+      await setOwnerSlug('   ')
+      expect(await getOwnerSlug()).toBeUndefined()
+      await setOwnerSlug('quiet-owner')
+      expect(await getOwnerSlug()).toBe('quiet-owner')
+      expect(data.get(SLUG_KEY)).toBe('quiet-owner')
+    } finally {
+      restoreLocalStorage()
     }
   })
 })

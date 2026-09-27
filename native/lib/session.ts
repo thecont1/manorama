@@ -7,6 +7,7 @@ export type { AuthProvider }
 
 type NativeTokenResponse = { token?: string; ownerSlug?: string }
 const SESSION_TOKEN_KEY = 'manorama.session-token'
+const OWNER_SLUG_KEY = 'manorama.owner-slug'
 export const NATIVE_CALLBACK_URL = 'in.thecontrarian.manorama://auth/callback'
 
 export const authErrorMessage = (reason: unknown): string =>
@@ -27,12 +28,40 @@ export const setSessionToken = async (token: string): Promise<void> => {
   await SecureStorage.setItem(SESSION_TOKEN_KEY, trimmed)
 }
 
+const clearOwnerSlug = async (): Promise<void> => {
+  try {
+    await SecureStorage.removeItem(OWNER_SLUG_KEY)
+  } catch {
+    // A missing slug is already the desired signed-out state.
+  }
+}
+
 export const clearSessionToken = async (): Promise<void> => {
   try {
     await SecureStorage.removeItem(SESSION_TOKEN_KEY)
   } catch {
     // A missing token is already the desired signed-out state.
   }
+  // The owner slug only has meaning beside a live token; tearing the
+  // session down clears both so a different account can never inherit it.
+  await clearOwnerSlug()
+}
+
+/** The public URL stem the account's own galleries live under, persisted
+ *  at exchange time so the app can build `{owner}/{slug}` selections. */
+export const getOwnerSlug = async (): Promise<string | undefined> => {
+  try {
+    const slug = await SecureStorage.getItem(OWNER_SLUG_KEY)
+    return slug?.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+export const setOwnerSlug = async (slug: string): Promise<void> => {
+  const trimmed = slug.trim()
+  if (!trimmed) return
+  await SecureStorage.setItem(OWNER_SLUG_KEY, trimmed)
 }
 
 export const getSessionAppUserId = async (): Promise<string | undefined> => {
@@ -74,6 +103,10 @@ const exchangeHandoff = async (url: string, apiBase: string): Promise<boolean> =
   if (!response.ok || !payload.token) throw new Error(payload.error || 'Native sign-in could not be completed')
   try {
     await setSessionToken(payload.token)
+    // The exchange always answers with the account's owner slug; dropping a
+    // stale one matters when a previous sign-in outlived its token.
+    if (payload.ownerSlug) await setOwnerSlug(payload.ownerSlug)
+    else await clearOwnerSlug()
   } finally {
     await Browser.close().catch(() => undefined)
   }
