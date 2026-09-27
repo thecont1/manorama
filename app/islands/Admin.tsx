@@ -3,6 +3,7 @@ import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
+import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -524,8 +525,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p>Temporary · {Math.max(0, Math.ceil((Date.parse(gallery.expiresAt) - now) / 86_400_000))} days left</p>
             <p>Expires <time dateTime={gallery.expiresAt}>{gallery.expiresAt.replace('T', ' ').replace('.000Z', ' UTC')}</time>. Permanently removed from Manorama after 30 days unless you upgrade before expiry.</p>
             {/* client_reference_id is how the Stripe webhook maps a
-                completed checkout back to this account — never strip it. */}
-            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeURIComponent(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
+                completed checkout back to this account — hex-encoded because
+                Stripe drops ids outside its safe charset. Never strip it. */}
+            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>

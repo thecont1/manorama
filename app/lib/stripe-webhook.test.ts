@@ -4,6 +4,7 @@ import { resetGalleryStore } from './gallery-repository'
 import { resetUserStore, getUserByDropboxId, setUserTier } from './user-repository'
 import { seedTestUser, TEST_OWNER } from './test-fixtures'
 import { processStripeWebhook, verifyStripeSignature } from './stripe-webhook'
+import { encodeStripeAccountRef } from './stripe-account-ref'
 
 const signingSecret = 'whsec_test_secret'
 
@@ -11,7 +12,7 @@ const payloadFor = (session: Record<string, unknown>, event: Record<string, unkn
   id: 'evt_1',
   type: 'checkout.session.completed',
   created: Math.floor(Date.now() / 1000),
-  data: { object: session },
+  data: { object: { payment_status: 'paid', ...session } },
   ...event,
 })
 
@@ -61,6 +62,53 @@ describe('Stripe webhook tier sync', () => {
     const result = await processStripeWebhook(request, env)
     expect(result).toEqual({ status: 200, code: 'APPLIED', eventId: 'evt_1', tier: 'pro' })
     expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('pro')
+  })
+
+  test('resolves the hex-encoded reference the payment link actually carries', async () => {
+    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
+    const encoded = encodeStripeAccountRef(TEST_OWNER.dropboxAccountId)
+    // The encoded ref is what survives Stripe's client_reference_id charset.
+    expect(encoded).toMatch(/^[0-9a-f]+$/)
+    const request = await signedRequest(payloadFor({ client_reference_id: encoded }, { id: 'evt_encoded' }))
+    expect(await processStripeWebhook(request, env)).toEqual({
+      status: 200,
+      code: 'APPLIED',
+      eventId: 'evt_encoded',
+      tier: 'pro',
+    })
+  })
+
+  test('does not promote while the payment is still unsettled', async () => {
+    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
+    const request = await signedRequest(payloadFor(
+      { client_reference_id: TEST_OWNER.dropboxAccountId, payment_status: 'unpaid' },
+      { id: 'evt_unpaid' },
+    ))
+    expect(await processStripeWebhook(request, env)).toEqual({
+      status: 200,
+      code: 'IGNORED_UNPAID',
+      eventId: 'evt_unpaid',
+    })
+    expect((await getUserByDropboxId(TEST_OWNER.dropboxAccountId))?.tier).toBe('free')
+  })
+
+  test('applies checkout.session.async_payment_succeeded once the payment lands', async () => {
+    await setUserTier(TEST_OWNER.dropboxAccountId, 'free')
+    const request = await signedRequest(payloadFor(
+      { client_reference_id: TEST_OWNER.dropboxAccountId },
+      {
+        id: 'evt_async',
+        type: 'checkout.session.async_payment_succeeded',
+        // Async settlement lands after the checkout completion it follows.
+        created: Math.floor(Date.now() / 1000) + 60,
+      },
+    ))
+    expect(await processStripeWebhook(request, env)).toEqual({
+      status: 200,
+      code: 'APPLIED',
+      eventId: 'evt_async',
+      tier: 'pro',
+    })
   })
 
   test('rejects an unsigned delivery without changing tier', async () => {

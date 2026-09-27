@@ -26,16 +26,25 @@ export default createRoute(async (c) => {
   if (session.id !== `dropbox:${user.dropboxAccountId}`) return c.notFound()
 
   const galleries = await listGalleries(user.dropboxAccountId, c.env as GalleryEnv)
+  const requestHost = new URL(c.req.url).host
+  const paymentLink = env.STRIPE_PRO_PAYMENT_LINK ?? ''
+  // A test-mode Payment Link must never reach the public host — if the
+  // launch-day swap is forgotten, Upgrade degrades to the mailto path
+  // instead of a checkout that cannot charge.
+  const upgradeUrl =
+    paymentLink.includes('buy.stripe.com/test_') && requestHost === env.PUBLIC_HOST
+      ? undefined
+      : paymentLink || undefined
   return c.render(
     <Fragment>
       <Admin
         galleries={galleries.map(toSummary)}
         owner={owner}
         ownerName={user.displayName}
-        publicHost={env.PUBLIC_HOST || new URL(c.req.url).host}
+        publicHost={env.PUBLIC_HOST || requestHost}
         tier={user.tier}
         accountId={user.dropboxAccountId}
-        upgradeUrl={env.STRIPE_PRO_PAYMENT_LINK}
+        upgradeUrl={upgradeUrl}
       />
       {/* Vendo is disabled platform-wide for now: no surface mounts here
           and no agent API is routed. Re-enable by reverting this change —

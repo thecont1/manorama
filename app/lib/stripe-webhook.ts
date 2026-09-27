@@ -1,3 +1,4 @@
+import { decodeStripeAccountRef } from './stripe-account-ref'
 import {
   getUserByDropboxId,
   setUserTier,
@@ -68,10 +69,13 @@ export const verifyStripeSignature = async (
 }
 
 /**
- * Verifies and applies one Stripe event. The only mutating event is
- * `checkout.session.completed`: the Payment Link carries the owner's Dropbox
- * account ID in `client_reference_id`, and promotion goes through
- * `setUserTier` so pipeline galleries are retained in the same batch.
+ * Verifies and applies one Stripe event. The mutating events are
+ * `checkout.session.completed` and `checkout.session.async_payment_succeeded`:
+ * the Payment Link carries the owner's Dropbox account ID hex-encoded in
+ * `client_reference_id` (Stripe drops any other charset), and promotion goes
+ * through `setUserTier` so pipeline galleries are retained in the same batch.
+ * Only a settled session promotes — `checkout.session.completed` can arrive
+ * `unpaid` for delayed-notification methods like ACH/SEPA.
  * Subscription expiry/refund demotion is intentionally not handled yet —
  * Stripe subscriptions do not echo client_reference_id back, so a downgrade
  * path needs a stored customer mapping first.
@@ -97,14 +101,23 @@ export const processStripeWebhook = async (
   if (!event.id || typeof event.id !== 'string' || !event.type) {
     return { status: 400 as const, code: 'INVALID_EVENT' as const }
   }
-  if (event.type !== 'checkout.session.completed') {
+  if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') {
     return { status: 200 as const, code: 'IGNORED_EVENT' as const, eventId: event.id }
   }
 
   const session = event.data?.object ?? {}
-  const accountId = typeof session.client_reference_id === 'string'
+  // Delayed-notification payment methods (ACH/SEPA) complete checkout while
+  // still `unpaid` — promoting here would grant Pro on a payment that can
+  // still fail. Only a settled session moves the tier.
+  const paymentStatus = typeof session.payment_status === 'string' ? session.payment_status : ''
+  if (paymentStatus !== 'paid' && paymentStatus !== 'no_payment_required') {
+    return { status: 200 as const, code: 'IGNORED_UNPAID' as const, eventId: event.id }
+  }
+
+  const ref = typeof session.client_reference_id === 'string'
     ? session.client_reference_id.trim()
     : ''
+  const accountId = ref ? decodeStripeAccountRef(ref) ?? ref : ''
   if (!accountId) return { status: 200 as const, code: 'IGNORED_IDENTITY' as const, eventId: event.id }
 
   if (!(await getUserByDropboxId(accountId, env))) {
