@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { getPlatformProxy } from 'wrangler'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -132,10 +132,17 @@ const sharedD1Database = async () => {
     })
     await applyMigration(proxy.env.DB, '0001_users_and_galleries.sql')
     await applyMigration(proxy.env.DB, '0002_gallery_retention.sql')
+    await applyMigration(proxy.env.DB, '0003_revenuecat_event_ordering.sql')
+    await applyMigration(proxy.env.DB, '0004_ad_suppressions.sql')
+    await applyMigration(proxy.env.DB, '0005_provider_neutral_accounts.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB
 }
+
+beforeAll(async () => {
+  await sharedD1Database()
+}, 15_000)
 
 afterAll(async () => {
   await sharedD1?.proxy.dispose()
@@ -165,13 +172,14 @@ for (const backend of BACKENDS) {
       if (backend === 'memory') {
         resetUserStore()
         resetGalleryStore()
-        await upsertUser({ dropboxAccountId: OWNER, displayName: 'Test Owner' })
+        await upsertUser({ accountId: OWNER, displayName: 'Test Owner' })
         return { env: undefined, teardown: async () => {} }
       }
       const db = await sharedD1Database()
       await db.prepare('DELETE FROM galleries').run()
+      await db.prepare('DELETE FROM auth_identities').run()
       await db.prepare('DELETE FROM users').run()
-      await db.prepare('INSERT INTO users (dropbox_account_id, owner_slug, display_name) VALUES (?, ?, ?)')
+      await db.prepare('INSERT INTO users (account_id, owner_slug, display_name) VALUES (?, ?, ?)')
         .bind(OWNER, 'test-owner', 'Test Owner').run()
       return { env: { DB: db }, teardown: async () => {} }
     }
@@ -215,8 +223,8 @@ for (const backend of BACKENDS) {
     test('keyset pages are stable when expiry timestamps collide across owners and slugs', withBackend(async (env) => {
       const ownerA = 'dbid:AAATESTexpiry-a'
       const ownerZ = 'dbid:AAATESTexpiry-z'
-      await upsertUser({ dropboxAccountId: ownerA, displayName: 'Expiry Owner A' }, env)
-      await upsertUser({ dropboxAccountId: ownerZ, displayName: 'Expiry Owner Z' }, env)
+      await upsertUser({ accountId: ownerA, displayName: 'Expiry Owner A' }, env)
+      await upsertUser({ accountId: ownerZ, displayName: 'Expiry Owner Z' }, env)
 
       for (const ownerId of [ownerA, ownerZ]) {
         for (let index = 0; index < 3; index += 1) {

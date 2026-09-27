@@ -7,7 +7,9 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { fetchGallery, normalizeApiBase } from '../lib/api'
+import { fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, normalizeApiBase } from '../lib/api'
+import type { GallerySummary } from '../../app/lib/gallery-repository'
+import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
   OfflineGalleryUnavailableError,
@@ -16,7 +18,7 @@ import {
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
-import { getSessionToken } from '../lib/session'
+import { clearSessionToken, getOwnerSlug, getSessionToken, type AuthProvider } from '../lib/session'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
@@ -28,7 +30,7 @@ type Props = {
   apiBase: string
   owner?: string
   slug?: string
-  onSignIn?: () => void
+  onSignIn?: (provider: AuthProvider) => void
   authError?: string | null
   billing?: RevenueCatBilling
   billingState?: BillingState
@@ -82,6 +84,16 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [error, setError] = useState<string | null>(null)
   const [paywallOpen, setPaywallOpen] = useState(false)
   const [globalViewOpen, setGlobalViewOpen] = useState(false)
+  // null while secure storage is still being asked; sign-in completes with a
+  // full reload, so by the first paint the token is already on the device.
+  const [signedIn, setSignedIn] = useState<boolean | null>(null)
+  const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
+  const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
+  const [accountListFailed, setAccountListFailed] = useState(false)
+  const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
+  const [deviceListFailed, setDeviceListFailed] = useState(false)
+  const [accountRevision, setAccountRevision] = useState(0)
+  const [billingNote, setBillingNote] = useState<string | null>(null)
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
@@ -186,6 +198,33 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     })().catch(() => {})
     return () => { active = false }
   }, [base])
+
+  // The account area resolves once per base from secure storage; a failed
+  // list keeps its section quiet rather than blocking the manual form.
+  useEffect(() => {
+    const controller = new AbortController()
+    let active = true
+    void (async () => {
+      const [token, slug] = await Promise.all([getSessionToken(), getOwnerSlug()])
+      if (!active) return
+      setOwnerSlug(slug)
+      setSignedIn(Boolean(token))
+      if (!token) return
+      const [account, device] = await Promise.allSettled([
+        fetchAccountGalleries(base, controller.signal),
+        fetchDeviceGalleries(base, controller.signal),
+      ])
+      if (!active) return
+      setAccountGalleries(account.status === 'fulfilled' ? account.value : null)
+      setAccountListFailed(account.status === 'rejected')
+      setDeviceGalleries(device.status === 'fulfilled' ? device.value : null)
+      setDeviceListFailed(device.status === 'rejected')
+    })()
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [base, accountRevision])
 
   const toggleSuppression = async (kind: 'day' | 'region', value: string, suppressed: boolean) => {
     const token = await getSessionToken()
@@ -310,6 +349,40 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     return <Paywall billing={billing} onClose={() => setPaywallOpen(false)} />
   }
 
+  const openSelection = (owner: string, slug: string) => {
+    setFrameKick({ index: 0, nonce: 0 })
+    setSelection({ owner, slug })
+  }
+
+  const signOut = async () => {
+    await clearSessionToken()
+    try {
+      await billing?.signOut()
+    } catch {
+      // A RevenueCat sign-out failure must not trap the manorama session.
+    }
+    if (typeof window !== 'undefined') window.location.reload()
+  }
+
+  // Beta-honest purchase entry: RevenueCat may be configured yet have no
+  // sellable offerings in this build, and that deserves a sentence rather
+  // than a paywall that can only fail.
+  const openSubscriptions = async () => {
+    if (!billing) return
+    setBillingNote(null)
+    try {
+      const offering = await billing.offerings()
+      if (!offering || offering.availablePackages.length === 0) {
+        setBillingNote("Subscriptions aren't available in this test build.")
+        return
+      }
+    } catch {
+      setBillingNote("Subscriptions aren't available in this test build.")
+      return
+    }
+    setPaywallOpen(true)
+  }
+
   const openGallery = (event: Event) => {
     event.preventDefault()
     const next = {
@@ -326,7 +399,41 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   }
 
   const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value
+  const retryAccountLists = () => setAccountRevision((revision) => revision + 1)
   const message = authError ?? error ?? galleryStatusMessage(status)
+  // The manual form stays as the secondary path for galleries outside the
+  // signed-in account; signed out it remains the only way in.
+  const openForm = (
+    <form onSubmit={openGallery}>
+      <label>
+        Owner
+        <input
+          value={ownerInput}
+          onInput={(event) => {
+            setOwnerInput(
+              (event.currentTarget as HTMLInputElement).value,
+            )
+          }}
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </label>
+      <label>
+        Gallery slug
+        <input
+          value={slugInput}
+          onInput={(event) => {
+            setSlugInput(readInput(event))
+          }}
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </label>
+      <button type="submit">Open gallery</button>
+    </form>
+  )
+  const deviceMeta = (gallery: DeviceGallery) =>
+    `${gallery.itemCount} ${gallery.itemCount === 1 ? 'item' : 'items'} · ${gallery.sourceKind} · on ${gallery.deviceLabel}`
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
@@ -369,18 +476,102 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             </aside>
           ) : null}
         </header>
-        <h1>Open a gallery</h1>
+        <h1>{signedIn ? 'Your galleries' : 'Open a gallery'}</h1>
         <p>{message}</p>
-        {onSignIn && (
-          <button type="button" onClick={onSignIn}>
-            Sign in with Dropbox
-          </button>
-        )}
-        {billing && (
-          <button type="button" onClick={() => setPaywallOpen(true)}>
+        {signedIn ? (
+          <div class="native-account" data-account>
+            <div class="native-account-line">
+              <span class="native-account-identity">
+                {ownerSlug ? `manorama.xyz/${ownerSlug}` : 'Signed in'}
+              </span>
+              <button type="button" class="native-account-signout" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            </div>
+            {accountListFailed ? (
+              <p class="native-account-note">
+                Your galleries could not be loaded.{' '}
+                <button type="button" class="native-retry" onClick={retryAccountLists}>
+                  Try again
+                </button>
+              </p>
+            ) : null}
+            {accountGalleries && accountGalleries.length > 0 ? (
+              <ul class="native-gallery-list">
+                {accountGalleries.map((gallery) => (
+                  <li key={gallery.slug}>
+                    {ownerSlug ? (
+                      <button type="button" onClick={() => openSelection(ownerSlug, gallery.slug)}>
+                        <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+                        <span class="native-gallery-meta">
+                          {gallery.slug} · {gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}
+                        </span>
+                      </button>
+                    ) : (
+                      <span class="native-gallery-row">
+                        <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+                        <span class="native-gallery-meta">{gallery.slug}</span>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : accountGalleries && !accountListFailed ? (
+              <p class="native-account-note">No galleries on this account yet.</p>
+            ) : null}
+            {deviceListFailed ? (
+              <p class="native-account-note">
+                The list from your Mac could not be loaded.{' '}
+                <button type="button" class="native-retry" onClick={retryAccountLists}>
+                  Try again
+                </button>
+              </p>
+            ) : null}
+            {deviceGalleries && deviceGalleries.length > 0 ? (
+              <section class="native-device" aria-label="On your Mac">
+                <h2>On your Mac</h2>
+                <ul class="native-device-list">
+                  {deviceGalleries.map((gallery) => (
+                    <li key={gallery.id}>
+                      {gallery.publicGallerySlug && ownerSlug ? (
+                        <button type="button" onClick={() => openSelection(ownerSlug, gallery.publicGallerySlug!)}>
+                          <span class="native-gallery-title">{gallery.title}</span>
+                          <span class="native-gallery-meta">{deviceMeta(gallery)}</span>
+                        </button>
+                      ) : (
+                        <span class="native-gallery-row">
+                          <span class="native-gallery-title">{gallery.title}</span>
+                          <span class="native-gallery-meta">{deviceMeta(gallery)}</span>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+        {signedIn === false && onSignIn ? (
+          // App Review 4.8: a third-party sign-in must sit beside Sign in
+          // with Apple, given no less prominence — Apple leads the list.
+          <>
+            <button type="button" onClick={() => onSignIn('apple')}>
+              Sign in with Apple
+            </button>
+            <button type="button" onClick={() => onSignIn('google')}>
+              Continue with Google
+            </button>
+            <button type="button" onClick={() => onSignIn('dropbox')}>
+              Continue with Dropbox
+            </button>
+          </>
+        ) : null}
+        {billing && billingState ? (
+          <button type="button" onClick={() => void openSubscriptions()}>
             View subscription options
           </button>
-        )}
+        ) : null}
+        {billingNote ? <p class="native-account-note">{billingNote}</p> : null}
         {suppressions ? (
           <div class="native-plate-switch" aria-label="Plate visibility">
             <span class="native-plate-switch-state">
@@ -421,33 +612,14 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
         <button type="button" onClick={() => setGlobalViewOpen(true)}>
           Global view
         </button>
-        <form onSubmit={openGallery}>
-          <label>
-            Owner
-            <input
-              value={ownerInput}
-              onInput={(event) => {
-                setOwnerInput(
-                  (event.currentTarget as HTMLInputElement).value,
-                )
-              }}
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
-          </label>
-          <label>
-            Gallery slug
-            <input
-              value={slugInput}
-              onInput={(event) => {
-                setSlugInput(readInput(event))
-              }}
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
-          </label>
-          <button type="submit">Open gallery</button>
-        </form>
+        {signedIn ? (
+          <details class="native-another">
+            <summary>Open another gallery</summary>
+            {openForm}
+          </details>
+        ) : (
+          openForm
+        )}
       </section>
     </main>
     {globalViewOpen ? (

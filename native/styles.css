@@ -175,6 +175,116 @@ body:has(.native-diptych) {
   margin-top: 12px;
 }
 
+/* The signed-in account area: the owner's own rows plus whatever the Mac
+   has published. Quiet labels, honest taps — rows without a public slug
+   get no button, so nothing pretends to open what it cannot. */
+.native-account {
+  margin-bottom: 22px;
+}
+
+.native-account-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-account-signout {
+  padding: 7px 12px;
+  border-color: rgba(var(--ink), .24);
+  font-size: 13px;
+}
+
+.native-account-note {
+  min-height: 0;
+  margin: 0 0 14px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  line-height: 1.6;
+}
+
+.native-retry {
+  padding: 4px 10px;
+  border-color: rgba(var(--ink), .24);
+  font-size: 11px;
+}
+
+.native-gallery-list,
+.native-device-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.native-gallery-list button,
+.native-device-list button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border-radius: 0;
+  border-color: rgba(var(--ink), .2);
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.native-gallery-row {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--ink), .12);
+}
+
+.native-gallery-title {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.native-gallery-meta {
+  color: rgba(var(--ink), .55);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .06em;
+}
+
+.native-device h2 {
+  margin: 0 0 10px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-another {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--ink), .1);
+}
+
+.native-another summary {
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.native-another form {
+  margin-top: 14px;
+}
+
 .native-paywall-shell {
   min-height: 100svh;
   display: grid;

@@ -1,6 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import { isVideoItem, type GalleryMediaItem, type GalleryManifest } from './imagesource'
-import { getUserByDropboxId } from './user-repository'
+import { getUserByAccountId } from './user-repository'
 import {
   assertGalleryEditable,
   FREE_RETAINED_LIMIT,
@@ -192,7 +192,7 @@ export const createGalleryWithinLimit = async (
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN 'retained' ELSE 'pipeline' END,
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN NULL ELSE ? END
          FROM (
-          SELECT COALESCE((SELECT tier FROM users WHERE dropbox_account_id = ?), 'free') AS tier,
+          SELECT COALESCE((SELECT tier FROM users WHERE account_id = ?), 'free') AS tier,
           (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'retained') AS retained_count
          )
          WHERE tier != 'pro' OR retained_count < 99
@@ -207,7 +207,7 @@ export const createGalleryWithinLimit = async (
       throw error
     }
   }
-  const user = await getUserByDropboxId(ownerId, env)
+  const user = await getUserByAccountId(ownerId, env)
   const store = ownerStore(ownerId)
   if (store.has(row.slug)) return { ok: false, reason: 'conflict' }
   const records = [...store.values()]

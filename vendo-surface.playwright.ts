@@ -38,8 +38,8 @@ const devEnv = (() => {
 
 const sessionSecret = process.env.HOST_API_JWT_SECRET ?? devEnv.HOST_API_JWT_SECRET ?? "";
 
-const sessionCookie = async (dropboxAccountId = "dbid:AAATESTowner1"): Promise<string> =>
-  `manorama_session=${await new SignJWT({ sub: dropboxAccountId })
+const sessionCookie = async (accountId = "dbid:AAATESTowner1"): Promise<string> =>
+  `manorama_session=${await new SignJWT({ sub: accountId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("2h")

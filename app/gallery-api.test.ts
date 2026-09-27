@@ -4,7 +4,7 @@ import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import type { GalleryImage } from './lib/imagesource'
 import { resetUserStore } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
-import { createNativeHandoffToken, createSessionToken } from './lib/dropbox-session'
+import { createNativeHandoffToken, createSessionToken } from './lib/session'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -19,12 +19,12 @@ beforeAll(async () => {
   resetUserStore()
   resetGalleryStore()
   await seedTestUser()
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
   api = createManoramaApi()
 
   // Seed a runtime gallery (no DB binding -> in-memory store) plus a second
   // one that serves as a guaranteed slug-collision target.
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'test-gallery',
     title: 'Test Gallery',
     caption: '',
@@ -32,7 +32,7 @@ beforeAll(async () => {
     createdAt: '2026-09-04T00:00:00.000Z',
     images: [{ id: 'test-image', filename: 'test.jpg', src: '/api/dropbox/file?sourceUrl=test', width: 1200, height: 800, alt: 'Test image', c2pa: false, placeholder: "" }],
   })
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'test-other',
     title: 'Other Gallery',
     caption: '',
@@ -50,7 +50,7 @@ const patch = (slug: string, body: object) =>
 
 describe('native gallery API', () => {
   test('exchanges only a purpose-bound native handoff token', async () => {
-    const handoffToken = await createNativeHandoffToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const handoffToken = await createNativeHandoffToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)
     const response = await api.request('/api/auth/native/exchange', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: 'capacitor://localhost' },
@@ -60,7 +60,7 @@ describe('native gallery API', () => {
     const payload = await response.json() as { token?: string }
     expect(typeof payload.token).toBe('string')
 
-    const normalToken = await createSessionToken(TEST_OWNER.dropboxAccountId, TEST_SESSION_SECRET)
+    const normalToken = await createSessionToken(TEST_OWNER.accountId, TEST_SESSION_SECRET)
     const rejected = await api.request('/api/auth/native/exchange', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: 'capacitor://localhost' },
@@ -222,7 +222,7 @@ describe('owner URL changes', () => {
   })
 
   test('rejects a URL already taken by another owner', async () => {
-    await seedTestUser({ dropboxAccountId: 'dbid:AAATOTHERuser', displayName: 'Taken Name' })
+    await seedTestUser({ accountId: 'dbid:AAATOTHERuser', displayName: 'Taken Name' })
     const response = await api.request('/api/account', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: cookie },
@@ -237,8 +237,8 @@ describe('galleries beyond the free allowance', () => {
   test('a fourth gallery is created as a temporary pipeline gallery', async () => {
     // test-final (from the rename suite) plus these two fills the free
     // allowance; the next create is the fourth.
-    await createGallery(TEST_OWNER.dropboxAccountId, { slug: 'filler-two', title: 'Filler Two', caption: '', date: '', images: [] })
-    await createGallery(TEST_OWNER.dropboxAccountId, { slug: 'filler-three', title: 'Filler Three', caption: '', date: '', images: [] })
+    await createGallery(TEST_OWNER.accountId, { slug: 'filler-two', title: 'Filler Two', caption: '', date: '', images: [] })
+    await createGallery(TEST_OWNER.accountId, { slug: 'filler-three', title: 'Filler Three', caption: '', date: '', images: [] })
     const realFetch = globalThis.fetch
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
@@ -358,7 +358,7 @@ describe('source ordering', () => {
   })
 
   test('a fresh gallery stores images in ascending filename order', async () => {
-    await seedTestUser({ dropboxAccountId: ORDER_OWNER, displayName: 'Order Owner' })
+    await seedTestUser({ accountId: ORDER_OWNER, displayName: 'Order Owner' })
     orderCookie = await sessionCookieFor(ORDER_OWNER)
     // Provider order is arbitrary — numeric collation puts img2 before img10.
     const restore = stubListing(['zeta.jpg', 'img10.jpg', 'img2.jpg', 'alpha.jpg'])

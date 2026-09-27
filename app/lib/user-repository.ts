@@ -1,14 +1,14 @@
 import type { D1Database } from '@cloudflare/workers-types'
 
 /**
- * Manorama user accounts. Identity is the immutable Dropbox account ID —
+ * Manorama user accounts. Identity is the immutable account ID —
  * never an email. The owner_slug is the user-facing URL segment
  * (`/<owner_slug>/...`) and can change at any time; galleries reference
  * the account ID, so a slug change never orphans them.
  */
 
 export type UserRecord = {
-  dropboxAccountId: string
+  accountId: string
   ownerSlug: string
   displayName: string
   email?: string
@@ -29,7 +29,7 @@ export const OWNER_SLUG_MAX = 48
 export const OWNER_SLUG_MIN = 3
 
 // In-memory fallback for runtimes without the D1 binding (vite dev, tests).
-// Keyed by Dropbox account ID, with an owner-slug index for lookups.
+// Keyed by account ID, with an owner-slug index for lookups.
 const users = new Map<string, UserRecord>()
 const ownerSlugIndex = new Map<string, string>()
 
@@ -37,9 +37,9 @@ const d1Configured = (env?: UserRepositoryEnv): env is UserRepositoryEnv & { DB:
   Boolean(env?.DB)
 
 const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
-  if (!row || typeof row.dropbox_account_id !== 'string') return null
+  if (!row || typeof row.account_id !== 'string') return null
   const user: UserRecord = {
-    dropboxAccountId: row.dropbox_account_id,
+    accountId: row.account_id,
     ownerSlug: row.owner_slug as string,
     displayName: row.display_name as string,
     tier: row.tier === 'pro' ? 'pro' : 'free',
@@ -89,47 +89,47 @@ const deriveOwnerSlug = async (displayName: string, env?: UserRepositoryEnv) => 
  * touched here — only `updateOwnerSlug` changes it.
  */
 export const upsertUser = async (
-  account: { dropboxAccountId: string; displayName: string; email?: string },
+  account: { accountId: string; displayName: string; email?: string },
   env?: UserRepositoryEnv,
 ): Promise<UserRecord> => {
   const displayName = account.displayName.trim().slice(0, 120) || 'Photographer'
   const email = account.email?.trim() || undefined
   if (d1Configured(env)) {
     const existing = await env.DB
-      .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
-      .bind(account.dropboxAccountId)
+      .prepare('SELECT * FROM users WHERE account_id = ?')
+      .bind(account.accountId)
       .first()
     if (existing) {
       await env.DB.prepare(
-        `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
-      ).bind(displayName, email ?? null, account.dropboxAccountId).run()
+        `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE account_id = ?`,
+      ).bind(displayName, email ?? null, account.accountId).run()
       const updated = await env.DB
-        .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
-        .bind(account.dropboxAccountId)
+        .prepare('SELECT * FROM users WHERE account_id = ?')
+        .bind(account.accountId)
         .first()
       return rowToUser(updated as Record<string, unknown>)!
     }
     const ownerSlug = await deriveOwnerSlug(displayName, env)
     try {
       await env.DB.prepare(
-        'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
-      ).bind(account.dropboxAccountId, ownerSlug, displayName, email ?? null).run()
+        'INSERT INTO users (account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
+      ).bind(account.accountId, ownerSlug, displayName, email ?? null).run()
     } catch (error) {
       if (!String(error).includes('UNIQUE')) throw error
       // A concurrent sign-in may have created this user (account_id PK
       // conflict) OR claimed the same owner_slug. Query by account_id;
       // if the user exists, refresh the profile instead of retrying.
       const concurrent = await env.DB
-        .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
-        .bind(account.dropboxAccountId)
+        .prepare('SELECT * FROM users WHERE account_id = ?')
+        .bind(account.accountId)
         .first()
       if (concurrent) {
         await env.DB.prepare(
-          `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
-        ).bind(displayName, email ?? null, account.dropboxAccountId).run()
+          `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE account_id = ?`,
+        ).bind(displayName, email ?? null, account.accountId).run()
         const updated = await env.DB
-          .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
-          .bind(account.dropboxAccountId)
+          .prepare('SELECT * FROM users WHERE account_id = ?')
+          .bind(account.accountId)
           .first()
         return rowToUser(updated as Record<string, unknown>)!
       }
@@ -137,40 +137,40 @@ export const upsertUser = async (
       // fresh slug.
       const retrySlug = await deriveOwnerSlug(displayName, env)
       await env.DB.prepare(
-        'INSERT INTO users (dropbox_account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
-      ).bind(account.dropboxAccountId, retrySlug, displayName, email ?? null).run()
+        'INSERT INTO users (account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
+      ).bind(account.accountId, retrySlug, displayName, email ?? null).run()
     }
     const created = await env.DB
-      .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
-      .bind(account.dropboxAccountId)
+      .prepare('SELECT * FROM users WHERE account_id = ?')
+      .bind(account.accountId)
       .first()
     return rowToUser(created as Record<string, unknown>)!
   }
-  const existing = users.get(account.dropboxAccountId)
+  const existing = users.get(account.accountId)
   if (existing) {
     existing.displayName = displayName
     if (email !== undefined) existing.email = email
     return existing
   }
   const ownerSlug = await deriveOwnerSlug(displayName, env)
-  const user: UserRecord = { dropboxAccountId: account.dropboxAccountId, ownerSlug, displayName, tier: 'free', ...(email !== undefined ? { email } : {}) }
-  users.set(user.dropboxAccountId, user)
-  ownerSlugIndex.set(user.ownerSlug, user.dropboxAccountId)
+  const user: UserRecord = { accountId: account.accountId, ownerSlug, displayName, tier: 'free', ...(email !== undefined ? { email } : {}) }
+  users.set(user.accountId, user)
+  ownerSlugIndex.set(user.ownerSlug, user.accountId)
   return user
 }
 
-export const getUserByDropboxId = async (
-  dropboxAccountId: string,
+export const getUserByAccountId = async (
+  accountId: string,
   env?: UserRepositoryEnv,
 ): Promise<UserRecord | null> => {
   if (d1Configured(env)) {
     const row = await env.DB
-      .prepare('SELECT * FROM users WHERE dropbox_account_id = ?')
-      .bind(dropboxAccountId)
+      .prepare('SELECT * FROM users WHERE account_id = ?')
+      .bind(accountId)
       .first()
     return rowToUser(row as Record<string, unknown> | null)
   }
-  return users.get(dropboxAccountId) ?? null
+  return users.get(accountId) ?? null
 }
 
 export const getUserByOwnerSlug = async (
@@ -195,13 +195,13 @@ export class OwnerSlugError extends Error {}
  *  self-serve billing seam yet — upgrades land through this (or a manual D1
  *  update) only. Sign-in never writes tier: upsertUser keeps what is stored. */
 export const setUserTier = async (
-  dropboxAccountId: string,
+  accountId: string,
   tier: 'free' | 'pro',
   env?: UserRepositoryEnv,
   now = new Date().toISOString(),
   billingEvent?: BillingEventOrder,
 ): Promise<UserRecord | null> => {
-  const current = await getUserByDropboxId(dropboxAccountId, env)
+  const current = await getUserByAccountId(accountId, env)
   if (!current) return null
   if (billingEvent && current.billingEventTimestampMs !== undefined) {
     const isOlder = billingEvent.timestampMs < current.billingEventTimestampMs
@@ -215,18 +215,18 @@ export const setUserTier = async (
       const eventId = billingEvent.eventId
       const update = await env.DB.prepare(
         `UPDATE users SET tier = ?, updated_at = ?, billing_event_timestamp_ms = ?, billing_event_id = ?
-         WHERE dropbox_account_id = ? AND (
+         WHERE account_id = ? AND (
            billing_event_timestamp_ms IS NULL
            OR billing_event_timestamp_ms < ?
            OR (billing_event_timestamp_ms = ? AND COALESCE(billing_event_id, '') < ?)
          )`,
-      ).bind(tier, now, eventTimestamp, eventId, dropboxAccountId, eventTimestamp, eventTimestamp, eventId)
+      ).bind(tier, now, eventTimestamp, eventId, accountId, eventTimestamp, eventTimestamp, eventId)
       const statements = [update]
       if (tier === 'pro') {
         statements.push(env.DB.prepare(
           `UPDATE galleries SET retention = 'retained', expires_at = NULL
            WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`,
-        ).bind(dropboxAccountId, now))
+        ).bind(accountId, now))
       }
       const results = await env.DB.batch(statements)
       if (!results[0].meta.changes) return null
@@ -239,13 +239,13 @@ export const setUserTier = async (
     }
     if (tier === 'pro') {
       await env.DB.batch([
-        env.DB.prepare(`UPDATE users SET tier = ?, updated_at = ? WHERE dropbox_account_id = ?`).bind(tier, now, dropboxAccountId),
-        env.DB.prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`).bind(dropboxAccountId, now),
+        env.DB.prepare(`UPDATE users SET tier = ?, updated_at = ? WHERE account_id = ?`).bind(tier, now, accountId),
+        env.DB.prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`).bind(accountId, now),
       ])
     } else {
       await env.DB.prepare(
-        `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
-      ).bind(tier, dropboxAccountId).run()
+        `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE account_id = ?`,
+      ).bind(tier, accountId).run()
     }
     return { ...current, tier }
   }
@@ -256,7 +256,7 @@ export const setUserTier = async (
   if (tier === 'pro') {
     const { promotePipelineGalleries } = await import('./gallery-repository')
     current.tier = tier
-    await promotePipelineGalleries(dropboxAccountId, now, env)
+    await promotePipelineGalleries(accountId, now, env)
   } else current.tier = tier
   return { ...current }
 }
@@ -266,7 +266,7 @@ export const setUserTier = async (
  * slug the moment it changes. Throws OwnerSlugError with a friendly
  * message on invalid input or collisions. */
 export const updateOwnerSlug = async (
-  dropboxAccountId: string,
+  accountId: string,
   nextSlug: string,
   env?: UserRepositoryEnv,
 ): Promise<UserRecord> => {
@@ -275,15 +275,15 @@ export const updateOwnerSlug = async (
     throw new OwnerSlugError(`Use ${OWNER_SLUG_MIN}-${OWNER_SLUG_MAX} lowercase letters, numbers, and single hyphens`)
   }
   const taken = await ownerSlugTaken(slug, env)
-  const current = await getUserByDropboxId(dropboxAccountId, env)
+  const current = await getUserByAccountId(accountId, env)
   if (!current) throw new OwnerSlugError('Sign in again before changing your URL')
   if (taken && slug !== current.ownerSlug) throw new OwnerSlugError('That URL is already in use')
   if (slug === current.ownerSlug) return current
   if (d1Configured(env)) {
     try {
       await env.DB.prepare(
-        `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE dropbox_account_id = ?`,
-      ).bind(slug, dropboxAccountId).run()
+        `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE account_id = ?`,
+      ).bind(slug, accountId).run()
     } catch (error) {
       // UNIQUE constraint failure on owner_slug — another user holds it.
       if (String(error).includes('UNIQUE')) throw new OwnerSlugError('That URL is already in use')
@@ -292,7 +292,7 @@ export const updateOwnerSlug = async (
   } else {
     ownerSlugIndex.delete(current.ownerSlug)
     current.ownerSlug = slug
-    ownerSlugIndex.set(slug, dropboxAccountId)
+    ownerSlugIndex.set(slug, accountId)
   }
   return { ...current, ownerSlug: slug }
 }

@@ -3,7 +3,7 @@ import { createManoramaApi } from './api'
 import { createGallery, getGallery, resetGalleryStore, toSummary, updateGalleryImages, updateGalleryOrder } from './lib/gallery-repository'
 import { resetUserStore } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
-import { getUserByDropboxId } from './lib/user-repository'
+import { getUserByAccountId } from './lib/user-repository'
 import { isVideoItem, stillSourceOf, type GalleryMediaItem, type VideoItem } from './lib/imagesource'
 import { ogBaseImageUrl, ogItemKey } from './lib/og-card'
 
@@ -53,10 +53,10 @@ beforeAll(async () => {
   resetUserStore()
   resetGalleryStore()
   await seedTestUser()
-  cookie = await sessionCookieFor(TEST_OWNER.dropboxAccountId)
-  ownerSlug = (await getUserByDropboxId(TEST_OWNER.dropboxAccountId))!.ownerSlug
+  cookie = await sessionCookieFor(TEST_OWNER.accountId)
+  ownerSlug = (await getUserByAccountId(TEST_OWNER.accountId))!.ownerSlug
   api = createManoramaApi()
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'mixed-media',
     title: 'Mixed Media',
     caption: '',
@@ -69,7 +69,7 @@ beforeAll(async () => {
 
 describe('the media union survives a repository round-trip', () => {
   test('a stored video keeps its discriminant and every video field', async () => {
-    const gallery = await getGallery(TEST_OWNER.dropboxAccountId, 'mixed-media')
+    const gallery = await getGallery(TEST_OWNER.accountId, 'mixed-media')
     const item = gallery?.images[1]
     expect(item && isVideoItem(item)).toBe(true)
     const video = item as VideoItem
@@ -79,7 +79,7 @@ describe('the media union survives a repository round-trip', () => {
   })
 
   test('images carry no `type` key — all-photo manifests need no migration', async () => {
-    const gallery = await getGallery(TEST_OWNER.dropboxAccountId, 'mixed-media')
+    const gallery = await getGallery(TEST_OWNER.accountId, 'mixed-media')
     expect('type' in (gallery!.images[0] as object)).toBe(false)
     // And a JSON round-trip of an all-photo manifest is byte-identical.
     const photos = [photoItem('p-1', 'guid-p1'), photoItem('p-2', 'guid-p2')]
@@ -88,31 +88,31 @@ describe('the media union survives a repository round-trip', () => {
 
   test('ordering keys videos by `ref` exactly like images', async () => {
     const reordered = await updateGalleryOrder(
-      TEST_OWNER.dropboxAccountId,
+      TEST_OWNER.accountId,
       'mixed-media',
       ['guid-v1', 'guid-p2', 'guid-p1'],
     )
     expect(reordered?.images.map((item) => item.ref)).toEqual(['guid-v1', 'guid-p2', 'guid-p1'])
     expect(isVideoItem(reordered!.images[0])).toBe(true)
     // Restore source order for the tests that follow.
-    await updateGalleryOrder(TEST_OWNER.dropboxAccountId, 'mixed-media', ['guid-p1', 'guid-v1', 'guid-p2'])
+    await updateGalleryOrder(TEST_OWNER.accountId, 'mixed-media', ['guid-p1', 'guid-v1', 'guid-p2'])
   })
 
   test('an order listing unknown keys appends the rest instead of dropping them', async () => {
-    const reordered = await updateGalleryOrder(TEST_OWNER.dropboxAccountId, 'mixed-media', ['guid-nope'])
+    const reordered = await updateGalleryOrder(TEST_OWNER.accountId, 'mixed-media', ['guid-nope'])
     expect(reordered?.images).toHaveLength(3)
   })
 
   test('updateGalleryImages accepts a mixed sequence', async () => {
     const updated = await updateGalleryImages(
-      TEST_OWNER.dropboxAccountId,
+      TEST_OWNER.accountId,
       'mixed-media',
       [videoItem('v-2', 'guid-v2'), photoItem('p-1', 'guid-p1')],
     )
     expect(updated?.images).toHaveLength(2)
     expect(isVideoItem(updated!.images[0])).toBe(true)
     await updateGalleryImages(
-      TEST_OWNER.dropboxAccountId,
+      TEST_OWNER.accountId,
       'mixed-media',
       [photoItem('p-1', 'guid-p1'), videoItem('v-1', 'guid-v1'), photoItem('p-2', 'guid-p2')],
     )
@@ -121,7 +121,7 @@ describe('the media union survives a repository round-trip', () => {
 
 describe('gallery summaries badge videos for the admin rail', () => {
   test('toSummary marks videos and carries their duration and poster', async () => {
-    const gallery = await getGallery(TEST_OWNER.dropboxAccountId, 'mixed-media')
+    const gallery = await getGallery(TEST_OWNER.accountId, 'mixed-media')
     const summary = toSummary(gallery!)
     const entries = summary.images as Array<{ type?: string; durationSeconds?: number }>
     expect(entries[1].type).toBe('video')
@@ -132,7 +132,7 @@ describe('gallery summaries badge videos for the admin rail', () => {
   })
 
   test('every item exposes a still through variants[0], video included', async () => {
-    const gallery = await getGallery(TEST_OWNER.dropboxAccountId, 'mixed-media')
+    const gallery = await getGallery(TEST_OWNER.accountId, 'mixed-media')
     for (const item of gallery!.images) {
       expect(item.variants?.[0]?.src).toBeTruthy()
     }

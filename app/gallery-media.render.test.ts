@@ -6,7 +6,7 @@ import sharp from 'sharp'
 import renderer from './routes/_renderer'
 import viewerPage from './routes/[owner]/[slug]'
 import { createManoramaApi } from './api'
-import { resetUserStore, getUserByDropboxId } from './lib/user-repository'
+import { resetUserStore, getUserByAccountId } from './lib/user-repository'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import type { GalleryMediaItem, VideoItem } from './lib/imagesource'
@@ -73,15 +73,15 @@ beforeAll(async () => {
   resetUserStore()
   resetGalleryStore()
   await seedTestUser()
-  ownerSlug = (await getUserByDropboxId(TEST_OWNER.dropboxAccountId))!.ownerSlug
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  ownerSlug = (await getUserByAccountId(TEST_OWNER.accountId))!.ownerSlug
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'mixed',
     title: 'Mixed Gallery',
     caption: 'Photographs and moving pictures',
     date: '',
     images: [photo, video],
   })
-  await createGallery(TEST_OWNER.dropboxAccountId, {
+  await createGallery(TEST_OWNER.accountId, {
     slug: 'video-first',
     title: 'Video First',
     caption: '',

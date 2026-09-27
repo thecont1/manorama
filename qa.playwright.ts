@@ -9,7 +9,7 @@
 // The info modal has aria-label "Image information and Content Credentials".
 //
 // The admin surface requires a Manorama session — Dropbox sign-in mints an
-// HS256 `manorama_session` cookie (app/lib/dropbox-session.ts). Every context
+// HS256 `manorama_session` cookie (app/lib/session.ts). Every context
 // and request here carries a dev-minted cookie for the seeded test owner:
 // `bun run dev` seeds `dbid:AAATESTowner1` as owner slug `thecontrarian` via
 // the manorama-dev-seed vite plugin. The cookie is signed with the dev
@@ -43,8 +43,8 @@ const devEnv = (() => {
 
 const sessionSecret = process.env.HOST_API_JWT_SECRET ?? devEnv.HOST_API_JWT_SECRET ?? "";
 
-const sessionCookie = async (dropboxAccountId = DEV_ACCOUNT): Promise<string> =>
-  `manorama_session=${await new SignJWT({ sub: dropboxAccountId })
+const sessionCookie = async (accountId = DEV_ACCOUNT): Promise<string> =>
+  `manorama_session=${await new SignJWT({ sub: accountId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("2h")
