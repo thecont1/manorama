@@ -1,4 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
+import type { AdFrame } from './adframe'
+import { resolveManoramaSession, type SessionEnv } from './session'
 
 /**
  * Master plate suppression. The owner can hide house plates for a UTC day or
@@ -91,4 +93,47 @@ export const adSuppressionFor = async (day: string, region: string, env?: AdVisi
   ).bind('day', day, 'region', region).first<{ kind: string }>()
   if (!row) return null
   return row.kind === 'region' ? 'region' : 'day'
+}
+
+export type WebAdTier = 'anonymous' | 'free' | 'pro'
+
+export const WEB_HOUSE_AD_FRAME: AdFrame = {
+  id: 'manorama-house-plate',
+  advertiser: 'manorama',
+  headline: 'More photographs, quietly shared.',
+  cta: { label: 'Explore manorama', url: 'https://manorama.xyz' },
+  badge: 'Sponsored',
+  provider: 'manorama-house',
+}
+
+export const webAdFrameFor = (
+  tier: WebAdTier,
+  networkFrame?: AdFrame | null,
+  visible = true,
+): AdFrame | null => {
+  if (!visible) return null
+  if (tier === 'pro') return WEB_HOUSE_AD_FRAME
+  return networkFrame ?? WEB_HOUSE_AD_FRAME
+}
+
+export const webAdFrameForRequest = async (
+  request: Request,
+  env: SessionEnv & AdVisibilityEnv,
+  networkFrame?: AdFrame | null,
+): Promise<AdFrame | null> => {
+  // The plate lookup is auxiliary to the render — a session-store failure
+  // must not fail the gallery page. Track it separately from "no session":
+  // a failed lookup cannot prove the viewer is anonymous or free, so the
+  // only safe frame is the house plate — never the network's.
+  const lookup = await resolveManoramaSession(request, env)
+    .then((session) => ({ session, failed: false }))
+    .catch(() => ({ session: null, failed: true }))
+  const day = new Date().toISOString().slice(0, 10)
+  const region = ((request as { cf?: { country?: string } }).cf?.country ?? '').toUpperCase()
+  const suppressedBy = await adSuppressionFor(day, region, env).catch(() => null)
+  return webAdFrameFor(
+    lookup.session?.tier ?? 'anonymous',
+    lookup.failed ? undefined : networkFrame,
+    suppressedBy === null,
+  )
 }

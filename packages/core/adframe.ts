@@ -7,13 +7,18 @@ export type AdFrame = {
   image?: { src: string; width: number; height: number }
   cta?: { label: string; url: string }
   badge: 'Ad' | 'Advertisement' | 'Sponsored'
-  provider: 'admob-banner' | 'admob-native' | 'manorama-house'
+  provider: 'admob-banner' | 'admob-native' | 'manorama-house' | 'web-network'
 }
 
 export type RuntimeGalleryItem = GalleryMediaItem | AdFrame
 
 export const isAdFrame = (item: RuntimeGalleryItem): item is AdFrame =>
-  'provider' in item && (item.provider === 'admob-banner' || item.provider === 'admob-native' || item.provider === 'manorama-house')
+  'provider' in item && (
+    item.provider === 'admob-banner' ||
+    item.provider === 'admob-native' ||
+    item.provider === 'manorama-house' ||
+    item.provider === 'web-network'
+  )
 
 export const PLATE_CADENCE = 25
 const PLATE_JITTER = 4

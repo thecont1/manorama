@@ -2212,6 +2212,111 @@ test("privacy: gallery remains noindex and unknown paths remain absent", async (
   expect([403, 404]).toContain(missing.status());
 });
 
+test.describe("privacy policy page", () => {
+  test("renders three persona cards and the shared sections semantically", async ({
+    page,
+  }) => {
+    await page.goto(`${BASE}/privacy`);
+    await expect(
+      page.getByRole("heading", { level: 1, name: /privacy policy/i }),
+    ).toBeVisible();
+    await expect(page.getByText(/last updated: 27 september 2026/i)).toBeVisible();
+    await expect(
+      page.locator(".policy-personas > section.policy-card"),
+    ).toHaveCount(3);
+    for (const name of ["Just looking", "Making galleries", "Pro or Forever"]) {
+      await expect(page.getByRole("region", { name })).toBeVisible();
+    }
+    for (const name of [
+      /who this is for/i,
+      /where photographs go/i,
+      /on your device/i,
+      /ads and purchases/i,
+      /cookies, retention, and your choices/i,
+      /services and what comes next/i,
+      /contact and changes/i,
+    ]) {
+      await expect(
+        page.getByRole("heading", { level: 2, name }),
+      ).toBeVisible();
+    }
+    const doc = page.locator(".policy-document");
+    await expect(doc).toContainText(/encrypted storage on your device/i);
+    await expect(doc).toContainText(/secure device storage/i);
+    await expect(doc).toContainText(/house placements/i);
+    await expect(doc).toContainText(/non-personalized third-party website ads/i);
+    await expect(doc).toContainText(/revenuecat/i);
+  });
+
+  test("desktop lays the persona cards out in three columns", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${BASE}/privacy`);
+    const columns = await page
+      .locator(".policy-personas")
+      .evaluate(
+        (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
+      );
+    expect(columns).toBe(3);
+  });
+
+  test("phone stacks the cards in one column without horizontal overflow", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`${BASE}/privacy`);
+    const columns = await page
+      .locator(".policy-personas")
+      .evaluate(
+        (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
+      );
+    expect(columns).toBe(1);
+    const horizontalOverflow = () =>
+      page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      );
+    expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+    await page.setViewportSize({ width: 320, height: 812 });
+    expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+    await page.setViewportSize({ width: 720, height: 900 });
+    expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+  });
+
+  test("print emulation yields a legible black-on-white single column", async ({
+    page,
+  }) => {
+    await page.goto(`${BASE}/privacy`);
+    await page.emulateMedia({ media: "print" });
+    const body = await page
+      .locator("body")
+      .evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { background: s.backgroundColor, color: s.color };
+      });
+    expect(body.background).toBe("rgb(255, 255, 255)");
+    expect(body.color).toBe("rgb(0, 0, 0)");
+    const paragraphColor = await page
+      .locator(".policy-section p")
+      .first()
+      .evaluate((el) => getComputedStyle(el).color);
+    expect(paragraphColor).toBe("rgb(0, 0, 0)");
+    const columns = await page
+      .locator(".policy-personas")
+      .evaluate(
+        (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
+      );
+    expect(columns).toBe(1);
+  });
+
+  test("axe finds no violations on the policy page", async ({ page }) => {
+    await page.goto(`${BASE}/privacy`);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+});
+
 test("Manorama-fication adds a gallery directly without an intermediate preview", async ({
   page,
 }) => {

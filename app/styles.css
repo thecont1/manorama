@@ -310,21 +310,38 @@ cai-manifest-summary { display: block; margin-top: 16px; }
 /* Privacy policy page: readable long-form text on the same dark surface. */
 body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--ink)); }
 .policy-page { min-height: 100svh; display: grid; place-items: start center; padding: clamp(32px, 6vw, 80px) 24px 64px; box-sizing: border-box; }
-.policy-document { max-width: 680px; }
+.policy-document { width: 100%; max-width: 1080px; }
 .policy-document h1 { margin: 0 0 4px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(28px, 5vw, 40px); font-weight: 800; letter-spacing: -.03em; }
-.policy-updated { margin: 0 0 32px; font-size: 13px; opacity: .5; }
-.policy-document h2 { margin: 36px 0 12px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 18px; font-weight: 700; }
-.policy-document h4 { margin: 24px 0 6px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .01em; }
-.policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.55; opacity: .85; }
+.policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
-.policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.55; opacity: .85; }
+.policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
 .policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; }
 .policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
-.policy-document a:hover, .policy-document a:focus-visible { text-decoration-color: rgba(243,240,232,.7); }
-.policy-table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 17px; }
-.policy-table th { text-align: left; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(255,255,255,.12); opacity: .6; }
-.policy-table td { padding: 10px 12px 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-weight: 300; line-height: 1.6; opacity: .85; vertical-align: top; }
-.policy-table td:first-child { white-space: nowrap; font-weight: 400; opacity: 1; }
+.policy-document a:hover { text-decoration-color: rgba(243,240,232,.7); }
+.policy-document a:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 3px; text-decoration-color: rgba(243,240,232,.7); }
+.policy-document .policy-updated { margin: 0 0 24px; font-family: 'DM Mono', ui-monospace, monospace; font-size: 14px; letter-spacing: .06em; color: rgba(var(--ink), .68); }
+.policy-document .policy-lede { max-width: 680px; font-size: 20px; }
+.policy-document h2 { margin: clamp(38px, 6vw, 56px) 0 16px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(20px, 3vw, 26px); font-weight: 700; }
+.policy-personas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+.policy-card { padding: clamp(18px, 2.5vw, 26px); border: 1px solid rgba(var(--ink), .14); background: rgba(var(--ink), .045); }
+.policy-card h3 { margin: 0 0 10px; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .01em; }
+.policy-card p { font-size: 16px; line-height: 1.6; }
+.policy-card p:last-child { margin-bottom: 0; }
+.policy-section { max-width: 680px; }
+@media (max-width: 1050px) { .policy-personas { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 720px) { .policy-personas { grid-template-columns: 1fr; } }
+@media print {
+  body:has(.policy-page) { overflow: visible; background: #fff; color: #000; }
+  .policy-page { display: block; min-height: 0; padding: 16px 8px; }
+  .policy-document { max-width: none; }
+  .policy-personas { grid-template-columns: 1fr; }
+  .policy-card { border-color: #999; background: none; }
+  .policy-document h1, .policy-document h2, .policy-card h3 { color: #000; }
+  .policy-document p, .policy-document li { color: #000; }
+  .policy-document .policy-updated { color: #333; }
+  .policy-document code { background: none; color: #000; }
+  .policy-document a, .policy-document a:hover, .policy-document a:focus-visible { color: #000; text-decoration: underline; text-decoration-color: #000; }
+}
 
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }

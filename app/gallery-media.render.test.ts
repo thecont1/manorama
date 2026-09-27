@@ -6,9 +6,11 @@ import sharp from 'sharp'
 import renderer from './routes/_renderer'
 import viewerPage from './routes/[owner]/[slug]'
 import { createManoramaApi } from './api'
-import { resetUserStore, getUserByAccountId } from './lib/user-repository'
+import { resetUserStore, getUserByAccountId, setUserTier, upsertUser } from './lib/user-repository'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
-import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
+import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
+import { clearAdSuppression, resetAdSuppressionStore, setAdSuppression } from './lib/ads-visibility'
+import { platePositionsFor } from './lib/adframe'
 import type { GalleryMediaItem, VideoItem } from './lib/imagesource'
 
 /**
@@ -24,6 +26,11 @@ const honoxContext = async (c: Context, next: Next) => {
 
 const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET, PUBLIC_HOST: 'manorama.xyz' }
 let ownerSlug: string
+let freeViewerCookie = ''
+let proViewerCookie = ''
+
+const FREE_VIEWER = { accountId: 'dbid:AAATESTviewerF1', displayName: 'Free Viewer', email: 'free@viewer.test' }
+const PRO_VIEWER = { accountId: 'dbid:AAATESTviewerP1', displayName: 'Pro Viewer', email: 'pro@viewer.test' }
 
 const photo: GalleryMediaItem = {
   id: 'p-1',
@@ -55,6 +62,13 @@ const video: VideoItem = {
   variants: [{ width: 1280, src: '/api/icloud/image?album=t&photo=guid-v1&c=poster', format: 'jpeg' }],
 }
 
+const longImages: GalleryMediaItem[] = Array.from({ length: 60 }, (_, index) => ({
+  ...photo,
+  id: `p-long-${index}`,
+  ref: `guid-long-${index}`,
+  filename: `long-${index}.jpg`,
+}))
+
 const mountRoute = (app: Hono, path: string, route: unknown) => {
   const get = app.get.bind(app) as (p: string, ...h: Handler[]) => void
   if (Array.isArray(route)) get(path, ...(route as Handler[]))
@@ -72,8 +86,14 @@ const buildApp = () => {
 beforeAll(async () => {
   resetUserStore()
   resetGalleryStore()
+  resetAdSuppressionStore()
   await seedTestUser()
   ownerSlug = (await getUserByAccountId(TEST_OWNER.accountId))!.ownerSlug
+  await upsertUser(FREE_VIEWER)
+  await upsertUser(PRO_VIEWER)
+  await setUserTier(PRO_VIEWER.accountId, 'pro')
+  freeViewerCookie = await sessionCookieFor(FREE_VIEWER.accountId)
+  proViewerCookie = await sessionCookieFor(PRO_VIEWER.accountId)
   await createGallery(TEST_OWNER.accountId, {
     slug: 'mixed',
     title: 'Mixed Gallery',
@@ -87,6 +107,13 @@ beforeAll(async () => {
     caption: '',
     date: '',
     images: [video, photo],
+  })
+  await createGallery(TEST_OWNER.accountId, {
+    slug: 'long-album',
+    title: 'Long Album',
+    caption: '',
+    date: '',
+    images: longImages,
   })
 })
 
@@ -173,6 +200,54 @@ describe('the OG route composites a real card', () => {
       expect(requested.some((url) => url.includes('/api/icloud/video'))).toBe(false)
     } finally {
       globalThis.fetch = realFetch
+    }
+  })
+})
+
+describe('house plates follow the seeded cadence for every viewer', () => {
+  const day = new Date().toISOString().slice(0, 10)
+  const positions = platePositionsFor(longImages.length, `long-album:${day}`)
+
+  const galleryHtml = async (slug: string, cookie?: string) => {
+    const response = await buildApp().request(
+      `/${ownerSlug}/${slug}`,
+      cookie ? { headers: { Cookie: cookie } } : {},
+      env,
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+    return response.text()
+  }
+
+  const expectHousePlates = (html: string) => {
+    expect(positions.length).toBeGreaterThan(0)
+    expect(html.match(/data-ad-frame/g) ?? []).toHaveLength(positions.length)
+    for (const pos of positions) expect(html).toContain(`data-ad-position="${pos}"`)
+    expect(html).toContain('aria-label="Sponsored: manorama"')
+    expect(html).toContain('More photographs, quietly shared.')
+    expect(html).toContain('Explore manorama')
+  }
+
+  test('anonymous, signed-in free and signed-in pro viewers all see the house plates', async () => {
+    expectHousePlates(await galleryHtml('long-album'))
+    expectHousePlates(await galleryHtml('long-album', freeViewerCookie))
+    expectHousePlates(await galleryHtml('long-album', proViewerCookie))
+  })
+
+  test('a short gallery stays plate-free for every viewer', async () => {
+    for (const cookie of [undefined, freeViewerCookie, proViewerCookie]) {
+      expect(await galleryHtml('mixed', cookie)).not.toContain('data-ad-frame')
+    }
+  })
+
+  test('a day suppression removes the plates for every viewer', async () => {
+    await setAdSuppression('day', day)
+    try {
+      for (const cookie of [undefined, freeViewerCookie, proViewerCookie]) {
+        expect(await galleryHtml('long-album', cookie)).not.toContain('data-ad-frame')
+      }
+    } finally {
+      await clearAdSuppression('day', day)
     }
   })
 })

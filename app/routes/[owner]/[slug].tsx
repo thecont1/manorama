@@ -9,6 +9,8 @@ import {
   type GalleryRecord,
 } from '../../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../../lib/user-repository'
+import { accessEnvOf } from '../../lib/session'
+import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
 
 export default createRoute(async (c) => {
@@ -24,6 +26,8 @@ export default createRoute(async (c) => {
   )
   if (!gallery) return c.notFound()
 
+  const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c))
+
   const source = new BundledSource(gallery as GalleryRecord)
   const settings = defaultGallerySettings(gallery)
   // Per-gallery social card: the first frame with the wordmark over it.
@@ -34,7 +38,7 @@ export default createRoute(async (c) => {
     gallery.slug,
   )}${firstKey ? `?i=${encodeURIComponent(firstKey)}` : ''}`
   c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
-  c.header('Cache-Control', 'no-cache')
+  c.header('Cache-Control', 'private, no-store')
 
   return c.render(
     <GalleryShell settings={settings}>
@@ -42,6 +46,7 @@ export default createRoute(async (c) => {
         slug={gallery.slug}
         images={source.list()}
         settings={settings}
+        plate={plate}
       />
     </GalleryShell>,
     {
