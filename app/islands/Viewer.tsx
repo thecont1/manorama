@@ -82,6 +82,10 @@ const useEffect = (effect: () => void | (() => void), deps?: readonly unknown[])
     slot.version += 1
   }
   const version = slot.version
+  // Unmount can land between render and the queued runner's frame — a layout
+  // cleanup invalidates the version synchronously, so the runner fails its
+  // check instead of calling effect() on a dead tree.
+  useLayoutEffect(() => () => { slot.version += 1 }, [])
   useHonoEffect(() => {
     if (version === slot.version && version !== slot.ranVersion && slot.activeVersion === 0) {
       slot.ranVersion = version
