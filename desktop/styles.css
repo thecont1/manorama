@@ -1,0 +1,308 @@
+@import '../app/styles.css';
+
+/* Desktop catalogue chrome. The viewer itself is styled by the shared
+   sheet — these rules only cover the pick → grid → catalogue surfaces. */
+
+body {
+  background: #0a0a0a;
+  color: #e8e6e3;
+}
+
+.desktop-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  font-family: inherit;
+}
+
+.desktop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.desktop-logo {
+  height: 2rem;
+  display: block;
+}
+
+.desktop-account {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.desktop-account button,
+.desktop-toolbar button,
+.desktop-gallery-actions button,
+.desktop-share button,
+.desktop-paste button {
+  font: inherit;
+  color: inherit;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.desktop-account button:hover,
+.desktop-toolbar button:hover,
+.desktop-gallery-actions button:hover,
+.desktop-share button:hover,
+.desktop-paste button:hover {
+  border-color: #555;
+}
+
+.desktop-account button:disabled,
+.desktop-toolbar button:disabled,
+.desktop-gallery-actions button:disabled,
+.desktop-share button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.desktop-owner {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.desktop-notice {
+  background: #161616;
+  border: 1px solid #2c2c2c;
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.desktop-error {
+  border-color: #6e2c2c;
+}
+
+.desktop-paste {
+  display: grid;
+  gap: 0.5rem;
+  background: #111;
+  border: 1px solid #262626;
+  border-radius: 0.75rem;
+  padding: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.desktop-paste label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.desktop-paste input {
+  font: inherit;
+  color: inherit;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.desktop-paste-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  opacity: 0.65;
+}
+
+.desktop-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.desktop-sync-state {
+  font-size: 0.82rem;
+  opacity: 0.7;
+}
+
+.desktop-galleries {
+  display: grid;
+  gap: 1rem;
+}
+
+.desktop-gallery {
+  background: #111;
+  border: 1px solid #232323;
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+}
+
+.desktop-gallery.is-open {
+  border-color: #3a3a3a;
+}
+
+.desktop-gallery header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.desktop-gallery h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.desktop-gallery-meta {
+  font-size: 0.82rem;
+  opacity: 0.65;
+}
+
+.desktop-badge-unavailable {
+  font-size: 0.78rem;
+  color: #d9a441;
+  border: 1px solid #5a451c;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+}
+
+.desktop-gallery-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+/* Contact sheet: thumbs are object-fit contain on a dark tile — nothing is
+   cropped, matching the no-crop rule the viewer holds for full frames. */
+.desktop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.desktop-thumb {
+  display: grid;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: zoom-in;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.desktop-thumb img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: #060606;
+  border-radius: 0.4rem;
+  display: block;
+}
+
+.desktop-thumb-name {
+  font-size: 0.72rem;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-empty {
+  opacity: 0.65;
+  font-size: 0.9rem;
+  grid-column: 1 / -1;
+}
+
+/* The share sheet: an inline panel inside the gallery card — provider
+   choice, connect, explicit confirmation, progress, result. */
+.desktop-share {
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 0.75rem;
+  background: #0d0d0d;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.desktop-share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.desktop-share-header h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.desktop-share-providers {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.desktop-share-provider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.desktop-share-provider-name {
+  font-size: 0.92rem;
+}
+
+.desktop-share-provider-note {
+  font-size: 0.8rem;
+  opacity: 0.55;
+}
+
+.desktop-share-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  opacity: 0.65;
+}
+
+.desktop-share-confirm p,
+.desktop-share-connecting p,
+.desktop-share-progress p,
+.desktop-share-done p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.desktop-share-confirm,
+.desktop-share-connecting,
+.desktop-share-progress,
+.desktop-share-done {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.desktop-share-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.desktop-share-done a {
+  color: inherit;
+}
+
+.desktop-back {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 60;
+  font: inherit;
+  color: #e8e6e3;
+  background: rgba(16, 16, 16, 0.85);
+  border: 1px solid #3a3a3a;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}

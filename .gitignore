@@ -15,3 +15,7 @@ playwright-report/
 # Playwright MCP ephemeral artifacts
 .playwright-mcp/
 .devin/
+
+# Tauri build artifacts and generated capability schemas
+src-tauri/target/
+src-tauri/gen/
