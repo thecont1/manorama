@@ -7,6 +7,7 @@ import { accessEnvOf, resolveManoramaSession } from '../lib/dropbox-session'
 
 type RuntimeEnv = {
   PUBLIC_HOST?: string
+  STRIPE_PRO_PAYMENT_LINK?: string
 }
 
 export default createRoute(async (c) => {
@@ -33,6 +34,8 @@ export default createRoute(async (c) => {
         ownerName={user.displayName}
         publicHost={env.PUBLIC_HOST || new URL(c.req.url).host}
         tier={user.tier}
+        accountId={user.dropboxAccountId}
+        upgradeUrl={env.STRIPE_PRO_PAYMENT_LINK}
       />
       {/* Vendo is disabled platform-wide for now: no surface mounts here
           and no agent API is routed. Re-enable by reverting this change —

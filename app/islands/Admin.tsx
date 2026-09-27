@@ -10,6 +10,8 @@ type Props = {
   ownerName?: string
   publicHost: string
   tier?: 'free' | 'pro'
+  accountId?: string
+  upgradeUrl?: string
 }
 type EditableField = 'title' | 'caption' | 'slug'
 type Editing = { slug: string; field: EditableField } | null
@@ -72,7 +74,7 @@ const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M
 const SourceIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5v9A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 19 8h-7.5L9.5 5.5A1.5 1.5 0 0 0 8.5 5H5a1.5 1.5 0 0 0-1.5 1.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /><path d="M3.5 8.5h17" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
 
 /** Renders the owner's dashboard for importing, editing, and managing galleries. */
-export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free' }: Props) {
+export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free', accountId, upgradeUrl }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [sourceUrl, setSourceUrl] = useState('')
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -521,7 +523,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
             <p>Temporary · {Math.max(0, Math.ceil((Date.parse(gallery.expiresAt) - now) / 86_400_000))} days left</p>
             <p>Expires <time dateTime={gallery.expiresAt}>{gallery.expiresAt.replace('T', ' ').replace('.000Z', ' UTC')}</time>. Permanently removed from Manorama after 30 days unless you upgrade before expiry.</p>
-            <p>{PIPELINE_LOCK_MESSAGE} <a href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade</a></p>
+            {/* client_reference_id is how the Stripe webhook maps a
+                completed checkout back to this account — never strip it. */}
+            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeURIComponent(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>
