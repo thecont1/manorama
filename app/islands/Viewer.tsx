@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
+import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
@@ -59,6 +59,47 @@ const isTypingTarget = (el: HTMLElement | null) =>
   !!el && (el.isContentEditable || /^(textarea|select)$/i.test(el.tagName) ||
     (/^input$/i.test(el.tagName) &&
       !/^(button|checkbox|radio|range|file|image|submit|reset|color|hidden)$/i.test((el as HTMLInputElement).type)))
+
+// hono/jsx queues passive runners for a later animation frame; a second commit
+// can collect the same runner or supersede it before that frame. Version each
+// scheduled closure and cleanup or one keypress can duplicate every listener.
+type PassiveEffectSlot = {
+  deps?: readonly unknown[]
+  version: number
+  ranVersion: number
+  activeVersion: number
+  cleanup?: () => void
+}
+
+const passiveDepsChanged = (prev: readonly unknown[] | undefined, deps?: readonly unknown[]) =>
+  !prev || !deps || prev.length !== deps.length || deps.some((dep, index) => dep !== prev[index])
+
+const useEffect = (effect: () => void | (() => void), deps?: readonly unknown[]) => {
+  const slotRef = useRef<PassiveEffectSlot>({ version: 0, ranVersion: 0, activeVersion: 0 })
+  const slot = slotRef.current
+  if (passiveDepsChanged(slot.deps, deps)) {
+    slot.deps = deps
+    slot.version += 1
+  }
+  const version = slot.version
+  // Unmount can land between render and the queued runner's frame — a layout
+  // cleanup invalidates the version synchronously, so the runner fails its
+  // check instead of calling effect() on a dead tree.
+  useLayoutEffect(() => () => { slot.version += 1 }, [])
+  useHonoEffect(() => {
+    if (version === slot.version && version !== slot.ranVersion && slot.activeVersion === 0) {
+      slot.ranVersion = version
+      slot.activeVersion = version
+      slot.cleanup = effect() ?? undefined
+    }
+    return () => {
+      if (slot.activeVersion !== version) return
+      slot.activeVersion = 0
+      slot.cleanup?.()
+      slot.cleanup = undefined
+    }
+  }, deps)
+}
 
 /** In vertical mode, frames beyond the viewport stay active only up to this
  *  many past the visible set — enough to not thrash on small scrolls, bounded
@@ -170,6 +211,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const [galleryEntered, setGalleryEntered] = useState(() =>
     typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
   const magnifierRef = useRef<MagnifierHandle | null>(null)
+  const magnifierKeyRef = useRef<((event: KeyboardEvent) => void) | null>(null)
   const heicPendingRef = useRef(new Set<string>())
   const heicUrlsRef = useRef(new Map<string, string>())
   const unmountedRef = useRef(false)
@@ -1072,11 +1114,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
   useEffect(() => {
     if (!magnifierAvailable) return
+    magnifierRef.current?.destroy()
     const handle = attachMagnifier(stageRef.current)
     magnifierRef.current = handle
     return () => {
       handle?.destroy()
-      magnifierRef.current = null
+      if (magnifierRef.current === handle) magnifierRef.current = null
     }
   }, [magnifierAvailable])
 
@@ -1098,6 +1141,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // Esc closes it when no modal is open (a modal's own Esc handler wins).
   useEffect(() => {
     if (!magnifierAvailable) return
+    if (magnifierKeyRef.current) window.removeEventListener('keydown', magnifierKeyRef.current)
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
@@ -1119,8 +1163,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
       if (handle.isActive()) { handle.deactivate(); setMagnifierActive(false) }
       else { handle.activate(); setMagnifierActive(true) }
     }
+    magnifierKeyRef.current = onKey
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      if (magnifierKeyRef.current === onKey) magnifierKeyRef.current = null
+    }
     // Same deliberate omission as the nav handler: re-arming on modal
     // transitions would leave a window where M/Esc presses vanish.
   }, [magnifierAvailable])
