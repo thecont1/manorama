@@ -3,28 +3,67 @@ mod private_store;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 
-/// Widens both runtime scopes by exactly one user-picked root. The fs
-/// plugin scope lets `readDir`/`exists` list inside it; the asset protocol
-/// scope lets `convertFileSrc` URLs resolve. Neither scope ever contains
-/// `**` — a root only enters through the directory picker.
-#[tauri::command]
-fn register_gallery_root(app: AppHandle, path: String) -> Result<(), String> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err("An empty path cannot be a gallery root".into());
-    }
-    let dir = PathBuf::from(trimmed);
+/// Grants both runtime scopes to one directory. The fs plugin scope lets
+/// `readDir`/`exists` list inside it; the asset protocol scope lets
+/// `convertFileSrc` URLs resolve. Neither scope ever contains `**`.
+fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
     app.asset_protocol_scope()
-        .allow_directory(&dir, true)
+        .allow_directory(dir, true)
         .map_err(|e| e.to_string())?;
     app.fs_scope()
-        .allow_directory(&dir, true)
+        .allow_directory(dir, true)
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// The only way a path enters a scope: the renderer asks for a pick, Rust
+/// shows the folder dialog, and the directory the user picked — never a
+/// path the renderer supplied — is what gets granted.
+#[tauri::command]
+fn pick_gallery_root(app: AppHandle) -> Result<Option<String>, String> {
+    let Some(picked) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let Some(dir) = picked.as_path().map(|p| p.to_path_buf()) else {
+        return Ok(None);
+    };
+    allow_root(&app, &dir)?;
+    Ok(Some(dir.to_string_lossy().to_string()))
+}
+
+/// Re-grants every saved root — runtime scopes reset each launch, so the
+/// catalogue is re-registered on start and after a card remounts. The paths
+/// are read out of the private catalogue here rather than accepted from the
+/// renderer, same boundary as `pick_gallery_root`.
+#[tauri::command]
+fn register_saved_gallery_roots(app: AppHandle) -> Result<(), String> {
+    let Ok(Some(contents)) = private_store::read_private_file(app.clone(), "catalogue.json".into())
+    else {
+        return Ok(());
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) else {
+        return Ok(());
+    };
+    let Some(galleries) = value.get("galleries").and_then(|g| g.as_array()) else {
+        return Ok(());
+    };
+    for root in galleries
+        .iter()
+        .filter_map(|g| g.get("rootPath").and_then(|p| p.as_str()))
+    {
+        // A vanished mount (ejected card) must not fail the batch.
+        if !root.trim().is_empty() {
+            let _ = allow_root(&app, &PathBuf::from(root.trim()));
+        }
+    }
     Ok(())
 }
 
@@ -32,11 +71,37 @@ fn register_gallery_root(app: AppHandle, path: String) -> Result<(), String> {
 /// forbids custom-scheme redirects for desktop clients; the documented path
 /// is an ephemeral http://127.0.0.1:<port> receiver, which a plain
 /// TcpListener provides — no extra crates, no fixed port to collide with.
-struct LoopbackState(Mutex<Option<TcpListener>>);
+struct LoopbackHandle {
+    listener: TcpListener,
+    /// A finish() is already draining this listener — it stays single-consumer.
+    claimed: AtomicBool,
+    cancelled: AtomicBool,
+}
 
-/// Binds 127.0.0.1 on an ephemeral port and returns the port. The listener
-/// is held in app state until `oauth_loopback_finish` accepts exactly one
-/// request; beginning a new flow replaces any abandoned listener.
+struct LoopbackState(Mutex<Option<Arc<LoopbackHandle>>>);
+
+/// Bounds on the wait: consent screens get minutes, stray connections get
+/// seconds, and a cancelled or abandoned flow frees the thread instead of
+/// parking in accept() forever.
+const LOOPBACK_TIMEOUT: Duration = Duration::from_secs(300);
+const LOOPBACK_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const LOOPBACK_POLL: Duration = Duration::from_millis(50);
+
+/// Only the provider redirect carries OAuth response params — anything else
+/// on the port (a probe, a favicon fetch, local noise) is not allowed to
+/// consume the one connection the flow is waiting for.
+fn oauth_target_from(request_line: &str) -> Option<&str> {
+    let mut parts = request_line.split_whitespace();
+    if parts.next() != Some("GET") {
+        return None;
+    }
+    let target = parts.next()?;
+    (target.starts_with("/?") && (target.contains("code=") || target.contains("error=")))
+        .then_some(target)
+}
+
+/// Binds 127.0.0.1 on an ephemeral port and returns the port. Beginning a
+/// new flow cancels any listener still waiting on an abandoned one.
 #[tauri::command]
 fn oauth_loopback_begin(state: tauri::State<LoopbackState>) -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
@@ -44,44 +109,100 @@ fn oauth_loopback_begin(state: tauri::State<LoopbackState>) -> Result<u16, Strin
         .local_addr()
         .map_err(|e| e.to_string())?
         .port();
+    let handle = Arc::new(LoopbackHandle {
+        listener,
+        claimed: AtomicBool::new(false),
+        cancelled: AtomicBool::new(false),
+    });
     let mut slot = state.0.lock().map_err(|e| e.to_string())?;
-    *slot = Some(listener);
+    if let Some(previous) = slot.replace(handle) {
+        previous.cancelled.store(true, Ordering::SeqCst);
+    }
     Ok(port)
 }
 
-/// Waits for the browser's one redirect, answers with a "return to the app"
-/// page, and resolves with the request target (`/?code=…&state=…`) for the
-/// front end to parse. Runs on a blocking thread so the async runtime is
-/// never stalled while the user is in the consent screen.
+/// Releases a waiting receiver when the front end abandons the flow —
+/// without this the blocking accept outlives the cancellation.
+#[tauri::command]
+fn oauth_loopback_cancel(state: tauri::State<LoopbackState>) -> Result<(), String> {
+    if let Some(handle) = state.0.lock().map_err(|e| e.to_string())?.take() {
+        handle.cancelled.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+/// Waits for the browser's redirect, answers the matching request with a
+/// "return to the app" page, and resolves with its request target
+/// (`/?code=…&state=…`) for the front end to parse. Runs on a blocking
+/// thread so the async runtime is never stalled while the user is in the
+/// consent screen.
 #[tauri::command]
 async fn oauth_loopback_finish(state: tauri::State<'_, LoopbackState>) -> Result<String, String> {
-    let listener = {
-        let mut slot = state.0.lock().map_err(|e| e.to_string())?;
-        slot.take().ok_or("No loopback listener is waiting")?
+    let handle = {
+        let slot = state.0.lock().map_err(|e| e.to_string())?;
+        slot.clone().ok_or("No loopback listener is waiting")?
     };
-    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
-        let mut buffer = [0u8; 16 * 1024];
-        let read = stream.read(&mut buffer).map_err(|e| e.to_string())?;
-        let request = String::from_utf8_lossy(&buffer[..read]);
-        let line = request.lines().next().unwrap_or_default();
-        let target = line
-            .split_whitespace()
-            .nth(1)
-            .ok_or("The loopback request was malformed")?
-            .to_string();
-        let page = "<!doctype html><title>manorama</title>\
-            <p>Connected. You can close this tab and return to manorama.</p>";
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            page.len(),
-            page
-        );
-        stream.write_all(response.as_bytes()).map_err(|e| e.to_string())?;
-        Ok(target)
+    if handle.claimed.swap(true, Ordering::SeqCst) {
+        return Err("No loopback listener is waiting".into());
+    }
+    let worker = Arc::clone(&handle);
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        worker
+            .listener
+            .set_nonblocking(true)
+            .map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + LOOPBACK_TIMEOUT;
+        loop {
+            if worker.cancelled.load(Ordering::SeqCst) {
+                return Err("The provider connection was cancelled".into());
+            }
+            if Instant::now() >= deadline {
+                return Err("Timed out waiting for the provider redirect".into());
+            }
+            match worker.listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(LOOPBACK_READ_TIMEOUT))
+                        .map_err(|e| e.to_string())?;
+                    let mut buffer = [0u8; 16 * 1024];
+                    let request = match stream.read(&mut buffer) {
+                        Ok(read) => String::from_utf8_lossy(&buffer[..read]).into_owned(),
+                        Err(_) => continue,
+                    };
+                    let line = request.lines().next().unwrap_or_default();
+                    let Some(target) = oauth_target_from(line).map(|t| t.to_string()) else {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        );
+                        continue;
+                    };
+                    let page = "<!doctype html><title>manorama</title>\
+                        <p>Connected. You can close this tab and return to manorama.</p>";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        page.len(),
+                        page
+                    );
+                    stream.write_all(response.as_bytes()).map_err(|e| e.to_string())?;
+                    return Ok(target);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(LOOPBACK_POLL);
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    // Free the slot — but only while it still holds THIS listener, never a
+    // newer flow that replaced us mid-wait.
+    if let Ok(mut slot) = state.0.lock() {
+        if slot.as_ref().is_some_and(|h| Arc::ptr_eq(h, &handle)) {
+            *slot = None;
+        }
+    }
+    result
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -93,8 +214,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(LoopbackState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
-            register_gallery_root,
+            pick_gallery_root,
+            register_saved_gallery_roots,
             oauth_loopback_begin,
+            oauth_loopback_cancel,
             oauth_loopback_finish,
             private_store::read_private_file,
             private_store::write_private_file,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { parseDeviceGalleryInput } from '../../packages/core/device-gallery'
+import { MAX_GALLERY_ITEMS } from '../../packages/core/imagesource'
 import {
   deserializeLocalCatalogue,
   deviceGalleryInput,
@@ -115,6 +116,15 @@ describe('sync payload hygiene', () => {
     expect(payload).not.toContain('secret')
     expect(payload).not.toContain('shot.jpg')
     expect(payload).not.toContain('/')
+  })
+
+  test('caps the wire itemCount at MAX_GALLERY_ITEMS while the record keeps the true total', () => {
+    const oversized = record({ itemCount: MAX_GALLERY_ITEMS + 40 })
+    const cat = catalogue([oversized])
+    const input = deviceGalleryInput(oversized, cat)
+    expect(input.itemCount).toBe(MAX_GALLERY_ITEMS)
+    expect(oversized.itemCount).toBe(MAX_GALLERY_ITEMS + 40)
+    expect(parseDeviceGalleryInput(input)).not.toBeNull()
   })
 
   test('deviceGalleryRequest describes the exact wire request', () => {

@@ -45,6 +45,8 @@ describe('path helpers', () => {
     expect(baseName('/Users/a/Photos/')).toBe('Photos')
     expect(galleryTitleForRoot('/Volumes/CARD')).toBe('CARD')
     expect(galleryTitleForRoot('/')).toBe('Local folder')
+    // Over-length folder names clamp to the wire title limit.
+    expect(galleryTitleForRoot(`/Volumes/${'x'.repeat(200)}`).length).toBe(120)
   })
 
   test('classifies /Volumes roots as cards with their mount point', () => {

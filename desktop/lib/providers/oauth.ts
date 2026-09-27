@@ -416,8 +416,12 @@ export const handleProviderDeepLink = (url: string): boolean => {
   return true
 }
 
-export const cancelProviderConnect = (): void =>
+export const cancelProviderConnect = (): void => {
+  // A Drive flow also has a Rust listener parked in accept() — release it
+  // or the thread and port stay held until the server-side timeout.
+  if (pendingOAuth?.provider === 'drive') void invoke('oauth_loopback_cancel').catch(() => {})
   failPending(new Error('The connection was cancelled.'))
+}
 
 const openSystem = async (url: string): Promise<void> =>
   (await import('@tauri-apps/plugin-opener')).openUrl(url)
@@ -459,6 +463,7 @@ export const connectProvider = async (provider: UploadProviderId): Promise<void>
   try {
     await openSystem(buildProviderAuthorizeUrl(provider, { clientId, redirectUri, state, codeChallenge: challenge }))
   } catch (error) {
+    if (provider === 'drive') void invoke('oauth_loopback_cancel').catch(() => {})
     failPending(error instanceof Error ? error : new Error('The system browser could not be opened.'))
     return done
   }

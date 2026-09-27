@@ -1,4 +1,5 @@
 import { MAX_GALLERY_ITEMS, type GalleryMediaItem } from '../../packages/core/imagesource'
+import { MAX_GALLERY_TITLE_LENGTH } from '../../packages/core/device-gallery'
 
 /**
  * Local folder/card scanning for the Tauri shell — pure logic. Directory
@@ -73,8 +74,10 @@ export const baseName = (path: string): string => {
   return cleaned.slice(Math.max(slash, backslash) + 1)
 }
 
+// The wire schema rejects titles over MAX_GALLERY_TITLE_LENGTH — a longer
+// folder name would make every sync of the gallery fail.
 export const galleryTitleForRoot = (root: string): string =>
-  baseName(root) || 'Local folder'
+  baseName(root).trim().slice(0, MAX_GALLERY_TITLE_LENGTH).trim() || 'Local folder'
 
 /**
  * Source classification: anything under a non-boot mount in /Volumes is a

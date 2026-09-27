@@ -1,4 +1,5 @@
 import { parseDeviceGalleryInput, type DeviceGalleryInput } from '../../packages/core/device-gallery'
+import { MAX_GALLERY_ITEMS } from '../../packages/core/imagesource'
 import type { LocalGalleryItem } from './local-scan'
 
 /**
@@ -159,7 +160,9 @@ export const deviceGalleryInput = (
 ): DeviceGalleryInput => ({
   title: record.title,
   sourceKind: record.sourceKind,
-  itemCount: record.itemCount,
+  // The record keeps the true local total; only the wire value is capped —
+  // `parseDeviceGalleryInput` rejects counts above MAX_GALLERY_ITEMS.
+  itemCount: Math.min(record.itemCount, MAX_GALLERY_ITEMS),
   deviceId: catalogue.deviceId,
   deviceLabel: catalogue.deviceLabel,
 })

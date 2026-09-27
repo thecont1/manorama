@@ -328,7 +328,7 @@ and image bytes stay on the Mac. Other devices show unavailable catalogue entrie
 Dropbox and Google Drive uploads require separate write authorisation and an explicit
 user action, with confirmation before public sharing and gallery publication.
 
-The first Mac build supports JPEG, WebP, AVIF, HEIC and HEIF. RAW/TIFF and Nearby are
+The first Mac build supports JPEG, PNG, WebP, AVIF, HEIC and HEIF. RAW/TIFF and Nearby are
 out of scope. Provider setup, device acceptance and external distribution remain
 release gates; the working signing identities and notarytool profile are prerequisites,
 not proof of an accepted build.

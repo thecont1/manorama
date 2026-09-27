@@ -1,9 +1,10 @@
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 /// App-private JSON documents under the app config dir: the session token,
 /// the local gallery catalogue, the provider OAuth grants for the upload
@@ -52,9 +53,17 @@ pub fn write_private_file(app: AppHandle, name: String, contents: String) -> Res
         ".{}.tmp",
         path.file_name().and_then(|n| n.to_str()).unwrap_or("private")
     ));
-    fs::write(&tmp, contents.as_bytes()).map_err(|e| e.to_string())?;
+    // The temp file goes to 0600 BEFORE the contents land — OpenOptions'
+    // mode covers creation, set_permissions covers a tmp file reused after
+    // an earlier crashed write, and neither leaves a umask-wide window.
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&tmp).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
+    file.write_all(contents.as_bytes()).map_err(|e| e.to_string())?;
     fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
     Ok(())
 }

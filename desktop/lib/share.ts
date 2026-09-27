@@ -24,7 +24,7 @@ import type { ReadFileBytes, UploadFile, UploadProgress, UploadProvider } from '
 
 // --- Names -------------------------------------------------------------------
 
-const UNSAFE_UPLOAD_CHARS = /[\\/:*?"<>|\x00-\x1f\x7f-]/g
+const UNSAFE_UPLOAD_CHARS = /[\\/:*?"<>|\x00-\x1f\x7f]/g
 const MAX_UPLOAD_NAME = 200
 
 /**

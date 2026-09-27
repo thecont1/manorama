@@ -20,7 +20,7 @@ import {
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from '../lib/catalogue'
-import { assetUrl, pathExists, pickGalleryFolder, readDirEntries, registerGalleryRoot } from '../lib/tauri'
+import { assetUrl, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { handleProviderDeepLink } from '../lib/providers/oauth'
@@ -80,6 +80,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [busy, setBusy] = useState(false)
   const [shareGalleryId, setShareGalleryId] = useState<string | null>(null)
   const dimsRef = useRef<DimsMap>(new Map())
+  // The deep-link sign-in callback is installed once at launch — a ref is
+  // the only way it can sync the catalogue as it is THEN, not as it was.
+  const catalogueRef = useRef<LocalCatalogue | null>(null)
+  useEffect(() => {
+    catalogueRef.current = catalogue
+  }, [catalogue])
 
   const persistCatalogue = useCallback(async (next: LocalCatalogue) => {
     setCatalogue(next)
@@ -119,9 +125,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       } catch {
         next = newCatalogue(crypto.randomUUID(), DEVICE_LABEL)
       }
-      for (const record of next.galleries) {
-        await registerGalleryRoot(record.rootPath).catch(() => {})
-      }
+      await registerSavedGalleryRoots().catch(() => {})
       const avail = await probeAllAvailability(next.galleries, pathExists)
       if (!active) return
       setCatalogue(next)
@@ -133,7 +137,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         (signedIn) => {
           setSession(signedIn)
           setAuthError(null)
-          void runSync(next, signedIn)
+          void runSync(catalogueRef.current ?? next, signedIn)
         },
         setAuthError,
         // Everything else on our scheme is a provider OAuth redirect —
@@ -153,7 +157,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     try {
       const root = await pickGalleryFolder()
       if (!root || !catalogue) return
-      await registerGalleryRoot(root)
       const scan = await scanLocalDirectory(root, readDirEntries)
       if (!scan.items.length) {
         setNotice('That folder has no photos Manorama can display')
@@ -167,7 +170,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         rootPath: root,
         sourceKind,
         ...(mountPoint ? { mountPoint } : {}),
-        itemCount: scan.items.length,
+        itemCount: scan.truncated ?? scan.items.length,
         items: scan.items,
         addedAt: now,
         lastSeenAt: now,
@@ -196,7 +199,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setNotice(null)
     // A remounted card needs its scope granted again — runtime scopes do
     // not survive eject + relaunch.
-    await registerGalleryRoot(record.rootPath).catch(() => {})
+    await registerSavedGalleryRoots().catch(() => {})
     const status = await probeAvailability(record, pathExists)
     setAvailability((previous) => ({ ...previous, [record.id]: status }))
     if (status === 'unavailable') {
@@ -209,7 +212,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       const updated: LocalGalleryRecord = {
         ...record,
         items: scan.items,
-        itemCount: scan.items.length,
+        itemCount: scan.truncated ?? scan.items.length,
         lastSeenAt: new Date().toISOString(),
       }
       const next = {

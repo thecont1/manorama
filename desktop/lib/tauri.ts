@@ -1,5 +1,4 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
 import { exists, readDir, readFile } from '@tauri-apps/plugin-fs'
 import type { LocalScanEntry } from './local-scan'
 
@@ -12,18 +11,24 @@ import type { LocalScanEntry } from './local-scan'
 export const isDesktopRuntime = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
+/**
+ * Opens the native folder picker in Rust and grants the fs-plugin and
+ * asset-protocol scopes to the picked root in the same call. The renderer
+ * never supplies a path, so a scope can only ever cover what was picked.
+ */
 export const pickGalleryFolder = async (): Promise<string | null> => {
-  const picked = await open({ directory: true, multiple: false })
+  const picked = await invoke<string | null>('pick_gallery_root')
   return typeof picked === 'string' && picked.trim() ? picked : null
 }
 
 /**
- * Grants the fs-plugin and asset-protocol scopes access to one picked root.
- * Must run after every pick AND on every launch for each saved root — both
- * scopes are runtime state and reset when the app restarts.
+ * Re-grants both scopes to every saved root on launch and after a remount —
+ * both scopes are runtime state and reset when the app restarts. Rust reads
+ * the paths out of the private catalogue itself rather than trusting a
+ * renderer-supplied argument.
  */
-export const registerGalleryRoot = async (path: string): Promise<void> =>
-  invoke('register_gallery_root', { path })
+export const registerSavedGalleryRoots = async (): Promise<void> =>
+  invoke('register_saved_gallery_roots')
 
 export const readDirEntries = async (dir: string): Promise<LocalScanEntry[]> => {
   const entries = await readDir(dir)

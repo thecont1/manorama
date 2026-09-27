@@ -49,6 +49,8 @@ describe('sanitizeUploadName', () => {
     // Anything before a slash is a path component and drops entirely.
     expect(sanitizeUploadName('a/b:c*d?"e<>|f.jpg')).toBe('b c d e f.jpg')
     expect(sanitizeUploadName('a:b*c?d"e<>|f.jpg')).toBe('a b c d e f.jpg')
+    // Hyphens are provider-safe — they survive untouched.
+    expect(sanitizeUploadName('IMG-0001.jpg')).toBe('IMG-0001.jpg')
     expect(sanitizeUploadName('..hidden')).toBe('hidden')
     expect(sanitizeUploadName('   ')).toBe('file')
     expect(sanitizeUploadName('')).toBe('file')
