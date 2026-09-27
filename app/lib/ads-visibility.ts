@@ -121,7 +121,9 @@ export const webAdFrameForRequest = async (
   env: SessionEnv & AdVisibilityEnv,
   networkFrame?: AdFrame | null,
 ): Promise<AdFrame | null> => {
-  const session = await resolveManoramaSession(request, env)
+  // The plate lookup is auxiliary to the render — a session-store failure
+  // degrades to anonymous, never to a failed gallery page.
+  const session = await resolveManoramaSession(request, env).catch(() => null)
   const day = new Date().toISOString().slice(0, 10)
   const region = ((request as { cf?: { country?: string } }).cf?.country ?? '').toUpperCase()
   const suppressedBy = await adSuppressionFor(day, region, env).catch(() => null)

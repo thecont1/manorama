@@ -10,6 +10,7 @@ import {
   webAdFrameForRequest,
 } from './ads-visibility'
 import { resetUserStore, setUserTier, upsertUser } from './user-repository'
+import type { D1Database } from '@cloudflare/workers-types'
 import { sessionCookieFor, TEST_SESSION_SECRET } from './test-fixtures'
 import type { AdFrame } from './adframe'
 
@@ -104,6 +105,15 @@ describe('web ad frame request policy', () => {
     expect(await webAdFrameForRequest(pageRequest(), sessionEnv, suppliedFrame)).toBe(suppliedFrame)
     expect(await webAdFrameForRequest(pageRequest(await sessionCookieFor(freeViewer)), sessionEnv, suppliedFrame)).toBe(suppliedFrame)
     expect(await webAdFrameForRequest(pageRequest(await sessionCookieFor(proViewer)), sessionEnv, suppliedFrame)).toBe(WEB_HOUSE_AD_FRAME)
+  })
+
+  test('a session-store failure degrades to anonymous instead of failing the render', async () => {
+    const brokenDbEnv = {
+      HOST_API_JWT_SECRET: TEST_SESSION_SECRET,
+      DB: { prepare: () => { throw new Error('d1 down') } } as unknown as D1Database,
+    }
+    const cookie = await sessionCookieFor(freeViewer)
+    expect(await webAdFrameForRequest(pageRequest(cookie), brokenDbEnv, suppliedFrame)).toBe(suppliedFrame)
   })
 
   test('a day suppression hides the plate for every viewer', async () => {
