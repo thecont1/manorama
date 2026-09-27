@@ -314,8 +314,24 @@ vault (C1) is the prerequisite, which is another reason it ships first.
 
 ### I. Desktop
 
-Tauri for macOS and Windows: folder and memory-card ingest, watch folders, the studio half of
-the product. Mac App Store distribution via notarisation. Deliberately post-Shipaton.
+The October 1 milestone is an externally installable, Developer ID-signed and notarised
+Tauri macOS test build. Windows remains a later target. The desktop shell reuses the
+platform-free gallery core and viewer, not the Capacitor bootstrap.
+
+Users deliberately select a local folder or mounted memory card and view originals in
+place. Manorama makes no local photo copies. A removed card leaves its private catalogue
+entry intact; reconnecting restores access. There is no background folder monitoring,
+automatic append, upload, or publication. A manual rescan is the only inventory refresh.
+
+Only gallery-level metadata syncs to the account; paths, bookmarks, per-photo manifests,
+and image bytes stay on the Mac. Other devices show unavailable catalogue entries.
+Dropbox and Google Drive uploads require separate write authorisation and an explicit
+user action, with confirmation before public sharing and gallery publication.
+
+The first Mac build supports JPEG, WebP, AVIF, HEIC and HEIF. RAW/TIFF and Nearby are
+out of scope. Provider setup, device acceptance and external distribution remain
+release gates; the working signing identities and notarytool profile are prerequisites,
+not proof of an accepted build.
 
 ---
 
