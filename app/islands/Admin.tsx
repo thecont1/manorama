@@ -117,6 +117,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // The account's sign-in methods — null until the identities answer lands.
   const [identities, setIdentities] = useState<AccountIdentity[] | null>(null)
   const [identityNote, setIdentityNote] = useState('')
+  // Account deletion waits on a typed URL name so a stray tap cannot fire it.
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleteNote, setDeleteNote] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
@@ -176,6 +180,27 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       setIdentityNote('That sign-in method could not be removed.')
     }
   }
+
+  const removeAccount = async () => {
+    setDeleteNote('')
+    setDeleteBusy(true)
+    try {
+      const response = await fetch('/api/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: deleteConfirm.trim() }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'Your account could not be deleted right now')
+      // The API has already expired the session cookie; leaving for the
+      // landing drops the owner straight into the signed-out state.
+      window.location.assign('/')
+    } catch (error) {
+      setDeleteNote(error instanceof Error ? error.message : 'Your account could not be deleted right now')
+      setDeleteBusy(false)
+    }
+  }
+
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof localStorage === 'undefined') return 'dark'
@@ -591,6 +616,34 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 {identityNote ? <p class="admin-identities-note">{identityNote}</p> : null}
               </section>
             ) : null}
+            <details class="admin-delete-account">
+              <summary>Delete account</summary>
+              <p>
+                This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in your
+                Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first — App Store:
+                Settings › Subscriptions; web: your Stripe receipt.
+              </p>
+              <label class="admin-delete-confirm">
+                Type your URL name ({owner}) to confirm
+                <input
+                  type="text"
+                  value={deleteConfirm}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellcheck={false}
+                  onInput={(event) => setDeleteConfirm((event.currentTarget as HTMLInputElement).value)}
+                />
+              </label>
+              <button
+                type="button"
+                class="admin-delete-button"
+                disabled={deleteBusy || deleteConfirm.trim() !== owner}
+                onClick={() => { void removeAccount() }}
+              >
+                {deleteBusy ? 'Deleting…' : 'Delete my account'}
+              </button>
+              {deleteNote ? <p class="admin-identities-note">{deleteNote}</p> : null}
+            </details>
           </div>
         </div>
         <div class="admin-display-toggles" role="group" aria-label="Display preferences">

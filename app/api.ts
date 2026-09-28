@@ -1,5 +1,6 @@
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { deleteCookie } from 'hono/cookie'
 import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
@@ -9,8 +10,8 @@ import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from '.
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
-import { createSessionToken, requireSession, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
-import { getUserByAccountId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { createSessionToken, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { deleteAccount, getUserByAccountId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
@@ -482,6 +483,38 @@ export const createManoramaApi = () => {
       if (error instanceof OwnerSlugError) return c.json({ error: error.message }, 422)
       return c.json({ error: 'That URL could not be changed' }, 503)
     }
+  })
+
+  /** Deletes the signed-in account and every Manorama row it owns in one
+   *  batch. App Review 5.1.1(v) requires a self-serve path inside the app;
+   *  the typed URL name keeps a stray tap from wiping an account, and
+   *  nothing at any provider is ever touched. */
+  api.delete('/api/account', async (c) => {
+    const session = c.get('manoramaSession')
+    const payload: unknown = await c.req.json().catch(() => null)
+    const confirm = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).confirm
+      : undefined
+    if (typeof confirm !== 'string' || confirm.trim() !== session.ownerSlug) {
+      return c.json({ error: 'Type your URL name to confirm' }, 400)
+    }
+    try {
+      const deleted = await deleteAccount(session.accountId, dbEnv(c))
+      if (!deleted) return c.json({ error: 'That account was not found' }, 404)
+    } catch {
+      return c.json({ error: 'Your account could not be deleted right now' }, 503)
+    }
+    // Same teardown as /auth/logout so the web session dies with the account.
+    deleteCookie(c, SESSION_COOKIE, { path: '/' })
+    return c.json({ ok: true })
+  })
+
+  /** The account's own URL name, straight from the session — the native
+   *  delete flow fetches it to recover a wiped secure store, since the
+   *  DELETE below needs it as the typed confirmation. */
+  api.get('/api/account', async (c) => {
+    const session = c.get('manoramaSession')
+    return c.json({ ownerSlug: session.ownerSlug })
   })
 
   /** The sign-in methods bound to the account. Provider subjects never

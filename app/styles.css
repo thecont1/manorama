@@ -980,6 +980,35 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
 .admin-identities-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .admin-identity { display: flex; align-items: baseline; gap: 12px; font-size: 13px; color: rgba(var(--ink), .72); }
 .admin-identities-note { margin: 10px 0 0; color: rgba(var(--ink), .55); font-size: 12px; }
+/* Account deletion: the same quiet treatment as sign-in methods — a folded
+   destructive action, not a headline. */
+.admin-delete-account { margin: 1.6em 0 0; }
+.admin-delete-account summary { color: rgba(var(--ink), .5); font-size: 12px; letter-spacing: .04em; cursor: pointer; }
+.admin-delete-account > p { margin: 10px 0 0; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; max-width: 46em; }
+.admin-delete-confirm { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; color: rgba(var(--ink), .55); font-size: 12px; }
+.admin-delete-confirm input {
+  max-width: 22em;
+  padding: 5px 9px;
+  border: 1px solid rgba(var(--ink), .28);
+  border-radius: 5px;
+  background: rgba(var(--ink), .05);
+  color: rgb(var(--ink));
+  font-family: inherit;
+  font-size: 13px;
+}
+.admin-delete-confirm input:focus-visible { border-color: rgba(var(--ink), .85); background: rgba(var(--ink), .1); outline: none; }
+.admin-delete-button {
+  margin: 12px 0 0;
+  padding: 3px 12px;
+  border: 1px solid rgba(var(--ink), .4);
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(var(--ink), .82);
+  font-size: .85em;
+  cursor: pointer;
+}
+.admin-delete-button:hover:not(:disabled), .admin-delete-button:focus-visible { border-color: rgba(255, 190, 180, .85); color: rgba(255, 210, 202, .94); outline: none; }
+.admin-delete-button:disabled { cursor: not-allowed; opacity: .4; }
 .admin-limit-count {
   display: block;
   margin: -18px 0 26px;
