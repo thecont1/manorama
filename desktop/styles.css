@@ -100,6 +100,15 @@ body {
   letter-spacing: .02em;
 }
 
+/* The web's .landing-signin are transparent anchors; as <button>s they pick
+   up a UA background, so the welcome copies reset to the web's hairline look. */
+.desktop-welcome .landing-signin:not(.desktop-primary) {
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+
 .desktop-primary {
   background: rgba(var(--ink), .92);
   border-color: transparent;
