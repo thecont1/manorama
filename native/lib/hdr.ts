@@ -3,7 +3,9 @@
  * viewer untouched, so this module only reports what the shell claims —
  * it cannot verify anything. `dynamic-range: high` is untrusted: WebKit
  * has reported it on hardware without the headroom (WebKit #254489), and
- * no web API measures luminance headroom to prove it wrong. The display-p3
+ * no web API measures luminance headroom to prove it wrong.
+ * `video-dynamic-range: high` describes the video plane, not the display,
+ * so it is reported separately and never feeds the verdict. The display-p3
  * canvas probe only proves a wide-gamut backing store can be allocated,
  * which WebKit grants on sRGB panels too; it gates `wideGamut`, never the
  * verdict. The verdict is therefore at most 'claimed': callers must not
@@ -24,6 +26,8 @@ export type HdrVerdict = 'sdr' | 'claimed'
 export type HdrReport = {
   /** The display claims extended range — untrusted on its own. */
   claimsDynamicRange: boolean
+  /** The video plane claims extended range — never used for the image verdict. */
+  claimsVideoDynamicRange: boolean
   /** Widest gamut the media queries will vouch for. */
   gamut: HdrGamut
   /** A canvas capability, not display proof — WebKit grants p3 backing stores on sRGB panels. */
@@ -35,8 +39,8 @@ export type HdrReport = {
 }
 
 export const probeHdr = (matchMedia: MediaQuery, canvasP3: CanvasP3Probe): HdrReport => {
-  const claimsDynamicRange =
-    matchMedia('(dynamic-range: high)') || matchMedia('(video-dynamic-range: high)')
+  const claimsDynamicRange = matchMedia('(dynamic-range: high)')
+  const claimsVideoDynamicRange = matchMedia('(video-dynamic-range: high)')
   const gamut: HdrGamut = matchMedia('(color-gamut: rec2020)')
     ? 'rec2020'
     : matchMedia('(color-gamut: p3)')
@@ -45,6 +49,7 @@ export const probeHdr = (matchMedia: MediaQuery, canvasP3: CanvasP3Probe): HdrRe
   const canvasSupportsP3 = canvasP3()
   return {
     claimsDynamicRange,
+    claimsVideoDynamicRange,
     gamut,
     canvasSupportsP3,
     wideGamut: gamut !== 'srgb' && canvasSupportsP3,

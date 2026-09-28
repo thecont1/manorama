@@ -5,6 +5,7 @@ const mq = (yes: string[]) => (query: string) => yes.includes(query)
 
 const SDR: HdrReport = {
   claimsDynamicRange: false,
+  claimsVideoDynamicRange: false,
   gamut: 'srgb',
   canvasSupportsP3: false,
   wideGamut: false,
@@ -23,10 +24,11 @@ describe('probeHdr', () => {
     expect(report.wideGamut).toBe(true)
   })
 
-  test('video-dynamic-range alone still counts as the claim', () => {
-    expect(probeHdr(mq(['(video-dynamic-range: high)', '(color-gamut: p3)']), () => true).hdr).toBe(
-      'claimed',
-    )
+  test('a video-plane claim alone does not enable the image verdict', () => {
+    const report = probeHdr(mq(['(video-dynamic-range: high)', '(color-gamut: p3)']), () => true)
+    expect(report.hdr).toBe('sdr')
+    expect(report.claimsVideoDynamicRange).toBe(true)
+    expect(report.claimsDynamicRange).toBe(false)
   })
 
   test('the WebKit #254489 case: a P3 SDR panel with a false claim is only ever claimed', () => {
