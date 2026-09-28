@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'hono/jsx'
+import { Browser } from '@capacitor/browser'
 import { RevenueCatBilling } from '../lib/billing'
 
 type Props = {
@@ -60,6 +61,23 @@ export default function Paywall({ billing, onClose }: Props) {
             Manage subscription
           </button>
         </div>
+        {/* Guideline 3.1.2: an auto-renewing subscription must put the Terms
+            of Use and Privacy Policy inside the app, not only on the web. */}
+        <p class="native-paywall-legal">
+          <button
+            type="button"
+            onClick={() => void Browser.open({ url: 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/' })}
+          >
+            Terms of Use
+          </button>
+          {' · '}
+          <button
+            type="button"
+            onClick={() => void Browser.open({ url: 'https://manorama.xyz/privacy' })}
+          >
+            Privacy Policy
+          </button>
+        </p>
       </section>
     </main>
   )

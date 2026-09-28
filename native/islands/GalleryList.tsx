@@ -39,6 +39,10 @@ type Props = {
   accountAdLoader?: (input: AdPolicyInput) => Promise<AdFrame | null>
 }
 
+/** Reviewers and judges arrive signed out, so the entry screen offers the
+ *  owner-published showcase gallery as a one-tap way in. */
+export const SAMPLE_GALLERY = { owner: 'thecontrarian', slug: 'italy' } as const
+
 type Selection = { owner: string; slug: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
 
@@ -429,20 +433,19 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     }
   }
 
-  // Beta-honest purchase entry: RevenueCat may be configured yet have no
-  // sellable offerings in this build, and that deserves a sentence rather
-  // than a paywall that can only fail.
+  // RevenueCat may be configured yet have no sellable offerings right now,
+  // and that deserves a sentence rather than a paywall that can only fail.
   const openSubscriptions = async () => {
     if (!billing) return
     setBillingNote(null)
     try {
       const offering = await billing.offerings()
       if (!offering || offering.availablePackages.length === 0) {
-        setBillingNote("Subscriptions aren't available in this test build.")
+        setBillingNote('Subscriptions are unavailable right now. Please try again shortly.')
         return
       }
     } catch {
-      setBillingNote("Subscriptions aren't available in this test build.")
+      setBillingNote('Subscriptions are unavailable right now. Please try again shortly.')
       return
     }
     setPaywallOpen(true)
@@ -715,7 +718,15 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             {openForm}
           </details>
         ) : (
-          openForm
+          <>
+            <button
+              type="button"
+              onClick={() => openSelection(SAMPLE_GALLERY.owner, SAMPLE_GALLERY.slug)}
+            >
+              Try a sample gallery
+            </button>
+            {openForm}
+          </>
         )}
       </section>
     </main>
