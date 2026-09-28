@@ -20,12 +20,13 @@ jobs:
 
       # Schema must land before the Worker that needs it — a deploy that
       # skips a pending migration ships code against tables that do not
-      # exist. `yes` answers the apply prompt; there is no --yes flag.
+      # exist. GitHub sets CI=true, so wrangler skips the confirmation
+      # prompt on its own; no `yes` pipe needed.
       - name: Apply D1 migrations
-        run: yes | bunx wrangler d1 migrations apply manorama --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bunx wrangler d1 migrations apply manorama --remote
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v4
