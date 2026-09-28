@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 28 September 2026
+Last updated: 29 September 2026
 
 Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
 

@@ -5,7 +5,7 @@ export default createRoute((c) =>
     <main class="policy-page">
       <article class="policy-document">
         <h1>Privacy Policy</h1>
-        <p class="policy-updated">Last updated: 28 September 2026</p>
+        <p class="policy-updated">Last updated: 29 September 2026</p>
         <p class="policy-lede">Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.</p>
 
         <h2>Who this is for</h2>
