@@ -54,8 +54,10 @@ jobs:
     steps:
       - name: Validate the release tag
         if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          case "${{ inputs.tag }}" in
+          case "$TAG" in
             v[0-9]*) ;;
             *) echo "::error::tag must be a version tag like v0.1.0"; exit 1 ;;
           esac
@@ -140,4 +142,6 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes
-          gh release upload "$TAG" --clobber dist/*
+          mapfile -d '' -t assets < <(find dist -type f -print0)
+          if [ ${#assets[@]} -eq 0 ]; then echo "::error::no bundles to upload"; exit 1; fi
+          gh release upload "$TAG" --clobber "${assets[@]}"
