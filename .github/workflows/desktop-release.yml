@@ -141,7 +141,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # A rerun must never rewrite a release that already went out —
+            # only drafts accept uploads.
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "::error::$TAG is already published; cut a new tag instead"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --draft --title "manorama $TAG" --generate-notes
+          fi
           mapfile -d '' -t assets < <(find dist -type f -print0)
           if [ ${#assets[@]} -eq 0 ]; then echo "::error::no bundles to upload"; exit 1; fi
           gh release upload "$TAG" --clobber "${assets[@]}"
