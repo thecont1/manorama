@@ -1,0 +1,79 @@
+name: Desktop release
+
+# Owner-driven only (#40): push a v* tag, or dispatch with the tag name.
+# Each leg builds its bundles and tauri-action attaches them to a draft
+# release named for the tag — review it, then publish by hand.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build (e.g. v0.1.0)'
+        required: true
+        type: string
+
+# Release upload is the only write; the checkout keeps no credentials.
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both macOS arches build on the ARM runner; there is no Intel
+          # runner worth keeping in the matrix.
+          - os: macos-latest
+            rustTarget: aarch64-apple-darwin
+          - os: macos-latest
+            rustTarget: x86_64-apple-darwin
+          - os: windows-latest
+            rustTarget: ''
+          # 22.04 keeps the AppImage/.deb runnable on older glibc.
+          - os: ubuntu-22.04
+            rustTarget: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      - name: Install the Rust target for this build
+        if: matrix.rustTarget != ''
+        run: rustup target add ${{ matrix.rustTarget }}
+
+      - name: Build bundles and attach them to the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing + notarization. tauri.conf.json pins a Developer
+          # ID identity, so the macOS legs fail at codesign until these
+          # secrets exist — there is no unsigned fallback on purpose.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: manorama ${{ inputs.tag || github.ref_name }}
+          releaseDraft: true
+          args: ${{ matrix.rustTarget != '' && format('--target {0}', matrix.rustTarget) || '' }}
