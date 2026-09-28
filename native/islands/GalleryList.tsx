@@ -7,7 +7,7 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, normalizeApiBase } from '../lib/api'
+import { deleteAccount, fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -18,7 +18,7 @@ import {
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
-import { clearSessionToken, getOwnerSlug, getSessionToken, type AuthProvider } from '../lib/session'
+import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider } from '../lib/session'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
@@ -98,6 +98,13 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [deviceListFailed, setDeviceListFailed] = useState(false)
   const [accountRevision, setAccountRevision] = useState(0)
   const [billingNote, setBillingNote] = useState<string | null>(null)
+  // App Review 5.1.1(v): a self-serve deletion path behind a second tap.
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Once the server deletes the account a retry only owes billing cleanup —
+  // the API call must not run again against a 404.
+  const [accountDeleted, setAccountDeleted] = useState(false)
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
@@ -368,6 +375,64 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     if (typeof window !== 'undefined') window.location.reload()
   }
 
+  /** Secure storage normally holds the URL name, but a session minted before
+   *  slug persistence (or a wiped store) leaves it empty — ask the identities
+   *  endpoint before letting the confirm ride blank. */
+  const recoverOwnerSlug = async (): Promise<string | undefined> => {
+    const slug = await fetchAccountOwnerSlug(base).catch(() => undefined)
+    if (slug) {
+      try { await persistOwnerSlug(slug) } catch { /* persistence is nice-to-have */ }
+      setOwnerSlug(slug)
+    }
+    return slug
+  }
+
+  const openDeleteConfirm = () => {
+    setDeleteConfirming(true)
+    setDeleteError(null)
+    if (!ownerSlug) void recoverOwnerSlug().then((slug) => {
+      if (!slug) setDeleteError('Your URL name could not be recovered — sign out and back in, then try again.')
+    })
+  }
+
+  const deleteAccountForever = async () => {
+    setDeleteError(null)
+    setDeleting(true)
+    try {
+      // The API gates on the typed URL name; the app sends the slug it
+      // already holds instead of making the owner retype it.
+      const slug = ownerSlug ?? (await recoverOwnerSlug())
+      if (!slug) {
+        setDeleteError('Your URL name could not be recovered — sign out and back in, then try again.')
+        setDeleting(false)
+        return
+      }
+      if (!accountDeleted) {
+        await deleteAccount(base, slug)
+        setAccountDeleted(true)
+      }
+      await clearSessionToken()
+      try {
+        await billing?.signOut()
+      } catch {
+        // The account is already gone, but the subscription obligation may
+        // live on — say so and let the owner retry the cleanup instead of
+        // reloading as though it finished.
+        setDeleteError('Your account is deleted, but billing sign-out did not finish — cancel any subscription (App Store: Settings › Subscriptions; web: your Stripe receipt) and try again.')
+        setDeleting(false)
+        return
+      }
+      if (typeof window !== 'undefined') window.location.reload()
+    } catch (reason) {
+      setDeleteError(
+        reason instanceof Error && reason.message.trim()
+          ? reason.message
+          : 'Your account could not be deleted right now',
+      )
+      setDeleting(false)
+    }
+  }
+
   // RevenueCat may be configured yet have no sellable offerings right now,
   // and that deserves a sentence rather than a paywall that can only fail.
   const openSubscriptions = async () => {
@@ -552,6 +617,38 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
                 </ul>
               </section>
             ) : null}
+            <div class="native-account-delete">
+              {deleteConfirming ? (
+                <>
+                  <p class="native-account-note">
+                    This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in
+                    your Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first —
+                    App Store: Settings › Subscriptions; web: your Stripe receipt.
+                  </p>
+                  <div class="native-account-delete-actions">
+                    <button type="button" disabled={deleting || !ownerSlug} onClick={() => void deleteAccountForever()}>
+                      {deleting ? 'Deleting…' : 'Delete permanently'}
+                    </button>
+                    <button
+                      type="button"
+                      class="native-account-signout"
+                      disabled={deleting}
+                      onClick={() => {
+                        setDeleteConfirming(false)
+                        setDeleteError(null)
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" class="native-account-signout" onClick={openDeleteConfirm}>
+                  Delete account
+                </button>
+              )}
+              {deleteError ? <p class="native-account-note">{deleteError}</p> : null}
+            </div>
           </div>
         ) : null}
         {signedIn === false && onSignIn ? (

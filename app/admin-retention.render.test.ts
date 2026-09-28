@@ -152,4 +152,12 @@ describe('the dashboard renders retention state', () => {
     expect(html).toContain('99 retained galleries · 0 available')
     expect(html).toContain(paidGalleryLimitError().message)
   })
+
+  test('the dashboard carries the self-serve delete-account fold', async () => {
+    const html = await renderDashboard(async () => {})
+    expect(html).toContain('class="admin-delete-account"')
+    expect(html).toContain('<summary>Delete account</summary>')
+    expect(html).toContain('Type your URL name (test-owner) to confirm')
+    expect(html).toContain('Nothing in your Dropbox, Google Drive, iCloud or MEGA is touched')
+  })
 })

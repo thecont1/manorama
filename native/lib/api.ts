@@ -106,3 +106,29 @@ export const fetchDeviceGalleries = async (
   if (!Array.isArray(payload.galleries)) throw new Error('Device gallery list response was incomplete')
   return payload.galleries
 }
+
+/** Deletes the signed-in account and every Manorama row it owns. `confirm`
+ *  must repeat the account's URL name — the same gate the web dashboard
+ *  shows — so the app sends the slug it already holds rather than asking
+ *  the owner to type it again. Local session state is the caller's job:
+ *  this only reports that the D1 rows are gone. */
+export const deleteAccount = async (apiBase: string, confirm: string): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ confirm }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Account deletion failed (${response.status})`)
+}
+
+/** Recovers the account's URL name when secure storage lost it — the
+ *  delete flow needs it as the server-side confirmation. */
+export const fetchAccountOwnerSlug = async (apiBase: string): Promise<string | undefined> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account`, {
+    headers: await bearerHeaders(),
+  })
+  const payload = await response.json().catch(() => ({})) as { ownerSlug?: unknown }
+  const slug = response.ok && typeof payload.ownerSlug === 'string' ? payload.ownerSlug.trim() : ''
+  return slug || undefined
+}

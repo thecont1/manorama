@@ -63,6 +63,14 @@ describe('deterministic Vendo sync', () => {
     expect(tools.tools.find((tool) => tool.name === 'host_delete_gallery')?.risk).toBe('destructive')
   })
 
+  // NOTE: This is the most environment-sensitive test in the suite. It runs
+  // two real `bunx vendo sync` subprocesses (strict rejection, then a plain
+  // restore) that reconcile against the live contract, so subprocess I/O is
+  // the dominant cost. A *timeout* (the 20s budget exceeded) is environmental:
+  // slower or loaded machines stall the synchronous execFileSync call, which
+  // also prevents bun's own test-timeout from firing. An *assertion* failure
+  // (strict sync not rejecting, or plain sync not restoring) is a regression.
+  // See the per-check comments below for the diagnostic guidance.
   test('hand edits to tools.json fail strict sync instead of being silently kept', () => {
     const pristine = readTools()
     const tampered = JSON.parse(pristine) as { tools: { name: string }[] }
@@ -70,10 +78,12 @@ describe('deterministic Vendo sync', () => {
     writeFileSync(toolsPath, JSON.stringify(tampered, null, 2) + '\n')
     try {
       // Strict sync must loudly reject a hand-edited machine layer, not accept it.
+      // An assertion failure here (strictRejected !== true) is a regression, not env flakiness.
       let strictRejected = false
       try { runSync() } catch { strictRejected = true }
       expect(strictRejected).toBe(true)
       // A plain (non-strict) sync re-extracts from the contract and repairs it.
+      // An assertion failure here (readTools() != pristine, or execFileSync throwing) is a regression.
       execFileSync('bunx', ['vendo', 'sync', '--no-ai'], {
         cwd: repoRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -82,8 +92,12 @@ describe('deterministic Vendo sync', () => {
     } finally {
       writeFileSync(toolsPath, pristine)
     }
-  // Two vendo sync subprocesses run back-to-back; the default 5s timeout
-  // sits right at their combined runtime.
+  // This is the slowest test in the suite and the most likely to time out.
+  // The 20s budget is generous, but the synchronous execFileSync means a
+  // hanging subprocess also blocks bun's own test-timeout from firing. On a
+  // *timeout*, re-running this single test in isolation is diagnostic (confirm
+  // it then passes) -- but never assume env flakiness when an assertion fails;
+  // see the comments at the strict rejection and plain restore checks.
   }, 20_000)
 
   test('package.json exposes vendo:sync and vendo:check scripts', () => {
