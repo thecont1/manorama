@@ -5,11 +5,18 @@ name: Windows desktop build
 on:
   workflow_dispatch:
 
+# The build runs third-party install scripts; they get a read-only token and
+# no copy of it in .git/config.
+permissions:
+  contents: read
+
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
 
