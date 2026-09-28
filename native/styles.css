@@ -349,6 +349,25 @@ body:has(.native-diptych) {
   cursor: pointer;
 }
 
+/* Guideline 3.1.2 footer: quiet links under the purchase actions. */
+.native-paywall-legal {
+  margin: 18px 0 0;
+  color: rgba(var(--ink), .5);
+  font-size: 12px;
+  text-align: center;
+}
+
+.native-paywall-legal button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: rgba(var(--ink), .72);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .native-paywall-card button:focus-visible {
   outline: 2px solid rgb(var(--ink));
   outline-offset: 3px;

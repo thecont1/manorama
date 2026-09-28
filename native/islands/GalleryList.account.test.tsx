@@ -611,7 +611,7 @@ describe('signed-in account area', () => {
     entry.click()
     await settle()
 
-    expect(container.innerHTML).toContain("Subscriptions aren't available in this test build.")
+    expect(container.innerHTML).toContain('Subscriptions are unavailable right now. Please try again shortly.')
     expect(container.querySelector('.native-paywall-card')).toBeNull()
   })
 
@@ -631,7 +631,7 @@ describe('signed-in account area', () => {
     entry.click()
     await settle()
 
-    expect(container.innerHTML).toContain("Subscriptions aren't available in this test build.")
+    expect(container.innerHTML).toContain('Subscriptions are unavailable right now. Please try again shortly.')
     expect(container.querySelector('.native-paywall-card')).toBeNull()
   })
 
@@ -654,7 +654,21 @@ describe('signed-in account area', () => {
     await settle()
 
     expect(container.querySelector('.native-paywall-card')).not.toBeNull()
-    expect(container.innerHTML).not.toContain("Subscriptions aren't available in this test build.")
+    expect(container.innerHTML).not.toContain('Subscriptions are unavailable right now. Please try again shortly.')
+  })
+
+  test('signed out, the sample gallery button opens the owner showcase', async () => {
+    installLocalStorage()
+    stubFetch()
+    const { container } = mountAccount()
+    await settle()
+
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Try a sample gallery') as HTMLButtonElement
+    expect(entry).toBeDefined()
+    entry.click()
+    await settle()
+
+    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/thecontrarian/italy')).toBe(true)
   })
 })
 
