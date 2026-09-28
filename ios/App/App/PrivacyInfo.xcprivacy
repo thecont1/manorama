@@ -59,11 +59,27 @@
 			</array>
 		</dict>
 		<!-- Gallery titles, captions, and share links are owner-authored
-		     content. Photos themselves are proxied transiently and never
-		     stored, so they are not "collected". -->
+		     content. Originals are proxied transiently and never stored;
+		     MEGA preview photos are the exception — a bounded in-memory
+		     cache keeps them on the server between requests. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- MEGA preview photos: decrypted on the server and held in its
+		     bounded preview cache so the admin rail does not re-decrypt
+		     on every request. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<true/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>

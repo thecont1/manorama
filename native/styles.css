@@ -358,6 +358,14 @@ body:has(.native-diptych) {
 }
 
 .native-paywall-legal button {
+  /* The link stays visually quiet, but the hit area meets the 44×44pt
+     minimum — a paywall legal link is a compliance surface. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -10px 0;
   border: 0;
   padding: 0;
   background: none;
