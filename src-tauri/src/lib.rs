@@ -195,6 +195,18 @@ async fn oauth_loopback_finish(state: tauri::State<'_, LoopbackState>) -> Result
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // First plugin, as its docs require — the sign-in verifier lives
+        // in this process's memory, and on Windows/Linux every deep link
+        // spawns a NEW process that would receive the handoff without it.
+        // With the deep-link feature the killed second process's argv is
+        // re-delivered to our onOpenUrl listener before the callback runs.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
