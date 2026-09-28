@@ -94,7 +94,13 @@ describe('deleteAccount', () => {
   })
 
   test('is idempotent: a second call or a missing account returns false', async () => {
-    expect(await deleteAccount(OWNER_A, { DB: db() })).toBe(false)
+    // Seeds its own account: relying on an earlier test's deletion would
+    // couple the assertion to execution order.
+    await db().prepare(
+      `INSERT INTO users (account_id, owner_slug, display_name, email, tier) VALUES (?, ?, ?, ?, ?)`,
+    ).bind('dbid:CCCdeleteC', 'delete-c', 'Delete C', null, 'free').run()
+    expect(await deleteAccount('dbid:CCCdeleteC', { DB: db() })).toBe(true)
+    expect(await deleteAccount('dbid:CCCdeleteC', { DB: db() })).toBe(false)
     expect(await deleteAccount('dbid:never-existed', { DB: db() })).toBe(false)
   })
 
@@ -150,6 +156,20 @@ describe('DELETE /api/account', () => {
 
     const missing = await del({ headers: { Cookie: cookie } })
     expect(missing.status).toBe(400)
+
+    // `null` parses as valid JSON — a null body must not 500 on the
+    // confirmation read.
+    const nullBody = await del({
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: 'null',
+    })
+    expect(nullBody.status).toBe(400)
+  })
+
+  test('GET /api/account answers the owner slug so a client can recover it', async () => {
+    const response = await api.request('/api/account', { headers: { Cookie: cookie } }, env)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ownerSlug })
   })
 
   test('deletes the account, expires the session cookie, and invalidates it', async () => {

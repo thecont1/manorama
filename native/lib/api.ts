@@ -121,3 +121,14 @@ export const deleteAccount = async (apiBase: string, confirm: string): Promise<v
   const payload = await response.json().catch(() => ({})) as { error?: string }
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Account deletion failed (${response.status})`)
 }
+
+/** Recovers the account's URL name when secure storage lost it — the
+ *  delete flow needs it as the server-side confirmation. */
+export const fetchAccountOwnerSlug = async (apiBase: string): Promise<string | undefined> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account`, {
+    headers: await bearerHeaders(),
+  })
+  const payload = await response.json().catch(() => ({})) as { ownerSlug?: unknown }
+  const slug = response.ok && typeof payload.ownerSlug === 'string' ? payload.ownerSlug.trim() : ''
+  return slug || undefined
+}

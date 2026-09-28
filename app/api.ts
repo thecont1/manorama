@@ -491,8 +491,11 @@ export const createManoramaApi = () => {
    *  nothing at any provider is ever touched. */
   api.delete('/api/account', async (c) => {
     const session = c.get('manoramaSession')
-    const payload = await c.req.json<{ confirm?: unknown }>().catch((): { confirm?: unknown } => ({}))
-    if (typeof payload.confirm !== 'string' || payload.confirm.trim() !== session.ownerSlug) {
+    const payload: unknown = await c.req.json().catch(() => null)
+    const confirm = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).confirm
+      : undefined
+    if (typeof confirm !== 'string' || confirm.trim() !== session.ownerSlug) {
       return c.json({ error: 'Type your URL name to confirm' }, 400)
     }
     try {
@@ -504,6 +507,14 @@ export const createManoramaApi = () => {
     // Same teardown as /auth/logout so the web session dies with the account.
     deleteCookie(c, SESSION_COOKIE, { path: '/' })
     return c.json({ ok: true })
+  })
+
+  /** The account's own URL name, straight from the session — the native
+   *  delete flow fetches it to recover a wiped secure store, since the
+   *  DELETE below needs it as the typed confirmation. */
+  api.get('/api/account', async (c) => {
+    const session = c.get('manoramaSession')
+    return c.json({ ownerSlug: session.ownerSlug })
   })
 
   /** The sign-in methods bound to the account. Provider subjects never

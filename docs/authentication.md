@@ -154,6 +154,8 @@ inert until the owner registers each provider's client credentials.
 - `GET/POST /api/galleries`, `POST /api/galleries/scan`,
   `PATCH/DELETE /api/galleries/:slug`, `POST /api/galleries/:slug/refresh`
   — scoped to the signed-in owner.
+- `GET /api/account` — answers the session's `ownerSlug`; the native
+  delete flow fetches it to recover a wiped secure store.
 - `PATCH /api/account` — changes the signed-in owner's URL segment.
 - `DELETE /api/account` — deletes the signed-in account and every row it
   owns; requires `{confirm: <owner_slug>}` and expires the session cookie.
