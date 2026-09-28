@@ -6,6 +6,7 @@ import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
 import GalleryList from './GalleryList'
+import { defaultGallerySettings } from '../../app/lib/gallery-settings'
 import type { AdFrame } from '../../packages/core/adframe'
 import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -23,6 +24,7 @@ let previousWindow: unknown
 let previousDocument: unknown
 let previousAnimationFrame: unknown
 let previousCancelAnimationFrame: unknown
+let previousGetComputedStyle: unknown
 
 type Frame = { id: number; callback: FrameRequestCallback }
 let frames: Frame[] = []
@@ -47,8 +49,12 @@ beforeAll(() => {
   previousDocument = globals.document
   previousAnimationFrame = globals.requestAnimationFrame
   previousCancelAnimationFrame = globals.cancelAnimationFrame
+  previousGetComputedStyle = globals.getComputedStyle
   globals.window = dom
   globals.document = dom.document
+  // Bare `getComputedStyle` (fold.ts reads the root style) needs the
+  // happy-dom window's copy — it is not global by default.
+  globals.getComputedStyle = dom.getComputedStyle.bind(dom)
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback })
@@ -64,6 +70,7 @@ afterAll(() => {
   globals.document = previousDocument
   globals.requestAnimationFrame = previousAnimationFrame
   globals.cancelAnimationFrame = previousCancelAnimationFrame
+  globals.getComputedStyle = previousGetComputedStyle
 })
 
 type Loader = (input: AdPolicyInput) => Promise<AdFrame | null>
@@ -833,7 +840,23 @@ describe('signed-in account area', () => {
 
   test('signed out, the sample gallery button opens the owner showcase', async () => {
     installLocalStorage()
-    stubFetch()
+    // A canned manifest keeps the open honest without depending on the
+    // production showcase being up.
+    const manifest = {
+      slug: 'italy',
+      title: 'Italy',
+      caption: '',
+      date: '',
+      images: [
+        { id: 'p1', filename: 'piazza.jpg', src: 'https://photos.example.com/piazza.jpg', width: 1600, height: 1200, alt: 'A piazza at dusk' },
+      ],
+    }
+    stubFetch({
+      fallback: (url) =>
+        url === 'https://manorama.xyz/api/gallery/thecontrarian/italy'
+          ? json({ manifest, settings: defaultGallerySettings(manifest) })
+          : new Response('{}', { status: 404 }),
+    })
     const { container } = mountAccount()
     await settle()
 
@@ -843,6 +866,8 @@ describe('signed-in account area', () => {
     await settle()
 
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/thecontrarian/italy')).toBe(true)
+    expect(container.querySelector('.gallery-shell')).not.toBeNull()
+    expect(container.querySelector('.gallery-shell h1')?.textContent).toBe('Italy')
   })
 })
 
