@@ -104,7 +104,7 @@ body {
    up a UA background, so the welcome copies reset to the web's hairline look. */
 .desktop-welcome .landing-signin:not(.desktop-primary) {
   background: transparent;
-  font: inherit;
+  font-family: inherit;
   cursor: pointer;
   appearance: none;
 }
