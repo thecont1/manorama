@@ -2,7 +2,7 @@ import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState 
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
-import { effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
+import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import SeededDoodleBackground from './SeededDoodleBackground'
@@ -10,6 +10,16 @@ import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreferen
 import { platePositionsFor, type AdFrame } from '../lib/adframe'
 import { clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
+
+// A Tauri or Capacitor webview reports the real backing scale; the open web
+// cannot be trusted to — pinch zoom and compat shims lie about the ratio.
+// The truth lives in the shell, so the check runs once at module scope.
+const deviceReportedDpr = typeof window !== 'undefined' &&
+  ('__TAURI_INTERNALS__' in window || 'Capacitor' in window)
+
+const reportedDpr = () => deviceReportedDpr
+  ? deviceImageDpr(window.devicePixelRatio)
+  : effectiveImageDpr(window.devicePixelRatio)
 
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
@@ -180,7 +190,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // sitting blank. Bounded per image; the retry rewrites src directly.
   const watchdogSeenRef = useRef(new WeakMap<HTMLImageElement, number>())
   const watchdogAttemptsRef = useRef<Record<string, number>>({})
-  const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: effectiveImageDpr(typeof window === 'undefined' ? 1 : window.devicePixelRatio) })
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0, dpr: typeof window === 'undefined' ? 1 : reportedDpr() })
   // Under a visible background (Light/Dark) every image carries a 10px
   // margin: strip frames stage against a stage 20px shorter so height-fit
   // images get 10px bands top and bottom, vertical rows against a stage
@@ -866,7 +876,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     if (!stage) return
     const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
     stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
-    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: effectiveImageDpr(window.devicePixelRatio) }
+    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: reportedDpr() }
     setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
     boundsDirtyRef.current = true
     if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
@@ -1865,6 +1875,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
               stageWidthCssPx: stagingWidth,
               stageHeightCssPx: stagingHeight,
               dpr: stageSize.dpr,
+              trustDeviceDpr: deviceReportedDpr,
             })
             // Desktop restrains video: 70% of stage height in the strip,
             // 60% of stage width in vertical scroll. `capped: false` means
@@ -2010,6 +2021,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
                               stageWidthCssPx: stagingWidth,
                               stageHeightCssPx: stagingHeight,
                               dpr: stageSize.dpr,
+                              trustDeviceDpr: deviceReportedDpr,
                             })
                             if (restaged.width > 0) {
                               frame.style.width = `${restaged.width}px`

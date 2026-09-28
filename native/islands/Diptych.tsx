@@ -1,4 +1,4 @@
-import { effectiveImageDpr } from '../../packages/core/image-staging'
+import { deviceImageDpr } from '../../packages/core/image-staging'
 
 export type DiptychFrame = {
   id: string
@@ -87,7 +87,7 @@ export const diptychFrameSize = (
   const scale = Math.min(
     segment.width / frame.width,
     segment.height / frame.height,
-    1 / effectiveImageDpr(dpr),
+    1 / deviceImageDpr(dpr),
   )
   return { width: frame.width * scale, height: frame.height * scale }
 }

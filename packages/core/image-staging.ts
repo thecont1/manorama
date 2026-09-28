@@ -1,7 +1,13 @@
 export type ImageStageMode = 'strip' | 'vertical' | 'single'
 
-/** Normalizes invalid device-pixel ratios to 1 and caps valid ratios at 2. */
+/** Normalizes invalid device-pixel ratios to 1 and caps valid ratios at 2.
+ *  The cap exists because the open web cannot trust the reported ratio —
+ *  pinch zoom and compat shims can lie. */
 export const effectiveImageDpr = (dpr: number | undefined) => Math.min(dpr && Number.isFinite(dpr) && dpr > 0 ? dpr : 1, 2)
+
+/** The on-device counterpart: a native shell reports the real backing
+ *  scale, so the only work left is guarding junk input. */
+export const deviceImageDpr = (dpr: number | undefined) => dpr && Number.isFinite(dpr) && dpr > 0 ? dpr : 1
 
 /** Computes aspect-ratio-preserving CSS dimensions for a still image. Strip
  *  mode fits stage height, vertical mode fits stage width, and single mode
@@ -13,11 +19,15 @@ export const imageStageSize = (input: {
   stageWidthCssPx: number
   stageHeightCssPx: number
   dpr?: number
+  /** The caller attests `dpr` is device-reported (a native shell's real
+   *  backing scale), so it bypasses the web's cap-2 distrust. Web callers
+   *  leave this unset. */
+  trustDeviceDpr?: boolean
 }) => {
   const { mode, naturalWidthPx: w, naturalHeightPx: h } = input
   const stageWidth = Math.max(0, Number.isFinite(input.stageWidthCssPx) ? input.stageWidthCssPx : 0)
   const stageHeight = Math.max(0, Number.isFinite(input.stageHeightCssPx) ? input.stageHeightCssPx : 0)
-  const dpr = effectiveImageDpr(input.dpr)
+  const dpr = input.trustDeviceDpr ? deviceImageDpr(input.dpr) : effectiveImageDpr(input.dpr)
   if (!(w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h))) return { width: 0, height: 0 }
   // Strip is still a photostrip — neighbours abut edge-to-edge — but it
   // honors the same device-pixel budget as every other mode: a source
