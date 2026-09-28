@@ -310,6 +310,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const settings = defaultGallerySettings(manifest)
     return (
       <>
+        <div class="desktop-titlebar" data-tauri-drag-region />
         <GalleryShell settings={settings}>
           <Viewer
             key={`${record.id}:${viewerState?.index ?? 0}`}
@@ -356,7 +357,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </form>
   ) : null
 
-  if (desktopScreen({ signedIn: !!session, galleryCount: catalogue?.galleries.length ?? 0 }) === 'welcome') {
+  // Until the catalogue file is read the screen is undecided — greeting a
+  // returning owner with the welcome surface would be a flash of the wrong
+  // thing. A bare shell keeps the window draggable while the probe runs.
+  if (!catalogue) {
+    return (
+      <main class="desktop-shell" aria-busy="true">
+        <div class="desktop-titlebar" data-tauri-drag-region />
+        <p class="desktop-notice" role="status">Loading your catalogue…</p>
+      </main>
+    )
+  }
+
+  if (desktopScreen({ signedIn: !!session, galleryCount: catalogue.galleries.length }) === 'welcome') {
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
