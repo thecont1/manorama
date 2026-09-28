@@ -4,14 +4,26 @@
    sheet — these rules only cover the pick → grid → catalogue surfaces. */
 
 body {
-  background: #0a0a0a;
+  background: #111312;
   color: #e8e6e3;
+}
+
+/* The overlay titlebar leaves no native chrome to grab — this fixed strip is
+   the drag region, and each screen pads its top so nothing sits under the
+   traffic lights. */
+.desktop-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 100;
 }
 
 .desktop-shell {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
+  padding: calc(28px + 1rem) 1.25rem 4rem;
   font-family: inherit;
 }
 
@@ -68,6 +80,67 @@ body {
 .desktop-owner {
   font-size: 0.9rem;
   opacity: 0.8;
+}
+
+/* Welcome screen: the web landing classes carry the look; these rules only
+   fit them to the desktop window — a titlebar-clearing pad, a primary
+   folder-picker action, and tighter spacing than the site's landing. */
+.desktop-welcome {
+  padding-top: calc(28px + 32px);
+}
+
+.desktop-welcome .landing-signin-group {
+  margin-top: 14px;
+}
+
+.desktop-welcome-caption {
+  margin: 34px 0 0;
+  color: rgba(var(--ink), .55);
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+
+.desktop-primary {
+  background: rgba(var(--ink), .92);
+  border-color: transparent;
+  color: #111312;
+}
+
+.desktop-primary:hover,
+.desktop-primary:focus-visible {
+  background: rgb(var(--ink));
+  border-color: transparent;
+  color: #111312;
+}
+
+.desktop-primary:disabled {
+  opacity: .6;
+}
+
+.desktop-welcome .desktop-paste {
+  width: min(420px, 100%);
+  margin: 1.5rem 0 0;
+  text-align: left;
+}
+
+button.site-footer-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Compact landing-style sign-in buttons in the catalogue header. */
+.desktop-account .landing-signin {
+  margin-top: 0;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.82rem;
+  gap: 0.45rem;
+}
+
+.desktop-account .landing-signin svg {
+  width: 14px;
+  height: 14px;
 }
 
 .desktop-notice {
@@ -295,7 +368,7 @@ body {
 
 .desktop-back {
   position: fixed;
-  top: 1rem;
+  top: calc(28px + 0.75rem);
   left: 1rem;
   z-index: 60;
   font: inherit;

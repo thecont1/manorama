@@ -20,10 +20,12 @@ import {
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from '../lib/catalogue'
-import { assetUrl, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
+import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { handleProviderDeepLink } from '../lib/providers/oauth'
+import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
+import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import {
   beginDesktopSignIn,
@@ -39,6 +41,24 @@ import {
 
 const CATALOGUE_FILE = 'catalogue.json'
 const DEVICE_LABEL = 'This Mac'
+
+const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
+
+// The web's labels, shared with the landing page: Apple keeps the "Sign in
+// with" phrasing its guidelines require, the rest are "Continue with".
+const providerLabel = (id: AuthProvider, name: string): string =>
+  id === 'apple' ? `Sign in with ${name}` : `Continue with ${name}`
+
+const openExternal = (url: string) => {
+  // External links leave the app for the system browser via the opener
+  // plugin; a plain-browser preview has no IPC, so it degrades to
+  // window.open for the same URL.
+  if (isDesktopRuntime()) {
+    void import('@tauri-apps/plugin-opener').then(({ openUrl }) => openUrl(url))
+  } else {
+    window.open(url, '_blank', 'noopener')
+  }
+}
 
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
@@ -313,8 +333,74 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   const openRecord = openGalleryId ? catalogue?.galleries.find((g) => g.id === openGalleryId) : undefined
 
+  // Dev builds cannot receive the sign-in deep link, so only they get the
+  // paste-the-link fallback — bundled builds never render it.
+  const pasteFallback = showPasteFallback(import.meta.env.DEV, !!session)
+  const pasteForm = pasteFallback ? (
+    <form class="desktop-paste" onSubmit={submitPastedLink}>
+      <label>
+        Sign-in link
+        <input
+          value={pasteUrl}
+          onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
+          placeholder="in.thecontrarian.manorama.desktop://auth/callback?handoff=…"
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </label>
+      <button type="submit">Complete sign-in</button>
+      <p class="desktop-paste-hint">
+        The dev build cannot receive deep links until it is bundled — after the browser
+        finishes sign-in, paste the link it was sent to here.
+      </p>
+    </form>
+  ) : null
+
+  if (desktopScreen({ signedIn: !!session, galleryCount: catalogue?.galleries.length ?? 0 }) === 'welcome') {
+    return (
+      <>
+        <div class="desktop-titlebar" data-tauri-drag-region />
+        <main class="landing-page desktop-welcome">
+          <div class="landing-brand">
+            <span class="brand-mark-wrap">
+              <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
+            </span>
+            <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+            <button type="button" class="landing-signin desktop-primary" onClick={() => void addFolder()} disabled={busy || !catalogue}>
+              {busy ? 'Scanning…' : 'Choose a folder or card'}
+            </button>
+            <p class="landing-note">Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
+            <p class="desktop-welcome-caption">Sign in to sync your catalogue across devices</p>
+            <div class="landing-signin-group">
+              {SIGN_IN_PROVIDERS.map(({ id, name, Glyph }) => (
+                <button type="button" class="landing-signin" key={id} onClick={() => signIn(id)}>
+                  <Glyph />
+                  {providerLabel(id, name)}
+                </button>
+              ))}
+            </div>
+            {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
+            {notice ? <p class="landing-note">{notice}</p> : null}
+            {pasteForm}
+          </div>
+          <footer class="site-footer">
+            <button
+              type="button"
+              class="site-footer-link"
+              onClick={() => openExternal('https://manorama.xyz/privacy')}
+            >
+              Privacy Policy
+            </button>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
+          </footer>
+        </main>
+      </>
+    )
+  }
+
   return (
     <main class="desktop-shell">
+      <div class="desktop-titlebar" data-tauri-drag-region />
       <header class="desktop-header">
         <span class="brand-mark-wrap">
           <img src="/manorama-merged-logo.png" alt="manorama" class="desktop-logo" />
@@ -326,11 +412,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <button type="button" onClick={signOut}>Sign out</button>
             </>
           ) : (
-            DESKTOP_AUTH_PROVIDERS.map((provider) => (
-              <button type="button" key={provider} onClick={() => signIn(provider)}>
-                {provider === 'apple' ? 'Sign in with Apple' : `Continue with ${provider === 'google' ? 'Google' : 'Dropbox'}`}
-              </button>
-            ))
+            DESKTOP_AUTH_PROVIDERS.map((id) => {
+              const provider = PROVIDER_META.get(id)
+              if (!provider) return null
+              const { name, Glyph } = provider
+              return (
+                <button type="button" class="landing-signin" key={id} onClick={() => signIn(id)}>
+                  <Glyph />
+                  {providerLabel(id, name)}
+                </button>
+              )
+            })
           )}
         </div>
       </header>
@@ -338,25 +430,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       {authError ? <p class="desktop-notice desktop-error" role="alert">{authError}</p> : null}
       {notice ? <p class="desktop-notice" role="status">{notice}</p> : null}
 
-      {!session ? (
-        <form class="desktop-paste" onSubmit={submitPastedLink}>
-          <label>
-            Sign-in link
-            <input
-              value={pasteUrl}
-              onInput={(event) => setPasteUrl((event.currentTarget as HTMLInputElement).value)}
-              placeholder="in.thecontrarian.manorama.desktop://auth/callback?handoff=…"
-              autoCapitalize="none"
-              autoCorrect="off"
-            />
-          </label>
-          <button type="submit">Complete sign-in</button>
-          <p class="desktop-paste-hint">
-            The dev build cannot receive deep links until it is bundled — after the browser
-            finishes sign-in, paste the link it was sent to here.
-          </p>
-        </form>
-      ) : null}
+      {pasteForm}
 
       <section class="desktop-toolbar">
         <button type="button" onClick={() => void addFolder()} disabled={busy}>
