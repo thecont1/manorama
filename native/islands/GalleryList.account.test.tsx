@@ -7,6 +7,7 @@ import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
 import GalleryList from './GalleryList'
 import { defaultGallerySettings } from '../../app/lib/gallery-settings'
+import type { GalleryManifest } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../packages/core/adframe'
 import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -842,13 +843,13 @@ describe('signed-in account area', () => {
     installLocalStorage()
     // A canned manifest keeps the open honest without depending on the
     // production showcase being up.
-    const manifest = {
+    const manifest: GalleryManifest = {
       slug: 'italy',
       title: 'Italy',
       caption: '',
       date: '',
       images: [
-        { id: 'p1', filename: 'piazza.jpg', src: 'https://photos.example.com/piazza.jpg', width: 1600, height: 1200, alt: 'A piazza at dusk' },
+        { id: 'p1', filename: 'piazza.jpg', src: 'https://photos.example.com/piazza.jpg', width: 1600, height: 1200, alt: 'A piazza at dusk', c2pa: false, placeholder: '' },
       ],
     }
     stubFetch({
