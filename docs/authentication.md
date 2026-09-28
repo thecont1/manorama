@@ -155,6 +155,8 @@ inert until the owner registers each provider's client credentials.
   `PATCH/DELETE /api/galleries/:slug`, `POST /api/galleries/:slug/refresh`
   — scoped to the signed-in owner.
 - `PATCH /api/account` — changes the signed-in owner's URL segment.
+- `DELETE /api/account` — deletes the signed-in account and every row it
+  owns; requires `{confirm: <owner_slug>}` and expires the session cookie.
 - `GET /api/account/identities` — lists the account's sign-in methods
   (`provider`, display name, verified email — never `provider_subject`).
 - `DELETE /api/account/identities/:provider` — removes one method; `404`

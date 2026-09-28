@@ -93,6 +93,8 @@ sets.
 
 - There is no trash, undo, or retention window. The only recovery path is recreating the gallery from the same source link; title, caption, slug suffix, and custom ordering must be redone by hand.
 
+- Account deletion is self-serve (`DELETE /api/account`, surfaced in the web dashboard and the app's account area) and removes only Manorama's D1 rows — galleries, sign-in methods, auth flows, the device catalogue, and the user record. Nothing at any provider is touched, and no billing state is altered; subscribers are told to cancel first.
+
 - Refreshes and reorders are non-destructive to the source but overwrite the stored manifest — see the ordering caveat above.
 
 ## Video slides

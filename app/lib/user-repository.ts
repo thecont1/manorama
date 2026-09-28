@@ -297,6 +297,35 @@ export const updateOwnerSlug = async (
   return { ...current, ownerSlug: slug }
 }
 
+/**
+ * Removes the account and every row that references it — galleries, sign-in
+ * methods, in-flight auth flows, and the device catalogue — in one batch so
+ * no child row can outlive the user. ad_suppressions is a global switch list
+ * and the RevenueCat ordering fields are user columns; neither survives the
+ * account because neither is a separate table. Nothing at any provider is
+ * touched. Returns false when the account was already gone so a repeated
+ * call stays safe.
+ */
+export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv): Promise<boolean> => {
+  if (d1Configured(env)) {
+    const results = await env.DB.batch([
+      env.DB.prepare('DELETE FROM auth_identities WHERE account_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM auth_flows WHERE account_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM galleries WHERE owner_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM users WHERE account_id = ?').bind(accountId),
+    ])
+    return (results[results.length - 1]?.meta.changes ?? 0) > 0
+  }
+  const user = users.get(accountId)
+  if (!user) return false
+  users.delete(accountId)
+  ownerSlugIndex.delete(user.ownerSlug)
+  const { dropOwnerGalleries } = await import('./gallery-repository')
+  dropOwnerGalleries(accountId)
+  return true
+}
+
 /** Test seam: reset the in-memory fallback. Production never calls this. */
 export const resetUserStore = () => {
   users.clear()

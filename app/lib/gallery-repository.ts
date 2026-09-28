@@ -515,5 +515,11 @@ export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: 
 export const toSummary = (gallery: GalleryRecord) => ({ slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, images: previewImages(gallery.images) })
 export type GallerySummary = ReturnType<typeof toSummary>
 
+/** Drops one owner's whole in-memory store so the non-D1 branch of
+ *  deleteAccount leaves no orphaned gallery records behind. */
+export const dropOwnerGalleries = (ownerId: string) => {
+  runtimeGalleries.delete(ownerId)
+}
+
 /** Test seam: reset the in-memory fallback. Production never calls this. */
 export const resetGalleryStore = () => runtimeGalleries.clear()

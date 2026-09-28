@@ -7,7 +7,7 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, normalizeApiBase } from '../lib/api'
+import { deleteAccount, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, normalizeApiBase } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -94,6 +94,10 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [deviceListFailed, setDeviceListFailed] = useState(false)
   const [accountRevision, setAccountRevision] = useState(0)
   const [billingNote, setBillingNote] = useState<string | null>(null)
+  // App Review 5.1.1(v): a self-serve deletion path behind a second tap.
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
@@ -364,6 +368,30 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
     if (typeof window !== 'undefined') window.location.reload()
   }
 
+  const deleteAccountForever = async () => {
+    setDeleteError(null)
+    setDeleting(true)
+    try {
+      // The API gates on the typed URL name; the app sends the slug it
+      // already holds instead of making the owner retype it.
+      await deleteAccount(base, ownerSlug ?? '')
+      await clearSessionToken()
+      try {
+        await billing?.signOut()
+      } catch {
+        // A RevenueCat sign-out failure must not trap the manorama session.
+      }
+      if (typeof window !== 'undefined') window.location.reload()
+    } catch (reason) {
+      setDeleteError(
+        reason instanceof Error && reason.message.trim()
+          ? reason.message
+          : 'Your account could not be deleted right now',
+      )
+      setDeleting(false)
+    }
+  }
+
   // Beta-honest purchase entry: RevenueCat may be configured yet have no
   // sellable offerings in this build, and that deserves a sentence rather
   // than a paywall that can only fail.
@@ -549,6 +577,38 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
                 </ul>
               </section>
             ) : null}
+            <div class="native-account-delete">
+              {deleteConfirming ? (
+                <>
+                  <p class="native-account-note">
+                    This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in
+                    your Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel in
+                    Settings › Subscriptions first.
+                  </p>
+                  <div class="native-account-delete-actions">
+                    <button type="button" disabled={deleting} onClick={() => void deleteAccountForever()}>
+                      {deleting ? 'Deleting…' : 'Delete permanently'}
+                    </button>
+                    <button
+                      type="button"
+                      class="native-account-signout"
+                      disabled={deleting}
+                      onClick={() => {
+                        setDeleteConfirming(false)
+                        setDeleteError(null)
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" class="native-account-signout" onClick={() => setDeleteConfirming(true)}>
+                  Delete account
+                </button>
+              )}
+              {deleteError ? <p class="native-account-note">{deleteError}</p> : null}
+            </div>
           </div>
         ) : null}
         {signedIn === false && onSignIn ? (

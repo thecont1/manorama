@@ -575,6 +575,92 @@ describe('signed-in account area', () => {
     expect(storage.has(SLUG_KEY)).toBe(false)
   })
 
+  test('delete account asks once, then clears the session and billing', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      fallback: (url) => url === 'https://manorama.xyz/api/account'
+        ? json({ ok: true })
+        : new Response('{}', { status: 404 }),
+    })
+    let billingSignedOut = false
+    const client = {
+      signOut: async () => {
+        billingSignedOut = true
+      },
+    } as unknown as RevenueCatBilling
+    const { container } = mountAccount({ client })
+    await settle()
+
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
+    expect(entry).toBeDefined()
+    entry.click()
+    await settle()
+
+    expect(container.innerHTML).toContain('Nothing in your Dropbox')
+    expect(container.innerHTML).toContain('Settings › Subscriptions')
+    const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete permanently') as HTMLButtonElement
+    expect(confirm).toBeDefined()
+    confirm.click()
+    await settle()
+
+    const deletion = calls.find((call) => call.url === 'https://manorama.xyz/api/account')
+    expect(deletion).toBeDefined()
+    expect(deletion?.init?.method).toBe('DELETE')
+    expect(JSON.parse(String(deletion?.init?.body))).toEqual({ confirm: 'quiet-owner' })
+    expect((deletion?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+
+    // window.location.reload is a no-op in happy-dom; the storage teardown is
+    // the contract that matters here.
+    expect(billingSignedOut).toBe(true)
+    expect(storage.has(TOKEN_KEY)).toBe(false)
+    expect(storage.has(SLUG_KEY)).toBe(false)
+  })
+
+  test('the delete confirmation can be dismissed without a request', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch()
+    const { container } = mountAccount()
+    await settle()
+
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
+    entry.click()
+    await settle()
+    expect(container.innerHTML).toContain('Delete permanently')
+
+    const cancel = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Cancel') as HTMLButtonElement
+    cancel.click()
+    await settle()
+
+    expect(calls.some((call) => call.url === 'https://manorama.xyz/api/account')).toBe(false)
+    expect(container.innerHTML).not.toContain('Delete permanently')
+    expect(storage.has(TOKEN_KEY)).toBe(true)
+  })
+
+  test('a failed deletion keeps the session and says so', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      fallback: (url) => url === 'https://manorama.xyz/api/account'
+        ? json({ error: 'Your account could not be deleted right now' }, 503)
+        : new Response('{}', { status: 404 }),
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
+    entry.click()
+    await settle()
+    const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete permanently') as HTMLButtonElement
+    confirm.click()
+    await settle()
+
+    expect(container.innerHTML).toContain('Your account could not be deleted right now')
+    expect(storage.has(TOKEN_KEY)).toBe(true)
+    expect(storage.has(SLUG_KEY)).toBe(true)
+  })
+
   test('the manual form still opens another owner\u2019s gallery while signed in', async () => {
     installLocalStorage()
     signInStorage()
