@@ -15,7 +15,7 @@ The module also exposes `findSimilarFrames` for a future native “find frames l
 ## Privacy and memory boundary
 
 - The input image bytes are read from the existing encrypted native cache and decoded on-device.
-- Pixel buffers are zeroed before their lease is released, including when decode, feature extraction, or vault persistence fails.
+- The leased pixel buffer (`lease.pixels`) is zeroed before its lease is released, including when feature extraction or vault persistence fails; decoder-owned buffers are outside this guarantee.
 - Only compact feature records are persisted, through `EncryptedVault.write`, under `local-compute:v1:<stable-image-id>`.
 - No image bytes, thumbnails, vectors, or feature records are sent to the Worker.
 - The existing gallery order is never changed. Suggestions are returned as reviewable alternatives.
