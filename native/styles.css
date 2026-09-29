@@ -62,11 +62,93 @@ body:has(.native-diptych) {
   padding: clamp(8px, 4vw, 28px) 0;
 }
 
-.native-list-logo {
-  display: block;
-  width: min(220px, 68vw);
-  height: auto;
-  margin-bottom: 42px;
+/* Signed-in, the page splits into a brand column and the account card —
+   a flex column while narrow, a two-column grid at the same 820px line
+   the landing split uses. The brand column reuses .landing-brand-mark,
+   .landing-brand-intro, .admin-greeting and .site-footer verbatim and
+   owns the ad slot, so the welcome copy shares the web's stylesheet and
+   cannot drift. */
+.native-account-shell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(28px, 6vw, 44px);
+}
+
+.native-account-side {
+  width: min(100%, 460px);
+  margin-inline: auto;
+}
+
+.native-account-side .landing-brand-mark {
+  width: min(300px, 72vw);
+  max-width: 100%;
+}
+
+.native-account-side .landing-brand-intro {
+  margin-top: clamp(20px, 4vw, 32px);
+  margin-bottom: clamp(24px, 5vw, 36px);
+  max-width: none;
+}
+
+/* The slot spans the brand column edge to edge, holding the labelled
+   frame the ad contract requires while it fills its half of the split. */
+.native-account-side .native-account-ad {
+  flex: none;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 clamp(24px, 5vw, 36px);
+  padding: 16px 18px;
+}
+
+.native-account-side .admin-greeting {
+  margin-top: 0;
+  max-width: none;
+}
+
+/* Legal stays the page's last child so a stacked phone still ends on it;
+   the wide grid pins it back under the brand column. */
+.native-legal {
+  width: min(100%, 460px);
+  margin-inline: auto;
+  padding: 14px 0;
+}
+
+.native-account-shell .native-list-card {
+  margin-inline: auto;
+}
+
+@media (min-width: 820px) {
+  .native-account-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    column-gap: clamp(40px, 6vw, 96px);
+    row-gap: 40px;
+    align-items: start;
+    justify-items: stretch;
+    width: 100%;
+    max-width: 1240px;
+    margin-inline: auto;
+  }
+  .native-account-side {
+    position: sticky;
+    top: clamp(20px, 6vh, 64px);
+    width: auto;
+    margin-inline: 0;
+  }
+  .native-account-side .landing-brand-mark {
+    width: min(100%, 480px);
+  }
+  .native-account-shell .native-list-card {
+    width: 100%;
+    margin-inline: 0;
+    padding-top: 0;
+  }
+  .native-legal {
+    grid-column: 1;
+    width: auto;
+    margin-inline: 0;
+  }
 }
 
 .native-list-card h1 {
@@ -295,19 +377,6 @@ body:has(.native-diptych) {
    get no button, so nothing pretends to open what it cannot. */
 .native-account {
   margin-bottom: 22px;
-}
-
-.native-account-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
 }
 
 .native-account-signout {

@@ -653,6 +653,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         </div>
       </header>
 
+      {/* Wide screens split the page in two: the header (brand, greeting,
+          sign-in methods, account) holds the left column while everything
+          operational — adding and curating galleries — runs down the right.
+          Narrow screens read top to bottom, header first. */}
+      <div class="admin-content">
       <section class="gallery-import" aria-labelledby="import-heading">
         <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
         {(() => {
@@ -693,6 +698,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from its source link`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}<button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button></div>
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
+      </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}
       <footer class="site-footer">

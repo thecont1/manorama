@@ -432,6 +432,41 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 }
 
 .admin-page--selector { min-height: 100dvh; }
+/* Wide screens run the dashboard as two columns: the header (brand,
+   greeting, sign-in methods, account) stays pinned to the left while the
+   import form and gallery cards fill the right, and the legal footer
+   closes the left half. Same 820px line as the landing split — the web
+   and the native account screen share the breakpoint. */
+@media (min-width: 820px) {
+  .admin-page--selector {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    column-gap: clamp(40px, 6vw, 96px);
+    align-items: start;
+    width: min(1520px, 100%);
+    margin-inline: auto;
+  }
+  .admin-page--selector .admin-header {
+    grid-column: 1;
+    position: sticky;
+    top: clamp(20px, 6vh, 64px);
+    width: 100%;
+    margin: 0;
+    padding-bottom: 0;
+  }
+  .admin-page--selector .admin-content {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .admin-page--selector .gallery-import,
+  .admin-page--selector .gallery-list {
+    width: 100%;
+    margin: 0;
+  }
+  .admin-page--selector .gallery-import { border-top: none; padding-top: 0; }
+  .admin-page--selector > .site-footer { grid-column: 1; }
+}
 .gallery-selector { width: min(820px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0 72px; border-top: 1px solid rgba(var(--ink), .12); }
 .gallery-selector-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 32px; }
 .gallery-selector-heading > div { display: flex; align-items: baseline; gap: 18px; }

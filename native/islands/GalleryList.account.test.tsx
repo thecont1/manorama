@@ -21,8 +21,6 @@ import type { BillingState, RevenueCatBilling } from '../lib/billing'
 const globals = globalThis as Record<string, unknown>
 let previousWindow: unknown
 let previousDocument: unknown
-let previousAnimationFrame: unknown
-let previousCancelAnimationFrame: unknown
 let previousGetComputedStyle: unknown
 
 type Frame = { id: number; callback: FrameRequestCallback }
@@ -46,8 +44,6 @@ beforeAll(() => {
   dom = new Window({ width: 375, height: 812, url: 'http://localhost/' })
   previousWindow = globals.window
   previousDocument = globals.document
-  previousAnimationFrame = globals.requestAnimationFrame
-  previousCancelAnimationFrame = globals.cancelAnimationFrame
   previousGetComputedStyle = globals.getComputedStyle
   globals.window = dom
   globals.document = dom.document
@@ -70,13 +66,14 @@ beforeAll(() => {
 afterAll(() => {
   globals.window = previousWindow
   globals.document = previousDocument
-  globals.requestAnimationFrame = previousAnimationFrame
-  globals.cancelAnimationFrame = previousCancelAnimationFrame
   globals.getComputedStyle = previousGetComputedStyle
   // SVGElement stays installed on purpose: once a test in this process renders
   // an <svg>, hono keeps its namespace Context and evaluates `instanceof
   // SVGElement` for every element in every later file — removing it breaks
-  // the suites that follow.
+  // the suites that follow. The rAF pair stays for the same reason: async
+  // fetches resolved by clearing the DOM (afterEach wipes innerHTML without
+  // running effect cleanup) still schedule hono's post-effect pass, and a
+  // restored-to-undefined rAF turns those stray renders into TypeErrors.
 })
 
 type Loader = (input: AdPolicyInput) => Promise<AdFrame | null>
@@ -464,11 +461,14 @@ describe('signed-in account area', () => {
 
     const html = container.innerHTML
     expect(html).toContain('Your galleries')
-    expect(html).toContain('manorama.xyz/quiet-owner')
+    // The address lives in the greeting's editable URL field — the same
+    // `manorama.xyz/` + slug the web dashboard renders.
+    expect(html).toContain('manorama.xyz/')
+    expect((container.querySelector('.admin-owner-slug-input') as HTMLInputElement)?.value).toBe('quiet-owner')
     expect(html).toContain('Kashmir')
     expect(html).toContain('kashmir')
     expect(html).toContain('12 items')
-    expect(html).toContain('Sign out')
+    expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'sign out')).toBe(true)
     // Signed-in home replaces the provider row, but keeps the manual path.
     expect(html).not.toContain('Sign in with Apple')
     expect(html).toContain('Open another gallery')
@@ -483,6 +483,49 @@ describe('signed-in account area', () => {
     await settle()
 
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
+  })
+
+  test('greets by the provider name and PATCHes an edited URL name', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary()] }),
+      fallback: (url, init) => {
+        if (url === 'https://manorama.xyz/api/account/identities') {
+          return json({ identities: [{ provider: 'dropbox', displayName: 'Mahesh Shantaram' }] })
+        }
+        if (url === 'https://manorama.xyz/api/account' && init?.method === 'PATCH') {
+          return json({ ownerSlug: 'fieldnotes' })
+        }
+        if (url === 'https://manorama.xyz/api/account') return json({ ownerSlug: 'quiet-owner' })
+        return new Response('{}', { status: 404 })
+      },
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    const html = container.innerHTML
+    expect(html).toContain('Hello <mark')
+    expect(html).toContain('Mahesh Shantaram')
+    expect(html).toContain('This is your manoramic world')
+    expect(html).toContain('Privacy Policy')
+    expect(html).toContain('© 2026 Mahesh Shantaram')
+
+    const input = container.querySelector('.admin-owner-slug-input') as HTMLInputElement | null
+    expect(input).not.toBeNull()
+    expect(input!.value).toBe('quiet-owner')
+    input!.value = 'fieldnotes'
+    input!.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
+    // The blur handler reads ownerSlugDraft; let the input's setState re-render
+    // rebind the listener with the fresh closure before dispatching blur.
+    await settle()
+    input!.dispatchEvent(new dom.Event('blur') as unknown as Event)
+    await settle()
+
+    const patch = calls.find((call) => call.url === 'https://manorama.xyz/api/account' && call.init?.method === 'PATCH')
+    expect(JSON.parse(String(patch?.init?.body))).toEqual({ ownerSlug: 'fieldnotes' })
+    expect(storage.get(SLUG_KEY)).toBe('fieldnotes')
+    expect(container.innerHTML).toContain('Your address is now manorama.xyz/fieldnotes')
   })
 
   test('renders the device catalogue; only a public slug is tappable', async () => {
@@ -572,7 +615,7 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
-    const signOut = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Sign out') as HTMLButtonElement
+    const signOut = [...container.querySelectorAll('button')].find((button) => button.textContent === 'sign out') as HTMLButtonElement
     expect(signOut).toBeDefined()
     signOut.click()
     await settle()

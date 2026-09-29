@@ -122,6 +122,36 @@ export const deleteAccount = async (apiBase: string, confirm: string): Promise<v
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Account deletion failed (${response.status})`)
 }
 
+export type AccountIdentity = { provider: string; displayName?: string; email?: string }
+
+/** The account's sign-in methods — the same list the web dashboard shows.
+ *  The greeting needs only a first name, so the caller picks a displayName. */
+export const fetchAccountIdentities = async (
+  apiBase: string,
+  signal?: AbortSignal,
+): Promise<AccountIdentity[]> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account/identities`, {
+    headers: await bearerHeaders(),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { identities?: AccountIdentity[]; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Identity list request failed (${response.status})`)
+  return Array.isArray(payload.identities) ? payload.identities : []
+}
+
+/** The dashboard's custom-URL edit: PATCHes the owner slug and answers the
+ *  slug the server actually stored, lowercased and normalised. */
+export const renameOwnerSlug = async (apiBase: string, ownerSlug: string): Promise<string> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ ownerSlug }),
+  })
+  const payload = await response.json().catch(() => ({})) as { ownerSlug?: string; error?: string }
+  if (!response.ok || !payload.ownerSlug) throw new NativeGalleryHttpError(response.status, payload.error || 'That URL could not be saved')
+  return payload.ownerSlug
+}
+
 /** Recovers the account's URL name when secure storage lost it — the
  *  delete flow needs it as the server-side confirmation. */
 export const fetchAccountOwnerSlug = async (apiBase: string): Promise<string | undefined> => {

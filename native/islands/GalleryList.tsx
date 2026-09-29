@@ -7,7 +7,7 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { deleteAccount, fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase } from '../lib/api'
+import { deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -89,6 +89,9 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   // full reload, so by the first paint the token is already on the device.
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
+  const [ownerName, setOwnerName] = useState<string | undefined>(undefined)
+  const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
+  const [slugNote, setSlugNote] = useState<string | null>(null)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [accountListFailed, setAccountListFailed] = useState(false)
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
@@ -216,17 +219,24 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       const [token, slug] = await Promise.all([getSessionToken(), getOwnerSlug()])
       if (!active) return
       setOwnerSlug(slug)
+      setOwnerSlugDraft(slug ?? '')
       setSignedIn(Boolean(token))
       if (!token) return
-      const [account, device] = await Promise.allSettled([
+      const [account, device, identities] = await Promise.allSettled([
         fetchAccountGalleries(base, controller.signal),
         fetchDeviceGalleries(base, controller.signal),
+        fetchAccountIdentities(base, controller.signal),
       ])
       if (!active) return
       setAccountGalleries(account.status === 'fulfilled' ? account.value : null)
       setAccountListFailed(account.status === 'rejected')
       setDeviceGalleries(device.status === 'fulfilled' ? device.value : null)
       setDeviceListFailed(device.status === 'rejected')
+      // The greeting borrows the first name the providers handed over; when
+      // none came back the URL name stands in.
+      if (identities.status === 'fulfilled') {
+        setOwnerName(identities.value.find((identity) => identity.displayName)?.displayName)
+      }
     })()
     return () => {
       active = false
@@ -382,6 +392,26 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       setOwnerSlug(slug)
     }
     return slug
+  }
+
+  /** The dashboard's custom-URL edit: typing a new address PATCHes the
+   *  account, then the stored slug and the greeting both follow. */
+  const saveOwnerSlug = async () => {
+    const value = ownerSlugDraft.trim().toLowerCase()
+    if (!value || value === ownerSlug) {
+      setOwnerSlugDraft(ownerSlug ?? '')
+      return
+    }
+    try {
+      const saved = await renameOwnerSlug(base, value)
+      setOwnerSlug(saved)
+      setOwnerSlugDraft(saved)
+      try { await persistOwnerSlug(saved) } catch { /* persistence is nice-to-have */ }
+      setSlugNote(`Your address is now manorama.xyz/${saved}`)
+    } catch (reason) {
+      setSlugNote(reason instanceof Error ? reason.message : 'That URL could not be saved')
+      setOwnerSlugDraft(ownerSlug ?? '')
+    }
   }
 
   const openDeleteConfirm = () => {
@@ -578,30 +608,50 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
 
   return (
     <>
-    <main class="native-list-shell">
+    <main class="native-list-shell native-account-shell">
+      {/* The brand column — same classes as the web's landing and dashboard,
+          so logo, tagline, greeting and footer can't drift between platforms.
+          Wide screens pin it left beside the account card; narrow screens
+          stack it above. */}
+      <div class="native-account-side">
+        <span class="brand-mark-wrap">
+          <img
+            src="/manorama-merged-logo.png"
+            alt="manorama"
+            class="landing-brand-mark"
+          />
+          <span class="brand-tld" aria-hidden="true">.xyz</span>
+        </span>
+        <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+        {accountAdAside}
+        <div class="admin-greeting">
+          <p class="admin-greeting-url">manorama.xyz/<input
+            class="admin-owner-slug-input"
+            type="text"
+            value={ownerSlugDraft}
+            aria-label="Your URL — edit to change your address"
+            spellcheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
+            onInput={(event) => {
+              setSlugNote(null)
+              setOwnerSlugDraft((event.currentTarget as HTMLInputElement).value)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setOwnerSlugDraft(ownerSlug ?? '')
+              if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
+            }}
+            onBlur={() => { void saveOwnerSlug() }}
+          /></p>
+          <p><br/>Hello <mark class="admin-greeting-name">{ownerName ?? ownerSlug ?? 'friend'}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <button type="button" class="admin-signout" onClick={() => void signOut()}>sign out</button> <br/><br/>Or not. This is your manoramic world.</p>
+          {slugNote ? <p class="native-account-note">{slugNote}</p> : null}
+        </div>
+      </div>
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
-        <header class="native-account-header">
-          <span class="brand-mark-wrap">
-            <img
-              src="/manorama-merged-logo.png"
-              alt="manorama"
-              class="native-list-logo"
-            />
-          </span>
-          {accountAdAside}
-        </header>
         <h1>Your galleries</h1>
         <p>{message}</p>
         {signedIn ? (
           <div class="native-account" data-account>
-            <div class="native-account-line">
-              <span class="native-account-identity">
-                {ownerSlug ? `manorama.xyz/${ownerSlug}` : 'Signed in'}
-              </span>
-              <button type="button" class="native-account-signout" onClick={() => void signOut()}>
-                Sign out
-              </button>
-            </div>
             {accountListFailed ? (
               <p class="native-account-note">
                 Your galleries could not be loaded.{' '}
@@ -752,6 +802,12 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           </>
         ) : null}
       </section>
+      {/* Legal is the last child so a stacked phone still ends on it; at
+          the wide split the grid pins it under the brand column. */}
+      <footer class="site-footer native-legal">
+        <a class="site-footer-link" href="https://manorama.xyz/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
+      </footer>
     </main>
     {globalViewOpen ? (
       <GlobalView
