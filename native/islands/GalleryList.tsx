@@ -613,6 +613,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           so logo, tagline, greeting and footer can't drift between platforms.
           Wide screens pin it left beside the account card; narrow screens
           stack it above. */}
+      <div class="native-account-left">
       <div class="native-account-side">
         <span class="brand-mark-wrap">
           <img
@@ -646,6 +647,14 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           <p><br/>Hello <mark class="admin-greeting-name">{ownerName ?? ownerSlug ?? 'friend'}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <button type="button" class="admin-signout" onClick={() => void signOut()}>sign out</button> <br/><br/>Or not. This is your manoramic world.</p>
           {slugNote ? <p class="native-account-note">{slugNote}</p> : null}
         </div>
+      </div>
+        {/* Legal ends the left column's own scroll region on wide screens;
+            on narrow ones the wrapper dissolves (display:contents) and the
+            footer's order puts it last in the stacked page. */}
+        <footer class="site-footer native-legal">
+          <a class="site-footer-link" href="https://manorama.xyz/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
+        </footer>
       </div>
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <h1>Your galleries</h1>
@@ -802,12 +811,6 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           </>
         ) : null}
       </section>
-      {/* Legal is the last child so a stacked phone still ends on it; at
-          the wide split the grid pins it under the brand column. */}
-      <footer class="site-footer native-legal">
-        <a class="site-footer-link" href="https://manorama.xyz/privacy" target="_blank" rel="noopener">Privacy Policy</a>
-        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
-      </footer>
     </main>
     {globalViewOpen ? (
       <GlobalView

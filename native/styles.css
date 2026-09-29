@@ -106,9 +106,13 @@ body:has(.native-diptych) {
   max-width: none;
 }
 
-/* Legal stays the page's last child so a stacked phone still ends on it;
-   the wide grid pins it back under the brand column. */
+/* Legal lives inside the left scroller — narrow dissolves the wrapper
+   (display:contents) and the explicit orders put it after the card;
+   wide keeps it at the end of the brand column's own scroll. */
+.native-account-left { display: contents; }
+.native-account-shell .native-list-card { order: 1; }
 .native-legal {
+  order: 2;
   width: min(100%, 460px);
   margin-inline: auto;
   padding: 14px 0;
@@ -119,20 +123,31 @@ body:has(.native-diptych) {
 }
 
 @media (min-width: 820px) {
+  /* Both columns scroll independently — the shell locks to the viewport,
+     the left ends on the legal footer, the right runs through the
+     galleries without moving the brand. */
   .native-account-shell {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
     column-gap: clamp(40px, 6vw, 96px);
     row-gap: 40px;
-    align-items: start;
+    align-items: stretch;
     justify-items: stretch;
     width: 100%;
     max-width: 1240px;
+    height: 100svh;
     margin-inline: auto;
+    overflow: hidden;
+  }
+  .native-account-left {
+    grid-column: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .native-account-side {
-    position: sticky;
-    top: clamp(20px, 6vh, 64px);
     width: auto;
     margin-inline: 0;
   }
@@ -140,14 +155,19 @@ body:has(.native-diptych) {
     width: min(100%, 480px);
   }
   .native-account-shell .native-list-card {
+    grid-column: 2;
+    order: 0;
     width: 100%;
+    min-height: 0;
     margin-inline: 0;
     padding-top: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
-  .native-legal {
-    grid-column: 1;
+  .native-account-left .native-legal {
+    order: 0;
     width: auto;
-    margin-inline: 0;
+    margin: auto 0 0;
   }
 }
 

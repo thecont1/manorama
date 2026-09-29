@@ -432,32 +432,53 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 }
 
 .admin-page--selector { min-height: 100dvh; }
-/* Wide screens run the dashboard as two columns: the header (brand,
-   greeting, sign-in methods, account) stays pinned to the left while the
-   import form and gallery cards fill the right, and the legal footer
-   closes the left half. Same 820px line as the landing split — the web
-   and the native account screen share the breakpoint. */
+/* Narrow: .admin-left dissolves so header, content and footer stack as
+   one page — the explicit orders keep the legal footer last even though
+   it sits inside the left wrapper for the wide split. */
+.admin-page--selector .admin-left { display: contents; }
+.admin-page--selector .admin-content { order: 1; }
+.admin-page--selector .site-footer { order: 2; }
+/* Wide screens run the dashboard as two independently scrolling columns:
+   the left carries brand, greeting, sign-in methods and account, ending
+   on the legal footer; the right carries the import form and every
+   gallery card. The page itself locks to the viewport — each side keeps
+   its own scroll position. Same 820px line as the landing split. */
 @media (min-width: 820px) {
   .admin-page--selector {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
     column-gap: clamp(40px, 6vw, 96px);
-    align-items: start;
+    align-items: stretch;
     width: min(1520px, 100%);
+    height: 100dvh;
     margin-inline: auto;
+    padding-bottom: clamp(28px, 6vw, 88px);
+    overflow: hidden;
+  }
+  .admin-page--selector .admin-left {
+    grid-column: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .admin-page--selector .admin-header {
-    grid-column: 1;
-    position: sticky;
-    top: clamp(20px, 6vh, 64px);
     width: 100%;
     margin: 0;
     padding-bottom: 0;
+  }
+  .admin-page--selector .admin-left .site-footer {
+    margin-top: auto;
+    padding-inline: 0;
   }
   .admin-page--selector .admin-content {
     grid-column: 2;
     grid-row: 1;
     min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .admin-page--selector .gallery-import,
   .admin-page--selector .gallery-list {
@@ -465,7 +486,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
     margin: 0;
   }
   .admin-page--selector .gallery-import { border-top: none; padding-top: 0; }
-  .admin-page--selector > .site-footer { grid-column: 1; }
 }
 .gallery-selector { width: min(820px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0 72px; border-top: 1px solid rgba(var(--ink), .12); }
 .gallery-selector-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 32px; }
@@ -564,6 +584,16 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 @media (max-width: 720px) {
   .admin-gallery-strip-frame { margin-left: calc((100% - 100vw) / 2); }
   .admin-gallery-strip-frame + .gallery-card-actions { grid-column: 1 / -1; }
+  /* Small devices don't get the rail at all — each card shows its lead
+     image only. The rest leave the render tree, and with loading="lazy"
+     their files are never fetched. */
+  .admin-gallery-strip-item:not(:first-child) { display: none; }
+}
+/* Inside the split's right column the frame can no longer bleed to the
+   viewport — it takes the column width honestly instead of clipping mid-
+   image under the left column. */
+@media (min-width: 820px) {
+  .admin-page--selector .admin-gallery-strip-frame { width: 100%; margin-left: 0; }
 }
 
 /* The card no longer has a numbered index column. */

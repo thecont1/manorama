@@ -563,6 +563,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   return (
     <>
       <main class="admin-page admin-page--selector">
+      {/* On wide screens the page locks to the viewport and each column
+          scrolls on its own — the left from brand down to this footer, the
+          right through the galleries. On narrow screens .admin-left is
+          display:contents, so the footer orders itself back to the bottom
+          of the stacked page. */}
+      <div class="admin-left">
       <header class="admin-header">
         <div>
           <form method="post" action="/auth/logout" class="admin-brand-form">
@@ -652,6 +658,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </button>
         </div>
       </header>
+      <footer class="site-footer">
+        <a class="site-footer-link" href="/privacy">Privacy Policy</a>
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
+      </footer>
+      </div>
 
       {/* Wide screens split the page in two: the header (brand, greeting,
           sign-in methods, account) holds the left column while everything
@@ -701,10 +712,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}
-      <footer class="site-footer">
-        <a class="site-footer-link" href="/privacy">Privacy Policy</a>
-        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
-      </footer>
       </main>
     </>
   )
