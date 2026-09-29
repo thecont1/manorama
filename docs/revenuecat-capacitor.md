@@ -46,19 +46,19 @@ Create the following exact configuration:
 | --- | --- |
 | App | iOS bundle ID `in.thecontrarian.manorama` and the Android application from the Capacitor project |
 | Entitlement | `will_pay` |
-| App Store product | `yearly` |
+| App Store product | `in.thecontrarian.manorama.visionary.annual` |
 | Product type | Auto-renewable subscription, one year |
-| RevenueCat package | Annual package attached to `yearly` |
+| RevenueCat package | `$rc_annual` attached to `in.thecontrarian.manorama.visionary.annual` |
 | Current offering | The offering shown by the hosted Paywall |
 | Customer Center | Enabled for the project |
 
-In App Store Connect, create product ID `yearly`, choose the price and localizations, and ensure it is in the same subscription group as the app’s other subscription products if more are added later. The Paid Apps Agreement and banking must be active; that gate is now clear for manorama. A Sandbox Tester and a physical device are still required for purchase verification.
+In App Store Connect, create or verify product ID `in.thecontrarian.manorama.visionary.annual`, choose the price and localizations, and ensure it is in the same subscription group as the app’s other subscription products if more are added later. The Paid Apps Agreement and banking must be active; that gate is now clear for manorama. A Sandbox Tester and a physical device are still required for purchase verification.
 
 In RevenueCat:
 
-1. Import the App Store Connect product `yearly`.
+1. Import the App Store Connect product `in.thecontrarian.manorama.visionary.annual`.
 2. Create entitlement `will_pay`.
-3. Attach `yearly` to the annual package in the current offering.
+3. Attach `in.thecontrarian.manorama.visionary.annual` to the `$rc_annual` package in the current offering.
 4. Create or publish the hosted Paywall for that offering.
 5. Enable and configure Customer Center.
 6. Copy the public SDK key into `VITE_REVENUECAT_API_KEY` for native builds.
@@ -171,11 +171,11 @@ Then verify on a physical sandbox device:
 1. Sign in with Dropbox through the system browser.
 2. Confirm the app returns through `in.thecontrarian.manorama://auth/callback`.
 3. Confirm the app resumes with the same Dropbox identity after a cold launch.
-4. Open subscription options and confirm the hosted Paywall displays the `yearly` product.
+4. Open subscription options and confirm the hosted Paywall displays the `Visionary Annual` package backed by `in.thecontrarian.manorama.visionary.annual`.
 5. Complete a Sandbox purchase and confirm `will_pay` becomes active.
 6. Confirm the native UI refreshes to the Pro state.
 7. Confirm the RevenueCat webhook reaches the Worker and the server tier changes through `setUserTier`.
 8. Open Customer Center and verify restore and cancellation flows.
 9. Confirm a free customer sees the ad/upgrade path and a Pro customer does not receive free-tier treatment.
 
-The remaining owner-only gates are creating the `yearly` product and RevenueCat offering, creating a Sandbox Tester, and waiting for the DSA review to complete.
+As of 2026-09-29, App Store Connect and RevenueCat both report `in.thecontrarian.manorama.visionary.annual`; RevenueCat attaches it to `will_pay` and the current `$rc_annual` package. The Paywall draft is attached but not yet published, and a physical Sandbox purchase/restore still needs verification. Customer Center has a project configuration with management and restore actions; platform-specific processing must still be verified against the configured App Store app.

@@ -29,7 +29,7 @@ const fakePurchases = (info: CustomerInfo): FakePurchases => {
     getCustomerInfo: async () => ({ customerInfo: info }),
     getOfferings: async () => ({ all: {}, current: null }),
     purchasePackage: async () => ({
-      productIdentifier: 'manorama_pro_monthly',
+      productIdentifier: 'in.thecontrarian.manorama.visionary.annual',
       customerInfo: info,
       transaction: {} as never,
     }),
@@ -168,7 +168,7 @@ describe('RevenueCatBilling', () => {
     fake.purchasePackage = async () => {
       await new Promise<void>((resolve) => { finishPurchase = resolve })
       return {
-        productIdentifier: 'yearly',
+        productIdentifier: 'in.thecontrarian.manorama.visionary.annual',
         customerInfo: paidInfo,
         transaction: {} as never,
       }
