@@ -84,6 +84,36 @@ export const beginProviderSignIn = async (provider: AuthProvider, apiBase: strin
   await Browser.open({ url: url.toString(), toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 
+/** getLaunchUrl answers the URL that most recently opened the app, so a
+ *  remount after window.location.reload() sees a completed sign-in's handoff
+ *  again. The claim has to live in sessionStorage — module state dies with the
+ *  reload — or every exchange reloads into the next one forever. */
+const HANDLED_HANDOFF_KEY = 'manorama.native.handoff'
+const handledHandoffs = new Set<string>()
+
+const claimHandoff = (token: string): boolean => {
+  if (handledHandoffs.has(token)) return false
+  try {
+    if (globalThis.sessionStorage?.getItem(HANDLED_HANDOFF_KEY) === token) return false
+    globalThis.sessionStorage?.setItem(HANDLED_HANDOFF_KEY, token)
+  } catch {
+    // Storage can be unavailable; the in-memory set still dedupes within this mount.
+  }
+  handledHandoffs.add(token)
+  return true
+}
+
+const releaseHandoff = (token: string): void => {
+  handledHandoffs.delete(token)
+  try {
+    if (globalThis.sessionStorage?.getItem(HANDLED_HANDOFF_KEY) === token) {
+      globalThis.sessionStorage.removeItem(HANDLED_HANDOFF_KEY)
+    }
+  } catch {
+    // A missed release just leaves the token claimed; a fresh sign-in mints a new one.
+  }
+}
+
 const exchangeHandoff = async (url: string, apiBase: string): Promise<boolean> => {
   let parsed: URL
   try {
@@ -93,24 +123,30 @@ const exchangeHandoff = async (url: string, apiBase: string): Promise<boolean> =
   }
   if (parsed.protocol !== 'in.thecontrarian.manorama:' || parsed.hostname !== 'auth') return false
   const handoffToken = parsed.searchParams.get('handoff')?.trim()
-  if (!handoffToken) return false
-  const response = await fetch(`${apiBase.replace(/\/+$/, '')}/api/auth/native/exchange`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ handoffToken }),
-  })
-  const payload = await response.json().catch(() => ({})) as NativeTokenResponse & { error?: string }
-  if (!response.ok || !payload.token) throw new Error(payload.error || 'Native sign-in could not be completed')
+  if (!handoffToken || !claimHandoff(handoffToken)) return false
   try {
-    await setSessionToken(payload.token)
-    // The exchange always answers with the account's owner slug; dropping a
-    // stale one matters when a previous sign-in outlived its token.
-    if (payload.ownerSlug) await setOwnerSlug(payload.ownerSlug)
-    else await clearOwnerSlug()
-  } finally {
-    await Browser.close().catch(() => undefined)
+    const response = await fetch(`${apiBase.replace(/\/+$/, '')}/api/auth/native/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handoffToken }),
+    })
+    const payload = await response.json().catch(() => ({})) as NativeTokenResponse & { error?: string }
+    if (!response.ok || !payload.token) throw new Error(payload.error || 'Native sign-in could not be completed')
+    try {
+      await setSessionToken(payload.token)
+      // The exchange always answers with the account's owner slug; dropping a
+      // stale one matters when a previous sign-in outlived its token.
+      if (payload.ownerSlug) await setOwnerSlug(payload.ownerSlug)
+      else await clearOwnerSlug()
+    } finally {
+      await Browser.close().catch(() => undefined)
+    }
+    return true
+  } catch (error) {
+    // A failed exchange releases the claim so a redelivered URL can retry.
+    releaseHandoff(handoffToken)
+    throw error
   }
-  return true
 }
 
 export const installNativeAuth = async (
@@ -131,4 +167,9 @@ export const installNativeAuth = async (
   return async () => listener.remove()
 }
 
-export const __private__ = { exchangeHandoff }
+export const __private__ = {
+  exchangeHandoff,
+  /** Clears the in-memory claim set so tests can simulate a page reload,
+   *  which wipes module state but preserves sessionStorage. */
+  resetHandledHandoffs: () => handledHandoffs.clear(),
+}

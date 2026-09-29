@@ -10,6 +10,36 @@ import {
   setOwnerSlug,
 } from './session'
 
+const TOKEN_KEY = 'capacitor-storage_manorama.session-token'
+const SLUG_KEY = 'capacitor-storage_manorama.owner-slug'
+const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+
+/** The SecureStorage web fallback keeps prefixed keys in localStorage;
+ *  this stub mirrors it the way the browser preview does. */
+const installLocalStorage = () => {
+  const data = new Map<string, string>()
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: {
+      getItem: (key: string) => (data.has(key) ? data.get(key)! : null),
+      setItem: (key: string, value: string) => void data.set(key, String(value)),
+      removeItem: (key: string) => void data.delete(key),
+      key: (index: number) => [...data.keys()][index] ?? null,
+      get length() { return data.size },
+      clear: () => data.clear(),
+    },
+  })
+  return data
+}
+const restoreLocalStorage = () => {
+  if (localStorageDescriptor) {
+    Object.defineProperty(globalThis, 'localStorage', localStorageDescriptor)
+  } else {
+    delete (globalThis as Record<string, unknown>).localStorage
+  }
+}
+
 describe('beginProviderSignIn', () => {
   test('opens the chosen provider auth route with the native handoff flag', async () => {
     const opened: string[] = []
@@ -78,39 +108,91 @@ describe('native OAuth callback', () => {
       Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorage })
     }
   })
-})
 
-describe('owner slug persistence', () => {
-  const TOKEN_KEY = 'capacitor-storage_manorama.session-token'
-  const SLUG_KEY = 'capacitor-storage_manorama.owner-slug'
-  const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
-
-  /** The SecureStorage web fallback keeps prefixed keys in localStorage;
-   *  this stub mirrors it the way the browser preview does. */
-  const installLocalStorage = () => {
+  const installSessionStorage = () => {
     const data = new Map<string, string>()
-    Object.defineProperty(globalThis, 'localStorage', {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+    Object.defineProperty(globalThis, 'sessionStorage', {
       configurable: true,
       writable: true,
       value: {
         getItem: (key: string) => (data.has(key) ? data.get(key)! : null),
         setItem: (key: string, value: string) => void data.set(key, String(value)),
         removeItem: (key: string) => void data.delete(key),
-        key: (index: number) => [...data.keys()][index] ?? null,
-        get length() { return data.size },
         clear: () => data.clear(),
       },
     })
-    return data
-  }
-  const restoreLocalStorage = () => {
-    if (localStorageDescriptor) {
-      Object.defineProperty(globalThis, 'localStorage', localStorageDescriptor)
-    } else {
-      delete (globalThis as Record<string, unknown>).localStorage
-    }
+    return { data, restore: () => {
+      if (descriptor) Object.defineProperty(globalThis, 'sessionStorage', descriptor)
+      else delete (globalThis as Record<string, unknown>).sessionStorage
+    } }
   }
 
+  test('a handoff delivered twice on one mount exchanges once', async () => {
+    installLocalStorage()
+    const fetcher = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls += 1
+      return new Response(JSON.stringify({ token: 'signed-session-token' }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const url = `${NATIVE_CALLBACK_URL}?handoff=double-delivery`
+      expect(await __private__.exchangeHandoff(url, 'https://manorama.xyz')).toBe(true)
+      expect(await __private__.exchangeHandoff(url, 'https://manorama.xyz')).toBe(false)
+      expect(calls).toBe(1)
+    } finally {
+      globalThis.fetch = fetcher
+      restoreLocalStorage()
+    }
+  })
+
+  test('a handoff replayed by getLaunchUrl after reload does not re-exchange', async () => {
+    installLocalStorage()
+    const session = installSessionStorage()
+    const fetcher = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls += 1
+      return new Response(JSON.stringify({ token: 'signed-session-token' }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const url = `${NATIVE_CALLBACK_URL}?handoff=launch-replay`
+      expect(await __private__.exchangeHandoff(url, 'https://manorama.xyz')).toBe(true)
+      // window.location.reload() wipes module state but keeps sessionStorage.
+      __private__.resetHandledHandoffs()
+      expect(await __private__.exchangeHandoff(url, 'https://manorama.xyz')).toBe(false)
+      expect(calls).toBe(1)
+    } finally {
+      globalThis.fetch = fetcher
+      session.restore()
+      restoreLocalStorage()
+    }
+  })
+
+  test('a failed exchange releases the handoff so a redelivery can retry', async () => {
+    installLocalStorage()
+    const fetcher = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls += 1
+      return calls === 1
+        ? new Response(JSON.stringify({ error: 'temporary' }), { status: 500 })
+        : new Response(JSON.stringify({ token: 'signed-session-token' }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const url = `${NATIVE_CALLBACK_URL}?handoff=retry-me`
+      await expect(__private__.exchangeHandoff(url, 'https://manorama.xyz')).rejects.toThrow()
+      expect(await __private__.exchangeHandoff(url, 'https://manorama.xyz')).toBe(true)
+      expect(calls).toBe(2)
+    } finally {
+      globalThis.fetch = fetcher
+      restoreLocalStorage()
+    }
+  })
+})
+
+describe('owner slug persistence', () => {
   test('persists the owner slug returned by the native exchange beside the token', async () => {
     const data = installLocalStorage()
     const fetcher = globalThis.fetch
@@ -137,7 +219,7 @@ describe('owner slug persistence', () => {
       new Response(JSON.stringify({ token: 'signed-session-token' }), { status: 200 })
     ) as typeof fetch
     try {
-      expect(await __private__.exchangeHandoff(`${NATIVE_CALLBACK_URL}?handoff=abc`, 'https://manorama.xyz')).toBe(true)
+      expect(await __private__.exchangeHandoff(`${NATIVE_CALLBACK_URL}?handoff=def`, 'https://manorama.xyz')).toBe(true)
       expect(await getOwnerSlug()).toBeUndefined()
       expect(data.has(SLUG_KEY)).toBe(false)
     } finally {
