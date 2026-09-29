@@ -16,7 +16,7 @@ The module also exposes `findSimilarFrames` for a future native “find frames l
 
 - The input image bytes are read from the existing encrypted native cache and decoded on-device.
 - The leased pixel buffer (`lease.pixels`) is zeroed before its lease is released, including when feature extraction or vault persistence fails; decoder-owned buffers are outside this guarantee.
-- Only compact feature records are persisted, through `EncryptedVault.write`, under `local-compute:v1:<stable-image-id>`.
+- Only compact feature records are persisted, through `EncryptedVault.write`, under `local-compute:v1:<stable-image-id>`; cached-image records also carry a SHA-256 thumbnail content ID so a replaced thumbnail is never treated as already analysed.
 - No image bytes, thumbnails, vectors, or feature records are sent to the Worker.
 - The existing gallery order is never changed. Suggestions are returned as reviewable alternatives.
 - The compute pass yields to the host between frames and is started after cache readiness, so opening a gallery does not wait for analysis.

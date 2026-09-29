@@ -12,6 +12,7 @@ import {
   isCurrentImageFeatures,
   pixelGridEmbedding,
   suggestSequence,
+  thumbnailContentId,
   type LocalComputeImage,
   type LocalComputeVault,
   type LocalImageFeatures,
@@ -52,9 +53,10 @@ const lease = (id: string, bytes: Uint8Array, width: number, height: number, rel
   },
 })
 
-const feature = (imageId: string, phash: string, embedding: readonly number[]): LocalImageFeatures => ({
+const feature = (imageId: string, phash: string, embedding: readonly number[], thumbnailId?: string): LocalImageFeatures => ({
   version: 1,
   imageId,
+  ...(thumbnailId === undefined ? {} : { thumbnailId }),
   phash,
   embeddingModel: 'pixel-grid-v1',
   embedding,
@@ -69,6 +71,15 @@ describe('local visual features', () => {
     expect(isCurrentImageFeatures(current, 'frame-b')).toBe(false)
     expect(isCurrentImageFeatures(old, 'frame-a')).toBe(false)
     expect(isCurrentImageFeatures(undefined, 'frame-a')).toBe(false)
+  })
+
+  test('rejects a feature whose thumbnail content ID is not current', async () => {
+    const currentThumbnailId = await thumbnailContentId(new Uint8Array([9, 8, 7, 6]))
+    const current = feature('frame-a', '0000000000000000', [1, 0], currentThumbnailId)
+
+    expect(isCurrentImageFeatures(current, 'frame-a', currentThumbnailId)).toBe(true)
+    expect(isCurrentImageFeatures(current, 'frame-a', 'different-thumbnail')).toBe(false)
+    expect(isCurrentImageFeatures(feature('frame-a', '0000000000000000', [1, 0]), 'frame-a', currentThumbnailId)).toBe(false)
   })
 
   test('computes deterministic hash and normalized pixel-grid embedding without changing source dimensions', () => {
@@ -202,7 +213,9 @@ describe('OnDeviceLocalCompute', () => {
         { id: 'frame-a', entryId: 'thumb-frame-a', mimeType: 'image/mock' },
         { id: 'frame-b', entryId: 'thumb-frame-b', mimeType: 'image/mock' },
       ],
-      readFeatures: async (_galleryId, imageId) => imageId === 'frame-a' ? feature('frame-a', '0000000000000000', [1, 0]) : undefined,
+      readFeatures: async (_galleryId, imageId) => imageId === 'frame-a'
+        ? feature('frame-a', '0000000000000000', [1, 0], await thumbnailContentId(new Uint8Array([9, 8, 7, 6])))
+        : undefined,
       read: async () => new Uint8Array([9, 8, 7, 6]),
       decode: async () => {
         decoded += 1
@@ -254,11 +267,13 @@ describe('OnDeviceLocalCompute', () => {
     const vault = new CopyingVault()
     const compute = new OnDeviceLocalCompute({ vault })
     const encoded = new Uint8Array([9, 8, 7, 6])
+    const supplied = [encoded, encoded.slice()]
+    let readIndex = 0
     const summary = await computeCachedGallery({
       engine: compute,
       galleryId: 'gallery-a',
       images: [{ id: 'frame-a', entryId: 'thumb-frame-a', mimeType: 'image/mock' }],
-      read: async () => encoded,
+      read: async () => supplied[readIndex++],
       decode: async (bytes) => ({
         width: 4,
         height: 4,
@@ -269,6 +284,23 @@ describe('OnDeviceLocalCompute', () => {
 
     expect(summary).toEqual({ computed: 1, persisted: 1 })
     expect(encoded.every((value) => value === 0)).toBe(true)
+    expect(supplied[0]?.every((value) => value === 0)).toBe(true)
     expect(vault.writes.has('local-compute:v1:frame-a')).toBe(true)
+  })
+
+  test('does not persist features when the thumbnail changes during the pass', async () => {
+    const vault = new CopyingVault()
+    let reads = 0
+    await expect(computeCachedGallery({
+      engine: new OnDeviceLocalCompute({ vault }),
+      galleryId: 'gallery-a',
+      images: [{ id: 'frame-a', entryId: 'thumb-frame-a', mimeType: 'image/mock' }],
+      read: async () => {
+        reads += 1
+        return reads === 1 ? new Uint8Array([1, 2, 3]) : new Uint8Array([4, 5, 6])
+      },
+      decode: async () => ({ width: 4, height: 4, pixels: new Uint8Array(4 * 4 * 4), release: () => {} }),
+    })).rejects.toThrow('changed during local compute')
+    expect(vault.writes).toHaveLength(0)
   })
 })

@@ -23,6 +23,8 @@ export type LocalPixelLease = {
 
 export type LocalComputeImage = {
   id: string
+  /** Content identity of the cached thumbnail used for this computation. */
+  thumbnailId?: string
   readPixels(): Promise<LocalPixelLease>
 }
 
@@ -41,6 +43,8 @@ export type CachedComputeImage = {
 export type LocalImageFeatures = {
   version: typeof LOCAL_COMPUTE_VERSION
   imageId: string
+  /** SHA-256 identity of the cached thumbnail bytes, when sourced from cache. */
+  thumbnailId?: string
   phash: string
   embeddingModel: 'pixel-grid-v1'
   embedding: readonly number[]
@@ -178,11 +182,13 @@ export const pixelGridEmbedding = (source: LocalPixelLease): readonly number[] =
   return normalize(values)
 }
 
-export const computeImageFeatures = (source: LocalPixelLease, imageId: string): LocalImageFeatures => {
+export const computeImageFeatures = (source: LocalPixelLease, imageId: string, thumbnailId?: string): LocalImageFeatures => {
   if (!imageId.trim()) throw new Error('imageId must not be empty')
+  if (thumbnailId !== undefined && !thumbnailId.trim()) throw new Error('thumbnailId must not be empty')
   return {
     version: LOCAL_COMPUTE_VERSION,
     imageId,
+    ...(thumbnailId === undefined ? {} : { thumbnailId }),
     phash: perceptualHash(source),
     embeddingModel: 'pixel-grid-v1',
     embedding: pixelGridEmbedding(source),
@@ -317,13 +323,18 @@ export const localComputeEntryId = (imageId: string): string => `${LOCAL_COMPUTE
 const featuresEntryId = localComputeEntryId
 const serializeFeatures = (features: LocalImageFeatures): Uint8Array => encoder.encode(JSON.stringify(features))
 
+export const thumbnailContentId = async (bytes: Uint8Array): Promise<string> => {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer))
+  return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
 const parseFeatures = (bytes: Uint8Array): LocalImageFeatures | undefined => {
   try {
     const value = JSON.parse(decoder.decode(bytes)) as Partial<LocalImageFeatures>
     const phash = value.phash
     const embedding = value.embedding
-    if (value.version !== LOCAL_COMPUTE_VERSION || typeof value.imageId !== 'string' || typeof phash !== 'string' || !/^[0-9a-f]{16}$/i.test(phash) || value.embeddingModel !== 'pixel-grid-v1' || !Array.isArray(embedding) || embedding.length !== LOCAL_EMBEDDING_GRID_SIZE * LOCAL_EMBEDDING_GRID_SIZE * 3 || embedding.some((entry) => typeof entry !== 'number' || !Number.isFinite(entry))) return undefined
-    return { version: LOCAL_COMPUTE_VERSION, imageId: value.imageId, phash: phash.toLowerCase(), embeddingModel: 'pixel-grid-v1', embedding }
+    if (value.version !== LOCAL_COMPUTE_VERSION || typeof value.imageId !== 'string' || (value.thumbnailId !== undefined && typeof value.thumbnailId !== 'string') || typeof phash !== 'string' || !/^[0-9a-f]{16}$/i.test(phash) || value.embeddingModel !== 'pixel-grid-v1' || !Array.isArray(embedding) || embedding.length !== LOCAL_EMBEDDING_GRID_SIZE * LOCAL_EMBEDDING_GRID_SIZE * 3 || embedding.some((entry) => typeof entry !== 'number' || !Number.isFinite(entry))) return undefined
+    return { version: LOCAL_COMPUTE_VERSION, imageId: value.imageId, ...(value.thumbnailId === undefined ? {} : { thumbnailId: value.thumbnailId }), phash: phash.toLowerCase(), embeddingModel: 'pixel-grid-v1', embedding }
   } catch {
     return undefined
   }
@@ -334,9 +345,10 @@ export const readImageFeatures = async (vault: LocalComputeVault, galleryId: str
   return bytes ? parseFeatures(bytes) : undefined
 }
 
-/** A record is reusable only while its writer's version and stable image ID match. */
-export const isCurrentImageFeatures = (features: LocalImageFeatures | undefined, imageId: string): boolean =>
-  features?.version === LOCAL_COMPUTE_VERSION && features.imageId === imageId
+/** A record is reusable only while version, image ID, and thumbnail content match. */
+export const isCurrentImageFeatures = (features: LocalImageFeatures | undefined, imageId: string, thumbnailId?: string): boolean =>
+  features?.version === LOCAL_COMPUTE_VERSION && features.imageId === imageId &&
+  (thumbnailId === undefined ? features.thumbnailId === undefined : features.thumbnailId === thumbnailId)
 
 const pixelsFromDrawable = (drawable: CanvasImageSource, width: number, height: number): LocalPixelLease => {
   const canvas = document.createElement('canvas')
@@ -413,7 +425,7 @@ export class OnDeviceLocalCompute {
       lease = await image.readPixels()
       assertPixels(lease)
       await this.yieldToHost()
-      const features = computeImageFeatures(lease, image.id)
+      const features = computeImageFeatures(lease, image.id, image.thumbnailId)
       if (isCancelled()) throw new LocalComputeCancelledError()
       await this.vault.write(galleryId, featuresEntryId(image.id), serializeFeatures(features))
       return features
@@ -459,20 +471,32 @@ export const computeCachedGallery = async (options: {
   const images: LocalComputeImage[] = []
   for (const image of options.images) {
     if (options.isCancelled?.()) break
+    const bytes = await options.read(options.galleryId, image.entryId)
+    if (!bytes) throw new Error(`Cached image is missing: ${image.id}`)
+    let thumbnailId: string
+    try {
+      thumbnailId = await thumbnailContentId(bytes)
+    } finally {
+      bytes.fill(0)
+    }
+    if (options.isCancelled?.()) break
     const existing = await options.readFeatures?.(options.galleryId, image.id)
     if (options.isCancelled?.()) break
-    if (isCurrentImageFeatures(existing, image.id)) continue
+    if (isCurrentImageFeatures(existing, image.id, thumbnailId)) continue
     images.push({
-    id: image.id,
-    async readPixels() {
-      const bytes = await options.read(options.galleryId, image.entryId)
-      if (!bytes) throw new Error(`Cached image is missing: ${image.id}`)
-      try {
-        return await decode(bytes, image.mimeType)
-      } finally {
-        bytes.fill(0)
-      }
-    },
+      id: image.id,
+      thumbnailId,
+      async readPixels() {
+        const bytes = await options.read(options.galleryId, image.entryId)
+        if (!bytes) throw new Error(`Cached image is missing: ${image.id}`)
+        try {
+          const currentThumbnailId = await thumbnailContentId(bytes)
+          if (currentThumbnailId !== thumbnailId) throw new Error(`Cached image changed during local compute: ${image.id}`)
+          return await decode(bytes, image.mimeType)
+        } finally {
+          bytes.fill(0)
+        }
+      },
     })
   }
   return options.engine.computeGallery(options.galleryId, images, options.isCancelled)
