@@ -1,5 +1,6 @@
 import { productionVault } from './vault'
 import type { EncryptedVault } from './vault'
+import { localComputeEntryId } from './local-compute'
 
 export const DEFAULT_THUMBNAIL_MAX_WIDTH_PX = 1024
 export const DEFAULT_THUMBNAIL_MAX_HEIGHT_PX = 1024
@@ -142,7 +143,7 @@ export const thumbnailSize = (input: {
   }
 }
 
-export type ThumbnailVault = Pick<EncryptedVault, 'write'>
+export type ThumbnailVault = Pick<EncryptedVault, 'write' | 'remove'>
 
 export type StoredThumbnail = {
   id: string
@@ -214,6 +215,13 @@ export class OnDeviceThumbnailCache {
     this.onStored = options.onStored
   }
 
+  private async storeThumbnail(galleryId: string, imageId: string, entryId: string, bytes: Uint8Array): Promise<void> {
+    await this.vault.write(galleryId, entryId, bytes)
+    // Stable thumbnail IDs may be replaced with different bytes. Feature
+    // records are not content-addressed, so invalidate only after commit.
+    await this.vault.remove(galleryId, localComputeEntryId(imageId))
+  }
+
   async cacheOne(galleryId: string, image: ProviderImage): Promise<StoredThumbnail> {
     let lease: ProviderByteLease | undefined
     let source: DecodedThumbnailSource | undefined
@@ -236,7 +244,7 @@ export class OnDeviceThumbnailCache {
 
       if (target.width === source.width && target.height === source.height) {
         const byteLength = lease.bytes.length
-        await this.vault.write(galleryId, entryId, lease.bytes)
+        await this.storeThumbnail(galleryId, image.id, entryId, lease.bytes)
         return {
           id: image.id,
           entryId,
@@ -260,7 +268,7 @@ export class OnDeviceThumbnailCache {
 
       if (decision.action === 'retain-source') {
         const byteLength = lease.bytes.length
-        await this.vault.write(galleryId, entryId, lease.bytes)
+        await this.storeThumbnail(galleryId, image.id, entryId, lease.bytes)
         return {
           id: image.id,
           entryId,
@@ -273,7 +281,7 @@ export class OnDeviceThumbnailCache {
       }
 
       const byteLength = derivative.bytes.length
-      await this.vault.write(galleryId, entryId, derivative.bytes)
+      await this.storeThumbnail(galleryId, image.id, entryId, derivative.bytes)
       return {
         id: image.id,
         entryId,

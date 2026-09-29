@@ -9,6 +9,7 @@ import {
   cosineDistance,
   findSimilarFrames,
   hammingDistance,
+  isCurrentImageFeatures,
   pixelGridEmbedding,
   suggestSequence,
   type LocalComputeImage,
@@ -60,6 +61,16 @@ const feature = (imageId: string, phash: string, embedding: readonly number[]): 
 })
 
 describe('local visual features', () => {
+  test('accepts only the current version and matching image ID', () => {
+    const current = feature('frame-a', '0000000000000000', [1, 0])
+    const old = { ...current, version: 0 } as unknown as LocalImageFeatures
+
+    expect(isCurrentImageFeatures(current, 'frame-a')).toBe(true)
+    expect(isCurrentImageFeatures(current, 'frame-b')).toBe(false)
+    expect(isCurrentImageFeatures(old, 'frame-a')).toBe(false)
+    expect(isCurrentImageFeatures(undefined, 'frame-a')).toBe(false)
+  })
+
   test('computes deterministic hash and normalized pixel-grid embedding without changing source dimensions', () => {
     const source = { width: 16, height: 8, pixels: pixels(16, 8, [40, 100, 200]), release: () => {} }
     const first = computeImageFeatures(source, 'frame-a')

@@ -313,7 +313,8 @@ export const suggestSequence = (
   return suggestions
 }
 
-const featuresEntryId = (imageId: string): string => `${LOCAL_COMPUTE_ENTRY_PREFIX}${imageId}`
+export const localComputeEntryId = (imageId: string): string => `${LOCAL_COMPUTE_ENTRY_PREFIX}${imageId}`
+const featuresEntryId = localComputeEntryId
 const serializeFeatures = (features: LocalImageFeatures): Uint8Array => encoder.encode(JSON.stringify(features))
 
 const parseFeatures = (bytes: Uint8Array): LocalImageFeatures | undefined => {
@@ -332,6 +333,10 @@ export const readImageFeatures = async (vault: LocalComputeVault, galleryId: str
   const bytes = await vault.read(galleryId, featuresEntryId(imageId))
   return bytes ? parseFeatures(bytes) : undefined
 }
+
+/** A record is reusable only while its writer's version and stable image ID match. */
+export const isCurrentImageFeatures = (features: LocalImageFeatures | undefined, imageId: string): boolean =>
+  features?.version === LOCAL_COMPUTE_VERSION && features.imageId === imageId
 
 const pixelsFromDrawable = (drawable: CanvasImageSource, width: number, height: number): LocalPixelLease => {
   const canvas = document.createElement('canvas')
@@ -456,7 +461,7 @@ export const computeCachedGallery = async (options: {
     if (options.isCancelled?.()) break
     const existing = await options.readFeatures?.(options.galleryId, image.id)
     if (options.isCancelled?.()) break
-    if (existing?.version === LOCAL_COMPUTE_VERSION && existing.imageId === image.id) continue
+    if (isCurrentImageFeatures(existing, image.id)) continue
     images.push({
     id: image.id,
     async readPixels() {

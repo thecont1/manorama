@@ -3,6 +3,7 @@ import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
 import { thumbnailEntryId } from './thumbs'
+import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
 
@@ -328,6 +329,9 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         if (bytes.length === 0) throw new Error('Offline image response was empty')
         const entryId = thumbnailEntryId(image.id)
         await this.vault.write(galleryId, entryId, bytes, guard)
+        // A stable thumbnail entry can now contain different bytes. Do not
+        // let a version/image-ID-only feature record survive that replacement.
+        await this.vault.remove(galleryId, localComputeEntryId(image.id))
         cachedImages.push({ id: image.id, entryId, mimeType })
       } finally {
         bytes.fill(0)
