@@ -301,6 +301,6 @@ describe('OnDeviceLocalCompute', () => {
       },
       decode: async () => ({ width: 4, height: 4, pixels: new Uint8Array(4 * 4 * 4), release: () => {} }),
     })).rejects.toThrow('changed during local compute')
-    expect(vault.writes).toHaveLength(0)
+    expect(vault.writes.size).toBe(0)
   })
 })
