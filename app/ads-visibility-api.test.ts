@@ -5,7 +5,7 @@ import { resetUserStore } from './lib/user-repository'
 import { resetAdSuppressionStore } from './lib/ads-visibility'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 
-const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET }
+const env = { HOST_API_JWT_SECRET: TEST_SESSION_SECRET, MASTER_ACCOUNT_ID: TEST_OWNER.accountId }
 
 let api: ReturnType<typeof createManoramaApi>
 let cookie: string
@@ -35,9 +35,18 @@ describe('ad visibility API', () => {
     expect(body.day).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
-  test('suppression management is session-gated', async () => {
+  test('suppression management is master-gated', async () => {
     expect((await api.request('/api/ads/suppressions', {}, env)).status).toBe(401)
     expect((await putSuppression({ kind: 'day', value: '2026-10-01' }, false)).status).toBe(401)
+  })
+
+  test('a signed-in non-master account cannot change global visibility', async () => {
+    const other = await seedTestUser({ accountId: 'dbid:AAAnonmaster', displayName: 'Not Master', email: undefined })
+    const otherCookie = await sessionCookieFor(other.accountId)
+    const response = await api.request('/api/ads/suppressions', {
+      headers: { Cookie: otherCookie },
+    }, env)
+    expect(response.status).toBe(403)
   })
 
   test('a day suppression flips visibility until cleared', async () => {

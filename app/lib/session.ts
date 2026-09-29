@@ -38,6 +38,8 @@ export type ManoramaSession = {
 
 export type SessionEnv = {
   HOST_API_JWT_SECRET?: string
+  /** Immutable account ID allowed to use the private operations console. */
+  MASTER_ACCOUNT_ID?: string
 } & UserRepositoryEnv
 
 /** Hono env for routes that read the session variable and the session
@@ -166,6 +168,23 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
   async (c, next) => {
     const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
     if (!session) return c.json({ error: 'Authentication required' }, 401)
+    c.set('manoramaSession', session)
+    await next()
+  }
+
+/** Master controls bind to the immutable account ID, never to an editable
+ * slug, email, or provider subject. Missing configuration fails closed. */
+export const isMasterAccount = (session: Pick<ManoramaSession, 'accountId'>, env: SessionEnv): boolean => {
+  const masterAccountId = env.MASTER_ACCOUNT_ID?.trim()
+  return Boolean(masterAccountId && session.accountId === masterAccountId)
+}
+
+export const requireMasterSession = (): MiddlewareHandler<HonoSessionEnv> =>
+  async (c, next) => {
+    const env = accessEnvOf(c)
+    const session = await resolveManoramaSession(c.req.raw, env)
+    if (!session) return c.json({ error: 'Authentication required' }, 401)
+    if (!isMasterAccount(session, env)) return c.json({ error: 'Master access required' }, 403)
     c.set('manoramaSession', session)
     await next()
   }

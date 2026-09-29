@@ -10,8 +10,8 @@ import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from '.
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
-import { createSessionToken, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
-import { deleteAccount, getUserByAccountId, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
@@ -36,6 +36,7 @@ export type RuntimeEnv = {
   VENDO_MCP_BROKER_URL?: string
   VENDO_MCP_FEDERATION_SECRET?: string
   HOST_API_JWT_SECRET?: string
+  MASTER_ACCOUNT_ID?: string
   REVENUECAT_WEBHOOK_AUTH?: string
   REVENUECAT_WEBHOOK_SIGNING_SECRET?: string
 }
@@ -261,8 +262,11 @@ export const createManoramaApi = () => {
     const suppressedBy = await adSuppressionFor(day, region, dbEnv(c)).catch(() => null)
     return c.json({ show: suppressedBy === null, day, region, suppressedBy })
   })
-  api.use('/api/ads/suppressions', requireSession())
-  api.use('/api/ads/suppressions/*', requireSession())
+  // Ad suppression is site-wide state. A normal gallery owner must not be
+  // able to change it for every viewer; only the configured master account
+  // can read or write this switch.
+  api.use('/api/ads/suppressions', requireMasterSession())
+  api.use('/api/ads/suppressions/*', requireMasterSession())
   api.get('/api/ads/suppressions', async (c) => {
     return c.json({ suppressions: await listAdSuppressions(dbEnv(c)).catch(() => []) })
   })
@@ -282,6 +286,36 @@ export const createManoramaApi = () => {
     if (body.suppressed === false) await clearAdSuppression(kind, normalized, dbEnv(c))
     else await setAdSuppression(kind, normalized, dbEnv(c))
     return c.json({ ok: true })
+  })
+  // Private operations console API. It returns account metadata and counts,
+  // never image bytes, source URLs, or provider subjects.
+  api.use('/api/admin/*', requireMasterSession())
+  api.get('/api/admin/overview', async (c) => {
+    try {
+      return c.json({
+        users: await listUsersForAdmin(dbEnv(c)),
+        suppressions: await listAdSuppressions(dbEnv(c)).catch(() => []),
+      })
+    } catch {
+      return c.json({ error: 'The operations overview is temporarily unavailable' }, 503)
+    }
+  })
+  api.delete('/api/admin/users/:accountId', async (c) => {
+    const accountId = c.req.param('accountId').trim()
+    const session = c.get('manoramaSession')
+    if (!accountId) return c.json({ error: 'That account was not found' }, 404)
+    if (accountId === session.accountId) return c.json({ error: 'The master account cannot be deleted from this console' }, 409)
+    const payload = await c.req.json<{ confirmAccountId?: string }>().catch((): { confirmAccountId?: string } => ({}))
+    if (payload.confirmAccountId?.trim() !== accountId) {
+      return c.json({ error: 'Type the exact account ID to confirm deletion' }, 400)
+    }
+    if (!(await getUserByAccountId(accountId, dbEnv(c)))) return c.json({ error: 'That account was not found' }, 404)
+    try {
+      await deleteAccount(accountId, dbEnv(c))
+      return c.json({ ok: true, accountId })
+    } catch {
+      return c.json({ error: 'That account could not be deleted' }, 503)
+    }
   })
   api.use('/api/galleries', requireSession())
   api.use('/api/galleries/*', requireSession())
