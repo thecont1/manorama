@@ -58,8 +58,8 @@ Same one-download rule.
 - [ ] Project created, iOS app added with bundle id `in.thecontrarian.manorama`
 - [ ] In-App Purchase Key uploaded (Issuer ID + Key ID + `.p8`)
 - [ ] Entitlement created, identifier exactly **`will_pay`** — the native adapter and hosted paywall key off this string
-- [ ] App Store product created with product ID **`yearly`**, one-year duration, price, and localization
-- [ ] RevenueCat product `yearly` imported and attached to the current Offering (annual package)
+- [x] App Store product created with product ID **`in.thecontrarian.manorama.visionary.annual`**, one-year duration, price, and localization
+- [x] RevenueCat product `in.thecontrarian.manorama.visionary.annual` imported and attached to the current Offering (`$rc_annual` annual package)
 - [ ] Hosted Paywall configured for that Offering; Customer Center enabled
 - [ ] Public SDK key copied to `VITE_REVENUECAT_API_KEY` for native builds
 - [ ] Webhook URL pointed at `/api/revenuecat-webhook` with dashboard Authorization and HMAC signing enabled

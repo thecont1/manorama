@@ -2,7 +2,7 @@ import { Purchases, type CustomerInfo, type PurchasesCallbackId, type PurchasesO
 import { PaywallPresentationConfiguration, RevenueCatUI, type RevenueCatUIPlugin } from '@revenuecat/purchases-capacitor-ui'
 
 export const PRO_ENTITLEMENT = 'will_pay'
-export const YEARLY_PRODUCT_ID = 'yearly'
+export const YEARLY_PRODUCT_ID = 'in.thecontrarian.manorama.visionary.annual'
 export type NativeTier = 'free' | 'pro'
 export type BillingState = { tier: NativeTier; isPro: boolean; customerInfo: CustomerInfo }
 export type BillingOptions = { apiKey: string; appUserId: string; onStateChange?: (state: BillingState) => void }
