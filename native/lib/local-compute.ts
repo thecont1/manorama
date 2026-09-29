@@ -47,6 +47,7 @@ export type LocalImageFeatures = {
 }
 
 export type LocalComputeVault = Pick<EncryptedVault, 'read' | 'write'>
+export type LocalComputeCancellation = () => boolean
 export type EncodedPixelDecoder = (bytes: Uint8Array, mimeType: string) => Promise<LocalPixelLease>
 
 export type NearDuplicateGroup = {
@@ -340,7 +341,18 @@ const pixelsFromDrawable = (drawable: CanvasImageSource, width: number, height: 
   if (!context) throw new Error('Canvas 2D is unavailable for local compute')
   context.drawImage(drawable, 0, 0)
   const data = context.getImageData(0, 0, width, height).data
-  return { width, height, pixels: new Uint8Array(data), release: () => {} }
+  let released = false
+  return {
+    width,
+    height,
+    pixels: new Uint8Array(data),
+    release: () => {
+      if (released) return
+      released = true
+      canvas.width = 0
+      canvas.height = 0
+    },
+  }
 }
 
 export const browserEncodedImageDecoder: EncodedPixelDecoder = async (bytes, mimeType) => {
@@ -368,6 +380,13 @@ export const browserEncodedImageDecoder: EncodedPixelDecoder = async (bytes, mim
   }
 }
 
+class LocalComputeCancelledError extends Error {
+  constructor() {
+    super('Local compute pass was cancelled')
+    this.name = 'LocalComputeCancelledError'
+  }
+}
+
 export class OnDeviceLocalCompute {
   private readonly vault: LocalComputeVault
   private readonly maxConcurrent: number
@@ -383,13 +402,14 @@ export class OnDeviceLocalCompute {
     if (!Number.isSafeInteger(this.maxConcurrent) || this.maxConcurrent <= 0 || this.maxConcurrent > MAX_LOCAL_COMPUTE_CONCURRENCY) throw new Error(`maxConcurrent must be from 1 to ${MAX_LOCAL_COMPUTE_CONCURRENCY}`)
   }
 
-  async computeOne(galleryId: string, image: LocalComputeImage): Promise<LocalImageFeatures> {
+  async computeOne(galleryId: string, image: LocalComputeImage, isCancelled: LocalComputeCancellation = () => false): Promise<LocalImageFeatures> {
     let lease: LocalPixelLease | undefined
     try {
       lease = await image.readPixels()
       assertPixels(lease)
       await this.yieldToHost()
       const features = computeImageFeatures(lease, image.id)
+      if (isCancelled()) throw new LocalComputeCancelledError()
       await this.vault.write(galleryId, featuresEntryId(image.id), serializeFeatures(features))
       return features
     } finally {
@@ -398,15 +418,18 @@ export class OnDeviceLocalCompute {
     }
   }
 
-  async computeGallery(galleryId: string, images: Iterable<LocalComputeImage> | AsyncIterable<LocalComputeImage>): Promise<LocalComputeSummary> {
+  async computeGallery(galleryId: string, images: Iterable<LocalComputeImage> | AsyncIterable<LocalComputeImage>, isCancelled: LocalComputeCancellation = () => false): Promise<LocalComputeSummary> {
     const active = new Set<Promise<void>>()
     let computed = 0
     let firstError: unknown
     for await (const image of images) {
+      if (isCancelled()) break
       let task!: Promise<void>
-      task = this.computeOne(galleryId, image)
+      task = this.computeOne(galleryId, image, isCancelled)
         .then(() => { computed += 1 })
-        .catch((error: unknown) => { firstError ??= error })
+        .catch((error: unknown) => {
+          if (!(error instanceof LocalComputeCancelledError)) firstError ??= error
+        })
         .finally(() => active.delete(task))
       active.add(task)
       if (active.size >= this.maxConcurrent) await Promise.race(active)
@@ -423,10 +446,18 @@ export const computeCachedGallery = async (options: {
   galleryId: string
   images: Iterable<CachedComputeImage>
   read: (galleryId: string, entryId: string) => Promise<Uint8Array | undefined>
+  readFeatures?: (galleryId: string, imageId: string) => Promise<LocalImageFeatures | undefined>
   decode?: EncodedPixelDecoder
+  isCancelled?: LocalComputeCancellation
 }): Promise<LocalComputeSummary> => {
   const decode = options.decode ?? browserEncodedImageDecoder
-  const images: LocalComputeImage[] = [...options.images].map((image) => ({
+  const images: LocalComputeImage[] = []
+  for (const image of options.images) {
+    if (options.isCancelled?.()) break
+    const existing = await options.readFeatures?.(options.galleryId, image.id)
+    if (options.isCancelled?.()) break
+    if (existing?.version === LOCAL_COMPUTE_VERSION && existing.imageId === image.id) continue
+    images.push({
     id: image.id,
     async readPixels() {
       const bytes = await options.read(options.galleryId, image.entryId)
@@ -437,8 +468,9 @@ export const computeCachedGallery = async (options: {
         bytes.fill(0)
       }
     },
-  }))
-  return options.engine.computeGallery(options.galleryId, images)
+    })
+  }
+  return options.engine.computeGallery(options.galleryId, images, options.isCancelled)
 }
 
-export const __private__ = { assertPixels, parseFeatures, sampleLuminanceGrid, dctCoefficient, featuresEntryId }
+export const __private__ = { assertPixels, parseFeatures, sampleLuminanceGrid, dctCoefficient, featuresEntryId, pixelsFromDrawable }
