@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   DEFAULT_NEAR_DUPLICATE_HAMMING_DISTANCE,
+  __private__,
   OnDeviceLocalCompute,
   clusterNearDuplicates,
   computeCachedGallery,
@@ -177,6 +178,65 @@ describe('OnDeviceLocalCompute', () => {
     }
     await expect(compute.computeOne('gallery-a', bad)).rejects.toThrow('Pixel buffer is shorter')
     expect(vault.writes).toHaveLength(0)
+  })
+
+  test('skips current-version feature records before decoding cached images', async () => {
+    const vault = new CopyingVault()
+    const compute = new OnDeviceLocalCompute({ vault })
+    let decoded = 0
+    const summary = await computeCachedGallery({
+      engine: compute,
+      galleryId: 'gallery-a',
+      images: [
+        { id: 'frame-a', entryId: 'thumb-frame-a', mimeType: 'image/mock' },
+        { id: 'frame-b', entryId: 'thumb-frame-b', mimeType: 'image/mock' },
+      ],
+      readFeatures: async (_galleryId, imageId) => imageId === 'frame-a' ? feature('frame-a', '0000000000000000', [1, 0]) : undefined,
+      read: async () => new Uint8Array([9, 8, 7, 6]),
+      decode: async () => {
+        decoded += 1
+        return { width: 4, height: 4, pixels: new Uint8Array(4 * 4 * 4).fill(9), release: () => {} }
+      },
+    })
+
+    expect(summary).toEqual({ computed: 1, persisted: 1 })
+    expect(decoded).toBe(1)
+    expect(vault.writes.has('local-compute:v1:frame-a')).toBe(false)
+    expect(vault.writes.has('local-compute:v1:frame-b')).toBe(true)
+  })
+
+  test('cancels before persisting a result when the pass becomes obsolete', async () => {
+    const vault = new CopyingVault()
+    let cancelled = false
+    const compute = new OnDeviceLocalCompute({ vault, yieldToHost: async () => { cancelled = true } })
+    const bytes = pixels(4, 4, [9, 8, 7])
+    const summary = await compute.computeGallery('gallery-a', [lease('frame-a', bytes, 4, 4, [])], () => cancelled)
+
+    expect(summary).toEqual({ computed: 0, persisted: 0 })
+    expect(vault.writes).toHaveLength(0)
+  })
+
+  test('releases canvas backing storage when a drawable lease ends', () => {
+    const originalDocument = globalThis.document
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        drawImage: () => {},
+        getImageData: () => ({ data: new Uint8ClampedArray(16) }),
+      }),
+    }
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement: () => canvas } })
+    try {
+      const drawableLease = __private__.pixelsFromDrawable({} as CanvasImageSource, 2, 2)
+      expect(canvas.width).toBe(2)
+      expect(canvas.height).toBe(2)
+      drawableLease.release()
+      expect(canvas.width).toBe(0)
+      expect(canvas.height).toBe(0)
+    } finally {
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument })
+    }
   })
 
   test('decodes cached bytes on device, persists features, and wipes encoded bytes', async () => {
