@@ -13,6 +13,7 @@ import {
   type OfflineObjectUrlProvider,
 } from './offline-gallery'
 import { thumbnailEntryId } from './thumbs'
+import { localComputeEntryId } from './local-compute'
 import type { VaultKeyProvider, VaultStorageProvider } from './vault'
 import { EncryptedVault, VAULT_INDEX_PATH, webCryptoProvider } from './vault'
 
@@ -197,6 +198,22 @@ describe('EncryptedOfflineGalleryStore', () => {
       `${galleryId}\u0000${thumbnailEntryId('stable-one')}`,
       `${galleryId}\u0000${thumbnailEntryId('stable-two')}`,
     ].sort())
+  })
+
+  test('invalidates a stale local feature when offline caching replaces its thumbnail', async () => {
+    const refreshed = new Map([
+      ['https://provider.test/one-320.jpg', { bytes: new TextEncoder().encode('refreshed bytes one'), type: 'image/jpeg' }],
+      ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
+    ])
+    const { store, vault } = makeHarness(refreshed)
+    const galleryId = await offlineGalleryId(selection)
+    await vault.write(galleryId, localComputeEntryId('stable-one'), new TextEncoder().encode('{ stale feature }'))
+
+    await store.cache(selection, gallery)
+
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-one'))).toEqual(new TextEncoder().encode('refreshed bytes one'))
+    expect(await vault.read(galleryId, localComputeEntryId('stable-one'))).toBeUndefined()
+    expect(await vault.read(galleryId, localComputeEntryId('stable-two'))).toBeUndefined()
   })
 
   test('detects complete caches and refuses a missing image entry', async () => {

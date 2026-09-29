@@ -13,10 +13,14 @@ import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
 import {
   OfflineGalleryUnavailableError,
+  offlineGalleryId,
   openGalleryNetworkFirst,
   productionOfflineGalleryStore,
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
+import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
+import { thumbnailEntryId } from '../lib/thumbs'
+import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider } from '../lib/session'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
@@ -51,6 +55,16 @@ const selectionFromLocation = (): Selection => {
     owner: params.get('owner')?.trim() || path[0] || '',
     slug: params.get('slug')?.trim() || path[1] || '',
   }
+}
+
+const localCompute = new OnDeviceLocalCompute({ vault: productionVault })
+
+const mimeTypeForImage = (image: GalleryMediaItem): string => {
+  const format = image.variants?.[0]?.format?.toLowerCase().replace(/^image\//, '') ?? image.filename.split('.').pop()?.toLowerCase()
+  if (format === 'jpg' || format === 'jpeg') return 'image/jpeg'
+  if (format === 'png' || format === 'webp' || format === 'avif' || format === 'gif') return `image/${format}`
+  if (format === 'heic' || format === 'heif') return `image/${format}`
+  return 'application/octet-stream'
 }
 
 export const galleryStatusMessage = (status: GalleryStatus): string => {
@@ -130,9 +144,26 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       setSettings(gallery.settings)
       setStatus(gallery.source)
       setError(null)
-      void gallery.cacheFill?.catch(() => {
-        // Viewing stays online if a background cache fill is interrupted or full.
-      })
+      const cacheReady = gallery.cacheFill ?? Promise.resolve(undefined)
+      void cacheReady
+        .then(async () => {
+          if (!active) return
+          const stillImages = gallery.manifest.images.filter((image) => !isVideoItem(image))
+          if (stillImages.length === 0) return
+          const galleryId = await offlineGalleryId(selection)
+          if (!active) return
+          await computeCachedGallery({
+            engine: localCompute,
+            galleryId,
+            images: stillImages.map((image) => ({ id: image.id, entryId: thumbnailEntryId(image.id), mimeType: mimeTypeForImage(image) })),
+            read: (currentGalleryId, entryId) => productionOfflineGalleryStore.readThumbnail(currentGalleryId, entryId),
+            readFeatures: (currentGalleryId, imageId) => readImageFeatures(productionVault, currentGalleryId, imageId),
+            isCancelled: () => !active,
+          })
+        })
+        .catch(() => {
+          // Viewing stays online if a background cache fill or local compute pass is interrupted.
+        })
     }
     const open = () => {
       setError(null)

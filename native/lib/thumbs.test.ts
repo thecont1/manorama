@@ -17,11 +17,19 @@ import { EncryptedVault, VAULT_INDEX_PATH, webCryptoProvider } from './vault'
 
 class CopyingVault implements ThumbnailVault {
   readonly writes: { galleryId: string; entryId: string; bytes: Uint8Array }[] = []
+  readonly removes: { galleryId: string; entryId: string }[] = []
+  readonly operations: string[] = []
   fail = false
 
   async write(galleryId: string, entryId: string, plaintext: Uint8Array) {
     if (this.fail) throw new Error('Injected vault failure')
+    this.operations.push(`write:${entryId}`)
     this.writes.push({ galleryId, entryId, bytes: plaintext.slice() })
+  }
+
+  async remove(galleryId: string, entryId: string) {
+    this.operations.push(`remove:${entryId}`)
+    this.removes.push({ galleryId, entryId })
   }
 }
 
@@ -144,6 +152,19 @@ describe('OnDeviceThumbnailCache', () => {
     expect(sourceBytes.every((value) => value === 0)).toBe(true)
     expect(state.closed).toBe(1)
     expect(released).toEqual(['small'])
+  })
+
+  test('invalidates only the matching local feature after replacing a thumbnail', async () => {
+    const released: string[] = []
+    const vault = new CopyingVault()
+    vault.writes.push({ galleryId: 'gallery-a', entryId: 'local-compute:v1:small', bytes: new Uint8Array([1]) })
+    const state: CodecState = { width: 120, height: 80, closed: 0, deriveCalls: 0, derivedBytes: [] }
+    const cache = new OnDeviceThumbnailCache({ codec: makeCodec(state), vault })
+
+    await cache.cacheOne('gallery-a', providerImage('small', new Uint8Array([9, 8]), released))
+
+    expect(vault.removes).toEqual([{ galleryId: 'gallery-a', entryId: 'local-compute:v1:small' }])
+    expect(vault.operations).toEqual(['write:thumb:small', 'remove:local-compute:v1:small'])
   })
 
   test('stores a same-format ICC-preserving derivative, then wipes all plaintext buffers', async () => {
@@ -284,6 +305,7 @@ describe('OnDeviceThumbnailCache', () => {
 
     await expect(cache.cacheOne('gallery-a', providerImage('failure', sourceBytes, released)))
       .rejects.toThrow('Injected vault failure')
+    expect(vault.removes).toEqual([])
     expect(sourceBytes.every((value) => value === 0)).toBe(true)
     expect(state.derivedBytes[0]!.every((value) => value === 0)).toBe(true)
     expect(state.closed).toBe(1)
