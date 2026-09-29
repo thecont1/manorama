@@ -207,8 +207,17 @@ body:has(.native-diptych) {
   justify-content: center;
 }
 
+/* Wide split drops the brand block into the left column — keep the mark
+   (and any account slot under it) hugging the left edge with the copy. */
+@media (min-width: 820px) {
+  .native-landing .native-account-header {
+    justify-content: flex-start;
+  }
+}
+
 .native-signin {
   margin-top: clamp(40px, 8vw, 72px);
+  text-align: center;
 }
 
 .native-signin-lead {

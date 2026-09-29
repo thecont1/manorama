@@ -888,6 +888,33 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
   color: rgba(var(--ink), .46);
   font-size: 12px;
 }
+/* Wide screens — desktop web and the Duo in its wide posture — split the
+   door: brand copy left, sign-in right. The grid needs no markup change:
+   every child lands in column 1 except whichever sign-in element a
+   platform renders (.landing-signin-group on web, .native-signin in the
+   shells), which spans the right column for the full height. */
+@media (min-width: 820px) {
+  .landing-brand {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(48px, 8vw, 128px);
+    align-items: center;
+    max-width: min(1180px, 100%);
+    text-align: left;
+  }
+  .landing-brand > :where(:not(.landing-signin-group):not(.native-signin)) {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+  .landing-brand .brand-mark-wrap { margin-bottom: clamp(20px, 3vw, 36px); }
+  .landing-brand .landing-signin-group,
+  .landing-brand .native-signin {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    align-self: center;
+    margin-top: 0;
+  }
+}
 /* Footer: privacy left, copyright right — shared by landing + admin. */
 .site-footer {
   display: flex;
