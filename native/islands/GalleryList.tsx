@@ -18,7 +18,7 @@ import {
   productionOfflineGalleryStore,
   type NetworkFirstGallery,
 } from '../lib/offline-gallery'
-import { computeCachedGallery, OnDeviceLocalCompute } from '../lib/local-compute'
+import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
 import { thumbnailEntryId } from '../lib/thumbs'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
@@ -150,11 +150,15 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
           if (!active) return
           const stillImages = gallery.manifest.images.filter((image) => !isVideoItem(image))
           if (stillImages.length === 0) return
+          const galleryId = await offlineGalleryId(selection)
+          if (!active) return
           await computeCachedGallery({
             engine: localCompute,
-            galleryId: await offlineGalleryId(selection),
+            galleryId,
             images: stillImages.map((image) => ({ id: image.id, entryId: thumbnailEntryId(image.id), mimeType: mimeTypeForImage(image) })),
-            read: (galleryId, entryId) => productionOfflineGalleryStore.readThumbnail(galleryId, entryId),
+            read: (currentGalleryId, entryId) => productionOfflineGalleryStore.readThumbnail(currentGalleryId, entryId),
+            readFeatures: (currentGalleryId, imageId) => readImageFeatures(productionVault, currentGalleryId, imageId),
+            isCancelled: () => !active,
           })
         })
         .catch(() => {
