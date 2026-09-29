@@ -6,8 +6,6 @@ import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
 import GalleryList from './GalleryList'
-import { defaultGallerySettings } from '../../app/lib/gallery-settings'
-import type { GalleryManifest } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../packages/core/adframe'
 import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -56,6 +54,9 @@ beforeAll(() => {
   // Bare `getComputedStyle` (fold.ts reads the root style) needs the
   // happy-dom window's copy — it is not global by default.
   globals.getComputedStyle = dom.getComputedStyle.bind(dom)
+  // hono's JSX renderer checks `instanceof SVGElement` for the provider
+  // glyphs — another global happy-dom keeps on the window.
+  globals.SVGElement = dom.SVGElement
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback })
@@ -72,6 +73,10 @@ afterAll(() => {
   globals.requestAnimationFrame = previousAnimationFrame
   globals.cancelAnimationFrame = previousCancelAnimationFrame
   globals.getComputedStyle = previousGetComputedStyle
+  // SVGElement stays installed on purpose: once a test in this process renders
+  // an <svg>, hono keeps its namespace Context and evaluates `instanceof
+  // SVGElement` for every element in every later file — removing it breaks
+  // the suites that follow.
 })
 
 type Loader = (input: AdPolicyInput) => Promise<AdFrame | null>
@@ -291,14 +296,9 @@ describe('account slot resolution lifecycle', () => {
     // entitlement...
     flushSync(() => controls.setBilling(entitlement('free')))
     await settle()
-    // ...and so does typing into the owner field, the ordinary interaction
-    // this page exists for.
-    const owner = container.querySelector('input') as HTMLInputElement | null
-    expect(owner).not.toBeNull()
-    if (owner) {
-      owner.value = 'mahesh'
-      owner.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
-    }
+    // ...and so does another same-tier billing refresh, the ordinary
+    // re-render this page sees while RevenueCat warms up.
+    flushSync(() => controls.setBilling(entitlement('free')))
     await settle()
 
     expect(requests).toBe(1)
@@ -326,7 +326,7 @@ describe('account slot layout contract', () => {
     expect(slotRule).not.toContain('position')
   })
 
-  test('the slot sits in the header, before every control it must not cover', async () => {
+  test('the slot sits in the header, before the provider row it must not cover', async () => {
     const { container } = mount({ billing: entitlement('free') })
     await settle()
     expect(slots(container)).toHaveLength(1)
@@ -334,16 +334,17 @@ describe('account slot layout contract', () => {
     const html = container.innerHTML
     const slotAt = html.indexOf('data-account-ad')
     expect(slotAt).toBeGreaterThanOrEqual(0)
-    expect(html).toContain('Sign in with Apple')
+    expect(html).toContain('Continue with Apple')
     expect(html).toContain('Continue with Google')
     expect(html).toContain('Continue with Dropbox')
-    expect(html.indexOf('Sign in with Apple')).toBeLessThan(html.indexOf('Continue with Dropbox'))
-    expect(html).toContain('View subscription options')
+    expect(html.indexOf('Continue with Apple')).toBeLessThan(html.indexOf('Continue with Dropbox'))
     expect(html.indexOf('native-account-header')).toBeLessThan(slotAt)
-    expect(html.indexOf('<form')).toBeGreaterThan(slotAt)
-    expect(html.indexOf('Sign in with Apple')).toBeGreaterThan(slotAt)
-    expect(html.indexOf('Continue with Dropbox')).toBeGreaterThan(slotAt)
-    expect(html.indexOf('View subscription options')).toBeGreaterThan(slotAt)
+    expect(html.indexOf('native-signin-icons')).toBeGreaterThan(slotAt)
+    // The opening screen is the sign-in door alone — the manual form and the
+    // gallery shortcuts wait behind sign-in.
+    expect(container.querySelector('form')).toBeNull()
+    expect(container.innerHTML).not.toContain('Global view')
+    expect(container.innerHTML).not.toContain('View subscription options')
   })
 })
 
@@ -839,37 +840,6 @@ describe('signed-in account area', () => {
     expect(container.innerHTML).not.toContain('Subscriptions are unavailable right now. Please try again shortly.')
   })
 
-  test('signed out, the sample gallery button opens the owner showcase', async () => {
-    installLocalStorage()
-    // A canned manifest keeps the open honest without depending on the
-    // production showcase being up.
-    const manifest: GalleryManifest = {
-      slug: 'italy',
-      title: 'Italy',
-      caption: '',
-      date: '',
-      images: [
-        { id: 'p1', filename: 'piazza.jpg', src: 'https://photos.example.com/piazza.jpg', width: 1600, height: 1200, alt: 'A piazza at dusk', c2pa: false, placeholder: '' },
-      ],
-    }
-    stubFetch({
-      fallback: (url) =>
-        url === 'https://manorama.xyz/api/gallery/thecontrarian/italy'
-          ? json({ manifest, settings: defaultGallerySettings(manifest) })
-          : new Response('{}', { status: 404 }),
-    })
-    const { container } = mountAccount()
-    await settle()
-
-    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Try a sample gallery') as HTMLButtonElement
-    expect(entry).toBeDefined()
-    entry.click()
-    await settle()
-
-    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/thecontrarian/italy')).toBe(true)
-    expect(container.querySelector('.gallery-shell')).not.toBeNull()
-    expect(container.querySelector('.gallery-shell h1')?.textContent).toBe('Italy')
-  })
 })
 
 describe('native-only placement', () => {

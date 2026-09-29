@@ -52,16 +52,14 @@ body:has(.native-diptych) {
   min-height: 100svh;
   display: grid;
   place-items: center;
-  padding: 32px;
+  padding: clamp(28px, 7vw, 48px);
   background: var(--gallery-canvas);
 }
 
+/* Same open page as the web: content sits on the canvas, not in a card. */
 .native-list-card {
   width: min(100%, 460px);
-  padding: clamp(28px, 8vw, 64px);
-  border: 1px solid rgba(var(--ink), .14);
-  background: rgba(24, 26, 25, .8);
-  box-shadow: 0 20px 80px rgba(0, 0, 0, .24);
+  padding: clamp(8px, 4vw, 28px) 0;
 }
 
 .native-list-logo {
@@ -109,33 +107,44 @@ body:has(.native-diptych) {
   text-transform: uppercase;
 }
 
+/* Open fields: a hairline under the value instead of a box around it. */
 .native-list-card input {
   width: 100%;
-  border: 1px solid rgba(var(--ink), .2);
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid rgba(var(--ink), .22);
   border-radius: 0;
-  padding: 12px 14px;
-  background: rgba(0, 0, 0, .18);
+  padding: 12px 2px;
+  background: transparent;
   color: rgb(var(--ink));
   outline: none;
 }
 
-.native-list-card input:focus-visible,
+.native-list-card input:focus-visible {
+  border-bottom-color: rgba(var(--ink), .78);
+  outline: none;
+}
+
 .native-list-card button:focus-visible {
   outline: 2px solid rgb(var(--ink));
   outline-offset: 3px;
 }
 
+/* Same outline button as the web landing — square, thin, quiet until tapped. */
 .native-list-card button {
-  border: 1px solid rgba(var(--ink), .42);
-  border-radius: 999px;
-  padding: 13px 18px;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 0;
+  padding: 13px 22px;
   background: transparent;
-  color: rgb(var(--ink));
+  color: rgba(var(--ink), .82);
+  font-size: 13px;
+  letter-spacing: .01em;
   cursor: pointer;
 }
 
 .native-list-card button:hover {
-  background: rgba(var(--ink), .1);
+  border-color: rgba(var(--ink), .78);
+  color: rgb(var(--ink));
 }
 
 /* The master's plate switch sits under the actions — quieter than the
@@ -170,9 +179,106 @@ body:has(.native-diptych) {
   cursor: default;
 }
 
+/* Action buttons stack full-width like the landing page's quiet column. */
+.native-list-card > button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .native-list-card > button + button,
 .native-list-card > button + form {
   margin-top: 12px;
+}
+
+/* Signed out, the screen is the landing page itself — .landing-page,
+   .landing-brand, .landing-brand-intro all come from app/styles.css via the
+   @import at the top, so the door can never drift from the web's. The only
+   native deltas live here: safe-area-aware height and the icon row that
+   replaces the web's text links (touch needs bigger targets than a 17px
+   glyph inside an anchor). */
+.native-landing {
+  min-height: calc(100svh - var(--native-safe-top) - var(--native-safe-bottom));
+}
+
+.native-landing .native-account-header {
+  align-self: stretch;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.native-signin {
+  margin-top: clamp(40px, 8vw, 72px);
+}
+
+.native-signin-lead {
+  display: block;
+  margin: 0 0 26px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.native-signin-icons {
+  display: flex;
+  justify-content: center;
+  gap: 34px;
+}
+
+/* Bare glyphs, no button chrome — the hit area is generous but invisible,
+   and the bob rides on the svg so the clickable box never moves. */
+.native-signin-icons .native-signin-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: rgb(var(--ink));
+  cursor: pointer;
+}
+
+.native-signin-icons .native-signin-icon svg {
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28));
+  transition: transform 200ms cubic-bezier(.3, 1.45, .5, 1), filter 200ms ease;
+  animation: native-icon-bob 4.6s ease-in-out infinite;
+}
+
+.native-signin-icons .native-signin-icon:nth-child(2) svg {
+  animation-delay: -1.5s;
+}
+
+.native-signin-icons .native-signin-icon:nth-child(3) svg {
+  animation-delay: -3s;
+}
+
+.native-signin-icons .native-signin-icon:hover svg,
+.native-signin-icons .native-signin-icon:focus-visible svg {
+  transform: translateY(-4px) scale(1.08);
+  filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45));
+  animation-play-state: paused;
+}
+
+.native-signin-icons .native-signin-icon:active svg {
+  transform: scale(.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .native-signin-icons .native-signin-icon svg {
+    animation: none;
+  }
+}
+
+@keyframes native-icon-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
 }
 
 /* The signed-in account area: the owner's own rows plus whatever the Mac
@@ -217,35 +323,39 @@ body:has(.native-diptych) {
   font-size: 11px;
 }
 
+/* The admin list's language: one ruled column of rows, separated by
+   hairlines, with nothing boxing each gallery in. */
 .native-gallery-list,
 .native-device-list {
   display: grid;
-  gap: 8px;
-  margin: 0 0 18px;
+  gap: 0;
+  margin: 0 0 22px;
   padding: 0;
   list-style: none;
+  border-top: 1px solid rgba(var(--ink), .1);
+}
+
+.native-gallery-list li,
+.native-device-list li {
+  border-bottom: 1px solid rgba(var(--ink), .1);
 }
 
 .native-gallery-list button,
-.native-device-list button {
+.native-device-list button,
+.native-gallery-row {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
+  box-sizing: border-box;
+  border: 0;
   border-radius: 0;
-  border-color: rgba(var(--ink), .2);
-  padding: 12px 14px;
+  padding: 15px 2px;
   text-align: left;
 }
 
-.native-gallery-row {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid rgba(var(--ink), .12);
-}
-
 .native-gallery-title {
-  font-size: 15px;
+  font-size: 17px;
+  letter-spacing: -.01em;
   line-height: 1.35;
 }
 
@@ -296,10 +406,7 @@ body:has(.native-diptych) {
 .native-paywall-card {
   position: relative;
   width: min(100%, 460px);
-  padding: clamp(28px, 8vw, 64px);
-  border: 1px solid rgba(var(--ink), .14);
-  background: rgba(24, 26, 25, .8);
-  box-shadow: 0 20px 80px rgba(0, 0, 0, .24);
+  padding: clamp(8px, 4vw, 28px) 0;
 }
 
 .native-paywall-kicker {
@@ -341,11 +448,13 @@ body:has(.native-diptych) {
 }
 
 .native-paywall-actions button {
-  border: 1px solid rgba(var(--ink), .42);
-  border-radius: 999px;
-  padding: 13px 18px;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 0;
+  padding: 13px 22px;
   background: transparent;
-  color: rgb(var(--ink));
+  color: rgba(var(--ink), .82);
+  font-size: 13px;
+  letter-spacing: .01em;
   cursor: pointer;
 }
 

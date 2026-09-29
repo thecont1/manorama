@@ -24,6 +24,7 @@ import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold
 import Paywall from './Paywall'
 import Diptych, { type DiptychFrame } from './Diptych'
 import GlobalView from './GlobalView'
+import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import '../styles/account-ad.css'
 
 type Props = {
@@ -38,10 +39,6 @@ type Props = {
    *  tests inject it to stage a slow resolution against an entitlement change. */
   accountAdLoader?: (input: AdPolicyInput) => Promise<AdFrame | null>
 }
-
-/** Reviewers and judges arrive signed out, so the entry screen offers the
- *  owner-published showcase gallery as a one-tap way in. */
-export const SAMPLE_GALLERY = { owner: 'thecontrarian', slug: 'italy' } as const
 
 type Selection = { owner: string; slug: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
@@ -470,7 +467,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const retryAccountLists = () => setAccountRevision((revision) => revision + 1)
   const message = authError ?? error ?? galleryStatusMessage(status)
   // The manual form stays as the secondary path for galleries outside the
-  // signed-in account; signed out it remains the only way in.
+  // signed-in account; the opening screen is the sign-in door alone.
   const openForm = (
     <form onSubmit={openGallery}>
       <label>
@@ -506,6 +503,79 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
   const accountAdFrame = billingState?.tier && visibility?.show !== false ? accountAd : null
+  const accountAdAside = accountAdFrame ? (
+    <aside
+      class="native-account-ad"
+      data-account-ad
+      aria-label={`${accountAdFrame.badge}: ${accountAdFrame.advertiser}`}
+    >
+      <span class="native-account-ad-badge">{accountAdFrame.badge}</span>
+      <strong class="native-account-ad-headline">
+        {accountAdFrame.headline ?? accountAdFrame.advertiser}
+      </strong>
+      {accountAdFrame.cta ? (
+        // The account page has no strip in motion, so the same CTA the
+        // viewer renders is always actionable here; _blank keeps the
+        // tap out of the app's own webview.
+        <a
+          class="native-account-ad-cta"
+          href={accountAdFrame.cta.url}
+          target="_blank"
+          rel="noopener"
+        >
+          {accountAdFrame.cta.label}
+        </a>
+      ) : null}
+    </aside>
+  ) : null
+
+  // Signed out is the landing page itself — same classes, same stylesheet
+  // rules, same type as manorama.xyz's door. The icon row is the only
+  // native adaptation: bare glyphs instead of the web's text links.
+  if (signedIn !== true) {
+    return (
+      <main class="landing-page native-landing" aria-live="polite">
+        <div class="landing-brand">
+          <header class="native-account-header">
+            <span class="brand-mark-wrap">
+              <img
+                src="/manorama-merged-logo.png"
+                alt="manorama"
+                class="landing-brand-mark"
+              />
+              <span class="brand-tld" aria-hidden="true">.xyz</span>
+            </span>
+            {accountAdAside}
+          </header>
+          <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+          {signedIn === false && onSignIn ? (
+            // App Review 4.8: a third-party sign-in must sit beside Sign in
+            // with Apple, given no less prominence — Apple leads the row.
+            <div class="native-signin">
+              <span class="native-signin-lead">Continue with</span>
+              <div class="native-signin-icons">
+                {[...SIGN_IN_PROVIDERS]
+                  .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+                  .map(({ id, name, Glyph }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      class="native-signin-icon"
+                      aria-label={`Continue with ${name}`}
+                      onClick={() => onSignIn(id)}
+                    >
+                      <Glyph />
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+          {authError ? <p class="landing-note">{authError}</p> : null}
+        </div>
+      </main>
+    )
+  }
+
   return (
     <>
     <main class="native-list-shell">
@@ -518,33 +588,9 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
               class="native-list-logo"
             />
           </span>
-          {accountAdFrame ? (
-            <aside
-              class="native-account-ad"
-              data-account-ad
-              aria-label={`${accountAdFrame.badge}: ${accountAdFrame.advertiser}`}
-            >
-              <span class="native-account-ad-badge">{accountAdFrame.badge}</span>
-              <strong class="native-account-ad-headline">
-                {accountAdFrame.headline ?? accountAdFrame.advertiser}
-              </strong>
-              {accountAdFrame.cta ? (
-                // The account page has no strip in motion, so the same CTA the
-                // viewer renders is always actionable here; _blank keeps the
-                // tap out of the app's own webview.
-                <a
-                  class="native-account-ad-cta"
-                  href={accountAdFrame.cta.url}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  {accountAdFrame.cta.label}
-                </a>
-              ) : null}
-            </aside>
-          ) : null}
+          {accountAdAside}
         </header>
-        <h1>{signedIn ? 'Your galleries' : 'Open a gallery'}</h1>
+        <h1>Your galleries</h1>
         <p>{message}</p>
         {signedIn ? (
           <div class="native-account" data-account>
@@ -651,83 +697,60 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             </div>
           </div>
         ) : null}
-        {signedIn === false && onSignIn ? (
-          // App Review 4.8: a third-party sign-in must sit beside Sign in
-          // with Apple, given no less prominence — Apple leads the list.
-          <>
-            <button type="button" onClick={() => onSignIn('apple')}>
-              Sign in with Apple
-            </button>
-            <button type="button" onClick={() => onSignIn('google')}>
-              Continue with Google
-            </button>
-            <button type="button" onClick={() => onSignIn('dropbox')}>
-              Continue with Dropbox
-            </button>
-          </>
-        ) : null}
-        {billing && billingState ? (
-          <button type="button" onClick={() => void openSubscriptions()}>
-            View subscription options
-          </button>
-        ) : null}
-        {billingNote ? <p class="native-account-note">{billingNote}</p> : null}
-        {suppressions ? (
-          <div class="native-plate-switch" aria-label="Plate visibility">
-            <span class="native-plate-switch-state">
-              {visibility?.show === false ? 'Plates hidden' : 'Plates shown'}
-              {visibility?.day ? ` · ${visibility.day}` : ''}
-              {visibility?.region ? ` · ${visibility.region}` : ''}
-            </span>
-            <button
-              type="button"
-              disabled={!visibility?.day}
-              onClick={() => {
-                const day = visibility?.day
-                if (!day) return
-                const off = suppressions.some((item) => item.kind === 'day' && item.value === day)
-                void toggleSuppression('day', day, !off)
-              }}
-            >
-              {suppressions.some((item) => item.kind === 'day' && item.value === visibility?.day)
-                ? 'Show today'
-                : 'Hide today'}
-            </button>
-            <button
-              type="button"
-              disabled={!visibility?.region}
-              onClick={() => {
-                const region = visibility?.region
-                if (!region) return
-                const off = suppressions.some((item) => item.kind === 'region' && item.value === region)
-                void toggleSuppression('region', region, !off)
-              }}
-            >
-              {suppressions.some((item) => item.kind === 'region' && item.value === visibility?.region)
-                ? `Show in ${visibility?.region}`
-                : `Hide in ${visibility?.region ?? 'this region'}`}
-            </button>
-          </div>
-        ) : null}
-        <button type="button" onClick={() => setGlobalViewOpen(true)}>
-          Global view
-        </button>
         {signedIn ? (
-          <details class="native-another">
-            <summary>Open another gallery</summary>
-            {openForm}
-          </details>
-        ) : (
           <>
-            <button
-              type="button"
-              onClick={() => openSelection(SAMPLE_GALLERY.owner, SAMPLE_GALLERY.slug)}
-            >
-              Try a sample gallery
+            {billing && billingState ? (
+              <button type="button" onClick={() => void openSubscriptions()}>
+                View subscription options
+              </button>
+            ) : null}
+            {billingNote ? <p class="native-account-note">{billingNote}</p> : null}
+            {suppressions ? (
+              <div class="native-plate-switch" aria-label="Plate visibility">
+                <span class="native-plate-switch-state">
+                  {visibility?.show === false ? 'Plates hidden' : 'Plates shown'}
+                  {visibility?.day ? ` · ${visibility.day}` : ''}
+                  {visibility?.region ? ` · ${visibility.region}` : ''}
+                </span>
+                <button
+                  type="button"
+                  disabled={!visibility?.day}
+                  onClick={() => {
+                    const day = visibility?.day
+                    if (!day) return
+                    const off = suppressions.some((item) => item.kind === 'day' && item.value === day)
+                    void toggleSuppression('day', day, !off)
+                  }}
+                >
+                  {suppressions.some((item) => item.kind === 'day' && item.value === visibility?.day)
+                    ? 'Show today'
+                    : 'Hide today'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!visibility?.region}
+                  onClick={() => {
+                    const region = visibility?.region
+                    if (!region) return
+                    const off = suppressions.some((item) => item.kind === 'region' && item.value === region)
+                    void toggleSuppression('region', region, !off)
+                  }}
+                >
+                  {suppressions.some((item) => item.kind === 'region' && item.value === visibility?.region)
+                    ? `Show in ${visibility?.region}`
+                    : `Hide in ${visibility?.region ?? 'this region'}`}
+                </button>
+              </div>
+            ) : null}
+            <button type="button" onClick={() => setGlobalViewOpen(true)}>
+              Global view
             </button>
-            {openForm}
+            <details class="native-another">
+              <summary>Open another gallery</summary>
+              {openForm}
+            </details>
           </>
-        )}
+        ) : null}
       </section>
     </main>
     {globalViewOpen ? (
