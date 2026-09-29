@@ -52,7 +52,7 @@ Create the following exact configuration:
 | Current offering | The offering shown by the hosted Paywall |
 | Customer Center | Enabled for the project |
 
-In App Store Connect, create or verify product ID `in.thecontrarian.manorama.visionary.annual`, choose the price and localizations, and ensure it is in the same subscription group as the app’s other subscription products if more are added later. The Paid Apps Agreement and banking must be active; that gate is now clear for manorama. A Sandbox Tester and a physical device are still required for purchase verification.
+In App Store Connect, create or verify product ID `in.thecontrarian.manorama.visionary.annual`, choose the price and localizations, and ensure it is in the same subscription group as the app’s other subscription products if more are added later. Before purchase verification, confirm that the Paid Apps Agreement and banking are active for the account; repository or product configuration evidence does not replace that owner check. A Sandbox Tester and a physical device are still required for purchase verification.
 
 In RevenueCat:
 
