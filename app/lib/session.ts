@@ -1,6 +1,7 @@
 import { jwtVerify, SignJWT } from 'jose'
 import type { MiddlewareHandler } from 'hono'
 import { getUserByAccountId, type UserRepositoryEnv } from './user-repository'
+import { isMasterAccountId, type MasterAccountEnv } from './master-accounts'
 
 /**
  * Manorama's session layer. A Dropbox OAuth sign-in mints an HS256 JWT
@@ -42,7 +43,7 @@ export type SessionEnv = {
   MASTER_ACCOUNT_ID?: string
   /** Immutable Dropbox subject allowed to use the private operations console. */
   MASTER_DROPBOX_SUBJECT?: string
-} & UserRepositoryEnv
+} & UserRepositoryEnv & MasterAccountEnv
 
 /** Hono env for routes that read the session variable and the session
  * bindings (secret + D1). */
@@ -179,20 +180,7 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
  * so existing deployments do not lose access during the one-time migration.
  * Missing configuration or identity storage fails closed. */
 export const isMasterAccount = async (session: Pick<ManoramaSession, 'accountId'>, env: SessionEnv): Promise<boolean> => {
-  const masterAccountId = env.MASTER_ACCOUNT_ID?.trim()
-  if (masterAccountId && session.accountId === masterAccountId) return true
-
-  const dropboxSubject = env.MASTER_DROPBOX_SUBJECT?.trim()
-  if (!dropboxSubject || !env.DB) return false
-  try {
-    const row = await env.DB
-      .prepare('SELECT account_id FROM auth_identities WHERE provider = ? AND provider_subject = ?')
-      .bind('dropbox', dropboxSubject)
-      .first<{ account_id: string }>()
-    return row?.account_id === session.accountId
-  } catch {
-    return false
-  }
+  return isMasterAccountId(session.accountId, env)
 }
 
 export const requireMasterSession = (): MiddlewareHandler<HonoSessionEnv> =>

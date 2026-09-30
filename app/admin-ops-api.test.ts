@@ -3,7 +3,8 @@ import { createManoramaApi } from './api'
 import { resetAdSuppressionStore } from './lib/ads-visibility'
 import { resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
-import { resetUserStore } from './lib/user-repository'
+import { resetMasterAccountStore } from './lib/master-accounts'
+import { resetUserStore, setLastSeenCountry } from './lib/user-repository'
 
 const env = {
   HOST_API_JWT_SECRET: TEST_SESSION_SECRET,
@@ -14,6 +15,7 @@ beforeEach(async () => {
   resetUserStore()
   resetGalleryStore()
   resetAdSuppressionStore()
+  resetMasterAccountStore()
   await seedTestUser()
 })
 
@@ -33,11 +35,46 @@ describe('master operations API', () => {
       headers: { Cookie: await sessionCookieFor(TEST_OWNER.accountId) },
     }, env)
     expect(allowed.status).toBe(200)
-    const body = await allowed.json() as { users: { accountId: string; email?: string }[] }
-    const accountIds = body.users.map((user) => user.accountId)
+    const body = await allowed.json() as { users: { users: { accountId: string; email?: string }[]; pageSize: number; totalPages: number } }
+    const accountIds = body.users.users.map((user) => user.accountId)
+    expect(accountIds[0]).toBe(TEST_OWNER.accountId)
     expect(accountIds).toContain(TEST_OWNER.accountId)
     expect(accountIds).toContain(other.accountId)
+    expect(body.users.pageSize).toBe(100)
+    expect(body.users.totalPages).toBe(1)
     expect(JSON.stringify(body)).not.toContain('provider_subject')
+  })
+
+  test('keeps masters first, supports multiple masters, and filters by last-seen country', async () => {
+    const api = createManoramaApi()
+    const other = await seedTestUser({ accountId: 'acct_operator', displayName: 'Operator', email: 'operator@example.test' })
+    const india = await seedTestUser({ accountId: 'acct_india', displayName: 'India User', email: 'india@example.test' })
+    await setLastSeenCountry(other.accountId, 'DE')
+    await setLastSeenCountry(india.accountId, 'IN')
+    const headers = { Cookie: await sessionCookieFor(TEST_OWNER.accountId), 'Content-Type': 'application/json' }
+
+    const grant = await api.request(`/api/admin/users/${other.accountId}/master`, {
+      method: 'PUT', headers, body: JSON.stringify({ granted: true }),
+    }, env)
+    expect(grant.status).toBe(200)
+
+    const overview = await api.request('/api/admin/overview', { headers }, env)
+    const users = ((await overview.json()) as { users: { users: { accountId: string; isMaster: boolean }[] } }).users.users
+    expect(users.slice(0, 2).every((user) => user.isMaster)).toBe(true)
+
+    const filtered = await api.request('/api/admin/overview?country=IN', { headers }, env)
+    const filteredUsers = ((await filtered.json()) as { users: { users: { accountId: string; lastSeenCountry?: string }[]; total: number } }).users
+    expect(filteredUsers.total).toBe(1)
+    expect(filteredUsers.users[0]?.accountId).toBe(india.accountId)
+
+    const revoke = await api.request(`/api/admin/users/${other.accountId}/master`, {
+      method: 'PUT', headers, body: JSON.stringify({ granted: false }),
+    }, env)
+    expect(revoke.status).toBe(200)
+    const selfRevoke = await api.request(`/api/admin/users/${TEST_OWNER.accountId}/master`, {
+      method: 'PUT', headers, body: JSON.stringify({ granted: false }),
+    }, env)
+    expect(selfRevoke.status).toBe(409)
   })
 
   test('does not turn suppression storage failures into an empty overview', async () => {

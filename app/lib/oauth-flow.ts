@@ -24,6 +24,7 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
 } from './session'
+import { setLastSeenCountry } from './user-repository'
 
 /**
  * The shared halves of the /auth/{provider} routes. All three providers
@@ -194,10 +195,14 @@ export const finishProviderAuth = async (
         }
         throw error
       }
+      const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
+      await setLastSeenCountry(flow.accountId!, country, env).catch(() => {})
       return c.redirect(`/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
     }
 
     const user = await upsertIdentitySignIn(identity, env)
+    const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
+    await setLastSeenCountry(user.accountId, country, env).catch(() => {})
     const token = await createSessionToken(user.accountId, secret)
     const cookieOpts = {
       httpOnly: true,

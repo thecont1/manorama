@@ -12,6 +12,7 @@ import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, 
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
 import { createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
@@ -293,13 +294,36 @@ export const createManoramaApi = () => {
   api.use('/api/admin/*', requireMasterSession())
   api.get('/api/admin/overview', async (c) => {
     try {
+      const pageParam = Number(c.req.query('page') ?? '1')
+      const country = (c.req.query('country') ?? '').trim().toUpperCase()
+      if (country && !/^[A-Z]{2}$/.test(country)) return c.json({ error: 'Country filter must be an ISO-3166 alpha-2 code' }, 400)
+      const bootstrapAccountId = await configuredMasterAccountId(dbEnv(c))
       return c.json({
-        users: await listUsersForAdmin(dbEnv(c)),
+        users: await listUsersForAdmin(dbEnv(c), { page: Number.isFinite(pageParam) ? pageParam : 1, country, bootstrapAccountId: bootstrapAccountId ?? undefined }),
         suppressions: await listAdSuppressions(dbEnv(c)),
       })
     } catch {
       return c.json({ error: 'The operations overview is temporarily unavailable' }, 503)
     }
+  })
+  api.put('/api/admin/users/:accountId/master', async (c) => {
+    const accountId = c.req.param('accountId').trim()
+    const payload = await c.req.json().catch(() => null) as unknown
+    const granted = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as { granted?: unknown }).granted
+      : undefined
+    if (typeof granted !== 'boolean') return c.json({ error: 'Provide granted as a boolean' }, 400)
+    if (!(await getUserByAccountId(accountId, dbEnv(c)))) return c.json({ error: 'That account was not found' }, 404)
+    const session = c.get('manoramaSession')
+    if (!granted) {
+      const bootstrap = await configuredMasterAccountId(dbEnv(c))
+      if (accountId === bootstrap) return c.json({ error: 'The configured bootstrap master cannot be revoked' }, 409)
+      if (accountId === session.accountId) return c.json({ error: 'You cannot revoke your own master access' }, 409)
+      await revokeMasterAccount(accountId, dbEnv(c))
+    } else {
+      await grantMasterAccount(accountId, session.accountId, dbEnv(c))
+    }
+    return c.json({ ok: true, accountId, isMaster: granted || await isMasterAccountId(accountId, dbEnv(c)) })
   })
   api.delete('/api/admin/users/:accountId', async (c) => {
     const accountId = c.req.param('accountId').trim()
