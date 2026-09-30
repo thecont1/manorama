@@ -91,6 +91,18 @@ export const galleryStatusMessage = (status: GalleryStatus): string => {
   return 'Connect to manorama to view a public gallery.'
 }
 
+/** The visibility endpoint answers with an ISO-3166 alpha-2 code, and a button
+ *  reading "Hide in IN" explains nothing. The platform's own region names turn
+ *  it into a place; a runtime without them keeps the code rather than guessing. */
+export const regionName = (code: string | null | undefined): string => {
+  if (!code) return ''
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase()) ?? code
+  } catch {
+    return code
+  }
+}
+
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
 export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
@@ -523,7 +535,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       await saveVaultLoadPolicy(next)
     } catch {
       setLoadPolicy(previous)
-      setError('The gallery loading preference could not be saved on this device.')
+      setError('That preference could not be saved on this device.')
     } finally {
       setPolicySaving(false)
     }
@@ -702,28 +714,43 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountGalleryLink = (gallery: GallerySummary) => ownerSlug
     ? `manorama.xyz/${ownerSlug}/${gallery.slug}`
     : `manorama.xyz/${gallery.slug}`
-  const accountGalleryRow = (gallery: GallerySummary, rowIndex: number) => {
-    const firstImage = gallery.images[0]
+  // The first variant is the provider's own thumbnail, and for a film it is the
+  // poster — `src` would be the video itself, which no <img> can show. This is
+  // the same `variants?.[0]?.src ?? src` the web dashboard's row previews use.
+  const imagePreview = (image: GallerySummary['images'][number]) =>
+    image.variants?.[0]?.src ?? image.src
+  const accountGalleryRow = (gallery: GallerySummary) => {
+    const cover = gallery.images[0]
     return (
       <button
         type="button"
-        class={`native-gallery-row native-gallery-row-with-thumb ${rowIndex % 2 === 0 ? 'native-gallery-row-thumb-left' : 'native-gallery-row-thumb-right'}`}
+        class="native-gallery-row native-gallery-row-with-thumb"
         onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
         disabled={!ownerSlug}
         aria-label={`Open ${gallery.title || gallery.slug}`}
       >
-        <span class="native-gallery-row-copy">
-          <span class="native-gallery-heading">
-            <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
-            <span class="native-gallery-meta">({gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'})</span>
-          </span>
-          {accountGallerySubtitle(gallery) ? <span class="native-gallery-subtitle">{accountGallerySubtitle(gallery)}</span> : null}
-        </span>
-        {firstImage ? (
-          <span class="native-gallery-thumb" aria-hidden="true">
-            <img src={firstImage.src} width={firstImage.width} height={firstImage.height} alt="" loading="lazy" draggable={false} />
+        {/* The mobile account card presents one cover photograph, not the web
+            dashboard's draggable sequence strip. It gets its own row ahead of
+            the copy, with the same aspect-true size as a picker photograph. */}
+        {cover ? (
+          <span class="native-gallery-cover-row" aria-hidden="true">
+            <span class="native-gallery-thumb is-active">
+              <img
+                src={imagePreview(cover)}
+                width={cover.width}
+                height={cover.height}
+                alt=""
+                loading="lazy"
+                draggable={false}
+              />
+            </span>
           </span>
         ) : null}
+        <span class="native-gallery-heading">
+          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+          <span class="native-gallery-meta">({gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'})</span>
+        </span>
+        {accountGallerySubtitle(gallery) ? <span class="native-gallery-subtitle">{accountGallerySubtitle(gallery)}</span> : null}
         <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
       </button>
     )
@@ -881,10 +908,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
             {visibleAccountGalleries.length > 0 ? (
               <ul class="native-gallery-list">
-                {visibleAccountGalleries.map((gallery, galleryIndex) => (
-                  <li key={gallery.slug}>
-                    {accountGalleryRow(gallery, galleryIndex)}
-                  </li>
+                {visibleAccountGalleries.map((gallery) => (
+                  <li key={gallery.slug}>{accountGalleryRow(gallery)}</li>
                 ))}
               </ul>
             ) : accountGalleries && !accountListFailed && temporaryAccountGalleries.length === 0 ? (
@@ -892,25 +917,25 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
             {!billingState?.isPro && temporaryAccountGalleries.length > 0 ? (
               <section class="native-temporary-galleries" aria-labelledby="native-temporary-galleries-title">
-                <h2 id="native-temporary-galleries-title">Temp Galleries</h2>
+                <h2 id="native-temporary-galleries-title">Temporary galleries</h2>
                 <ul class="native-gallery-list">
-                  {temporaryAccountGalleries.map((gallery, galleryIndex) => (
-                    <li key={gallery.slug}>{accountGalleryRow(gallery, galleryIndex)}</li>
+                  {temporaryAccountGalleries.map((gallery) => (
+                    <li key={gallery.slug}>{accountGalleryRow(gallery)}</li>
                   ))}
                 </ul>
               </section>
             ) : null}
             {deviceListFailed ? (
               <p class="native-account-note">
-                The list from your Mac could not be loaded.{' '}
+                The list from this device could not be loaded.{' '}
                 <button type="button" class="native-retry" onClick={retryAccountLists}>
                   Try again
                 </button>
               </p>
             ) : null}
             {deviceGalleries && deviceGalleries.length > 0 ? (
-              <section class="native-device" aria-label="On your Mac">
-                <h2>On your Mac</h2>
+              <section class="native-device" aria-label="This device">
+                <h2>This device</h2>
                 <ul class="native-device-list">
                   {deviceGalleries.map((gallery) => (
                     <li key={gallery.id}>
@@ -973,44 +998,50 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
             {billingNote ? <p class="native-account-note">{billingNote}</p> : null}
             {suppressions ? (
-              <div class="native-plate-switch" aria-label="Plate visibility">
-                <span class="native-plate-switch-state">
-                  {visibility?.show === false ? 'Plates hidden' : 'Plates shown'}
-                  {visibility?.day ? ` · ${visibility.day}` : ''}
-                  {visibility?.region ? ` · ${visibility.region}` : ''}
-                </span>
-                <button
-                  type="button"
-                  disabled={!visibility?.day}
-                  onClick={() => {
-                    const day = visibility?.day
-                    if (!day) return
-                    const off = suppressions.some((item) => item.kind === 'day' && item.value === day)
-                    void toggleSuppression('day', day, !off)
-                  }}
-                >
-                  {suppressions.some((item) => item.kind === 'day' && item.value === visibility?.day)
-                    ? 'Show today'
-                    : 'Hide today'}
-                </button>
-                <button
-                  type="button"
-                  disabled={!visibility?.region}
-                  onClick={() => {
-                    const region = visibility?.region
-                    if (!region) return
-                    const off = suppressions.some((item) => item.kind === 'region' && item.value === region)
-                    void toggleSuppression('region', region, !off)
-                  }}
-                >
-                  {suppressions.some((item) => item.kind === 'region' && item.value === visibility?.region)
-                    ? `Show in ${visibility?.region}`
-                    : `Hide in ${visibility?.region ?? 'this region'}`}
-                </button>
-              </div>
+              <section class="native-house-cards" aria-labelledby="native-house-cards-title">
+                <h2 id="native-house-cards-title">House cards</h2>
+                <p class="native-account-note">
+                  House cards are manorama's own, shown occasionally between photographs. They are never counted in the position readout.
+                </p>
+                <div class="native-house-cards-actions">
+                  <span class="native-house-cards-status">
+                    {visibility?.show === false ? 'House cards hidden' : 'House cards shown'}
+                    {visibility?.day ? ` · ${visibility.day}` : ''}
+                    {visibility?.region ? ` · ${regionName(visibility.region)}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={!visibility?.day}
+                    onClick={() => {
+                      const day = visibility?.day
+                      if (!day) return
+                      const off = suppressions.some((item) => item.kind === 'day' && item.value === day)
+                      void toggleSuppression('day', day, !off)
+                    }}
+                  >
+                    {suppressions.some((item) => item.kind === 'day' && item.value === visibility?.day)
+                      ? 'Show again today'
+                      : 'Hide for the rest of today'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!visibility?.region}
+                    onClick={() => {
+                      const region = visibility?.region
+                      if (!region) return
+                      const off = suppressions.some((item) => item.kind === 'region' && item.value === region)
+                      void toggleSuppression('region', region, !off)
+                    }}
+                  >
+                    {suppressions.some((item) => item.kind === 'region' && item.value === visibility?.region)
+                      ? `Show in ${regionName(visibility?.region)}`
+                      : `Hide in ${visibility?.region ? regionName(visibility.region) : 'this region'}`}
+                  </button>
+                </div>
+              </section>
             ) : null}
             <section class="native-load-policy" aria-labelledby="native-load-policy-title">
-              <h2 id="native-load-policy-title">Gallery loading</h2>
+              <h2 id="native-load-policy-title">How galleries load</h2>
               <label>
                 <span>When you open an online gallery</span>
                 <select
@@ -1039,7 +1070,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                   <span>Keep photos from this device ready to choose in galleries</span>
               </label>
               <p class="native-account-note">
-                Everything stays encrypted and on this device. Turn it on here once; the gallery picker can then show photographs already saved here.
+                Everything stays encrypted and on this device. Turn it on here once; the photo picker can then show photographs already saved here.
               </p>
               {globalViewEnabled ? (
                 <button type="button" onClick={() => setGlobalViewOpen(true)}>

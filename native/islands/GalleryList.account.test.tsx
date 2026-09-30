@@ -382,7 +382,13 @@ describe('signed-in account area', () => {
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
-  type ApiStubs = { galleries?: Response; deviceGalleries?: Response; fallback?: (url: string, init?: RequestInit) => Response }
+  type ApiStubs = {
+    galleries?: Response
+    deviceGalleries?: Response
+    visibility?: Response
+    suppressions?: Response
+    fallback?: (url: string, init?: RequestInit) => Response
+  }
   const stubFetch = (stubs: ApiStubs = {}) => {
     calls = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -390,7 +396,10 @@ describe('signed-in account area', () => {
       calls.push({ url, init })
       if (url.includes('/api/device-galleries')) return stubs.deviceGalleries ?? json({ galleries: [] })
       if (url.includes('/api/galleries')) return stubs.galleries ?? json({ galleries: [] })
-      if (url.includes('/api/ads/visibility')) return json({ show: true, day: '2026-10-01' })
+      if (url.includes('/api/ads/visibility')) return stubs.visibility ?? json({ show: true, day: '2026-10-01' })
+      // The suppression list is session-gated: an unanswered list leaves the
+      // switch unrendered, which is the state every other test runs in.
+      if (url.includes('/api/ads/suppressions')) return stubs.suppressions ?? new Response('{}', { status: 404 })
       if (stubs.fallback) return stubs.fallback(url, init)
       return new Response('{}', { status: 404 })
     }) as typeof fetch
@@ -457,7 +466,10 @@ describe('signed-in account area', () => {
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({
       caption: 'A winter album',
-      images: [{ id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 }],
+      images: [
+        { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+        { id: 'second', ref: 'second', filename: 'second.jpg', src: 'https://cdn.example/second.jpg', width: 800, height: 1200 },
+      ],
     })] }) })
     const { container } = mountAccount()
     await settle()
@@ -490,7 +502,22 @@ describe('signed-in account area', () => {
 
     const row = container.querySelector('.native-gallery-list button') as HTMLButtonElement | null
     expect(row).not.toBeNull()
-    expect(row?.className).toContain('native-gallery-row-thumb-left')
+    // The single cover takes a row of its own ahead of the copy. The second
+    // fixture image proves mobile does not render the web's sequencing strip.
+    const cover = row!.querySelector(':scope > .native-gallery-cover-row')
+    expect(cover).not.toBeNull()
+    expect(cover!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
+    expect(cover!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
+    expect([...cover!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
+      'native-gallery-thumb is-active',
+    ])
+    // Then title with its count, subtitle and address, each on its own line.
+    expect([...(row!.children as unknown as Element[])].map((child) => child.className)).toEqual([
+      'native-gallery-cover-row',
+      'native-gallery-heading',
+      'native-gallery-subtitle',
+      'native-gallery-link',
+    ])
     expect(row?.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
     expect(row?.querySelector(':scope > .native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
     row!.click()
@@ -571,7 +598,10 @@ describe('signed-in account area', () => {
     await settle()
 
     const html = container.innerHTML
-    expect(html).toContain('On your Mac')
+    expect(html).toContain('This device')
+    // The web dashboard's "Mac" is the wrong word in an iOS app, and the list
+    // is whatever device the account last published from.
+    expect(html).not.toContain('On your Mac')
     expect(html).toContain('Living room folder')
     expect(html).toContain('Field card')
     expect(html).toContain('Published selects')
@@ -591,6 +621,52 @@ describe('signed-in account area', () => {
     tappable!.click()
     await settle()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/mac-light')).toBe(true)
+  })
+
+  test('groups the account preferences and names what each switch hides', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary()] }),
+      // The visibility answer carries the ISO country code the Worker reads.
+      visibility: json({ show: true, day: '2026-10-01', region: 'IN' }),
+      suppressions: json({ suppressions: [{ kind: 'day', value: '2026-10-01' }] }),
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    // Each preference is its own headed question rather than one undifferentiated
+    // list running from the device down to the load policy.
+    expect(
+      [...container.querySelectorAll('.native-house-cards h2, .native-load-policy h2, .native-global-setting h2')]
+        .map((heading) => heading.textContent),
+    ).toEqual(['House cards', 'How galleries load', 'Photo picker'])
+
+    // The switch reports what it governs, and the buttons say what they hide.
+    expect(container.querySelector('.native-house-cards-status')?.textContent)
+      .toBe('House cards shown · 2026-10-01 · India')
+    expect(
+      [...container.querySelectorAll('.native-house-cards-actions button')]
+        .map((button) => button.textContent),
+    ).toEqual(['Show again today', 'Hide in India'])
+
+    // The internal vocabulary the owner flagged never reaches the screen.
+    const html = container.innerHTML
+    expect(html).toContain('the photo picker can then show photographs already saved here')
+    expect(html).not.toContain('the gallery picker')
+    expect(html).not.toContain('Plates')
+    expect(html).not.toContain('Hide today')
+    expect(html).not.toContain('Gallery loading')
+  })
+
+  test('names pipeline galleries without a shortened internal label', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ retention: 'pipeline' })] }) })
+    const { container } = mountAccount()
+    await settle()
+    expect(container.querySelector('.native-temporary-galleries h2')?.textContent).toBe('Temporary galleries')
+    expect(container.innerHTML).not.toContain('Temp Galleries')
   })
 
   test('a failed account list shows a quiet retry and never blocks the manual form', async () => {
