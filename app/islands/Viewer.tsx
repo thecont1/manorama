@@ -2207,6 +2207,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         onKeyDown={onModalKeyDown}
       >
         <div class="controls-panel" style={foldPanelStyle}>
+          <div class="controls-panel-brand brand-mark-wrap" aria-hidden="true">
+            <img src="/manorama-merged-logo.png" alt="" />
+            <span class="brand-tld">.xyz</span>
+          </div>
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>

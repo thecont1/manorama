@@ -7,11 +7,18 @@ type Props = {
   children: Child
 }
 
+const escapeHtml = (value: string): string => value
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;')
+
 /** Shared public gallery chrome for SSR and the native client. */
 export default function GalleryShell({ settings, status, children }: Props) {
   return (
     <main class="gallery-shell">
-      <h1 class="sr-only">{settings.title}</h1>
+      <h1 class="sr-only" dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
       <section
         class="curtain"
         data-curtain
@@ -30,10 +37,8 @@ export default function GalleryShell({ settings, status, children }: Props) {
             />
             <span class="brand-tld" aria-hidden="true">.xyz</span>
           </span>
-          <h1 data-curtain-title>{settings.title}</h1>
-          <p class="curtain-caption" data-curtain-caption>
-            {settings.caption}
-          </p>
+          <h1 data-curtain-title dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
+          <p class="curtain-caption" data-curtain-caption dangerouslySetInnerHTML={{ __html: escapeHtml(settings.caption) }} />
           {status && <p id="gallery-curtain-status" class="curtain-status" role="status">{status}</p>}
         </div>
       </section>
