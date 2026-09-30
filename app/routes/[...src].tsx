@@ -59,6 +59,39 @@ const PROVIDER_LABEL: Record<string, string> = {
 // createRoute IS the handler array honox expects (factory.createHandlers),
 // so this export is already the `[handler]` shape — do not wrap it again.
 export default createRoute(async (c, next) => {
+    if (c.req.path === '/.well-known/apple-app-site-association') {
+      c.header('Content-Type', 'application/json')
+      c.header('Cache-Control', 'public, max-age=300')
+      return c.json({
+        applinks: {
+          apps: [],
+          details: [{
+            appID: '373K7W3LKU.in.thecontrarian.manorama',
+            components: [
+              { '/': '/auth/*', exclude: true },
+              { '/': '/api/*', exclude: true },
+              { '/': '/.well-known/*', exclude: true },
+              { '/': '/https://*', comment: 'Intentional wrapped public cloud imports' },
+              { '/': '/*/*', comment: 'Public Manorama galleries' },
+            ],
+          }],
+        },
+      })
+    }
+    if (c.req.path === '/.well-known/assetlinks.json') {
+      const fingerprint = (c.env as { ANDROID_APP_LINK_SHA256?: string }).ANDROID_APP_LINK_SHA256?.trim()
+      c.header('Content-Type', 'application/json')
+      c.header('Cache-Control', 'public, max-age=300')
+      if (!fingerprint) return c.json([], 503)
+      return c.json([{
+        relation: ['delegate_permission/common.handle_all_urls'],
+        target: {
+          namespace: 'android_app',
+          package_name: 'in.thecontrarian.manorama',
+          sha256_cert_fingerprints: [fingerprint],
+        },
+      }])
+    }
     // c.req.path is already decoded and starts with '/'. Pass the query
     // too: `drive.google.com/open?id=…` carries its folder ID in the query,
     // and the ID is the whole share — dropping it makes a valid folder link

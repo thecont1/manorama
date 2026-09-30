@@ -39,29 +39,35 @@ const manifest = (images: GalleryImage[]) => ({
   },
 })
 
-const openFixture = async (page: Page, images = Array.from({ length: 12 }, (_, i) => image(i))) => {
+const openFixture = async (
+  page: Page,
+  images = Array.from({ length: 12 }, (_, i) => image(i)),
+  globalView = true,
+) => {
+  await page.addInitScript((enabled) => {
+    if (enabled) localStorage.setItem('CapacitorStorage.manorama.global-view', 'on')
+    else localStorage.removeItem('CapacitorStorage.manorama.global-view')
+  }, globalView)
   await page.route(apiPattern, (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(manifest(images)),
   }))
   await page.goto(`${nativeUrl}/?owner=fixture&slug=global-fixture`)
+  await page.getByRole('button', { name: 'Enter gallery' }).click()
 }
 
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
 const enableGlobalView = async (page: Page) => {
-  await page.getByRole('button', { name: /Global view/ }).click()
-  // A fresh context is always opted out, so the explainer and its enable
-  // button arrive after the async preference read — wait for them.
-  await page.getByRole('button', { name: 'Turn on global view' }).click()
+  await page.getByRole('button', { name: /open photo picker/ }).click()
 }
 
 test.beforeEach(() => {
   test.skip(!nativeUrl, 'NATIVE_GALLERY_URL is required for the native global-view spec')
 })
 
-test('indexes the open gallery offline and lands the stage on the tapped frame', async ({ page }) => {
+test('shows the open gallery offline and lands the stage on the tapped frame', async ({ page }) => {
   await openFixture(page)
   await enableGlobalView(page)
 
@@ -69,6 +75,8 @@ test('indexes the open gallery offline and lands the stage on the tapped frame',
   await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
   await page.route('**', (route) =>
     route.request().url().startsWith('http') ? route.abort() : route.continue())
+  const picker = page.locator('[data-global-scroll]')
+  await picker.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect(page.locator('[data-grid-frame] img')).toHaveCount(12, { timeout: 10000 })
 
   await page.locator('[data-grid-frame]').nth(7).click()
@@ -102,18 +110,10 @@ test('lands the stage on the last of two rapid frame taps', async ({ page }) => 
   await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
 })
 
-test('stays off by default and remembers the choice', async ({ page }) => {
-  await openFixture(page)
-  await page.getByRole('button', { name: /Global view/ }).click()
+test('stays in the local selector until enabled from admin', async ({ page }) => {
+  await openFixture(page, undefined, false)
+  await page.getByRole('button', { name: /open selector/ }).click()
 
-  await expect(page.locator('.native-global-explainer')).toBeVisible()
-  await expect(page.locator('[data-grid-frame]')).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Turn on global view' }).click()
-  await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
-  await page.getByRole('button', { name: 'Close global view' }).click()
-
-  // The opt-in survives a fresh open of the surface.
-  await page.getByRole('button', { name: /Global view/ }).click()
-  await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
+  await expect(page.locator('[data-global-view]')).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'All photographs' })).toBeVisible()
 })

@@ -10,11 +10,7 @@ import {
 } from '../lib/offline-gallery'
 import {
   GridThumbLoader,
-  loadGlobalViewEnabled,
-  saveGlobalViewEnabled,
 } from '../lib/global-view'
-import type { VaultCapPersistence } from '../lib/vault-settings'
-import { preferencesPersistence } from '../lib/vault-settings'
 import '../styles/global-view.css'
 
 type Store = Pick<OfflineGalleryStore, 'gridGallery' | 'listGridGalleries' | 'readThumbnail'>
@@ -24,7 +20,6 @@ type Props = {
   tier: NativeTier | undefined
   /** The gallery currently open on the stage — the Free tier's whole scope. */
   current: GallerySelection | null
-  persistence?: VaultCapPersistence
   objectUrls?: OfflineObjectUrlProvider
   onOpenFrame: (selection: GallerySelection, index: number) => void
   onClose: () => void
@@ -40,8 +35,8 @@ const defaultObjectUrls: OfflineObjectUrlProvider = {
 }
 
 const emptyNote = (tier: NativeTier | undefined, current: GallerySelection | null): string => {
-  if (tier === 'pro') return 'Nothing on this device yet. Galleries you open are indexed here.'
-  if (!current) return 'Open a gallery first — global view indexes what this device has seen.'
+  if (tier === 'pro') return 'Nothing on this device yet. Photos from galleries you open will appear here.'
+  if (!current) return 'Open a gallery first — photos from it will appear here as they become available.'
   return 'This gallery is still settling onto this device. Viewed photographs appear here once the vault holds them.'
 }
 
@@ -91,8 +86,9 @@ const FrameCell = ({
       class="native-global-cell"
       data-grid-frame
       data-index={frame.index}
+      style={`aspect-ratio: ${Math.max(1, frame.width)} / ${Math.max(1, frame.height)}`}
       onClick={() => onOpen({ owner: gallery.owner, slug: gallery.slug }, frame.index)}
-      aria-label={`${gallery.title}, photograph ${frame.index + 1} of ${gallery.frames.length}`}
+      aria-label={`${gallery.title}, photo ${frame.index + 1} of ${gallery.frames.length}`}
     >
       {url ? (
         <img src={url} width={frame.width} height={frame.height} alt={frame.alt} draggable={false} />
@@ -107,12 +103,10 @@ export default function GlobalView({
   store,
   tier,
   current,
-  persistence = preferencesPersistence,
   objectUrls = defaultObjectUrls,
   onOpenFrame,
   onClose,
 }: Props) {
-  const [enabled, setEnabled] = useState<boolean | null>(null)
   const [galleries, setGalleries] = useState<OfflineGridGallery[] | null>(null)
   const [loadError, setLoadError] = useState(false)
   // A cache fill writes metadata last, so an empty read while a gallery is
@@ -128,18 +122,7 @@ export default function GlobalView({
   )
 
   useEffect(() => {
-    let active = true
-    void loadGlobalViewEnabled(persistence).then((value) => {
-      if (active) setEnabled(value)
-    })
-    return () => {
-      active = false
-      loader.release()
-    }
-  }, [persistence, loader])
-
-  useEffect(() => {
-    if (enabled !== true || galleries !== null) return
+    if (galleries !== null) return
     let active = true
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = async () => {
@@ -168,7 +151,9 @@ export default function GlobalView({
       active = false
       if (timer) clearTimeout(timer)
     }
-  }, [enabled, galleries, retriesLeft, tier, current, store])
+  }, [galleries, retriesLeft, tier, current, store])
+
+  useEffect(() => () => loader.release(), [loader])
 
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined' || !gridRef.current) return
@@ -211,60 +196,28 @@ export default function GlobalView({
         }
       }
 
-  const enable = () => {
-    void saveGlobalViewEnabled(true, persistence)
-    setRetriesLeft(6)
-    setEnabled(true)
-  }
-  const disable = () => {
-    void saveGlobalViewEnabled(false, persistence)
-    setGalleries(null)
-    loader.release()
-    setEnabled(false)
-  }
-
   const frameCount = galleries?.reduce((sum, gallery) => sum + gallery.frames.length, 0) ?? 0
 
   return (
-    <section class="native-global-view" role="dialog" aria-modal="true" aria-label="Global view" data-global-view>
+    <section class="native-global-view" role="dialog" aria-modal="true" aria-label="Photo picker" data-global-view>
       <header class="native-global-header">
         <div>
-          <p class="native-global-kicker">Global view</p>
-          <h1>Every frame, on this device</h1>
+          <p class="native-global-kicker">Photos</p>
+          <h1>Choose a photograph</h1>
         </div>
         <div class="native-global-header-actions">
-          {enabled === true ? (
-            <button type="button" class="native-global-toggle" onClick={disable}>
-              Turn off
-            </button>
-          ) : null}
-          <button type="button" class="native-global-close" onClick={onClose} aria-label="Close global view">
+          <button type="button" class="native-global-close" onClick={onClose} aria-label="Close photo picker">
             Close
           </button>
         </div>
       </header>
 
-      {enabled === null ? (
-        <p class="native-global-note">Loading…</p>
-      ) : enabled === false ? (
-        <div class="native-global-explainer">
-          <p>
-            Global view is a private contact sheet of the photographs this device holds — encrypted,
-            indexed locally, never uploaded. Tap any frame to open the stage on it.
-          </p>
-          <p>
-            On Free it shows the gallery you have open. On Pro it indexes every gallery on this device.
-          </p>
-          <button type="button" class="native-global-enable" onClick={enable}>
-            Turn on global view
-          </button>
-        </div>
-      ) : loadError ? (
+      {loadError ? (
         <p class="native-global-note" role="alert">
-          The on-device index could not be read.
+          The photos on this device could not be read.
         </p>
       ) : galleries === null ? (
-        <p class="native-global-note">Reading the on-device index…</p>
+        <p class="native-global-note">Loading your photos…</p>
       ) : galleries.length === 0 ? (
         <p class="native-global-note">{emptyNote(tier, current)}</p>
       ) : (
@@ -274,7 +227,7 @@ export default function GlobalView({
               <h2>
                 {gallery.title}
                 <span class="native-global-gallery-meta">
-                  {gallery.owner}/{gallery.slug} · {gallery.frames.length} photographs
+                  {gallery.frames.length} photos
                 </span>
               </h2>
               <div class="native-global-grid" role="list">
@@ -291,13 +244,8 @@ export default function GlobalView({
               </div>
             </section>
           ))}
-          {tier !== 'pro' ? (
-            <p class="native-global-note native-global-free-note">
-              Free shows the gallery you have open. Pro indexes every gallery on this device.
-            </p>
-          ) : null}
           <p class="native-global-note native-global-count" aria-hidden="true">
-            {frameCount} frames indexed on this device.
+            {frameCount} photos
           </p>
         </div>
       )}

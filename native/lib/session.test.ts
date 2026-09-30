@@ -7,6 +7,7 @@ import {
   clearSessionToken,
   getOwnerSlug,
   getSessionToken,
+  gallerySelectionFromDeepLink,
   setOwnerSlug,
 } from './session'
 
@@ -66,6 +67,29 @@ describe('beginProviderSignIn', () => {
 })
 
 describe('native OAuth callback', () => {
+  test('extracts only a two-segment public gallery link', () => {
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy')).toEqual({
+      owner: 'thecontrarian',
+      slug: 'italy',
+    })
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/auth/callback?handoff=x')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://example.com/thecontrarian/italy')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy?mode=single')).toBeNull()
+    expect(gallerySelectionFromDeepLink('in.thecontrarian.manorama://auth/callback')).toBeNull()
+  })
+
+  test('accepts only a deliberate Manorama wrapper around a supported cloud folder', () => {
+    expect(gallerySelectionFromDeepLink(
+      'https://manorama.xyz/https://www.dropbox.com/scl/fo/lf77cf8mbwls8nwbcvq/AHmaVMMaxe926qhJvOiOHtw?rlkey=dvtkshg5wmht49rmyvgklri26&dl=0',
+    )).toEqual({
+      kind: 'quick-add',
+      sourceUrl: 'https://www.dropbox.com/scl/fo/lf77cf8mbwls8nwbcvq/AHmaVMMaxe926qhJvOiOHtw?rlkey=dvtkshg5wmht49rmyvgklri26&dl=0',
+    })
+    expect(gallerySelectionFromDeepLink('https://www.dropbox.com/scl/fo/folder/key?rlkey=read-key')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/https://dropbox.com/')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/ftp://dropbox.com/scl/fo/folder/key')).toBeNull()
+  })
+
   test('uses the manorama custom scheme and auth host', () => {
     const url = new URL(`${NATIVE_CALLBACK_URL}?handoff=abc`)
     expect(url.protocol).toBe('in.thecontrarian.manorama:')

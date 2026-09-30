@@ -1,22 +1,22 @@
-/* Global view (#27): a quiet contact sheet over the stage. Cells keep honest
-   aspect inside a square frame — object-fit: contain, never cover — because
-   the no-crop rule applies to thumbnails too. content-visibility skips
-   offscreen cells so a 500-frame grid paints like a short one. */
+/* Photo picker: a frosted contact matrix over the whole stage. Every photo is
+   the same height and keeps its source aspect ratio, with no crop or gaps. */
 
 .native-global-view {
   position: fixed;
   inset: 0;
   z-index: 40;
   display: block;
-  background: transparent;
+  background: rgba(8, 10, 10, .8);
   color: rgba(var(--ink), .92);
   pointer-events: none;
+  backdrop-filter: blur(68px) saturate(.28) brightness(.58);
+  -webkit-backdrop-filter: blur(68px) saturate(.28) brightness(.58);
 }
 
 .native-global-header {
   position: fixed;
   z-index: 1;
-  top: calc(12px + env(safe-area-inset-top));
+  top: calc(20vh + env(safe-area-inset-top));
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
   width: min(920px, calc(100% - 24px));
@@ -29,9 +29,10 @@
   padding: 13px 16px;
   border: 1px solid rgba(var(--ink), .16);
   border-radius: 18px;
-  background: rgba(10, 10, 10, .24);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, .14);
-  backdrop-filter: blur(18px) saturate(.8);
+  background: rgba(24, 24, 24, .56);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .38);
+  backdrop-filter: blur(20px) saturate(.82);
+  -webkit-backdrop-filter: blur(20px) saturate(.82);
   pointer-events: auto;
 }
 
@@ -56,9 +57,7 @@
   gap: 8px;
 }
 
-.native-global-toggle,
-.native-global-close,
-.native-global-enable {
+.native-global-close {
   padding: 8px 14px;
   border: 1px solid rgba(var(--ink), .22);
   background: transparent;
@@ -68,38 +67,8 @@
   cursor: pointer;
 }
 
-.native-global-toggle:hover,
-.native-global-close:hover,
-.native-global-enable:hover {
+.native-global-close:hover {
   border-color: rgba(var(--ink), .5);
-}
-
-.native-global-explainer {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  max-width: 480px;
-  padding: 32px 20px;
-  display: grid;
-  gap: 16px;
-  align-content: start;
-  justify-self: center;
-  border: 1px solid rgba(var(--ink), .16);
-  border-radius: 22px;
-  background: rgba(10, 10, 10, .24);
-  backdrop-filter: blur(18px) saturate(.8);
-  pointer-events: auto;
-}
-
-.native-global-explainer p {
-  margin: 0;
-  line-height: 1.55;
-  color: rgba(var(--ink), .78);
-}
-
-.native-global-enable {
-  justify-self: start;
 }
 
 .native-global-note {
@@ -123,27 +92,31 @@
 
 .native-global-scroll {
   position: fixed;
-  top: calc(94px + env(safe-area-inset-top));
+  top: calc(20vh + 82px + env(safe-area-inset-top));
   bottom: calc(14px + env(safe-area-inset-bottom));
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
-  width: min(920px, calc(100% - 24px));
+  width: 100%;
   margin-inline: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 16px 16px 32px;
+  padding: 0 0 32px;
   display: grid;
-  gap: 28px;
+  gap: 24px;
   align-content: start;
-  border: 1px solid rgba(var(--ink), .12);
-  border-radius: 26px;
-  background: rgba(10, 10, 10, .08);
+  border-top: 1px solid rgba(var(--ink), .12);
+  border-bottom: 1px solid rgba(var(--ink), .12);
+  background: rgba(14, 17, 16, .52);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(48px) saturate(.3) brightness(.62);
+  -webkit-backdrop-filter: blur(48px) saturate(.3) brightness(.62);
   scrollbar-width: thin;
   pointer-events: auto;
 }
 
 .native-global-gallery h2 {
-  margin: 0 0 10px;
+  margin: 0;
+  padding: 16px 16px 10px;
   font-size: 15px;
   font-weight: 500;
   display: flex;
@@ -160,29 +133,43 @@
 }
 
 .native-global-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-  gap: 12px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  gap: 0;
+  overflow: visible;
 }
 
 .native-global-cell {
-  aspect-ratio: 1;
-  padding: 5px;
-  border: 1px solid rgba(var(--ink), .14);
-  border-radius: 12px;
-  background: rgba(10, 10, 10, .22);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .22);
+  flex: 0 0 auto;
+  width: auto;
+  height: 10dvh;
+  min-height: 10dvh;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(10, 10, 10, .12);
   cursor: pointer;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
+  display: block;
   content-visibility: auto;
-  contain-intrinsic-size: 96px;
+  contain-intrinsic-size: 10dvh 100px;
 }
 
 .native-global-cell img {
-  width: 100%;
+  width: auto;
   height: 100%;
+  max-width: none;
+  max-height: none;
+  display: block;
   object-fit: contain;
 }
 

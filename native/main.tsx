@@ -4,7 +4,7 @@ import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import GalleryList from './islands/GalleryList'
 import { RevenueCatBilling, type BillingState } from './lib/billing'
-import { authErrorMessage, beginProviderSignIn, getSessionAppUserId, installNativeAuth, type AuthProvider } from './lib/session'
+import { authErrorMessage, beginProviderSignIn, getSessionAppUserId, installNativeAuth, type AuthProvider, type NativeGallerySelection } from './lib/session'
 import './styles.css'
 
 const root = document.getElementById('app')
@@ -15,6 +15,7 @@ const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
 
 function NativeApp() {
   const [authError, setAuthError] = useState<string | null>(null)
+  const [deepLinkSelection, setDeepLinkSelection] = useState<NativeGallerySelection | null>(null)
   const [billingState, setBillingState] = useState<BillingState | undefined>(undefined)
   const billing = useMemo(() => new RevenueCatBilling(undefined, setBillingState), [])
   const configureRevenueCat = async () => {
@@ -30,7 +31,7 @@ function NativeApp() {
   useEffect(() => {
     let cleanup: (() => Promise<void>) | undefined
     let active = true
-    void installNativeAuth(apiBase, setAuthError)
+    void installNativeAuth(apiBase, setAuthError, setDeepLinkSelection)
       .then((removeListener) => {
         cleanup = removeListener
         if (active) return configureRevenueCat()
@@ -42,7 +43,7 @@ function NativeApp() {
       void cleanup?.()
     }
   }, [billing])
-  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} authError={authError} onSignIn={signIn} />
+  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} authError={authError} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
 }
 
 render(<NativeApp />, root)

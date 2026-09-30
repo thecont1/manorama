@@ -7,7 +7,7 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug } from '../lib/api'
+import { createGalleryFromQuickAdd, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -22,7 +22,9 @@ import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '.
 import { thumbnailEntryId } from '../lib/thumbs'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
-import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider } from '../lib/session'
+import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
+import { clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
+import { DEFAULT_VAULT_LOAD_POLICY, loadVaultLoadPolicy, saveVaultLoadPolicy, type VaultLoadPolicy } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
@@ -35,6 +37,8 @@ type Props = {
   apiBase: string
   owner?: string
   slug?: string
+  /** A public HTTPS gallery link delivered while the app is cold or running. */
+  deepLinkSelection?: NativeGallerySelection | null
   onSignIn?: (provider: AuthProvider) => void
   authError?: string | null
   billing?: RevenueCatBilling
@@ -46,6 +50,15 @@ type Props = {
 
 type Selection = { owner: string; slug: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
+type AccountGalleryDrag = {
+  slug: string
+  pointerId: number
+  startX: number
+  startIndex: number
+  currentIndex: number
+  originalGallery: GallerySummary
+  images: GallerySummary['images']
+}
 
 const selectionFromLocation = (): Selection => {
   if (typeof window === 'undefined') return { owner: '', slug: '' }
@@ -77,12 +90,16 @@ export const galleryStatusMessage = (status: GalleryStatus): string => {
 
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
-export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
+export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
     slug: slug ?? initial.slug,
   })
+  const [loadPolicy, setLoadPolicy] = useState<VaultLoadPolicy | null>(null)
+  const [policySaving, setPolicySaving] = useState(false)
+  const [globalViewEnabled, setGlobalViewEnabled] = useState<boolean | null>(null)
+  const [globalViewSaving, setGlobalViewSaving] = useState(false)
   const [ownerInput, setOwnerInput] = useState(selection.owner)
   const [slugInput, setSlugInput] = useState(selection.slug)
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
@@ -102,6 +119,9 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   // null while secure storage is still being asked; sign-in completes with a
   // full reload, so by the first paint the token is already on the device.
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
+  const [pendingQuickAdd, setPendingQuickAdd] = useState<string | null>(null)
+  const [quickAddBusy, setQuickAddBusy] = useState(false)
+  const quickAddInFlight = useRef<string | null>(null)
   const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
   const [ownerName, setOwnerName] = useState<string | undefined>(undefined)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
@@ -111,6 +131,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
   const [deviceListFailed, setDeviceListFailed] = useState(false)
   const [accountRevision, setAccountRevision] = useState(0)
+  const [accountReorderSaving, setAccountReorderSaving] = useState<string | null>(null)
   const [billingNote, setBillingNote] = useState<string | null>(null)
   // App Review 5.1.1(v): a self-serve deletion path behind a second tap.
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -119,6 +140,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   // Once the server deletes the account a retry only owes billing cleanup —
   // the API call must not run again against a 404.
   const [accountDeleted, setAccountDeleted] = useState(false)
+  const accountGalleryDrag = useRef<AccountGalleryDrag | null>(null)
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
@@ -126,7 +148,74 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
   useEffect(() => {
-    if (!selection.owner || !selection.slug) return
+    let active = true
+    void loadVaultLoadPolicy().then((policy) => {
+      if (active) setLoadPolicy(policy)
+    }).catch(() => {
+      if (active) setLoadPolicy(DEFAULT_VAULT_LOAD_POLICY)
+    })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void loadGlobalViewEnabled().then((enabled) => {
+      if (active) setGlobalViewEnabled(enabled)
+    })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!deepLinkSelection) return
+    if (!('owner' in deepLinkSelection)) {
+      setPendingQuickAdd(deepLinkSelection.sourceUrl)
+      return
+    }
+    setFrameKick({ index: 0, nonce: 0 })
+    setOwnerInput(deepLinkSelection.owner)
+    setSlugInput(deepLinkSelection.slug)
+    setSelection(deepLinkSelection)
+  }, [deepLinkSelection])
+
+  useEffect(() => {
+    let active = true
+    void getPendingQuickAdd().then((sourceUrl) => {
+      if (active && sourceUrl) setPendingQuickAdd(sourceUrl)
+    })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!pendingQuickAdd || signedIn !== true || quickAddInFlight.current === pendingQuickAdd) return
+    const sourceUrl = pendingQuickAdd
+    quickAddInFlight.current = sourceUrl
+    setQuickAddBusy(true)
+    setError(null)
+    void createGalleryFromQuickAdd(base, sourceUrl)
+      .then((next) => {
+        if (quickAddInFlight.current !== sourceUrl) return
+        setPendingQuickAdd(null)
+        void clearPendingQuickAdd()
+        setFrameKick({ index: 0, nonce: 0 })
+        setOwnerInput(next.owner)
+        setSlugInput(next.slug)
+        setSelection(next)
+      })
+      .catch((reason: unknown) => {
+        if (quickAddInFlight.current !== sourceUrl) return
+        setPendingQuickAdd(null)
+        void clearPendingQuickAdd()
+        setError(reason instanceof Error ? reason.message : 'That cloud folder could not be turned into a gallery')
+      })
+      .finally(() => {
+        if (quickAddInFlight.current !== sourceUrl) return
+        quickAddInFlight.current = null
+        setQuickAddBusy(false)
+      })
+  }, [base, pendingQuickAdd, signedIn])
+
+  useEffect(() => {
+    if (!selection.owner || !selection.slug || loadPolicy === null) return
     const controller = new AbortController()
     let active = true
     let currentManifest: GalleryManifest | null = null
@@ -144,7 +233,11 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       setSettings(gallery.settings)
       setStatus(gallery.source)
       setError(null)
-      const cacheReady = gallery.cacheFill ?? Promise.resolve(undefined)
+          // Streaming mode deliberately does not start a cache fill. Existing
+          // encrypted galleries may still be opened offline, but a fresh
+          // online link never writes image bytes when the policy is stream.
+          if (gallery.source === 'online' && !gallery.cacheFill) return
+          const cacheReady = gallery.cacheFill ?? Promise.resolve(undefined)
       void cacheReady
         .then(async () => {
           if (!active) return
@@ -172,6 +265,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       return openGalleryNetworkFirst({
         selection,
         store: productionOfflineGalleryStore,
+        cachePolicy: loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY,
         signal: controller.signal,
         fetchOnline: (signal) => fetchGallery(base, selection.owner, selection.slug, signal),
       })
@@ -211,7 +305,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       window.removeEventListener('online', upgradeWhenOnline)
       disposeLease()
     }
-  }, [base, selection.owner, selection.slug])
+  }, [base, loadPolicy, selection.owner, selection.slug])
 
   // Visibility resolves once per base — it is a day/region answer, not a
   // per-gallery one.
@@ -368,7 +462,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             images={source.list()}
             settings={settings}
             plate={plate}
-            onOpenGlobalView={() => setGlobalViewOpen(true)}
+            onOpenGlobalView={globalViewEnabled === true ? () => setGlobalViewOpen(true) : undefined}
             initialIndex={frameKick.index}
             foldLayout={foldEligible ? foldLayout : null}
             foldRenderer={foldEligible ? renderFold : undefined}
@@ -404,6 +498,121 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       // A RevenueCat sign-out failure must not trap the manorama session.
     }
     if (typeof window !== 'undefined') window.location.reload()
+  }
+
+  const changeLoadPolicy = async (next: VaultLoadPolicy) => {
+    const previous = loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY
+    setLoadPolicy(next)
+    setPolicySaving(true)
+    try {
+      await saveVaultLoadPolicy(next)
+    } catch {
+      setLoadPolicy(previous)
+      setError('The gallery loading preference could not be saved on this device.')
+    } finally {
+      setPolicySaving(false)
+    }
+  }
+
+  const changeGlobalView = async (next: boolean) => {
+    const previous = globalViewEnabled
+    setGlobalViewEnabled(next)
+    setGlobalViewSaving(true)
+    try {
+      await saveGlobalViewEnabled(next)
+    } catch {
+      setGlobalViewEnabled(previous)
+      setError('The photo picker preference could not be saved on this device.')
+    } finally {
+      setGlobalViewSaving(false)
+    }
+  }
+
+  const persistAccountGalleryOrder = async (
+    gallery: GallerySummary,
+    images: GallerySummary['images'],
+    rollbackGallery: GallerySummary = gallery,
+  ) => {
+    setAccountReorderSaving(gallery.slug)
+    try {
+      const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getSessionToken() ?? ''}` },
+        body: JSON.stringify({ order: images.map((image) => image.ref ?? image.filename) }),
+      })
+      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? payload.gallery! : item) ?? null)
+    } catch (reason) {
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? rollbackGallery : item) ?? null)
+      setError(reason instanceof Error ? reason.message : 'That order could not be saved')
+    } finally {
+      setAccountReorderSaving(null)
+    }
+  }
+
+  const reorderAccountGallery = (gallery: GallerySummary, from: number, to: number) => {
+    if (from === to || to < 0 || to >= gallery.images.length || accountReorderSaving) return
+    const images = [...gallery.images]
+    const [moved] = images.splice(from, 1)
+    if (!moved) return
+    images.splice(to, 0, moved)
+    setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? { ...item, images } : item) ?? null)
+    void persistAccountGalleryOrder(gallery, images)
+  }
+
+  const startAccountGalleryDrag = (gallery: GallerySummary, index: number, event: PointerEvent) => {
+    if (accountReorderSaving || (event.pointerType === 'touch' && !event.isPrimary)) return
+    const item = event.currentTarget as HTMLElement
+    try { item.setPointerCapture(event.pointerId) } catch {}
+    accountGalleryDrag.current = {
+      slug: gallery.slug,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startIndex: index,
+      currentIndex: index,
+      originalGallery: { ...gallery, images: [...gallery.images] },
+      images: [...gallery.images],
+    }
+    event.preventDefault()
+  }
+
+  const moveAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
+    const drag = accountGalleryDrag.current
+    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    const rail = (event.currentTarget as HTMLElement).parentElement
+    if (!rail || Math.abs(event.clientX - drag.startX) < 8) return
+    const items = Array.from(rail.children) as HTMLElement[]
+    let target = items.findIndex((item) => {
+      const rect = item.getBoundingClientRect()
+      return event.clientX >= rect.left && event.clientX <= rect.right
+    })
+    if (target < 0) target = event.clientX < items[0]!.getBoundingClientRect().left ? 0 : items.length - 1
+    if (target === drag.currentIndex) return
+    const images = [...drag.images]
+    const [moved] = images.splice(drag.currentIndex, 1)
+    if (!moved) return
+    images.splice(target, 0, moved)
+    drag.images = images
+    drag.currentIndex = target
+    setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? { ...item, images } : item) ?? null)
+    event.preventDefault()
+  }
+
+  const finishAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
+    const drag = accountGalleryDrag.current
+    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    accountGalleryDrag.current = null
+    if (drag.currentIndex !== drag.startIndex) void persistAccountGalleryOrder(gallery, drag.images, drag.originalGallery)
+  }
+
+  const cancelAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
+    const drag = accountGalleryDrag.current
+    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    accountGalleryDrag.current = null
+    if (drag.currentIndex !== drag.startIndex) {
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? drag.originalGallery : item) ?? null)
+    }
   }
 
   /** Secure storage normally holds the URL name, but a session minted before
@@ -553,6 +762,48 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   )
   const deviceMeta = (gallery: DeviceGallery) =>
     `${gallery.itemCount} ${gallery.itemCount === 1 ? 'item' : 'items'} · ${gallery.sourceKind} · on ${gallery.deviceLabel}`
+  const accountGalleryRail = (gallery: GallerySummary) => gallery.images.length > 0 ? (
+    <div class="native-account-rail" aria-label={`${gallery.title} photos`}>
+      <div class="native-account-rail-track" role="list" aria-label={`${gallery.title} photos`}>
+        {gallery.images.map((image, imageIndex) => (
+          <figure
+            class="native-account-rail-item"
+            role="listitem"
+            key={image.id}
+            draggable="false"
+            data-image-id={image.id}
+            tabIndex={0}
+            aria-grabbed={accountReorderSaving === gallery.slug ? 'false' : undefined}
+            aria-label={`${image.filename}, image ${imageIndex + 1} of ${gallery.images.length}`}
+            onPointerDown={(event) => startAccountGalleryDrag(gallery, imageIndex, event)}
+            onPointerMove={(event) => moveAccountGalleryDrag(gallery, event)}
+            onPointerUp={(event) => finishAccountGalleryDrag(gallery, event)}
+            onPointerCancel={(event) => cancelAccountGalleryDrag(gallery, event)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowLeft') {
+                event.preventDefault()
+                reorderAccountGallery(gallery, imageIndex, imageIndex - 1)
+              }
+              if (event.key === 'ArrowRight') {
+                event.preventDefault()
+                reorderAccountGallery(gallery, imageIndex, imageIndex + 1)
+              }
+            }}
+            >
+            <img
+              src={image.src}
+              width={image.width}
+              height={image.height}
+              alt=""
+              loading="lazy"
+              draggable={false}
+            />
+            <span class="native-account-rail-handle" aria-hidden="true">⠿</span>
+          </figure>
+        ))}
+      </div>
+    </div>
+  ) : null
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
@@ -625,6 +876,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             </div>
           ) : null}
           {authError ? <p class="landing-note">{authError}</p> : null}
+          {pendingQuickAdd ? <p class="landing-note">Sign in to turn this supported cloud folder into a Manorama gallery.</p> : null}
         </div>
       </main>
     )
@@ -683,6 +935,8 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <h1>Your galleries</h1>
         <p>{message}</p>
+        {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
+        {error && !galleryOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {signedIn ? (
           <div class="native-account" data-account>
             {accountListFailed ? (
@@ -698,12 +952,15 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
                 {accountGalleries.map((gallery) => (
                   <li key={gallery.slug}>
                     {ownerSlug ? (
-                      <button type="button" onClick={() => openSelection(ownerSlug, gallery.slug)}>
-                        <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
-                        <span class="native-gallery-meta">
-                          {gallery.slug} · {gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}
-                        </span>
-                      </button>
+                      <>
+                        <button type="button" onClick={() => openSelection(ownerSlug, gallery.slug)}>
+                          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+                          <span class="native-gallery-meta">
+                            {gallery.slug} · {gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}
+                          </span>
+                        </button>
+                        {accountGalleryRail(gallery)}
+                      </>
                     ) : (
                       <span class="native-gallery-row">
                         <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
@@ -825,9 +1082,44 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
                 </button>
               </div>
             ) : null}
-            <button type="button" onClick={() => setGlobalViewOpen(true)}>
-              Global view
-            </button>
+            <section class="native-load-policy" aria-labelledby="native-load-policy-title">
+              <h2 id="native-load-policy-title">Gallery loading</h2>
+              <label>
+                <span>When you open an online gallery</span>
+                <select
+                  value={loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY}
+                  disabled={policySaving || loadPolicy === null}
+                  onChange={(event: Event) => void changeLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}
+                >
+                  <option value="vault">Download to encrypted vault (default)</option>
+                  <option value="stream">Stream from cloud when needed</option>
+                </select>
+              </label>
+              <p class="native-account-note">
+                Vault copies are encrypted and visible only inside the manorama app — not in Files or another image viewer.
+                Streaming does not save new image bytes on this device.
+              </p>
+            </section>
+            <section class="native-global-setting" aria-labelledby="native-global-setting-title">
+              <h2 id="native-global-setting-title">Photo picker</h2>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={globalViewEnabled === true}
+                  disabled={globalViewSaving || globalViewEnabled === null}
+                  onChange={(event: Event) => void changeGlobalView((event.currentTarget as HTMLInputElement).checked)}
+                />
+                  <span>Keep photos from this device ready to choose in galleries</span>
+              </label>
+              <p class="native-account-note">
+                Everything stays encrypted and on this device. Turn it on here once; the gallery picker can then show photographs already saved here.
+              </p>
+              {globalViewEnabled ? (
+                <button type="button" onClick={() => setGlobalViewOpen(true)}>
+                  Open photo picker
+                </button>
+              ) : null}
+            </section>
             <details class="native-another">
               <summary>Open another gallery</summary>
               {openForm}

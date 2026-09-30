@@ -2143,11 +2143,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-          <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — ${onOpenGlobalView ? 'open global thumbnail picker' : 'open selector'}`} onClick={openGrid}>
+            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — ${onOpenGlobalView ? 'open photo picker' : 'open selector'}`} onClick={openGrid}>
             <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
             <span class="stage-seq-detail" aria-hidden="true">
               <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
-              <span class="stage-seq-hint">open global</span>
+              <span class="stage-seq-hint">open picker</span>
             </span>
           </button>
           {arrowsVisible ? (
