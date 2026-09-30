@@ -30,6 +30,7 @@ import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold
 import Paywall from './Paywall'
 import Diptych, { type DiptychFrame } from './Diptych'
 import GlobalView from './GlobalView'
+import { Browser } from '@capacitor/browser'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import '../styles/account-ad.css'
 
@@ -46,6 +47,17 @@ type Props = {
   /** House-policy loader for the account slot. Production never passes this;
    *  tests inject it to stage a slow resolution against an entitlement change. */
   accountAdLoader?: (input: AdPolicyInput) => Promise<AdFrame | null>
+}
+
+const PRIVACY_URL = 'https://manorama.xyz/privacy'
+const AUTHOR_URL = 'https://thecontrarian.in'
+
+/** Legal and attribution links open in an in-app browser sheet — the same
+ *  pattern the paywall and the OAuth flow use, because a Capacitor webview does
+ *  not reliably act on a bare `target="_blank"` anchor. The href stays on the
+ *  anchor, so the link still works, and still reads as a link, without JS. */
+const openExternal = (url: string) => {
+  void Browser.open({ url, toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 
 type Selection = { owner: string; slug: string }
@@ -795,8 +807,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             The opening screen is the only surface a signed-out viewer sees, so
             without it the privacy policy is unreachable before sign-in. */}
         <footer class="site-footer">
-          <a class="site-footer-link" href="https://manorama.xyz/privacy" target="_blank" rel="noopener">Privacy Policy</a>
-          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
+          <a class="site-footer-link" href={PRIVACY_URL} onClick={(event) => { event.preventDefault(); openExternal(PRIVACY_URL) }}>Privacy Policy</a>
+          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href={AUTHOR_URL} onClick={(event) => { event.preventDefault(); openExternal(AUTHOR_URL) }}>thecontrarian.in</a></p>
         </footer>
       </main>
     )
@@ -848,8 +860,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             on narrow ones the wrapper dissolves (display:contents) and the
             footer's order puts it last in the stacked page. */}
         <footer class="site-footer native-legal">
-          <a class="site-footer-link" href="https://manorama.xyz/privacy" target="_blank" rel="noopener">Privacy Policy</a>
-          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
+          <a class="site-footer-link" href={PRIVACY_URL} onClick={(event) => { event.preventDefault(); openExternal(PRIVACY_URL) }}>Privacy Policy</a>
+          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href={AUTHOR_URL} onClick={(event) => { event.preventDefault(); openExternal(AUTHOR_URL) }}>thecontrarian.in</a></p>
         </footer>
       </div>
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
