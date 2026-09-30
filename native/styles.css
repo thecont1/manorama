@@ -1,6 +1,27 @@
 @import '../app/styles.css';
 @import './styles/display.css';
 
+/* Native curtain composition: the mark is the quiet opening gesture, enlarged
+   and held in the upper half without changing the web gallery layout. */
+body.manorama-native .curtain-content { text-align: center; transform: translateY(-8vh); }
+body.manorama-native .curtain-logo { width: clamp(236px, 42vw, 390px); }
+body.manorama-native .curtain-logo-wrap { width: fit-content; margin: 0 auto 42px; transform: none; }
+body.manorama-native .curtain h1 { max-width: none; margin: 0 0 20px; }
+body.manorama-native .curtain-caption { margin-inline: auto; }
+
+@media (pointer: coarse) {
+  /* A touch tap keeps the position legible while the vault picker opens. */
+  body.manorama-native .stage-seq:focus {
+    opacity: 1;
+    border-color: rgba(var(--ink), .8);
+    background: rgba(10, 10, 10, .82);
+    min-width: clamp(126px, 18svh, 168px);
+    height: clamp(52px, 7.4svh, 66px);
+  }
+  body.manorama-native .stage-seq:focus .stage-seq-num { opacity: 0; }
+  body.manorama-native .stage-seq:focus .stage-seq-detail { opacity: 1; }
+}
+
 :root {
   --native-safe-top: env(safe-area-inset-top, 0px);
   --native-safe-right: env(safe-area-inset-right, 0px);
@@ -318,7 +339,7 @@ body:has(.native-diptych) {
 }
 
 .native-signin {
-  margin-top: clamp(40px, 8vw, 72px);
+  margin-top: clamp(56px, 11vw, 96px);
   text-align: center;
 }
 
@@ -333,14 +354,16 @@ body:has(.native-diptych) {
 }
 
 .native-signin-icons {
-  display: flex;
-  justify-content: center;
-  gap: 34px;
+  position: relative;
+  width: min(196px, 72vw);
+  height: 150px;
+  margin-inline: auto;
 }
 
 /* Bare glyphs, no button chrome — the hit area is generous but invisible,
    and the bob rides on the svg so the clickable box never moves. */
 .native-signin-icons .native-signin-icon {
+  position: absolute;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -353,6 +376,10 @@ body:has(.native-diptych) {
   color: rgb(var(--ink));
   cursor: pointer;
 }
+
+.native-signin-icons .native-signin-icon:nth-child(1) { left: 50%; top: 0; transform: translateX(-50%); }
+.native-signin-icons .native-signin-icon:nth-child(2) { left: 0; top: 66px; }
+.native-signin-icons .native-signin-icon:nth-child(3) { right: 0; top: 66px; }
 
 .native-signin-icons .native-signin-icon svg {
   width: 46px;

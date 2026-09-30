@@ -28,6 +28,9 @@ type Props = {
   images: readonly GalleryMediaItem[]
   settings: GallerySettings
   plate?: AdFrame | null
+  /** Native shells route the existing position pill to their vault-backed
+   *  global thumbnail picker. Web and desktop keep the local filmstrip. */
+  onOpenGlobalView?: () => void
   /** Mount-time frame entry — the global grid lands the stage on the tapped
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
@@ -145,7 +148,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null, initialIndex = 0, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, initialIndex = 0, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -248,6 +251,10 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
   const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
   const openGrid = () => {
+    if (onOpenGlobalView) {
+      onOpenGlobalView()
+      return
+    }
     if (gridCloseTimerRef.current) {
       clearTimeout(gridCloseTimerRef.current)
       gridCloseTimerRef.current = null
@@ -2136,7 +2143,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-          <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open selector`} onClick={openGrid}>
+          <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — ${onOpenGlobalView ? 'open global thumbnail picker' : 'open selector'}`} onClick={openGrid}>
             <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
             <span class="stage-seq-detail" aria-hidden="true">
               <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
@@ -2152,7 +2159,12 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" style={foldControlStyle} aria-label="Gallery controls" title="Gallery controls" onClick={openDisplaySettings}></button>
+      <button ref={dotRef} class="control-logo" style={foldControlStyle} aria-label="Gallery controls" title="Gallery controls" onClick={openDisplaySettings}>
+        <span class="brand-mark-wrap" aria-hidden="true">
+          <img src="/manorama-merged-logo.png" alt="" />
+          <span class="brand-tld">.xyz</span>
+        </span>
+      </button>
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
@@ -2207,16 +2219,21 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         onKeyDown={onModalKeyDown}
       >
         <div class="controls-panel" style={foldPanelStyle}>
-          <div class="controls-panel-brand brand-mark-wrap" aria-hidden="true">
-            <img src="/manorama-merged-logo.png" alt="" />
-            <span class="brand-tld">.xyz</span>
+          <div class="controls-panel-topbar">
+            <div class="controls-panel-brand brand-mark-wrap" aria-hidden="true">
+              <img src="/manorama-merged-logo.png" alt="" />
+              <span class="brand-tld">.xyz</span>
+            </div>
+            <button data-close class="quiet-button panel-close" aria-label="Close display settings" onClick={() => closeModals()}>
+              <span class="panel-close-mark" aria-hidden="true">×</span>
+              <span>Close</span>
+            </button>
           </div>
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
               <h2>Display settings</h2>
             </div>
-            <button data-close class="quiet-button" aria-label="Close display settings" onClick={() => closeModals()}>Close</button>
           </div>
 
           <section class="panel-section" aria-labelledby="view-mode-heading">

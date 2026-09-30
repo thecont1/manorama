@@ -9,6 +9,8 @@ import './styles.css'
 
 const root = document.getElementById('app')
 if (!root) throw new Error('Native app root is missing')
+document.body.classList.add('manorama-native')
+
 const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
 
 function NativeApp() {

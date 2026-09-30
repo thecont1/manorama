@@ -368,19 +368,12 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
             images={source.list()}
             settings={settings}
             plate={plate}
+            onOpenGlobalView={() => setGlobalViewOpen(true)}
             initialIndex={frameKick.index}
             foldLayout={foldEligible ? foldLayout : null}
             foldRenderer={foldEligible ? renderFold : undefined}
           />
         </GalleryShell>
-        <button
-          type="button"
-          class="native-global-open"
-          onClick={() => setGlobalViewOpen(true)}
-          aria-label="Global view — every frame on this device"
-        >
-          Index
-        </button>
         {globalViewOpen ? (
           <GlobalView
             store={productionOfflineGalleryStore}

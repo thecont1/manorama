@@ -8,6 +8,14 @@ body {
   color: #e8e6e3;
 }
 
+/* Keep the native/Tauri curtain composition aligned with iOS while the web
+   gallery retains its own established proportions. */
+body.manorama-desktop .curtain-content { text-align: center; transform: translateY(-8vh); }
+body.manorama-desktop .curtain-logo { width: clamp(236px, 42vw, 390px); }
+body.manorama-desktop .curtain-logo-wrap { width: fit-content; margin: 0 auto 42px; transform: none; }
+body.manorama-desktop .curtain h1 { max-width: none; margin: 0 0 20px; }
+body.manorama-desktop .curtain-caption { margin-inline: auto; }
+
 /* The overlay titlebar leaves no native chrome to grab — this fixed strip is
    the drag region, and each screen pads its top so nothing sits under the
    traffic lights. */
