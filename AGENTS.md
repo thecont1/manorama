@@ -116,9 +116,48 @@ GALLERY_URL=http://localhost:5173 GALLERY_VIDEO_SLUG=mixed-album bunx playwright
 The matrix is 375×812 touch, 1440×900 desktop, 2560×1440 wide. Fold work (#34) adds a
 2-segment viewport.
 
+### iOS build / signing
+
+This app uses SPM, not CocoaPods — **there is no `App.xcworkspace`**. Build the project
+directly, against the connected physical iPhone:
+
+```sh
+xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+  -destination 'id=<iPhone UDID>' -derivedDataPath ios/build/DerivedData build
+
+APP=ios/build/DerivedData/Build/Products/Debug-iphoneos/App.app
+xcrun devicectl device install app --device <iPhone UDID> $APP
+xcrun devicectl device process launch --device <iPhone UDID> in.thecontrarian.manorama
+xcrun devicectl list devices        # to find the UDID
+```
+
+**Never pass `DEVELOPMENT_TEAM` on the command line.** The signing team is **373K7W3LKU**,
+already set in `project.pbxproj` with `CODE_SIGN_STYLE = Automatic`. `TRF3R33X88` is *not* a
+team ID — it is the user-ID suffix Apple appends to certificates issued to individual
+(non-enrolled) team members, so it shows up in the certificate's Common Name:
+
+```
+Apple Development: Mahesh Shantaram (TRF3R33X88)   # CN suffix = user ID
+  ...OU=373K7W3LKU...                              # OU = the real team
+```
+
+Overriding with `DEVELOPMENT_TEAM=TRF3R33X88` fails with
+`No Account for Team "TRF3R33X88" / No profiles for "in.thecontrarian.manorama" were found`
+even though the account is signed in and the provisioning profile is present and valid. The
+profile lives in `~/Library/Developer/Xcode/UserData/Provisioning Profiles/` and already
+covers bundle `in.thecontrarian.manorama` plus the connected device. No Xcode GUI step or
+manual profile download is needed — the build resolves everything on its own.
+
 **Definition of done for any change:** `bunx tsc --noEmit` clean, `bun test` green, and the
 Playwright matrix green for anything touching the viewer. No exceptions during a deadline
 week — a red suite on Friday is how a submission gets missed.
+
+**Native/desktop visual evidence:** after every native or desktop presentation change, capture
+the current six-state matrix for both builds under `demo-captures/{ios,macos}/`: opening screen,
+gallery curtain, first image with controls, display-settings popover, signed-in account/admin
+surface, and Global View (or the desktop filmstrip selector where the Tauri shell does not mount
+the native encrypted-vault GlobalView island). Captures must come from freshly built bundles,
+use authorized source photographs without editing their pixels, and be reviewed before commit.
 
 ---
 
