@@ -56,6 +56,7 @@ type AccountGalleryDrag = {
   startX: number
   startIndex: number
   currentIndex: number
+  originalGallery: GallerySummary
   images: GallerySummary['images']
 }
 
@@ -523,7 +524,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
   }
 
-  const persistAccountGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
+  const persistAccountGalleryOrder = async (
+    gallery: GallerySummary,
+    images: GallerySummary['images'],
+    rollbackGallery: GallerySummary = gallery,
+  ) => {
     setAccountReorderSaving(gallery.slug)
     try {
       const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
@@ -535,7 +540,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
       setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? payload.gallery! : item) ?? null)
     } catch (reason) {
-      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? gallery : item) ?? null)
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? rollbackGallery : item) ?? null)
       setError(reason instanceof Error ? reason.message : 'That order could not be saved')
     } finally {
       setAccountReorderSaving(null)
@@ -562,6 +567,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       startX: event.clientX,
       startIndex: index,
       currentIndex: index,
+      originalGallery: { ...gallery, images: [...gallery.images] },
       images: [...gallery.images],
     }
     event.preventDefault()
@@ -593,7 +599,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const drag = accountGalleryDrag.current
     if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
     accountGalleryDrag.current = null
-    if (drag.currentIndex !== drag.startIndex) void persistAccountGalleryOrder(gallery, drag.images)
+    if (drag.currentIndex !== drag.startIndex) void persistAccountGalleryOrder(gallery, drag.images, drag.originalGallery)
+  }
+
+  const cancelAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
+    const drag = accountGalleryDrag.current
+    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    accountGalleryDrag.current = null
+    if (drag.currentIndex !== drag.startIndex) {
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? drag.originalGallery : item) ?? null)
+    }
   }
 
   /** Secure storage normally holds the URL name, but a session minted before
@@ -759,7 +774,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             onPointerDown={(event) => startAccountGalleryDrag(gallery, imageIndex, event)}
             onPointerMove={(event) => moveAccountGalleryDrag(gallery, event)}
             onPointerUp={(event) => finishAccountGalleryDrag(gallery, event)}
-            onPointerCancel={(event) => finishAccountGalleryDrag(gallery, event)}
+            onPointerCancel={(event) => cancelAccountGalleryDrag(gallery, event)}
             onKeyDown={(event) => {
               if (event.key === 'ArrowLeft') {
                 event.preventDefault()
@@ -770,7 +785,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 reorderAccountGallery(gallery, imageIndex, imageIndex + 1)
               }
             }}
-          >
+            >
             <img
               src={image.src}
               width={image.width}
@@ -779,6 +794,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               loading="lazy"
               draggable={false}
             />
+            <span class="native-account-rail-handle" aria-hidden="true">⠿</span>
           </figure>
         ))}
       </div>

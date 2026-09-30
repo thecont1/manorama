@@ -531,6 +531,31 @@ body:has(.native-diptych) {
   pointer-events: none;
 }
 
+.native-account-rail-handle {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  z-index: 1;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .32);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .48);
+  color: rgba(255, 255, 255, .82);
+  font-size: 16px;
+  line-height: 1;
+  opacity: .45;
+  touch-action: none;
+  user-select: none;
+}
+
+.native-account-rail-item:hover .native-account-rail-handle,
+.native-account-rail-item:focus-visible .native-account-rail-handle {
+  opacity: 1;
+}
+
 /* The admin list's language: one ruled column of rows, separated by
    hairlines, with nothing boxing each gallery in. */
 .native-gallery-list,

@@ -71,6 +71,7 @@ export default createRoute(async (c, next) => {
               { '/': '/auth/*', exclude: true },
               { '/': '/api/*', exclude: true },
               { '/': '/.well-known/*', exclude: true },
+              { '/': '/https://*', comment: 'Intentional wrapped public cloud imports' },
               { '/': '/*/*', comment: 'Public Manorama galleries' },
             ],
           }],
