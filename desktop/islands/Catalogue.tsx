@@ -44,10 +44,8 @@ const DEVICE_LABEL = 'This Mac'
 
 const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
 
-// The web's labels, shared with the landing page: Apple keeps the "Sign in
-// with" phrasing its guidelines require, the rest are "Continue with".
-const providerLabel = (id: AuthProvider, name: string): string =>
-  id === 'apple' ? `Sign in with ${name}` : `Continue with ${name}`
+const sourceLabel = (record: LocalGalleryRecord): string =>
+  record.sourceKind === 'card' ? 'Memory card' : 'Folder on this Mac'
 
 const openExternal = (url: string) => {
   // External links leave the app for the system browser via the opener
@@ -318,6 +316,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             images={manifest.images}
             settings={settings}
             initialIndex={viewerState?.index ?? 0}
+            alwaysShowNavigation
           />
         </GalleryShell>
         <button
@@ -374,171 +373,142 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
         <main class="landing-page desktop-welcome">
-          <div class="landing-brand">
-            <span class="brand-mark-wrap">
-              <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
-            </span>
+          <div class="desktop-welcome-inner">
+            <header class="desktop-welcome-header">
+              <span class="brand-mark-wrap">
+                <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
+              </span>
+            </header>
             <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-            <button type="button" class="landing-signin desktop-primary" onClick={() => void addFolder()} disabled={busy || !catalogue}>
-              {busy ? 'Scanning…' : 'Choose a folder or card'}
-            </button>
-            <p class="landing-note">Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
-            <p class="desktop-welcome-caption">Sign in to sync your catalogue across devices</p>
-            <div class="landing-signin-group">
-              {SIGN_IN_PROVIDERS.map(({ id, name, Glyph }) => (
-                <button type="button" class="landing-signin" key={id} onClick={() => signIn(id)}>
-                  <Glyph />
-                  {providerLabel(id, name)}
-                </button>
-              ))}
+            <div class="desktop-welcome-actions">
+              <button type="button" class="desktop-folder-action" onClick={() => void addFolder()} disabled={busy || !catalogue}>
+                <span class="desktop-action-kicker">Start locally</span>
+                <strong>{busy ? 'Scanning…' : 'Choose a folder or card'}</strong>
+              </button>
+              <p class="desktop-welcome-caption">Originals stay where you keep them — nothing is copied, uploaded, or moved.</p>
+            </div>
+            <div class="desktop-signin">
+              <span class="desktop-signin-lead">Continue with</span>
+              <div class="desktop-signin-icons">
+                {[...SIGN_IN_PROVIDERS]
+                  .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+                  .map(({ id, name, Glyph }) => (
+                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${name}`} onClick={() => signIn(id)}>
+                      <Glyph />
+                    </button>
+                  ))}
+              </div>
             </div>
             {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
             {notice ? <p class="landing-note">{notice}</p> : null}
             {pasteForm}
           </div>
           <footer class="site-footer">
-            <button
-              type="button"
-              class="site-footer-link"
-              onClick={() => openExternal('https://manorama.xyz/privacy')}
-            >
-              Privacy Policy
-            </button>
+            <button type="button" class="site-footer-link" onClick={() => openExternal('https://manorama.xyz/privacy')}>Privacy Policy</button>
             <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
           </footer>
         </main>
       </>
     )
   }
-
   return (
-    <main class="desktop-shell">
+    <main class="desktop-shell desktop-account-shell">
       <div class="desktop-titlebar" data-tauri-drag-region />
-      <header class="desktop-header">
-        <span class="brand-mark-wrap">
-          <img src="/manorama-merged-logo.png" alt="manorama" class="desktop-logo" />
-        </span>
-        <div class="desktop-account">
-          {session ? (
-            <>
-              <span class="desktop-owner">{session.ownerSlug || 'Signed in'}</span>
-              <button type="button" onClick={signOut}>Sign out</button>
-            </>
-          ) : (
-            DESKTOP_AUTH_PROVIDERS.map((id) => {
-              const provider = PROVIDER_META.get(id)
-              if (!provider) return null
-              const { name, Glyph } = provider
-              return (
-                <button type="button" class="landing-signin" key={id} onClick={() => signIn(id)}>
-                  <Glyph />
-                  {providerLabel(id, name)}
-                </button>
-              )
-            })
-          )}
-        </div>
-      </header>
-
-      {authError ? <p class="desktop-notice desktop-error" role="alert">{authError}</p> : null}
-      {notice ? <p class="desktop-notice" role="status">{notice}</p> : null}
-
-      {pasteForm}
-
-      <section class="desktop-toolbar">
-        <button type="button" onClick={() => void addFolder()} disabled={busy}>
-          {busy ? 'Scanning…' : 'Choose a folder or card'}
-        </button>
-        {session ? (
-          <button type="button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>
-            Sync now
-          </button>
-        ) : null}
-        <span class="desktop-sync-state">{syncMessage(syncState, session)}</span>
-      </section>
-
-      <section class="desktop-galleries" aria-label="Saved galleries">
-        {(catalogue?.galleries ?? []).map((record) => {
-          const state = availability[record.id] ?? 'available'
-          const open = openRecord?.id === record.id
-          return (
-            <article class={`desktop-gallery ${open ? 'is-open' : ''}`} key={record.id}>
-              <header>
-                <h2>{record.title}</h2>
-                <span class="desktop-gallery-meta">
-                  {record.itemCount} {record.itemCount === 1 ? 'photo' : 'photos'} · {record.sourceKind === 'card' ? 'card' : 'folder'}
-                </span>
-                {state === 'unavailable' ? (
-                  <span class="desktop-badge-unavailable">Unavailable — reconnect the source</span>
-                ) : null}
-              </header>
-              <div class="desktop-gallery-actions">
-                <button
-                  type="button"
-                  disabled={state === 'unavailable'}
-                  onClick={() => setOpenGalleryId(open ? null : record.id)}
-                >
-                  {open ? 'Hide photos' : 'View photos'}
-                </button>
-                <button type="button" onClick={() => void rescan(record)}>
-                  Rescan
-                </button>
-                <button
-                  type="button"
-                  disabled={state === 'unavailable'}
-                  onClick={() => setShareGalleryId(shareGalleryId === record.id ? null : record.id)}
-                >
-                  Share…
-                </button>
-                <button type="button" onClick={() => void remove(record)}>
-                  Remove
-                </button>
+      <div class="desktop-account-left">
+        <div class="desktop-account-side">
+          <header class="desktop-account-brand">
+            <span class="brand-mark-wrap">
+              <img src="/manorama-merged-logo.png" alt="manorama" class="desktop-account-logo" />
+            </span>
+          </header>
+          <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+          <div class="desktop-account-greeting">
+            <p>Hello {session?.ownerSlug || 'there'}. Welcome to your manorama catalogue.</p>
+            {session ? <button type="button" class="desktop-signout" onClick={signOut}>sign out</button> : null}
+          </div>
+          {!session ? (
+            <div class="desktop-signin desktop-account-signin">
+              <span class="desktop-signin-lead">Continue with</span>
+              <div class="desktop-signin-icons">
+                {DESKTOP_AUTH_PROVIDERS.map((id) => {
+                  const provider = PROVIDER_META.get(id)
+                  if (!provider) return null
+                  const { name, Glyph } = provider
+                  return (
+                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${name}`} onClick={() => signIn(id)}>
+                      <Glyph />
+                    </button>
+                  )
+                })}
               </div>
-              {shareGalleryId === record.id && catalogue ? (
-                <ShareFlow
-                  record={record}
-                  catalogue={catalogue}
-                  apiBase={base}
-                  session={session}
-                  onClose={() => setShareGalleryId(null)}
-                />
-              ) : null}
-              {open ? (
-                <div class="desktop-grid">
-                  {record.items.map((item, index) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      class="desktop-thumb"
-                      onClick={() => setViewerState({ galleryId: record.id, index })}
-                    >
-                      <img
-                        src={assetUrl(item.path)}
-                        loading="lazy"
-                        alt={item.name}
-                        draggable={false}
-                        onLoad={(event: Event) => {
+            </div>
+          ) : null}
+          {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
+          {notice ? <p class="landing-note" role="status">{notice}</p> : null}
+          {pasteForm}
+          <footer class="site-footer desktop-account-footer">
+            <button type="button" class="site-footer-link" onClick={() => openExternal('https://manorama.xyz/privacy')}>Privacy Policy</button>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
+          </footer>
+        </div>
+      </div>
+      <section class="desktop-list-card" aria-live="polite">
+        <header class="desktop-list-heading">
+          <div>
+            <h1>Your galleries</h1>
+            <p>Folders and cards you have opened on this Mac.</p>
+          </div>
+          <div class="desktop-toolbar">
+            <button type="button" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : 'Choose a folder or card'}</button>
+            {session ? <button type="button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>Sync now</button> : null}
+          </div>
+        </header>
+        <span class="desktop-sync-state">{syncMessage(syncState, session)}</span>
+        <section class="desktop-galleries" aria-label="Saved galleries">
+          {(catalogue?.galleries ?? []).map((record, rowIndex) => {
+            const state = availability[record.id] ?? 'available'
+            const open = openRecord?.id === record.id
+            return (
+              <article class={`desktop-gallery ${open ? 'is-open' : ''}`} key={record.id}>
+                <button type="button" class={`desktop-gallery-row ${rowIndex % 2 === 0 ? 'desktop-gallery-row-thumb-left' : 'desktop-gallery-row-thumb-right'}`} onClick={() => state !== 'unavailable' && setOpenGalleryId(open ? null : record.id)} disabled={state === 'unavailable'} aria-label={`Open ${record.title}`}>
+                  <span class="desktop-gallery-copy">
+                    <span class="desktop-gallery-heading"><strong>{record.title}</strong><span>({record.itemCount} {record.itemCount === 1 ? 'photo' : 'photos'})</span></span>
+                    <span class="desktop-gallery-subtitle">{sourceLabel(record)}</span>
+                    <span class="desktop-gallery-link">{record.rootPath}</span>
+                  </span>
+                  {record.items[0] ? <img class="desktop-gallery-thumb" src={assetUrl(record.items[0].path)} width={record.items[0].width} height={record.items[0].height} alt="" loading="lazy" draggable={false} /> : null}
+                </button>
+                <div class="desktop-gallery-actions">
+                  <button type="button" disabled={state === 'unavailable'} onClick={() => setOpenGalleryId(open ? null : record.id)}>{open ? 'Hide photos' : 'View photos'}</button>
+                  <button type="button" onClick={() => void rescan(record)}>Rescan</button>
+                  <button type="button" disabled={state === 'unavailable'} onClick={() => setShareGalleryId(shareGalleryId === record.id ? null : record.id)}>Share…</button>
+                  <button type="button" onClick={() => void remove(record)}>Remove</button>
+                  {state === 'unavailable' ? <span class="desktop-badge-unavailable">Unavailable — reconnect the source</span> : null}
+                </div>
+                {shareGalleryId === record.id && catalogue ? (
+                  <ShareFlow record={record} catalogue={catalogue} apiBase={base} session={session} onClose={() => setShareGalleryId(null)} />
+                ) : null}
+                {open ? (
+                  <div class="desktop-grid">
+                    {record.items.map((item, index) => (
+                      <button type="button" key={item.id} class="desktop-thumb" onClick={() => setViewerState({ galleryId: record.id, index })}>
+                        <img src={assetUrl(item.path)} loading="lazy" alt={item.name} draggable={false} onLoad={(event: Event) => {
                           const img = event.currentTarget as HTMLImageElement
                           recordDims(item.id, img.naturalWidth, img.naturalHeight)
-                        }}
-                      />
-                      <span class="desktop-thumb-name">{item.name}</span>
-                    </button>
-                  ))}
-                  {record.items.length === 0 ? (
-                    <p class="desktop-empty">No photos found — rescan after adding files.</p>
-                  ) : null}
-                </div>
-              ) : null}
-            </article>
-          )
-        })}
-        {catalogue && catalogue.galleries.length === 0 ? (
-          <p class="desktop-empty">
-            Choose a folder or a mounted memory card. Manorama references the originals in
-            place — nothing is copied, uploaded, or moved.
-          </p>
-        ) : null}
+                        }} />
+                        <span class="desktop-thumb-name">{item.name}</span>
+                      </button>
+                    ))}
+                    {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
+                  </div>
+                ) : null}
+              </article>
+            )
+          })}
+          {catalogue && catalogue.galleries.length === 0 ? (
+            <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
+          ) : null}
+        </section>
       </section>
     </main>
   )

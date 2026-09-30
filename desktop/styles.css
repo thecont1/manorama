@@ -1,398 +1,213 @@
 @import '../app/styles.css';
 
-/* Desktop catalogue chrome. The viewer itself is styled by the shared
-   sheet — these rules only cover the pick → grid → catalogue surfaces. */
-
-body {
-  background: #111312;
-  color: #e8e6e3;
+/* The Tauri shell is a desktop-sized native surface, not the legacy web
+   catalogue. It shares the native canvas, type scale, quiet controls and
+   photo-first viewer geometry while retaining local-folder affordances. */
+body.manorama-desktop {
+  --desktop-safe-top: 28px;
+  background: var(--gallery-canvas);
+  color: rgb(var(--ink));
+  padding: 0;
 }
 
-/* Keep the native/Tauri curtain composition aligned with iOS while the web
-   gallery retains its own established proportions. */
-body.manorama-desktop .curtain-content { text-align: center; transform: translateY(-8vh); }
-body.manorama-desktop .curtain-logo { width: clamp(236px, 42vw, 390px); }
-body.manorama-desktop .curtain-logo-wrap { width: fit-content; margin: 0 auto 42px; transform: none; }
-body.manorama-desktop .curtain h1 { max-width: none; margin: 0 0 20px; }
-body.manorama-desktop .curtain-caption { margin-inline: auto; }
-
-/* The overlay titlebar leaves no native chrome to grab — this fixed strip is
-   the drag region, and each screen pads its top so nothing sits under the
-   traffic lights. */
 .desktop-titlebar {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 28px;
+  inset: 0 0 auto;
+  height: var(--desktop-safe-top);
   z-index: 100;
+  pointer-events: none;
 }
 
 .desktop-shell {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: calc(28px + 1rem) 1.25rem 4rem;
-  font-family: inherit;
+  min-height: 100svh;
+  box-sizing: border-box;
+  padding: calc(var(--desktop-safe-top) + clamp(28px, 5vw, 64px)) clamp(28px, 6vw, 96px) 48px;
+  background: var(--gallery-canvas);
 }
 
-.desktop-header {
-  display: flex;
+/* Opening surface: same floating mark, quiet copy and icon triangle as iOS. */
+.desktop-welcome {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 100svh;
+  box-sizing: border-box;
+  padding: calc(var(--desktop-safe-top) + clamp(32px, 7vh, 88px)) clamp(28px, 8vw, 160px) 28px;
+  background: var(--gallery-canvas);
+}
+.desktop-welcome-inner {
+  width: min(100%, 720px);
+  margin: auto;
+  text-align: center;
+}
+.desktop-welcome-header { display: grid; place-items: center; }
+.desktop-welcome-header .landing-brand-mark { width: clamp(300px, 32vw, 520px); max-width: 100%; }
+.desktop-welcome .landing-brand-intro {
+  max-width: 38rem;
+  margin: clamp(26px, 4vh, 48px) auto 0;
+  font-size: clamp(15px, 1.35vw, 20px);
+  line-height: 1.45;
+}
+.desktop-welcome-actions { width: min(100%, 520px); margin: clamp(42px, 8vh, 92px) auto 0; }
+.desktop-folder-action {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 18px 24px;
+  border: 1px solid rgba(var(--ink), .24);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .38);
+  color: rgb(var(--ink));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.desktop-folder-action:hover,
+.desktop-folder-action:focus-visible { border-color: rgba(var(--ink), .78); background: rgba(10, 10, 10, .62); }
+.desktop-folder-action:disabled { opacity: .55; cursor: progress; }
+.desktop-action-kicker,
+.desktop-signin-lead {
+  color: rgba(var(--ink), .52);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.desktop-folder-action strong { font-size: 16px; font-weight: 400; }
+.desktop-welcome-caption { margin: 14px 0 0; color: rgba(var(--ink), .58); font-size: 12px; line-height: 1.45; }
+.desktop-signin { margin-top: clamp(42px, 7vh, 78px); text-align: center; }
+.desktop-signin-lead { display: block; margin-bottom: 22px; }
+.desktop-signin-icons { position: relative; width: 196px; height: 142px; margin-inline: auto; }
+.desktop-signin-icon {
+  position: absolute;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--ink));
+  cursor: pointer;
 }
+.desktop-signin-icon:nth-child(1) { left: 50%; top: 0; transform: translateX(-50%); }
+.desktop-signin-icon:nth-child(2) { left: 0; top: 62px; }
+.desktop-signin-icon:nth-child(3) { right: 0; top: 62px; }
+.desktop-signin-icon svg { width: 46px; height: 46px; filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28)); transition: transform 180ms cubic-bezier(.3, 1.45, .5, 1), filter 180ms ease; }
+.desktop-signin-icon:hover svg,
+.desktop-signin-icon:focus-visible svg { transform: translateY(-4px) scale(1.08); filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45)); }
+.desktop-welcome .landing-note { color: rgba(var(--ink), .7); }
 
-.desktop-logo {
-  height: 2rem;
-  display: block;
+/* Signed-in/local catalogue: the iOS account split translated to a wide Mac
+   window. The left column is the brand/account rail; the right is the list. */
+.desktop-account-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, .72fr) minmax(520px, 1.28fr);
+  gap: clamp(48px, 8vw, 132px);
+  width: min(1500px, 100%);
+  height: 100svh;
+  overflow: hidden;
+  margin-inline: auto;
 }
+.desktop-account-left,
+.desktop-list-card { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.desktop-account-side { width: min(100%, 500px); }
+.desktop-account-brand { margin-bottom: 24px; }
+.desktop-account-logo { display: block; width: min(100%, 410px); }
+.desktop-account-side .landing-brand-intro { margin: 24px 0 34px; max-width: 30rem; font-size: 16px; line-height: 1.45; }
+.desktop-account-greeting { color: rgba(var(--ink), .76); font-size: 15px; line-height: 1.45; }
+.desktop-account-greeting p { margin: 0 0 12px; }
+.desktop-signout { border: 0; border-bottom: 1px solid rgba(var(--ink), .42); padding: 0 0 2px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.desktop-account-signin { margin-top: 42px; text-align: left; }
+.desktop-account-signin .desktop-signin-icons { margin-inline: 0; }
+.desktop-account-footer { margin-top: clamp(56px, 12vh, 160px); }
 
-.desktop-account {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.desktop-account button,
+.desktop-list-card { padding-bottom: 48px; }
+.desktop-list-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 12px; }
+.desktop-list-heading h1 { margin: 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em; line-height: .95; }
+.desktop-list-heading p { margin: 12px 0 0; color: rgba(var(--ink), .58); font-size: 13px; }
+.desktop-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .desktop-toolbar button,
 .desktop-gallery-actions button,
-.desktop-share button,
-.desktop-paste button {
-  font: inherit;
-  color: inherit;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 0.5rem;
-  padding: 0.45rem 0.9rem;
-  cursor: pointer;
-}
-
-.desktop-account button:hover,
+.desktop-paste button { border: 1px solid rgba(var(--ink), .22); border-radius: 999px; padding: 9px 14px; background: transparent; color: rgba(var(--ink), .82); font: inherit; font-size: 12px; cursor: pointer; }
 .desktop-toolbar button:hover,
 .desktop-gallery-actions button:hover,
-.desktop-share button:hover,
-.desktop-paste button:hover {
-  border-color: #555;
-}
-
-.desktop-account button:disabled,
+.desktop-toolbar button:focus-visible,
+.desktop-gallery-actions button:focus-visible { border-color: rgba(var(--ink), .78); color: rgb(var(--ink)); }
 .desktop-toolbar button:disabled,
-.desktop-gallery-actions button:disabled,
-.desktop-share button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+.desktop-gallery-actions button:disabled { opacity: .45; cursor: default; }
+.desktop-sync-state { display: block; margin: 0 0 18px; color: rgba(var(--ink), .48); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; }
+.desktop-galleries { display: grid; gap: 0; }
+.desktop-gallery { padding: 16px 0 18px; border-top: 1px solid rgba(var(--ink), .16); }
+.desktop-gallery:last-child { border-bottom: 1px solid rgba(var(--ink), .16); }
+.desktop-gallery-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; width: 100%; min-height: 16dvh; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.desktop-gallery-row-thumb-right { grid-template-columns: auto minmax(0, 1fr); }
+.desktop-gallery-copy { display: grid; grid-row: 1 / span 2; gap: 6px; min-width: 0; padding: 0 20px; }
+.desktop-gallery-row-thumb-left .desktop-gallery-copy { grid-column: 1; }
+.desktop-gallery-row-thumb-right .desktop-gallery-copy { grid-column: 2; }
+.desktop-gallery-heading { display: flex; align-items: baseline; gap: 10px; min-width: 0; font-size: 16px; }
+.desktop-gallery-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.desktop-gallery-heading span { flex: 0 0 auto; color: rgba(var(--ink), .55); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; }
+.desktop-gallery-subtitle { color: rgba(var(--ink), .68); font-size: 13px; }
+.desktop-gallery-link { overflow: hidden; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-gallery-thumb { grid-row: 1 / span 2; width: auto; height: 16dvh; max-width: min(42%, 320px); object-fit: contain; background: #080908; display: block; }
+.desktop-gallery-row-thumb-left .desktop-gallery-thumb { grid-column: 2; }
+.desktop-gallery-row-thumb-right .desktop-gallery-thumb { grid-column: 1; }
+.desktop-gallery-row:disabled { opacity: .52; cursor: default; }
+.desktop-gallery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding: 0 20px; }
+.desktop-gallery-actions button { padding: 6px 11px; }
+.desktop-badge-unavailable { color: rgba(240, 188, 92, .82); font-size: 11px; }
+.desktop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; margin-top: 16px; padding: 0 20px; }
+.desktop-thumb { display: grid; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: zoom-in; }
+.desktop-thumb img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #060606; }
+.desktop-thumb-name { overflow: hidden; color: rgba(var(--ink), .5); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-empty { grid-column: 1 / -1; color: rgba(var(--ink), .55); font-size: 13px; }
 
-.desktop-owner {
-  font-size: 0.9rem;
-  opacity: 0.8;
+/* Viewer/curtain geometry matches native. */
+body.manorama-desktop .curtain-content { display: grid; grid-template-rows: 1fr 1fr; align-items: center; width: min(1200px, 100%); height: 100%; text-align: center; transform: none; }
+body.manorama-desktop .curtain-logo-wrap { grid-row: 1; width: fit-content; margin: 0 auto; transform: none; }
+body.manorama-desktop .curtain-logo { width: clamp(260px, 32vw, 520px); }
+body.manorama-desktop .curtain-details { grid-row: 2; display: grid; justify-items: center; align-content: center; min-width: 0; }
+body.manorama-desktop .curtain h1 { max-width: 14ch; margin: 0 0 20px; }
+body.manorama-desktop .curtain-caption { margin: 0 auto; }
+@media (orientation: landscape) {
+  body.manorama-desktop .curtain-content { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; column-gap: clamp(36px, 7vw, 120px); }
+  body.manorama-desktop .curtain-logo-wrap { grid-column: 1; grid-row: 1; }
+  body.manorama-desktop .curtain-details { grid-column: 2; grid-row: 1; }
 }
+body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: clamp(48px, 7.4svh, 72px); pointer-events: none; }
+body.manorama-desktop .stage-arrows > button,
+body.manorama-desktop .control-logo { box-sizing: border-box; width: 100%; height: 100%; margin: 0; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: rgba(10, 10, 10, .62); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .9); pointer-events: auto; }
+body.manorama-desktop .stage-arrows .stage-nav-arrow--previous { grid-column: 1; grid-row: 1; }
+body.manorama-desktop .stage-arrows .stage-seq { grid-column: 3; grid-row: 1; min-width: 0; padding: 0 10px; }
+body.manorama-desktop .stage-arrows .stage-nav-arrow--next { grid-column: 4; grid-row: 1; }
+body.manorama-desktop .control-logo { z-index: 22; left: 50%; bottom: 18px; width: calc((100vw - 60px) / 4); display: grid; place-items: center; padding: 0; transform: translateX(-50%); opacity: 1; }
+body.manorama-desktop .control-logo:hover { transform: translateX(-50%); }
+body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: 78%; margin: 0 auto; opacity: .9; transform: none; animation: none; }
+.desktop-back { position: fixed; top: calc(var(--desktop-safe-top) + 10px); left: 18px; z-index: 110; border: 0; border-bottom: 1px solid rgba(var(--ink), .4); padding: 0 0 2px; background: transparent; color: rgba(var(--ink), .72); font: inherit; font-size: 12px; cursor: pointer; }
 
-/* Welcome screen: the web landing classes carry the look; these rules only
-   fit them to the desktop window — a titlebar-clearing pad, a primary
-   folder-picker action, and tighter spacing than the site's landing. */
-.desktop-welcome {
-  padding-top: calc(28px + 32px);
+.desktop-notice { color: rgba(var(--ink), .68); }
+.desktop-paste { display: grid; gap: 8px; margin-top: 24px; padding: 14px; border: 1px solid rgba(var(--ink), .16); background: rgba(0,0,0,.16); }
+.desktop-paste label { display: grid; gap: 6px; color: rgba(var(--ink), .62); font-size: 12px; }
+.desktop-paste input { border: 0; border-bottom: 1px solid rgba(var(--ink), .25); padding: 9px 2px; background: transparent; color: inherit; font: inherit; }
+.desktop-paste button { justify-self: start; }
+.desktop-paste-hint { margin: 0; color: rgba(var(--ink), .48); font-size: 11px; line-height: 1.4; }
+.desktop-share { margin-top: 14px; padding: 14px; border: 1px solid rgba(var(--ink), .18); background: rgba(0,0,0,.16); }
+.desktop-share-header { display: flex; justify-content: space-between; gap: 12px; }
+.desktop-share-header h3 { margin: 0; font-size: 15px; font-weight: 400; }
+.desktop-share-providers, .desktop-share-confirm, .desktop-share-connecting, .desktop-share-progress, .desktop-share-done { display: grid; gap: 10px; }
+.desktop-share-provider { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .52); font-size: 11px; }
+.desktop-share-confirm-actions { display: flex; gap: 8px; }
+
+@media (max-width: 900px) {
+  .desktop-account-shell { display: block; height: auto; overflow: visible; }
+  .desktop-account-left, .desktop-list-card { overflow: visible; }
+  .desktop-account-side { width: min(100%, 620px); margin-inline: auto; }
+  .desktop-list-card { margin-top: 56px; }
+  .desktop-list-heading { display: block; }
+  .desktop-toolbar { justify-content: flex-start; margin-top: 20px; }
 }
-
-.desktop-welcome .landing-signin-group {
-  margin-top: 14px;
-}
-
-.desktop-welcome-caption {
-  margin: 34px 0 0;
-  color: rgba(var(--ink), .55);
-  font-size: 12px;
-  letter-spacing: .02em;
-}
-
-/* The web's .landing-signin are transparent anchors; as <button>s they pick
-   up a UA background, so the welcome copies reset to the web's hairline look. */
-.desktop-welcome .landing-signin:not(.desktop-primary) {
-  background: transparent;
-  font-family: inherit;
-  cursor: pointer;
-  appearance: none;
-}
-
-.desktop-primary {
-  background: rgba(var(--ink), .92);
-  border-color: transparent;
-  color: #111312;
-}
-
-.desktop-primary:hover,
-.desktop-primary:focus-visible {
-  background: rgb(var(--ink));
-  border-color: transparent;
-  color: #111312;
-}
-
-.desktop-primary:disabled {
-  opacity: .6;
-}
-
-.desktop-welcome .desktop-paste {
-  width: min(420px, 100%);
-  margin: 1.5rem 0 0;
-  text-align: left;
-}
-
-button.site-footer-link {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
-
-/* Compact landing-style sign-in buttons in the catalogue header. */
-.desktop-account .landing-signin {
-  margin-top: 0;
-  padding: 0.45rem 0.9rem;
-  font-size: 0.82rem;
-  gap: 0.45rem;
-}
-
-.desktop-account .landing-signin svg {
-  width: 14px;
-  height: 14px;
-}
-
-.desktop-notice {
-  background: #161616;
-  border: 1px solid #2c2c2c;
-  border-radius: 0.5rem;
-  padding: 0.6rem 0.9rem;
-  font-size: 0.9rem;
-}
-
-.desktop-error {
-  border-color: #6e2c2c;
-}
-
-.desktop-paste {
-  display: grid;
-  gap: 0.5rem;
-  background: #111;
-  border: 1px solid #262626;
-  border-radius: 0.75rem;
-  padding: 0.9rem;
-  margin-bottom: 1rem;
-}
-
-.desktop-paste label {
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-}
-
-.desktop-paste input {
-  font: inherit;
-  color: inherit;
-  background: #0a0a0a;
-  border: 1px solid #333;
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
-}
-
-.desktop-paste-hint {
-  margin: 0;
-  font-size: 0.78rem;
-  opacity: 0.65;
-}
-
-.desktop-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.25rem;
-}
-
-.desktop-sync-state {
-  font-size: 0.82rem;
-  opacity: 0.7;
-}
-
-.desktop-galleries {
-  display: grid;
-  gap: 1rem;
-}
-
-.desktop-gallery {
-  background: #111;
-  border: 1px solid #232323;
-  border-radius: 0.75rem;
-  padding: 1rem 1.1rem;
-}
-
-.desktop-gallery.is-open {
-  border-color: #3a3a3a;
-}
-
-.desktop-gallery header {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.desktop-gallery h2 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.desktop-gallery-meta {
-  font-size: 0.82rem;
-  opacity: 0.65;
-}
-
-.desktop-badge-unavailable {
-  font-size: 0.78rem;
-  color: #d9a441;
-  border: 1px solid #5a451c;
-  border-radius: 999px;
-  padding: 0.1rem 0.6rem;
-}
-
-.desktop-gallery-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
-}
-
-/* Contact sheet: thumbs are object-fit contain on a dark tile — nothing is
-   cropped, matching the no-crop rule the viewer holds for full frames. */
-.desktop-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.5rem;
-  margin-top: 0.9rem;
-}
-
-.desktop-thumb {
-  display: grid;
-  gap: 0.3rem;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: zoom-in;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.desktop-thumb img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: contain;
-  background: #060606;
-  border-radius: 0.4rem;
-  display: block;
-}
-
-.desktop-thumb-name {
-  font-size: 0.72rem;
-  opacity: 0.6;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.desktop-empty {
-  opacity: 0.65;
-  font-size: 0.9rem;
-  grid-column: 1 / -1;
-}
-
-/* The share sheet: an inline panel inside the gallery card — provider
-   choice, connect, explicit confirmation, progress, result. */
-.desktop-share {
-  margin-top: 0.9rem;
-  padding: 0.9rem;
-  border: 1px solid #2c2c2c;
-  border-radius: 0.75rem;
-  background: #0d0d0d;
-  display: grid;
-  gap: 0.75rem;
-}
-
-.desktop-share-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.desktop-share-header h3 {
-  margin: 0;
-  font-size: 0.98rem;
-}
-
-.desktop-share-providers {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.desktop-share-provider {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.desktop-share-provider-name {
-  font-size: 0.92rem;
-}
-
-.desktop-share-provider-note {
-  font-size: 0.8rem;
-  opacity: 0.55;
-}
-
-.desktop-share-hint {
-  margin: 0;
-  font-size: 0.78rem;
-  opacity: 0.65;
-}
-
-.desktop-share-confirm p,
-.desktop-share-connecting p,
-.desktop-share-progress p,
-.desktop-share-done p {
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.desktop-share-confirm,
-.desktop-share-connecting,
-.desktop-share-progress,
-.desktop-share-done {
-  display: grid;
-  gap: 0.6rem;
-}
-
-.desktop-share-confirm-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.desktop-share-done a {
-  color: inherit;
-}
-
-.desktop-back {
-  position: fixed;
-  top: calc(28px + 0.75rem);
-  left: 1rem;
-  z-index: 60;
-  font: inherit;
-  color: #e8e6e3;
-  background: rgba(16, 16, 16, 0.85);
-  border: 1px solid #3a3a3a;
-  border-radius: 0.5rem;
-  padding: 0.45rem 0.9rem;
-  cursor: pointer;
+@media (prefers-reduced-motion: reduce) {
+  .desktop-signin-icon svg { transition: none; }
 }
