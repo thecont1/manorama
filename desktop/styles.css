@@ -61,11 +61,19 @@ body.manorama-desktop {
 .desktop-signin-lead { display: block; margin-bottom: 22px; }
 /* Three glyphs in a row, each named beneath. The row is the whole chooser, so
    no glyph depends on its neighbour's position to be understood. */
-.desktop-signin-icons { display: flex; justify-content: center; align-items: flex-start; gap: clamp(28px, 5vw, 72px); margin-inline: auto; }
+/* 100%, not a viewport unit: the landing column is inset, and a row sized off
+   the viewport overflows it and stops being centred under the lead. No width on
+   the row: it stays full-width so `justify-content` centres the cells. */
+.desktop-signin-icons { display: flex; justify-content: center; align-items: flex-start; gap: clamp(8px, 2.5vw, 28px); margin-inline: auto; }
 .desktop-signin-icon {
   display: grid;
   justify-items: center;
   gap: 10px;
+  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
+     "Google Drive" is more than twice "Apple" and would otherwise push the row
+     off centre. */
+  flex: 0 0 clamp(88px, 26vw, 112px);
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;

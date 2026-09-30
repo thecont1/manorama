@@ -791,6 +791,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           {authError ? <p class="landing-note">{authError}</p> : null}
           {pendingQuickAdd ? <p class="landing-note">Sign in to turn this supported cloud folder into a Manorama gallery.</p> : null}
         </div>
+        {/* The same legal footer the web landing and the account screen carry.
+            The opening screen is the only surface a signed-out viewer sees, so
+            without it the privacy policy is unreachable before sign-in. */}
+        <footer class="site-footer">
+          <a class="site-footer-link" href="https://manorama.xyz/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in" target="_blank" rel="noopener">thecontrarian.in</a></p>
+        </footer>
       </main>
     )
   }

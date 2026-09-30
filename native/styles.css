@@ -484,7 +484,9 @@ body:has(.native-diptych) {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  gap: clamp(20px, 9vw, 64px);
+  gap: clamp(10px, 3vw, 28px);
+  /* No width on the row: it stays full-width so `justify-content` centres the
+     cells under the lead whatever the landing column's inset happens to be. */
   margin-inline: auto;
 }
 
@@ -494,6 +496,11 @@ body:has(.native-diptych) {
   display: grid;
   justify-items: center;
   gap: 10px;
+  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
+     "Google Drive" is more than twice "Apple" and would otherwise push the row
+     off centre. */
+  flex: 0 0 clamp(88px, 26vw, 112px);
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;

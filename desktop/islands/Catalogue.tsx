@@ -58,6 +58,22 @@ const openExternal = (url: string) => {
   }
 }
 
+const PRIVACY_URL = 'https://manorama.xyz/privacy'
+const AUTHOR_URL = 'https://thecontrarian.in'
+
+/** The footer markup the web and mobile shells use, verbatim, with the click
+ *  routed to the system browser: inside the Tauri webview a bare external href
+ *  would navigate the app itself away from the catalogue. */
+const externalAnchor = (url: string) => ({
+  href: url,
+  target: '_blank',
+  rel: 'noopener',
+  onClick: (event: MouseEvent) => {
+    event.preventDefault()
+    openExternal(url)
+  },
+})
+
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
@@ -398,8 +414,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             {pasteForm}
           </div>
           <footer class="site-footer">
-            <button type="button" class="site-footer-link" onClick={() => openExternal('https://manorama.xyz/privacy')}>Privacy Policy</button>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
+            <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
           </footer>
         </main>
       </>
@@ -441,8 +457,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {notice ? <p class="landing-note" role="status">{notice}</p> : null}
           {pasteForm}
           <footer class="site-footer desktop-account-footer">
-            <button type="button" class="site-footer-link" onClick={() => openExternal('https://manorama.xyz/privacy')}>Privacy Policy</button>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
+            <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
           </footer>
         </div>
       </div>
