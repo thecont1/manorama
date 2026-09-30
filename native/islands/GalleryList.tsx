@@ -393,17 +393,24 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // gate drops the slot the instant Pro is known, and this cleanup marks any
   // resolution still in flight stale — including after an unmount.
   const galleryOpen = Boolean(manifest && settings)
+  // Fail-open *and stable*. `fetchAdVisibility` always answers, so an
+  // unresolved visibility is not a third state — treating it as `undefined`
+  // made the answer landing (undefined -> true) look like a change of
+  // entitlement state and asked the loader a second time, rotating the
+  // creative under a viewer who had not asked for anything. Only a real
+  // suppression moves this value.
+  const platesVisible = visibility?.show ?? true
   useEffect(() => {
     if (galleryOpen || !billingState?.tier) {
       setAccountAd(null)
       return
     }
     let active = true
-    void accountAdLoader({ tier: billingState.isPro ? 'pro' : 'free', visible: visibility?.show }).then((frame) => {
+    void accountAdLoader({ tier: billingState.isPro ? 'pro' : 'free', visible: platesVisible }).then((frame) => {
       if (active) setAccountAd(frame)
     })
     return () => { active = false }
-  }, [galleryOpen, billingState?.tier, billingState?.isPro, visibility?.show])
+  }, [galleryOpen, billingState?.tier, billingState?.isPro, platesVisible])
 
   useEffect(() => {
     if (!manifest) return
