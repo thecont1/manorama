@@ -1,10 +1,12 @@
 # Owner operations
 
-Manorama has no public user directory or gallery index. The private master operations console lives at **`/opman`** and is available only to the immutable account ID configured as `MASTER_ACCOUNT_ID`.
+Manorama has no public user directory or gallery index. The private master operations console lives at **`/opman`** and is available only to the immutable Dropbox identity configured as `MASTER_DROPBOX_SUBJECT`.
 
 ## Configure the master account
 
-Set `MASTER_ACCOUNT_ID` to the account's immutable `account_id` value in the Worker environment. The current deployment configuration uses `shantarm07`. Do not use an email address or the editable owner slug. In production, set it as a protected environment value through the deployment system; never commit a password to the repository.
+Open `/opman`. If there is no valid session, it sends the browser through the existing Dropbox OAuth flow and returns to `/opman` after sign-in. No separate operations password exists or is needed.
+
+After the owner has signed in once, read the immutable Dropbox subject returned by Dropbox (`dbid:…`) from the account’s `auth_identities` row and set `MASTER_DROPBOX_SUBJECT` as a protected Worker secret. It is an identity selector, not a credential; do not use a display name, email address, editable owner slug, or password. The check resolves the configured Dropbox subject to its current Manorama account, so the account may retain its normal `acct_<UUID>` internal ID.
 
 If the binding is absent, `/opman`, the account-monitoring API, and site-wide ad suppression management fail closed. A normal signed-in owner can still maintain their own galleries, but cannot access master controls.
 

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { createNativeHandoffToken, createSessionToken, resolveManoramaSession, SESSION_COOKIE } from './session'
+import { createNativeHandoffToken, createSessionToken, isMasterAccount, resolveManoramaSession, SESSION_COOKIE } from './session'
 import { resetUserStore, updateOwnerSlug } from './user-repository'
 import { seedTestUser, TEST_OWNER, TEST_SESSION_SECRET } from './test-fixtures'
 
@@ -109,5 +109,52 @@ describe('session token issuance and resolution', () => {
     expect((await resolveManoramaSession(requestWith(`${SESSION_COOKIE}=${token}`), env))?.ownerSlug).toBe('test-owner')
     await updateOwnerSlug(user.accountId, 'moved-owner')
     expect((await resolveManoramaSession(requestWith(`${SESSION_COOKIE}=${token}`), env))?.ownerSlug).toBe('moved-owner')
+  })
+
+  test('recognizes the configured Dropbox subject through its linked account', async () => {
+    const lookupCalls: unknown[][] = []
+    const identityDb = {
+      prepare: (sql: string) => ({
+        bind: (...args: unknown[]) => {
+          expect(sql).toContain('provider = ? AND provider_subject = ?')
+          lookupCalls.push(args)
+          return { first: async () => ({ account_id: TEST_OWNER.accountId }) }
+        },
+      }),
+    }
+    const session = { accountId: TEST_OWNER.accountId }
+    expect(await isMasterAccount(session, {
+      MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
+      DB: identityDb as never,
+    })).toBe(true)
+    expect(await isMasterAccount({ accountId: 'acct_other' }, {
+      MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
+      DB: identityDb as never,
+    })).toBe(false)
+    expect(lookupCalls).toEqual([
+      ['dropbox', 'dbid:mahesh-dropbox'],
+      ['dropbox', 'dbid:mahesh-dropbox'],
+    ])
+
+    const missingIdentityDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => null }),
+      }),
+    }
+    expect(await isMasterAccount(session, {
+      MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
+      DB: missingIdentityDb as never,
+    })).toBe(false)
+
+    const failedIdentityDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => { throw new Error('identity lookup unavailable') } }),
+      }),
+    }
+    expect(await isMasterAccount(session, {
+      MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
+      DB: failedIdentityDb as never,
+    })).toBe(false)
+    expect(await isMasterAccount(session, {})).toBe(false)
   })
 })

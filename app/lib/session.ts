@@ -38,8 +38,10 @@ export type ManoramaSession = {
 
 export type SessionEnv = {
   HOST_API_JWT_SECRET?: string
-  /** Immutable account ID allowed to use the private operations console. */
+  /** Legacy immutable account ID allowed to use the private operations console. */
   MASTER_ACCOUNT_ID?: string
+  /** Immutable Dropbox subject allowed to use the private operations console. */
+  MASTER_DROPBOX_SUBJECT?: string
 } & UserRepositoryEnv
 
 /** Hono env for routes that read the session variable and the session
@@ -172,11 +174,25 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
     await next()
   }
 
-/** Master controls bind to the immutable account ID, never to an editable
- * slug, email, or provider subject. Missing configuration fails closed. */
-export const isMasterAccount = (session: Pick<ManoramaSession, 'accountId'>, env: SessionEnv): boolean => {
+/** Master controls bind to an immutable provider subject, never to an editable
+ * slug, display name, or password. The legacy account-ID binding remains only
+ * so existing deployments do not lose access during the one-time migration.
+ * Missing configuration or identity storage fails closed. */
+export const isMasterAccount = async (session: Pick<ManoramaSession, 'accountId'>, env: SessionEnv): Promise<boolean> => {
   const masterAccountId = env.MASTER_ACCOUNT_ID?.trim()
-  return Boolean(masterAccountId && session.accountId === masterAccountId)
+  if (masterAccountId && session.accountId === masterAccountId) return true
+
+  const dropboxSubject = env.MASTER_DROPBOX_SUBJECT?.trim()
+  if (!dropboxSubject || !env.DB) return false
+  try {
+    const row = await env.DB
+      .prepare('SELECT account_id FROM auth_identities WHERE provider = ? AND provider_subject = ?')
+      .bind('dropbox', dropboxSubject)
+      .first<{ account_id: string }>()
+    return row?.account_id === session.accountId
+  } catch {
+    return false
+  }
 }
 
 export const requireMasterSession = (): MiddlewareHandler<HonoSessionEnv> =>
@@ -184,7 +200,7 @@ export const requireMasterSession = (): MiddlewareHandler<HonoSessionEnv> =>
     const env = accessEnvOf(c)
     const session = await resolveManoramaSession(c.req.raw, env)
     if (!session) return c.json({ error: 'Authentication required' }, 401)
-    if (!isMasterAccount(session, env)) return c.json({ error: 'Master access required' }, 403)
+    if (!(await isMasterAccount(session, env))) return c.json({ error: 'Master access required' }, 403)
     c.set('manoramaSession', session)
     await next()
   }
