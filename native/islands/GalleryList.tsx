@@ -773,15 +773,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               <div class="native-signin-icons">
                 {[...SIGN_IN_PROVIDERS]
                   .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
-                  .map(({ id, name, Glyph }) => (
+                  .map(({ id, label, Glyph }) => (
                     <button
                       key={id}
                       type="button"
                       class="native-signin-icon"
-                      aria-label={`Continue with ${name}`}
+                      aria-label={`Continue with ${label}`}
                       onClick={() => onSignIn(id)}
                     >
                       <Glyph />
+                      <span class="native-signin-label">{label}</span>
                     </button>
                   ))}
               </div>
