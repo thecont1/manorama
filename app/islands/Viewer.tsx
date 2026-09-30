@@ -36,6 +36,9 @@ type Props = {
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
   initialIndex?: number
+  /** Native shells keep the bottom navigation row visible; the web remains
+   *  photo-first and follows the gallery preference. */
+  alwaysShowNavigation?: boolean
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -149,7 +152,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, initialIndex = 0, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, initialIndex = 0, alwaysShowNavigation = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -496,7 +499,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }, [])
 
   const hasMultiple = images.length > 1
-  const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
+  const arrowsOn = alwaysShowNavigation || (mode === 'vertical' ? showArrowsVertical : showArrows)
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -2153,8 +2156,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           </button>
           {arrowsVisible ? (
             <>
-              <button data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
-              <button ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
             </>
           ) : null}
         </div>

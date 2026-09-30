@@ -37,9 +37,11 @@ export default function GalleryShell({ settings, status, children }: Props) {
             />
             <span class="brand-tld" aria-hidden="true">.xyz</span>
           </span>
-          <h1 data-curtain-title dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
-          <p class="curtain-caption" data-curtain-caption dangerouslySetInnerHTML={{ __html: escapeHtml(settings.caption) }} />
-          {status && <p id="gallery-curtain-status" class="curtain-status" role="status">{status}</p>}
+          <div class="curtain-details">
+            <h1 data-curtain-title dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
+            <p class="curtain-caption" data-curtain-caption dangerouslySetInnerHTML={{ __html: escapeHtml(settings.caption) }} />
+            {status && <p id="gallery-curtain-status" class="curtain-status" role="status">{status}</p>}
+          </div>
         </div>
       </section>
       {children}

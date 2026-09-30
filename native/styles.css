@@ -3,11 +3,125 @@
 
 /* Native curtain composition: the mark is the quiet opening gesture, enlarged
    and held in the upper half without changing the web gallery layout. */
-body.manorama-native .curtain-content { text-align: center; transform: translateY(-8vh); }
-body.manorama-native .curtain-logo { width: clamp(236px, 42vw, 390px); }
-body.manorama-native .curtain-logo-wrap { width: fit-content; margin: 0 auto 42px; transform: none; }
-body.manorama-native .curtain h1 { max-width: none; margin: 0 0 20px; }
-body.manorama-native .curtain-caption { margin-inline: auto; }
+body.manorama-native .curtain-content {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  width: min(1200px, 100%);
+  height: 100%;
+  text-align: center;
+  transform: none;
+}
+body.manorama-native .curtain-logo-wrap {
+  grid-row: 1;
+  width: fit-content;
+  margin: 0 auto;
+  transform: none;
+}
+body.manorama-native .curtain-logo { width: clamp(236px, 42vw, 480px); }
+body.manorama-native .curtain-details {
+  grid-row: 2;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-width: 0;
+}
+body.manorama-native .curtain h1 { max-width: 12ch; margin: 0 0 20px; }
+body.manorama-native .curtain-caption { margin: 0 auto; }
+
+/* Native gallery chrome is a single reachable row. Every control shares the
+   same dynamic height; the photograph remains untouched above it. */
+body.manorama-native .stage-arrows {
+  z-index: 21;
+  left: max(12px, var(--native-safe-left));
+  right: max(12px, var(--native-safe-right));
+  bottom: max(12px, var(--native-safe-bottom));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 6px;
+  height: clamp(44px, 7.4svh, 68px);
+  pointer-events: none;
+}
+body.manorama-native .stage-arrows--vertical { flex-direction: initial; align-items: stretch; }
+body.manorama-native .stage-arrows > button,
+body.manorama-native .control-logo {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 999px;
+  background: rgba(10, 10, 10, .62);
+  box-shadow: 2px 2px 0 rgba(var(--ink), .18);
+  color: rgba(var(--ink), .9);
+  pointer-events: auto;
+}
+body.manorama-native .stage-arrows .stage-seq {
+  grid-column: 3;
+  grid-row: 1;
+  order: initial;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 999px;
+}
+body.manorama-native .stage-arrows .stage-nav-arrow--previous {
+  grid-column: 1;
+  grid-row: 1;
+}
+body.manorama-native .stage-arrows .stage-nav-arrow--next {
+  grid-column: 4;
+  grid-row: 1;
+}
+body.manorama-native .stage-arrows .stage-nav-arrow {
+  font-size: clamp(16px, 2.8svh, 24px);
+}
+body.manorama-native .stage-arrows .stage-seq-detail { gap: 2px; }
+body.manorama-native .stage-arrows .stage-seq-hint { display: none; }
+body.manorama-native .control-logo {
+  z-index: 22;
+  left: 50%;
+  bottom: max(12px, var(--native-safe-bottom));
+  width: calc((100vw - (2 * max(12px, var(--native-safe-left))) - (2 * max(12px, var(--native-safe-right))) - 18px) / 4);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transform: translateX(-50%);
+  opacity: 1;
+  overflow: visible;
+}
+body.manorama-native .control-logo:hover { transform: translateX(-50%); }
+body.manorama-native .control-logo .brand-mark-wrap {
+  width: auto;
+  height: 78%;
+  margin: 0 auto;
+  opacity: .9;
+  transform: none;
+  animation: none;
+}
+body.manorama-native .control-logo:is(:hover, :focus-visible) .brand-mark-wrap {
+  opacity: 1;
+  transform: none;
+}
+body.manorama-native .control-logo .brand-mark-wrap::before { inset: -5px -12px; }
+
+@media (orientation: landscape) {
+  body.manorama-native .curtain-content {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+    column-gap: clamp(28px, 6vw, 96px);
+  }
+  body.manorama-native .curtain-logo-wrap {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  body.manorama-native .curtain-details {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
 
 @media (pointer: coarse) {
   /* A touch tap keeps the position legible while the vault picker opens. */
@@ -818,21 +932,56 @@ body:has(.native-diptych) {
    first photograph so the list stays scannable. */
 .native-gallery-list button.native-gallery-row-with-thumb {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px;
+  grid-template-rows: auto auto auto;
   align-items: center;
-  gap: 14px;
-  min-height: 96px;
-  padding-block: 12px;
+  column-gap: 16px;
+  row-gap: 3px;
+  padding-block: 14px;
+}
+
+.native-gallery-row-thumb-left {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.native-gallery-row-thumb-right {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .native-gallery-row-copy {
   display: grid;
   min-width: 0;
   gap: 3px;
+  grid-row: 1 / span 2;
 }
 
+.native-gallery-row-thumb-left .native-gallery-row-copy {
+  grid-column: 2;
+}
+
+.native-gallery-row-thumb-right .native-gallery-row-copy {
+  grid-column: 1;
+}
+
+.native-gallery-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.native-gallery-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-gallery-heading .native-gallery-meta { flex: none; }
+
 .native-gallery-subtitle,
-.native-gallery-link {
+.native-gallery-link,
+.native-gallery-heading {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -845,6 +994,9 @@ body:has(.native-diptych) {
 }
 
 .native-gallery-link {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
   overflow: hidden;
   color: rgba(var(--ink), .48);
   font-family: 'DM Mono', ui-monospace, monospace;
@@ -856,17 +1008,21 @@ body:has(.native-diptych) {
 
 .native-gallery-thumb {
   display: block;
-  width: 92px;
-  height: 72px;
-  overflow: hidden;
+  grid-row: 1 / span 2;
+  width: auto;
+  height: 16dvh;
+  overflow: visible;
   background: rgba(255, 255, 255, .04);
 }
 
+.native-gallery-row-thumb-left .native-gallery-thumb { grid-column: 1; }
+.native-gallery-row-thumb-right .native-gallery-thumb { grid-column: 2; }
+
 .native-gallery-thumb img {
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  width: auto;
+  height: 16dvh;
+  object-fit: contain;
 }
 
 .native-temporary-galleries {

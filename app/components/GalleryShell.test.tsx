@@ -9,6 +9,7 @@ describe('GalleryShell curtain status accessibility', () => {
   test('describes the curtain button with the available status', () => {
     const html = render('Available offline.')
 
+    expect(html).toContain('class="curtain-details"')
     expect(html).toContain('aria-describedby="gallery-curtain-status"')
     expect(html).toContain('id="gallery-curtain-status"')
     expect(html).toContain('role="status"')

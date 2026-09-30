@@ -108,11 +108,12 @@
   width: auto;
   margin-inline: auto;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
   overscroll-behavior: contain;
   padding: env(safe-area-inset-top) 0 32px;
-  display: grid;
   gap: 24px;
-  align-content: start;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -131,6 +132,11 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
+}
+
+.native-global-gallery {
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 .native-global-gallery-meta {

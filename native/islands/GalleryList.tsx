@@ -458,6 +458,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               setGlobalViewOpen(true)
             } : undefined}
             initialIndex={frameKick.index}
+            alwaysShowNavigation
             foldLayout={foldEligible ? foldLayout : null}
             foldRenderer={foldEligible ? renderFold : undefined}
           />
@@ -682,27 +683,29 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountGalleryLink = (gallery: GallerySummary) => ownerSlug
     ? `manorama.xyz/${ownerSlug}/${gallery.slug}`
     : `manorama.xyz/${gallery.slug}`
-  const accountGalleryRow = (gallery: GallerySummary) => {
+  const accountGalleryRow = (gallery: GallerySummary, rowIndex: number) => {
     const firstImage = gallery.images[0]
     return (
       <button
         type="button"
-        class="native-gallery-row native-gallery-row-with-thumb"
+        class={`native-gallery-row native-gallery-row-with-thumb ${rowIndex % 2 === 0 ? 'native-gallery-row-thumb-left' : 'native-gallery-row-thumb-right'}`}
         onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
         disabled={!ownerSlug}
         aria-label={`Open ${gallery.title || gallery.slug}`}
       >
         <span class="native-gallery-row-copy">
-          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+          <span class="native-gallery-heading">
+            <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+            <span class="native-gallery-meta">({gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'})</span>
+          </span>
           {accountGallerySubtitle(gallery) ? <span class="native-gallery-subtitle">{accountGallerySubtitle(gallery)}</span> : null}
-          <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
-          <span class="native-gallery-meta">{gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}</span>
         </span>
         {firstImage ? (
           <span class="native-gallery-thumb" aria-hidden="true">
             <img src={firstImage.src} width={firstImage.width} height={firstImage.height} alt="" loading="lazy" draggable={false} />
           </span>
         ) : null}
+        <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
       </button>
     )
   }
@@ -851,9 +854,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
             {visibleAccountGalleries.length > 0 ? (
               <ul class="native-gallery-list">
-                {visibleAccountGalleries.map((gallery) => (
+                {visibleAccountGalleries.map((gallery, galleryIndex) => (
                   <li key={gallery.slug}>
-                    {accountGalleryRow(gallery)}
+                    {accountGalleryRow(gallery, galleryIndex)}
                   </li>
                 ))}
               </ul>
@@ -864,8 +867,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               <section class="native-temporary-galleries" aria-labelledby="native-temporary-galleries-title">
                 <h2 id="native-temporary-galleries-title">Temp Galleries</h2>
                 <ul class="native-gallery-list">
-                  {temporaryAccountGalleries.map((gallery) => (
-                    <li key={gallery.slug}>{accountGalleryRow(gallery)}</li>
+                  {temporaryAccountGalleries.map((gallery, galleryIndex) => (
+                    <li key={gallery.slug}>{accountGalleryRow(gallery, galleryIndex)}</li>
                   ))}
                 </ul>
               </section>

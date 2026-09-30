@@ -490,6 +490,9 @@ describe('signed-in account area', () => {
 
     const row = container.querySelector('.native-gallery-list button') as HTMLButtonElement | null
     expect(row).not.toBeNull()
+    expect(row?.className).toContain('native-gallery-row-thumb-left')
+    expect(row?.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
+    expect(row?.querySelector(':scope > .native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
     row!.click()
     await settle()
 
