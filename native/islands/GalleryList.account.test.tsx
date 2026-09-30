@@ -472,6 +472,9 @@ describe('signed-in account area', () => {
     // Signed-in home replaces the provider row, but keeps the manual path.
     expect(html).not.toContain('Sign in with Apple')
     expect(html).toContain('Open another gallery')
+    expect(html).toContain('Global View')
+    expect(html).toContain('Keep an on-device contact sheet available in galleries')
+    expect(html).not.toContain('Open Global View')
 
     // The account list asked with the stored bearer token.
     const listCall = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries')

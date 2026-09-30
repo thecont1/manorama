@@ -3,7 +3,6 @@ import { Window } from 'happy-dom'
 import { render } from 'hono/jsx/dom'
 import GlobalView from './GlobalView'
 import { offlineGalleryId } from '../lib/offline-gallery'
-import { GLOBAL_VIEW_PREFERENCE_KEY } from '../lib/global-view'
 import type {
   GallerySelection,
   OfflineGridFrame,
@@ -14,8 +13,8 @@ import type {
 /**
  * Same mounted-island discipline as the vault-settings tests: async
  * boundaries are queued animation frames, stepped deliberately.
- * happy-dom has no IntersectionObserver — cells take the eager
- * materialization path, which is the fallback the island ships anyway.
+ * happy-dom has no IntersectionObserver — cells take the eager materialization
+ * path, which is the fallback the island ships anyway.
  */
 
 const globals = globalThis as Record<string, unknown>
@@ -116,15 +115,6 @@ const makeStore = (grids: OfflineGridGallery[]) => {
   }
 }
 
-const persistence = () => {
-  const map = new Map<string, string>()
-  return {
-    map,
-    async get(key: string) { return map.get(key) ?? null },
-    async set(key: string, value: string) { map.set(key, value) },
-  }
-}
-
 const mount = (ui: Parameters<typeof render>[0]) => {
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -135,14 +125,14 @@ const mount = (ui: Parameters<typeof render>[0]) => {
 const click = (el: Element | null) => el?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }) as unknown as Event)
 
 describe('GlobalView', () => {
-  test('is off by default and explains itself before indexing', async () => {
-    const store = makeStore([grid()])
+  test('opens directly with the current gallery and has no in-view preference box', async () => {
+    const current = { owner: 'photographer', slug: 'quiet-light' }
+    const store = makeStore([grid({ galleryId: await offlineGalleryId(current) })])
     const container = mount(
       <GlobalView
         store={store}
         tier="free"
-        current={{ owner: 'photographer', slug: 'quiet-light' }}
-        persistence={persistence()}
+        current={current}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => {}}
@@ -150,24 +140,21 @@ describe('GlobalView', () => {
     )
     await settle()
 
-    expect(container.querySelector('.native-global-explainer')).not.toBeNull()
-    expect(container.textContent).toContain('never uploaded')
-    expect(store.calls.gridGallery).toEqual([])
-    expect(store.calls.listGridGalleries).toBe(0)
+    expect(container.querySelector('.native-global-explainer')).toBeNull()
+    expect(container.querySelector('.native-global-toggle')).toBeNull()
+    expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(2)
+    expect(store.calls.gridGallery).toEqual([await offlineGalleryId(current)])
     container.remove()
   })
 
   test('free tier indexes only the current gallery', async () => {
     const current = { owner: 'photographer', slug: 'quiet-light' }
     const store = makeStore([grid({ galleryId: await offlineGalleryId(current) })])
-    const storePersistence = persistence()
-    await storePersistence.set(GLOBAL_VIEW_PREFERENCE_KEY, 'on')
     const container = mount(
       <GlobalView
         store={store}
         tier="free"
         current={current}
-        persistence={storePersistence}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => {}}
@@ -185,14 +172,11 @@ describe('GlobalView', () => {
 
   test('free tier with no open gallery says what it needs', async () => {
     const store = makeStore([grid()])
-    const storePersistence = persistence()
-    await storePersistence.set(GLOBAL_VIEW_PREFERENCE_KEY, 'on')
     const container = mount(
       <GlobalView
         store={store}
         tier="free"
         current={null}
-        persistence={storePersistence}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => {}}
@@ -210,14 +194,11 @@ describe('GlobalView', () => {
       grid(),
       grid({ galleryId: 'gallery-b', slug: 'second-album', title: 'Second album', frames: [frame('three', 0)] }),
     ])
-    const storePersistence = persistence()
-    await storePersistence.set(GLOBAL_VIEW_PREFERENCE_KEY, 'on')
     const container = mount(
       <GlobalView
         store={store}
         tier="pro"
         current={null}
-        persistence={storePersistence}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => {}}
@@ -234,16 +215,14 @@ describe('GlobalView', () => {
   })
 
   test('tapping a cell opens the stage on that frame', async () => {
-    const store = makeStore([grid({ galleryId: await offlineGalleryId({ owner: 'photographer', slug: 'quiet-light' }) })])
-    const storePersistence = persistence()
-    await storePersistence.set(GLOBAL_VIEW_PREFERENCE_KEY, 'on')
+    const current = { owner: 'photographer', slug: 'quiet-light' }
+    const store = makeStore([grid({ galleryId: await offlineGalleryId(current) })])
     const opened: { owner: string; slug: string; index: number }[] = []
     const container = mount(
       <GlobalView
         store={store}
         tier="free"
-        current={{ owner: 'photographer', slug: 'quiet-light' }}
-        persistence={storePersistence}
+        current={current}
         objectUrls={objectUrls()}
         onOpenFrame={(selection: GallerySelection, index: number) => {
           opened.push({ ...selection, index })
@@ -259,15 +238,13 @@ describe('GlobalView', () => {
   })
 
   test('materializes thumbnails through the vault read, not the network', async () => {
-    const store = makeStore([grid({ galleryId: await offlineGalleryId({ owner: 'photographer', slug: 'quiet-light' }) })])
-    const storePersistence = persistence()
-    await storePersistence.set(GLOBAL_VIEW_PREFERENCE_KEY, 'on')
+    const current = { owner: 'photographer', slug: 'quiet-light' }
+    const store = makeStore([grid({ galleryId: await offlineGalleryId(current) })])
     const container = mount(
       <GlobalView
         store={store}
         tier="free"
-        current={{ owner: 'photographer', slug: 'quiet-light' }}
-        persistence={storePersistence}
+        current={current}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => {}}
@@ -281,30 +258,24 @@ describe('GlobalView', () => {
     container.remove()
   })
 
-  test('turning off returns to the explainer and persists the choice', async () => {
-    const store = makeStore([grid({ galleryId: await offlineGalleryId({ owner: 'photographer', slug: 'quiet-light' }) })])
-    const storePersistence = persistence()
-    await storePersistence.set(GLOBAL_VIEW_PREFERENCE_KEY, 'on')
+  test('does not expose a preference toggle inside the gallery surface', async () => {
+    const current = { owner: 'photographer', slug: 'quiet-light' }
+    const store = makeStore([grid({ galleryId: await offlineGalleryId(current) })])
     const container = mount(
       <GlobalView
         store={store}
         tier="free"
-        current={{ owner: 'photographer', slug: 'quiet-light' }}
-        persistence={storePersistence}
+        current={current}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => {}}
       />,
     )
     await settle()
+
     expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(2)
-
-    click(container.querySelector('.native-global-toggle'))
-    await settle()
-
-    expect(container.querySelector('.native-global-explainer')).not.toBeNull()
-    expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(0)
-    expect(storePersistence.map.get(GLOBAL_VIEW_PREFERENCE_KEY)).toBe('off')
+    expect(container.querySelector('.native-global-toggle')).toBeNull()
+    expect(container.querySelector('.native-global-enable')).toBeNull()
     container.remove()
   })
 
@@ -316,7 +287,6 @@ describe('GlobalView', () => {
         store={store}
         tier="free"
         current={null}
-        persistence={persistence()}
         objectUrls={objectUrls()}
         onOpenFrame={() => {}}
         onClose={() => { closed += 1 }}

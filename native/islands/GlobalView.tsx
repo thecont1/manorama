@@ -10,11 +10,7 @@ import {
 } from '../lib/offline-gallery'
 import {
   GridThumbLoader,
-  loadGlobalViewEnabled,
-  saveGlobalViewEnabled,
 } from '../lib/global-view'
-import type { VaultCapPersistence } from '../lib/vault-settings'
-import { preferencesPersistence } from '../lib/vault-settings'
 import '../styles/global-view.css'
 
 type Store = Pick<OfflineGalleryStore, 'gridGallery' | 'listGridGalleries' | 'readThumbnail'>
@@ -24,7 +20,6 @@ type Props = {
   tier: NativeTier | undefined
   /** The gallery currently open on the stage — the Free tier's whole scope. */
   current: GallerySelection | null
-  persistence?: VaultCapPersistence
   objectUrls?: OfflineObjectUrlProvider
   onOpenFrame: (selection: GallerySelection, index: number) => void
   onClose: () => void
@@ -108,12 +103,10 @@ export default function GlobalView({
   store,
   tier,
   current,
-  persistence = preferencesPersistence,
   objectUrls = defaultObjectUrls,
   onOpenFrame,
   onClose,
 }: Props) {
-  const [enabled, setEnabled] = useState<boolean | null>(null)
   const [galleries, setGalleries] = useState<OfflineGridGallery[] | null>(null)
   const [loadError, setLoadError] = useState(false)
   // A cache fill writes metadata last, so an empty read while a gallery is
@@ -129,18 +122,7 @@ export default function GlobalView({
   )
 
   useEffect(() => {
-    let active = true
-    void loadGlobalViewEnabled(persistence).then((value) => {
-      if (active) setEnabled(value)
-    })
-    return () => {
-      active = false
-      loader.release()
-    }
-  }, [persistence, loader])
-
-  useEffect(() => {
-    if (enabled !== true || galleries !== null) return
+    if (galleries !== null) return
     let active = true
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = async () => {
@@ -169,7 +151,9 @@ export default function GlobalView({
       active = false
       if (timer) clearTimeout(timer)
     }
-  }, [enabled, galleries, retriesLeft, tier, current, store])
+  }, [galleries, retriesLeft, tier, current, store])
+
+  useEffect(() => () => loader.release(), [loader])
 
   useEffect(() => {
     if (typeof IntersectionObserver === 'undefined' || !gridRef.current) return
@@ -212,18 +196,6 @@ export default function GlobalView({
         }
       }
 
-  const enable = () => {
-    void saveGlobalViewEnabled(true, persistence)
-    setRetriesLeft(6)
-    setEnabled(true)
-  }
-  const disable = () => {
-    void saveGlobalViewEnabled(false, persistence)
-    setGalleries(null)
-    loader.release()
-    setEnabled(false)
-  }
-
   const frameCount = galleries?.reduce((sum, gallery) => sum + gallery.frames.length, 0) ?? 0
 
   return (
@@ -234,33 +206,13 @@ export default function GlobalView({
           <h1>Every frame, on this device</h1>
         </div>
         <div class="native-global-header-actions">
-          {enabled === true ? (
-            <button type="button" class="native-global-toggle" onClick={disable}>
-              Turn off
-            </button>
-          ) : null}
           <button type="button" class="native-global-close" onClick={onClose} aria-label="Close global view">
             Close
           </button>
         </div>
       </header>
 
-      {enabled === null ? (
-        <p class="native-global-note">Loading…</p>
-      ) : enabled === false ? (
-        <div class="native-global-explainer">
-          <p>
-            Global view is a private contact sheet of the photographs this device holds — encrypted,
-            indexed locally, never uploaded. Tap any frame to open the stage on it.
-          </p>
-          <p>
-            On Free it shows the gallery you have open. On Pro it indexes every gallery on this device.
-          </p>
-          <button type="button" class="native-global-enable" onClick={enable}>
-            Turn on global view
-          </button>
-        </div>
-      ) : loadError ? (
+      {loadError ? (
         <p class="native-global-note" role="alert">
           The on-device index could not be read.
         </p>

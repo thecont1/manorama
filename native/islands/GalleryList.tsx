@@ -22,6 +22,7 @@ import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '.
 import { thumbnailEntryId } from '../lib/thumbs'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
+import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { DEFAULT_VAULT_LOAD_POLICY, loadVaultLoadPolicy, saveVaultLoadPolicy, type VaultLoadPolicy } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
@@ -49,6 +50,14 @@ type Props = {
 
 type Selection = { owner: string; slug: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
+type AccountGalleryDrag = {
+  slug: string
+  pointerId: number
+  startX: number
+  startIndex: number
+  currentIndex: number
+  images: GallerySummary['images']
+}
 
 const selectionFromLocation = (): Selection => {
   if (typeof window === 'undefined') return { owner: '', slug: '' }
@@ -88,6 +97,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   })
   const [loadPolicy, setLoadPolicy] = useState<VaultLoadPolicy | null>(null)
   const [policySaving, setPolicySaving] = useState(false)
+  const [globalViewEnabled, setGlobalViewEnabled] = useState<boolean | null>(null)
+  const [globalViewSaving, setGlobalViewSaving] = useState(false)
   const [ownerInput, setOwnerInput] = useState(selection.owner)
   const [slugInput, setSlugInput] = useState(selection.slug)
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
@@ -116,6 +127,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
   const [deviceListFailed, setDeviceListFailed] = useState(false)
   const [accountRevision, setAccountRevision] = useState(0)
+  const [accountReorderSaving, setAccountReorderSaving] = useState<string | null>(null)
   const [billingNote, setBillingNote] = useState<string | null>(null)
   // App Review 5.1.1(v): a self-serve deletion path behind a second tap.
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -124,6 +136,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // Once the server deletes the account a retry only owes billing cleanup —
   // the API call must not run again against a 404.
   const [accountDeleted, setAccountDeleted] = useState(false)
+  const accountGalleryDrag = useRef<AccountGalleryDrag | null>(null)
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
@@ -136,6 +149,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       if (active) setLoadPolicy(policy)
     }).catch(() => {
       if (active) setLoadPolicy(DEFAULT_VAULT_LOAD_POLICY)
+    })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void loadGlobalViewEnabled().then((enabled) => {
+      if (active) setGlobalViewEnabled(enabled)
     })
     return () => { active = false }
   }, [])
@@ -396,7 +417,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             images={source.list()}
             settings={settings}
             plate={plate}
-            onOpenGlobalView={() => setGlobalViewOpen(true)}
+            onOpenGlobalView={globalViewEnabled === true ? () => setGlobalViewOpen(true) : undefined}
             initialIndex={frameKick.index}
             foldLayout={foldEligible ? foldLayout : null}
             foldRenderer={foldEligible ? renderFold : undefined}
@@ -446,6 +467,93 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     } finally {
       setPolicySaving(false)
     }
+  }
+
+  const changeGlobalView = async (next: boolean) => {
+    const previous = globalViewEnabled
+    setGlobalViewEnabled(next)
+    setGlobalViewSaving(true)
+    try {
+      await saveGlobalViewEnabled(next)
+    } catch {
+      setGlobalViewEnabled(previous)
+      setError('The Global View preference could not be saved on this device.')
+    } finally {
+      setGlobalViewSaving(false)
+    }
+  }
+
+  const persistAccountGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
+    setAccountReorderSaving(gallery.slug)
+    try {
+      const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getSessionToken() ?? ''}` },
+        body: JSON.stringify({ order: images.map((image) => image.ref ?? image.filename) }),
+      })
+      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? payload.gallery! : item) ?? null)
+    } catch (reason) {
+      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? gallery : item) ?? null)
+      setError(reason instanceof Error ? reason.message : 'That order could not be saved')
+    } finally {
+      setAccountReorderSaving(null)
+    }
+  }
+
+  const reorderAccountGallery = (gallery: GallerySummary, from: number, to: number) => {
+    if (from === to || to < 0 || to >= gallery.images.length || accountReorderSaving) return
+    const images = [...gallery.images]
+    const [moved] = images.splice(from, 1)
+    if (!moved) return
+    images.splice(to, 0, moved)
+    setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? { ...item, images } : item) ?? null)
+    void persistAccountGalleryOrder(gallery, images)
+  }
+
+  const startAccountGalleryDrag = (gallery: GallerySummary, index: number, event: PointerEvent) => {
+    if (accountReorderSaving || (event.pointerType === 'touch' && !event.isPrimary)) return
+    const item = event.currentTarget as HTMLElement
+    try { item.setPointerCapture(event.pointerId) } catch {}
+    accountGalleryDrag.current = {
+      slug: gallery.slug,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startIndex: index,
+      currentIndex: index,
+      images: [...gallery.images],
+    }
+    event.preventDefault()
+  }
+
+  const moveAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
+    const drag = accountGalleryDrag.current
+    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    const rail = (event.currentTarget as HTMLElement).parentElement
+    if (!rail || Math.abs(event.clientX - drag.startX) < 8) return
+    const items = Array.from(rail.children) as HTMLElement[]
+    let target = items.findIndex((item) => {
+      const rect = item.getBoundingClientRect()
+      return event.clientX >= rect.left && event.clientX <= rect.right
+    })
+    if (target < 0) target = event.clientX < items[0]!.getBoundingClientRect().left ? 0 : items.length - 1
+    if (target === drag.currentIndex) return
+    const images = [...drag.images]
+    const [moved] = images.splice(drag.currentIndex, 1)
+    if (!moved) return
+    images.splice(target, 0, moved)
+    drag.images = images
+    drag.currentIndex = target
+    setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? { ...item, images } : item) ?? null)
+    event.preventDefault()
+  }
+
+  const finishAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
+    const drag = accountGalleryDrag.current
+    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
+    accountGalleryDrag.current = null
+    if (drag.currentIndex !== drag.startIndex) void persistAccountGalleryOrder(gallery, drag.images)
   }
 
   /** Secure storage normally holds the URL name, but a session minted before
@@ -595,6 +703,47 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   )
   const deviceMeta = (gallery: DeviceGallery) =>
     `${gallery.itemCount} ${gallery.itemCount === 1 ? 'item' : 'items'} · ${gallery.sourceKind} · on ${gallery.deviceLabel}`
+  const accountGalleryRail = (gallery: GallerySummary) => gallery.images.length > 0 ? (
+    <div class="native-account-rail" aria-label={`${gallery.title} images`}>
+      <div class="native-account-rail-track" role="list" aria-label={`Sequence ${gallery.title} images`}>
+        {gallery.images.map((image, imageIndex) => (
+          <figure
+            class="native-account-rail-item"
+            role="listitem"
+            key={image.id}
+            draggable="false"
+            data-image-id={image.id}
+            tabIndex={0}
+            aria-grabbed={accountReorderSaving === gallery.slug ? 'false' : undefined}
+            aria-label={`${image.filename}, image ${imageIndex + 1} of ${gallery.images.length}`}
+            onPointerDown={(event) => startAccountGalleryDrag(gallery, imageIndex, event)}
+            onPointerMove={(event) => moveAccountGalleryDrag(gallery, event)}
+            onPointerUp={(event) => finishAccountGalleryDrag(gallery, event)}
+            onPointerCancel={(event) => finishAccountGalleryDrag(gallery, event)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowLeft') {
+                event.preventDefault()
+                reorderAccountGallery(gallery, imageIndex, imageIndex - 1)
+              }
+              if (event.key === 'ArrowRight') {
+                event.preventDefault()
+                reorderAccountGallery(gallery, imageIndex, imageIndex + 1)
+              }
+            }}
+          >
+            <img
+              src={image.src}
+              width={image.width}
+              height={image.height}
+              alt=""
+              loading="lazy"
+              draggable={false}
+            />
+          </figure>
+        ))}
+      </div>
+    </div>
+  ) : null
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
@@ -740,12 +889,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 {accountGalleries.map((gallery) => (
                   <li key={gallery.slug}>
                     {ownerSlug ? (
-                      <button type="button" onClick={() => openSelection(ownerSlug, gallery.slug)}>
-                        <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
-                        <span class="native-gallery-meta">
-                          {gallery.slug} · {gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}
-                        </span>
-                      </button>
+                      <>
+                        <button type="button" onClick={() => openSelection(ownerSlug, gallery.slug)}>
+                          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+                          <span class="native-gallery-meta">
+                            {gallery.slug} · {gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}
+                          </span>
+                        </button>
+                        {accountGalleryRail(gallery)}
+                      </>
                     ) : (
                       <span class="native-gallery-row">
                         <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
@@ -885,9 +1037,26 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 Streaming does not save new image bytes on this device.
               </p>
             </section>
-            <button type="button" onClick={() => setGlobalViewOpen(true)}>
-              Global view
-            </button>
+            <section class="native-global-setting" aria-labelledby="native-global-setting-title">
+              <h2 id="native-global-setting-title">Global View</h2>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={globalViewEnabled === true}
+                  disabled={globalViewSaving || globalViewEnabled === null}
+                  onChange={(event: Event) => void changeGlobalView((event.currentTarget as HTMLInputElement).checked)}
+                />
+                <span>Keep an on-device contact sheet available in galleries</span>
+              </label>
+              <p class="native-account-note">
+                This device-wide index stays encrypted and local. Turn it on here once; the gallery picker then opens every frame held on this device.
+              </p>
+              {globalViewEnabled ? (
+                <button type="button" onClick={() => setGlobalViewOpen(true)}>
+                  Open Global View
+                </button>
+              ) : null}
+            </section>
             <details class="native-another">
               <summary>Open another gallery</summary>
               {openForm}
