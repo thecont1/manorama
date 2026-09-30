@@ -89,7 +89,8 @@ export const createGalleryFromQuickAdd = async (
     body: JSON.stringify({ url: sourceUrl, quick: true }),
   })
   const payload = await response.json().catch(() => ({})) as { galleryUrl?: string; error?: string }
-  if (!response.ok || typeof payload.galleryUrl !== 'string') {
+  const duplicateGallery = response.status === 409 && typeof payload.galleryUrl === 'string'
+  if ((!response.ok && !duplicateGallery) || typeof payload.galleryUrl !== 'string') {
     throw new NativeGalleryHttpError(response.status, payload.error || 'That cloud folder could not be turned into a gallery')
   }
   const target = new URL(payload.galleryUrl, `${normalizeApiBase(apiBase)}/`)

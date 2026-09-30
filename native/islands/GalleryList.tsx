@@ -121,6 +121,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [pendingQuickAdd, setPendingQuickAdd] = useState<string | null>(null)
   const [quickAddBusy, setQuickAddBusy] = useState(false)
+  const quickAddInFlight = useRef<string | null>(null)
   const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
   const [ownerName, setOwnerName] = useState<string | undefined>(undefined)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
@@ -185,15 +186,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }, [])
 
   useEffect(() => {
-    if (!pendingQuickAdd || signedIn !== true || quickAddBusy) return
-    let active = true
+    if (!pendingQuickAdd || signedIn !== true || quickAddInFlight.current === pendingQuickAdd) return
+    const sourceUrl = pendingQuickAdd
+    quickAddInFlight.current = sourceUrl
     setQuickAddBusy(true)
     setError(null)
-    void createGalleryFromQuickAdd(base, pendingQuickAdd)
+    void createGalleryFromQuickAdd(base, sourceUrl)
       .then((next) => {
-        if (!active) return
+        if (quickAddInFlight.current !== sourceUrl) return
         setPendingQuickAdd(null)
-        setQuickAddBusy(false)
         void clearPendingQuickAdd()
         setFrameKick({ index: 0, nonce: 0 })
         setOwnerInput(next.owner)
@@ -201,14 +202,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setSelection(next)
       })
       .catch((reason: unknown) => {
-        if (!active) return
-        setQuickAddBusy(false)
+        if (quickAddInFlight.current !== sourceUrl) return
         setPendingQuickAdd(null)
         void clearPendingQuickAdd()
         setError(reason instanceof Error ? reason.message : 'That cloud folder could not be turned into a gallery')
       })
-    return () => { active = false }
-  }, [base, pendingQuickAdd, quickAddBusy, signedIn])
+      .finally(() => {
+        if (quickAddInFlight.current !== sourceUrl) return
+        quickAddInFlight.current = null
+        setQuickAddBusy(false)
+      })
+  }, [base, pendingQuickAdd, signedIn])
 
   useEffect(() => {
     if (!selection.owner || !selection.slug || loadPolicy === null) return
@@ -518,7 +522,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       await saveGlobalViewEnabled(next)
     } catch {
       setGlobalViewEnabled(previous)
-      setError('The Global View preference could not be saved on this device.')
+      setError('The photo picker preference could not be saved on this device.')
     } finally {
       setGlobalViewSaving(false)
     }
@@ -759,8 +763,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const deviceMeta = (gallery: DeviceGallery) =>
     `${gallery.itemCount} ${gallery.itemCount === 1 ? 'item' : 'items'} · ${gallery.sourceKind} · on ${gallery.deviceLabel}`
   const accountGalleryRail = (gallery: GallerySummary) => gallery.images.length > 0 ? (
-    <div class="native-account-rail" aria-label={`${gallery.title} images`}>
-      <div class="native-account-rail-track" role="list" aria-label={`Sequence ${gallery.title} images`}>
+    <div class="native-account-rail" aria-label={`${gallery.title} photos`}>
+      <div class="native-account-rail-track" role="list" aria-label={`${gallery.title} photos`}>
         {gallery.images.map((image, imageIndex) => (
           <figure
             class="native-account-rail-item"
@@ -1097,7 +1101,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               </p>
             </section>
             <section class="native-global-setting" aria-labelledby="native-global-setting-title">
-              <h2 id="native-global-setting-title">Global View</h2>
+              <h2 id="native-global-setting-title">Photo picker</h2>
               <label>
                 <input
                   type="checkbox"
@@ -1105,14 +1109,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                   disabled={globalViewSaving || globalViewEnabled === null}
                   onChange={(event: Event) => void changeGlobalView((event.currentTarget as HTMLInputElement).checked)}
                 />
-                <span>Keep an on-device contact sheet available in galleries</span>
+                  <span>Keep photos from this device ready to choose in galleries</span>
               </label>
               <p class="native-account-note">
-                This device-wide index stays encrypted and local. Turn it on here once; the gallery picker then opens every frame held on this device.
+                Everything stays encrypted and on this device. Turn it on here once; the gallery picker can then show photographs already saved here.
               </p>
               {globalViewEnabled ? (
                 <button type="button" onClick={() => setGlobalViewOpen(true)}>
-                  Open Global View
+                  Open photo picker
                 </button>
               ) : null}
             </section>

@@ -1,17 +1,16 @@
-/* Global view (#27): a glass contact sheet over the whole stage. Every cell
-   keeps the source aspect ratio — there are no square frames, no crop, and no
-   gaps — because the no-crop rule applies to thumbnails too. */
+/* Photo picker: a frosted contact matrix over the whole stage. Every photo is
+   the same height and keeps its source aspect ratio, with no crop or gaps. */
 
 .native-global-view {
   position: fixed;
   inset: 0;
   z-index: 40;
   display: block;
-  background: rgba(8, 10, 10, .42);
+  background: rgba(8, 10, 10, .8);
   color: rgba(var(--ink), .92);
   pointer-events: none;
-  backdrop-filter: blur(30px) saturate(.72);
-  -webkit-backdrop-filter: blur(30px) saturate(.72);
+  backdrop-filter: blur(68px) saturate(.28) brightness(.58);
+  -webkit-backdrop-filter: blur(68px) saturate(.28) brightness(.58);
 }
 
 .native-global-header {
@@ -107,10 +106,10 @@
   align-content: start;
   border-top: 1px solid rgba(var(--ink), .12);
   border-bottom: 1px solid rgba(var(--ink), .12);
-  background: rgba(20, 23, 22, .28);
+  background: rgba(14, 17, 16, .52);
   box-shadow: 0 24px 60px rgba(0, 0, 0, .22);
-  backdrop-filter: blur(26px) saturate(.72);
-  -webkit-backdrop-filter: blur(26px) saturate(.72);
+  backdrop-filter: blur(48px) saturate(.3) brightness(.62);
+  -webkit-backdrop-filter: blur(48px) saturate(.3) brightness(.62);
   scrollbar-width: thin;
   pointer-events: auto;
 }
@@ -135,22 +134,23 @@
 
 .native-global-grid {
   display: flex;
-  align-items: stretch;
-  width: max-content;
-  min-width: 100%;
-  height: 15dvh;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  height: auto;
   gap: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  touch-action: pan-x;
+  overflow: visible;
 }
 
 .native-global-cell {
   flex: 0 0 auto;
   width: auto;
-  height: 15dvh;
+  height: 10dvh;
+  min-height: 10dvh;
   min-width: 0;
   min-height: 0;
   margin: 0;
@@ -161,7 +161,7 @@
   cursor: pointer;
   display: block;
   content-visibility: auto;
-  contain-intrinsic-size: 15dvh 15dvh;
+  contain-intrinsic-size: 10dvh 100px;
 }
 
 .native-global-cell img {

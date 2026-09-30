@@ -147,7 +147,7 @@ describe('GlobalView', () => {
     container.remove()
   })
 
-  test('free tier indexes only the current gallery', async () => {
+  test('free tier shows only the current gallery', async () => {
     const current = { owner: 'photographer', slug: 'quiet-light' }
     const store = makeStore([grid({ galleryId: await offlineGalleryId(current) })])
     const container = mount(
@@ -166,7 +166,7 @@ describe('GlobalView', () => {
     expect(store.calls.gridGallery).toEqual([await offlineGalleryId(current)])
     expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(2)
     expect(container.textContent).toContain('Quiet light')
-    expect(container.textContent).toContain('Pro indexes every gallery')
+    expect(container.textContent).not.toContain('Pro includes every saved gallery')
     container.remove()
   })
 
@@ -189,7 +189,7 @@ describe('GlobalView', () => {
     container.remove()
   })
 
-  test('pro tier indexes every gallery on the device', async () => {
+  test('pro tier shows every saved gallery on the device', async () => {
     const store = makeStore([
       grid(),
       grid({ galleryId: 'gallery-b', slug: 'second-album', title: 'Second album', frames: [frame('three', 0)] }),

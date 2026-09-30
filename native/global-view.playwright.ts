@@ -60,14 +60,14 @@ const openFixture = async (
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
 const enableGlobalView = async (page: Page) => {
-  await page.getByRole('button', { name: /open global thumbnail picker/ }).click()
+  await page.getByRole('button', { name: /open photo picker/ }).click()
 }
 
 test.beforeEach(() => {
   test.skip(!nativeUrl, 'NATIVE_GALLERY_URL is required for the native global-view spec')
 })
 
-test('indexes the open gallery offline and lands the stage on the tapped frame', async ({ page }) => {
+test('shows the open gallery offline and lands the stage on the tapped frame', async ({ page }) => {
   await openFixture(page)
   await enableGlobalView(page)
 
@@ -75,6 +75,8 @@ test('indexes the open gallery offline and lands the stage on the tapped frame',
   await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
   await page.route('**', (route) =>
     route.request().url().startsWith('http') ? route.abort() : route.continue())
+  const picker = page.locator('[data-global-scroll]')
+  await picker.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect(page.locator('[data-grid-frame] img')).toHaveCount(12, { timeout: 10000 })
 
   await page.locator('[data-grid-frame]').nth(7).click()

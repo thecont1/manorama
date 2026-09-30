@@ -85,6 +85,22 @@ describe('native quick-add', () => {
     })
     expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
   })
+
+  test('accepts a duplicate response when it includes the existing gallery URL', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    fetchSpy(() => json({ galleryUrl: '/thecontrarian/existing-album' }, 409))
+
+    await expect(createGalleryFromQuickAdd('https://manorama.xyz', 'https://www.dropbox.com/scl/fo/folder/key'))
+      .resolves.toEqual({ owner: 'thecontrarian', slug: 'existing-album' })
+  })
+
+  test('rejects other non-OK responses even when they include a gallery URL', async () => {
+    installLocalStorage()
+    fetchSpy(() => json({ galleryUrl: '/thecontrarian/should-not-open' }, 503))
+
+    await expect(createGalleryFromQuickAdd('https://manorama.xyz', 'https://www.dropbox.com/scl/fo/folder/key'))
+      .rejects.toMatchObject({ status: 503 })
+  })
 })
 
 describe('fetchAccountGalleries', () => {

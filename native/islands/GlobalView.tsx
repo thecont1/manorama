@@ -35,8 +35,8 @@ const defaultObjectUrls: OfflineObjectUrlProvider = {
 }
 
 const emptyNote = (tier: NativeTier | undefined, current: GallerySelection | null): string => {
-  if (tier === 'pro') return 'Nothing on this device yet. Galleries you open are indexed here.'
-  if (!current) return 'Open a gallery first — global view indexes what this device has seen.'
+  if (tier === 'pro') return 'Nothing on this device yet. Photos from galleries you open will appear here.'
+  if (!current) return 'Open a gallery first — photos from it will appear here as they become available.'
   return 'This gallery is still settling onto this device. Viewed photographs appear here once the vault holds them.'
 }
 
@@ -88,7 +88,7 @@ const FrameCell = ({
       data-index={frame.index}
       style={`aspect-ratio: ${Math.max(1, frame.width)} / ${Math.max(1, frame.height)}`}
       onClick={() => onOpen({ owner: gallery.owner, slug: gallery.slug }, frame.index)}
-      aria-label={`${gallery.title}, photograph ${frame.index + 1} of ${gallery.frames.length}`}
+      aria-label={`${gallery.title}, photo ${frame.index + 1} of ${gallery.frames.length}`}
     >
       {url ? (
         <img src={url} width={frame.width} height={frame.height} alt={frame.alt} draggable={false} />
@@ -199,14 +199,14 @@ export default function GlobalView({
   const frameCount = galleries?.reduce((sum, gallery) => sum + gallery.frames.length, 0) ?? 0
 
   return (
-    <section class="native-global-view" role="dialog" aria-modal="true" aria-label="Global view" data-global-view>
+    <section class="native-global-view" role="dialog" aria-modal="true" aria-label="Photo picker" data-global-view>
       <header class="native-global-header">
         <div>
-          <p class="native-global-kicker">Global view</p>
-          <h1>Every frame, on this device</h1>
+          <p class="native-global-kicker">Photos</p>
+          <h1>Choose a photograph</h1>
         </div>
         <div class="native-global-header-actions">
-          <button type="button" class="native-global-close" onClick={onClose} aria-label="Close global view">
+          <button type="button" class="native-global-close" onClick={onClose} aria-label="Close photo picker">
             Close
           </button>
         </div>
@@ -214,10 +214,10 @@ export default function GlobalView({
 
       {loadError ? (
         <p class="native-global-note" role="alert">
-          The on-device index could not be read.
+          The photos on this device could not be read.
         </p>
       ) : galleries === null ? (
-        <p class="native-global-note">Reading the on-device index…</p>
+        <p class="native-global-note">Loading your photos…</p>
       ) : galleries.length === 0 ? (
         <p class="native-global-note">{emptyNote(tier, current)}</p>
       ) : (
@@ -227,7 +227,7 @@ export default function GlobalView({
               <h2>
                 {gallery.title}
                 <span class="native-global-gallery-meta">
-                  {gallery.owner}/{gallery.slug} · {gallery.frames.length} photographs
+                  {gallery.frames.length} photos
                 </span>
               </h2>
               <div class="native-global-grid" role="list">
@@ -244,13 +244,8 @@ export default function GlobalView({
               </div>
             </section>
           ))}
-          {tier !== 'pro' ? (
-            <p class="native-global-note native-global-free-note">
-              Free shows the gallery you have open. Pro indexes every gallery on this device.
-            </p>
-          ) : null}
           <p class="native-global-note native-global-count" aria-hidden="true">
-            {frameCount} frames indexed on this device.
+            {frameCount} photos
           </p>
         </div>
       )}
