@@ -40,3 +40,58 @@ The full browser matrix was run locally because the isolated public-network Play
 [1]: https://github.com/thecont1/thecontrarian-in-website "Reference carousel implementation"
 [2]: https://opensource.contentauthenticity.org/docs/sdk-repos/c2pa-js/packages/c2pa-web/ "Official c2pa-web documentation"
 [3]: https://github.com/honojs/honox "HonoX source repository"
+## Running the unit suite
+
+**Use `bun run test:unit`.** A bare `bun test` at the repository root does not work in this
+checkout:
+
+```
+error: EMFILE reading ".../test/hono-jsx-dom.ts"
+error: Cannot read directory ".../app": EMFILE
+```
+
+The git worktrees live inside the repository at `.worktrees/`, and each carries its own
+`node_modules`. That puts about **1,048,000 files under bun's scan root**, so the runner
+exhausts its file-descriptor budget before it can load the `preload` from `bunfig.toml`.
+The per-process limit is not the problem — a bun process here can open 122,876 descriptors.
+
+`scripts/test-mirror.sh` mirrors the working tree into a scratch root that holds no
+worktrees and no build output, symlinks the one `node_modules`, and runs `bun test` from
+there. The checkout itself is only read. Extra arguments pass straight through:
+
+```sh
+bun run test:unit                                  # whole suite
+bun run test:unit -- ./native/islands              # one directory
+bun run test:unit -- -t 'account slot entitlement' # one test name
+MANORAMA_TEST_ROOT=/tmp/mirror bun run test:unit   # keep the mirror somewhere else
+```
+
+### Running it from a subdirectory is not equivalent
+
+The DOM renderer that `test/hono-jsx-dom.ts` preloads is order-sensitive, and starting the
+scan inside a subdirectory changes which specs share a process. Measured on one commit:
+
+| Invocation | Result |
+| --- | --- |
+| `bun test ./app/server.test.ts` from the repository root | **30 pass / 0 fail** |
+| `cd app && bun test ./server.test.ts` | **25 pass / 5 fail** |
+| `cd app && bun test` | 569 pass / 62 fail, 45 files |
+| `bun run test:unit` | **1050 pass / 0 fail**, 82 files |
+
+Only the repository-root invocation is authoritative, which is exactly the one that needs
+the mirror.
+
+### Two files need more than the sandbox grants
+
+`app/lib/gallery-retention.test.ts` (the `(d1)` variants and the `0002` migration) and
+`app/account-deletion-api.test.ts` stand up a local miniflare server through wrangler. They
+need two things that a restricted execution sandbox refuses: a **writable `~/.wrangler`**
+(for wrangler's log file — otherwise `EPERM`) and permission to **bind a loopback port**
+(otherwise `EADDRINUSE: Failed to start server. Is port 0 in use?`). When either is denied
+the suite reports 24 failures and several cascading `(unnamed)` unhandled errors from the
+`dispose()` calls in those files' `afterAll`. With both granted, the whole suite is green,
+and the total test count rises from 964 to 1050 because those describes no longer abort
+partway.
+
+If you see those `EADDRINUSE` / `EPERM` failures, you are looking at the sandbox, not at a
+regression. Do not "fix" the tests.

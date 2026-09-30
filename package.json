@@ -15,6 +15,7 @@
     "native:open:android": "bunx cap open android",
     "preview": "bun --env-file=.env.local vite preview --host 0.0.0.0",
     "test": "playwright test",
+    "test:unit": "bash scripts/test-mirror.sh",
     "vendo:sync": "vendo sync --no-ai && bun scripts/gen-vendo-profile.ts",
     "vendo:profile": "bun scripts/gen-vendo-profile.ts",
     "vendo:check": "vendo sync --strict --no-ai && bun scripts/gen-vendo-profile.ts && git diff --exit-code -- .vendo/tools.json vendo/profile.generated.ts",
