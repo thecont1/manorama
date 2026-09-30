@@ -46,12 +46,13 @@ const openFixture = async (page: Page, images = Array.from({ length: 12 }, (_, i
     body: JSON.stringify(manifest(images)),
   }))
   await page.goto(`${nativeUrl}/?owner=fixture&slug=global-fixture`)
+  await page.getByRole('button', { name: 'Enter gallery' }).click()
 }
 
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
 const enableGlobalView = async (page: Page) => {
-  await page.getByRole('button', { name: /Global view/ }).click()
+  await page.getByRole('button', { name: /open global thumbnail picker/ }).click()
   // A fresh context is always opted out, so the explainer and its enable
   // button arrive after the async preference read — wait for them.
   await page.getByRole('button', { name: 'Turn on global view' }).click()
@@ -104,7 +105,7 @@ test('lands the stage on the last of two rapid frame taps', async ({ page }) => 
 
 test('stays off by default and remembers the choice', async ({ page }) => {
   await openFixture(page)
-  await page.getByRole('button', { name: /Global view/ }).click()
+  await page.getByRole('button', { name: /open global thumbnail picker/ }).click()
 
   await expect(page.locator('.native-global-explainer')).toBeVisible()
   await expect(page.locator('[data-grid-frame]')).toHaveCount(0)
@@ -114,6 +115,6 @@ test('stays off by default and remembers the choice', async ({ page }) => {
   await page.getByRole('button', { name: 'Close global view' }).click()
 
   // The opt-in survives a fresh open of the surface.
-  await page.getByRole('button', { name: /Global view/ }).click()
+  await page.getByRole('button', { name: /open global thumbnail picker/ }).click()
   await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
 })

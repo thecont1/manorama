@@ -91,6 +91,7 @@ const FrameCell = ({
       class="native-global-cell"
       data-grid-frame
       data-index={frame.index}
+      style={`aspect-ratio: ${Math.max(1, frame.width)} / ${Math.max(1, frame.height)}`}
       onClick={() => onOpen({ owner: gallery.owner, slug: gallery.slug }, frame.index)}
       aria-label={`${gallery.title}, photograph ${frame.index + 1} of ${gallery.frames.length}`}
     >
