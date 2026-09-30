@@ -68,10 +68,10 @@ export default createRoute(async (c, next) => {
           details: [{
             appID: '373K7W3LKU.in.thecontrarian.manorama',
             components: [
-              { '/': '/*/*', comment: 'Public Manorama galleries' },
               { '/': '/auth/*', exclude: true },
               { '/': '/api/*', exclude: true },
               { '/': '/.well-known/*', exclude: true },
+              { '/': '/*/*', comment: 'Public Manorama galleries' },
             ],
           }],
         },

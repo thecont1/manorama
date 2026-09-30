@@ -146,7 +146,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setOwnerInput(deepLinkSelection.owner)
     setSlugInput(deepLinkSelection.slug)
     setSelection(deepLinkSelection)
-  }, [deepLinkSelection?.owner, deepLinkSelection?.slug])
+  }, [deepLinkSelection])
 
   useEffect(() => {
     if (!selection.owner || !selection.slug || loadPolicy === null) return
