@@ -5,6 +5,14 @@ import WebKit
 private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var foldDocumentStartScript = ""
 
+    /// The gallery is a fullscreen visual surface with its own controls in a
+    /// modal. A UIKit vertical bar would add chrome beside one pane and could
+    /// compete with the hinge-safe control region, so opt out on iOS 27.1+.
+    @available(iOS 27.1, *)
+    override var preferredVerticalBarBehavior: UIVerticalBarBehavior {
+        .disabled
+    }
+
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let webView = super.webView(with: frame, configuration: configuration)
         guard !foldDocumentStartScript.isEmpty else { return webView }

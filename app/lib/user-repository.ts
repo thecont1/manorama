@@ -17,6 +17,14 @@ export type UserRecord = {
   billingEventId?: string
 }
 
+export type AdminUserSummary = UserRecord & {
+  galleryCount: number
+  deviceGalleryCount: number
+  identityCount: number
+  createdAt?: string
+  updatedAt?: string
+}
+
 export type UserRepositoryEnv = { DB?: D1Database }
 
 export type BillingEventOrder = {
@@ -186,6 +194,47 @@ export const getUserByOwnerSlug = async (
   }
   const id = ownerSlugIndex.get(ownerSlug)
   return id ? users.get(id) ?? null : null
+}
+
+/** Lists account metadata only. This intentionally contains no photo bytes or
+ * source URLs; the master console is an operations surface, not a gallery
+ * index. */
+export const listUsersForAdmin = async (env?: UserRepositoryEnv): Promise<AdminUserSummary[]> => {
+  if (d1Configured(env)) {
+    const result = await env.DB.prepare(`
+      SELECT
+        u.account_id,
+        u.owner_slug,
+        u.display_name,
+        u.email,
+        u.tier,
+        u.created_at,
+        u.updated_at,
+        (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
+        (SELECT COUNT(*) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
+        (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count
+      FROM users u
+      ORDER BY u.created_at DESC, u.account_id ASC
+    `).all<Record<string, unknown>>()
+    return (result.results ?? []).flatMap((row) => {
+      const user = rowToUser(row)
+      if (!user) return []
+      return [{
+        ...user,
+        galleryCount: Number(row.gallery_count) || 0,
+        deviceGalleryCount: Number(row.device_gallery_count) || 0,
+        identityCount: Number(row.identity_count) || 0,
+        ...(typeof row.created_at === 'string' ? { createdAt: row.created_at } : {}),
+        ...(typeof row.updated_at === 'string' ? { updatedAt: row.updated_at } : {}),
+      }]
+    })
+  }
+  return [...users.values()].map((user) => ({
+    ...user,
+    galleryCount: 0,
+    deviceGalleryCount: 0,
+    identityCount: 0,
+  })).sort((a, b) => a.ownerSlug.localeCompare(b.ownerSlug))
 }
 
 export class OwnerSlugError extends Error {}

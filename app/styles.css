@@ -97,9 +97,10 @@ button { color: inherit; }
 @keyframes single-sheen-fwd { 0% { left: 100%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: -24%; opacity: 0; } }
 @keyframes single-sheen-back { 0% { left: -24%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
 
-/* The client’s future square mark lives here; it remains the sole stage control and opens provenance plus current-image information. */
+/* The quiet dot remains the sole stage control and opens provenance plus
+   current-image information. */
 .control-logo { position: fixed; z-index: 20; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 0; display: grid; place-items: center; background: transparent; opacity: .46; cursor: pointer; transform: translateX(-50%); transition: opacity 180ms ease, background 180ms ease, border-color 180ms ease, transform 180ms ease; }
-.control-logo::before { content: ''; width: 14px; height: 14px; border: 1px solid rgba(244, 240, 232, .88); background: rgba(244, 240, 232, .09); }
+.control-logo::before { content: ''; width: 14px; height: 14px; border: 1px solid rgba(244, 240, 232, .88); border-radius: 50%; background: rgba(244, 240, 232, .09); }
 .sr-only { position: fixed; left: -2px; top: -2px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 .control-logo:hover { opacity: 1; border-color: rgba(245, 240, 232, .88); background: rgba(10, 10, 10, .64); transform: translateX(-50%) scale(1.04); }
@@ -1595,3 +1596,44 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
    remaining inside the stage's isolated stacking context, beneath the
    photographs. */
 :is(.viewer-stage, .magnifier-world).mode-vertical .doodle-bg { position: sticky; top: 0; }
+
+/* Private master operations surface. It is deliberately visually distinct
+   from the public gallery and never shares its controls with the photograph
+   stage. */
+.ops-page { min-height: 100svh; width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: clamp(28px, 6vw, 76px) 0; color: rgb(var(--ink)); }
+.ops-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; padding-bottom: 36px; border-bottom: 1px solid rgba(var(--ink), .16); }
+.ops-header h1 { max-width: 12ch; margin: 16px 0; font-size: clamp(42px, 7vw, 84px); font-weight: 500; letter-spacing: -.065em; line-height: .94; }
+.ops-intro, .ops-copy { max-width: 62ch; color: rgba(var(--ink), .64); font-size: 13px; line-height: 1.7; }
+.ops-back, .ops-refresh { color: rgba(var(--ink), .74); font: inherit; font-size: 12px; }
+.ops-back { padding: 10px 14px; border: 1px solid rgba(var(--ink), .2); text-decoration: none; }
+.ops-status { min-height: 20px; margin: 20px 0; color: rgba(var(--ink), .58); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; }
+.ops-section { margin-top: 28px; padding: clamp(20px, 4vw, 34px); border: 1px solid rgba(var(--ink), .14); background: rgba(var(--ink), .035); }
+.ops-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.ops-section h2 { margin: 8px 0 0; font-size: clamp(22px, 3vw, 34px); font-weight: 500; letter-spacing: -.04em; }
+.ops-count, .ops-user-id, .ops-user-slug, .ops-master-label { color: rgba(var(--ink), .48); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
+.ops-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+.ops-settings-grid form { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(var(--ink), .14); }
+.ops-settings-grid label { display: grid; gap: 7px; color: rgba(var(--ink), .62); font-size: 11px; }
+.ops-settings-grid input { min-height: 38px; padding: 8px 10px; border: 1px solid rgba(var(--ink), .2); background: transparent; color: rgb(var(--ink)); font: inherit; }
+.ops-settings-grid button, .ops-suppression-list button, .ops-delete { min-height: 36px; padding: 8px 12px; border: 1px solid rgba(var(--ink), .22); background: transparent; color: rgba(var(--ink), .78); font: inherit; font-size: 11px; cursor: pointer; }
+.ops-settings-grid button:hover, .ops-suppression-list button:hover, .ops-delete:hover, .ops-refresh:hover, .ops-back:hover { border-color: rgba(var(--ink), .8); color: rgb(var(--ink)); }
+.ops-settings-grid button:disabled, .ops-delete:disabled { opacity: .45; cursor: wait; }
+.ops-suppression-list { display: grid; gap: 6px; margin: 16px 0 0; padding: 0; list-style: none; }
+.ops-suppression-list li { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 8px 0; border-top: 1px solid rgba(var(--ink), .1); color: rgba(var(--ink), .7); font-size: 12px; }
+.ops-muted { color: rgba(var(--ink), .48); font-size: 12px; }
+.ops-users { display: grid; gap: 10px; margin-top: 24px; }
+.ops-user { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(240px, 1fr) auto; gap: 18px; align-items: center; padding: 16px 0; border-top: 1px solid rgba(var(--ink), .12); }
+.ops-user h3 { margin: 0 0 5px; font-size: 15px; font-weight: 500; }
+.ops-user-slug, .ops-user-id { margin: 4px 0 0; }
+.ops-user-facts { display: grid; grid-template-columns: repeat(4, minmax(50px, 1fr)); gap: 12px; margin: 0; }
+.ops-user-facts dt { margin-bottom: 4px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; text-transform: uppercase; }
+.ops-user-facts dd { margin: 0; font-size: 12px; }
+.ops-master-label { white-space: nowrap; }
+.ops-delete { border-color: rgba(220, 90, 90, .4); color: rgba(220, 130, 130, .9); }
+@media (max-width: 720px) {
+  .ops-header { display: block; }
+  .ops-back { display: inline-block; margin-top: 10px; }
+  .ops-settings-grid, .ops-user { grid-template-columns: 1fr; }
+  .ops-user-facts { grid-template-columns: repeat(2, minmax(70px, 1fr)); }
+  .ops-delete, .ops-master-label { justify-self: start; }
+}

@@ -330,6 +330,29 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   // than cropping it into a segment.
   const foldActive = mode === 'strip' && foldLayout?.mode === 'diptych' && Boolean(foldRenderer)
   foldActiveRef.current = foldActive
+  // Controls are chrome, not canvas. On a Duo the second safe region is the
+  // right or lower pane, so anchoring the dot and selector there guarantees
+  // that neither the hinge nor the physical split becomes a hit target.
+  const foldControlRegion = foldActive && foldLayout?.controlRegions.length === 2
+    ? foldLayout.controlRegions[1]
+    : null
+  const foldControlStyle = foldControlRegion ? {
+    left: `${foldControlRegion.x + foldControlRegion.width / 2}px`,
+    top: `${foldControlRegion.y + foldControlRegion.height - 62}px`,
+    bottom: 'auto',
+    transform: 'translateX(-50%)',
+  } : undefined
+  const foldPanelStyle = foldControlRegion ? {
+    position: 'absolute',
+    left: `${foldControlRegion.x}px`,
+    top: `${foldControlRegion.y}px`,
+    width: `${foldControlRegion.width}px`,
+    height: `${foldControlRegion.height}px`,
+    maxWidth: 'none',
+    maxHeight: 'none',
+    margin: '0',
+    overflow: 'auto',
+  } : undefined
   // Plate positions re-roll once per gallery per UTC day — a re-opened strip
   // keeps the morning's layout instead of re-shuffling on every mount.
   const platePositions = useMemo(
@@ -2129,11 +2152,11 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" aria-label="Display settings" title="Display settings" onClick={openDisplaySettings}><span class="brand-mark-wrap"><img src="/manorama-merged-logo.png" alt="" aria-hidden="true" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button>
+      <button ref={dotRef} class="control-logo" style={foldControlStyle} aria-label="Gallery controls" title="Gallery controls" onClick={openDisplaySettings}></button>
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} style={foldControlRegion ? { left: `${foldControlRegion.x}px`, top: `${foldControlRegion.y + foldControlRegion.height / 2}px`, width: `${foldControlRegion.width}px` } : undefined} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
             stepGridSel(event.key)
@@ -2183,7 +2206,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
         onKeyDown={onModalKeyDown}
       >
-        <div class="controls-panel">
+        <div class="controls-panel" style={foldPanelStyle}>
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
@@ -2263,7 +2286,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
         onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
         onKeyDown={onModalKeyDown}
       >
-        <div class="controls-panel">
+        <div class="controls-panel" style={foldPanelStyle}>
           <div class="panel-header">
             <div>
               <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
