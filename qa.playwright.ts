@@ -347,7 +347,7 @@ for (const vp of viewports) {
           })
           .map((el) => el.getAttribute("aria-label") ?? el.tagName);
       });
-      expect(visible).toEqual(["Display settings"]); // design rules, Rule 1
+      expect(visible).toEqual(["Gallery controls"]); // design rules, Rule 1
     });
 
     test("logo tab peeks centred below the stage edge and opens its panels", async ({
