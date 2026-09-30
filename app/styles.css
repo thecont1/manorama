@@ -1337,9 +1337,9 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
   position: fixed;
   z-index: 29;
   inset: 0;
-  background: rgba(10, 10, 10, .58);
-  backdrop-filter: blur(56px) saturate(.24) brightness(.52);
-  -webkit-backdrop-filter: blur(56px) saturate(.24) brightness(.52);
+  background: rgba(10, 10, 10, .72);
+  backdrop-filter: blur(76px) saturate(.16) brightness(.42);
+  -webkit-backdrop-filter: blur(76px) saturate(.16) brightness(.42);
 }
 .viewer-filmstrip {
   position: fixed;
@@ -1349,10 +1349,10 @@ html.light .gallery-selector-field option { background: #e9e5dc; }
   flex-direction: column;
   height: 100dvh;
   padding: 0;
-  background: rgba(10, 12, 12, .68);
+  background: rgba(10, 12, 12, .76);
   box-shadow: 0 18px 42px rgba(0, 0, 0, .25);
-  backdrop-filter: blur(92px) saturate(.22) brightness(.52);
-  -webkit-backdrop-filter: blur(92px) saturate(.22) brightness(.52);
+  backdrop-filter: blur(112px) saturate(.16) brightness(.44);
+  -webkit-backdrop-filter: blur(112px) saturate(.16) brightness(.44);
   animation: viewer-filmstrip-in 280ms cubic-bezier(.22, 1, .36, 1) both;
 }
 .viewer-picker-header {

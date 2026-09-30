@@ -205,15 +205,16 @@ export default function GlobalView({
 
   const frameCount = galleries?.reduce((sum, gallery) => sum + gallery.frames.length, 0) ?? 0
   const currentGallery = galleries?.find((gallery) => gallery.owner === current?.owner && gallery.slug === current?.slug)
+  const pickerTitle = currentGallery?.title || current?.slug || 'Your gallery'
   const pickerMeta = currentGallery
-    ? `${currentGallery.title} · ${currentGallery.frames.length} photos`
+    ? `${currentGallery.frames.length} photos`
     : `${frameCount} photos`
 
   return (
-    <section class="native-global-view" role="dialog" aria-modal="true" aria-label="Photo picker" data-global-view>
+    <section class="native-global-view" role="dialog" aria-modal="true" aria-label={`${pickerTitle} photographs`} data-global-view>
       <header class="native-global-header">
         <div>
-          <h1>Photo Picker</h1>
+          <h1>{pickerTitle}</h1>
           <p class="native-global-picker-meta">{pickerMeta}</p>
         </div>
         <div class="native-global-header-actions">

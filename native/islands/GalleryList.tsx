@@ -50,16 +50,6 @@ type Props = {
 
 type Selection = { owner: string; slug: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
-type AccountGalleryDrag = {
-  slug: string
-  pointerId: number
-  startX: number
-  startY: number
-  startIndex: number
-  currentIndex: number
-  originalGallery: GallerySummary
-  images: GallerySummary['images']
-}
 
 const selectionFromLocation = (): Selection => {
   if (typeof window === 'undefined') return { owner: '', slug: '' }
@@ -132,7 +122,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [deviceGalleries, setDeviceGalleries] = useState<DeviceGallery[] | null>(null)
   const [deviceListFailed, setDeviceListFailed] = useState(false)
   const [accountRevision, setAccountRevision] = useState(0)
-  const [accountReorderSaving, setAccountReorderSaving] = useState<string | null>(null)
   const [billingNote, setBillingNote] = useState<string | null>(null)
   // App Review 5.1.1(v): a self-serve deletion path behind a second tap.
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -141,7 +130,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // Once the server deletes the account a retry only owes billing cleanup —
   // the API call must not run again against a 404.
   const [accountDeleted, setAccountDeleted] = useState(false)
-  const accountGalleryDrag = useRef<AccountGalleryDrag | null>(null)
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
@@ -535,101 +523,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
   }
 
-  const persistAccountGalleryOrder = async (
-    gallery: GallerySummary,
-    images: GallerySummary['images'],
-    rollbackGallery: GallerySummary = gallery,
-  ) => {
-    setAccountReorderSaving(gallery.slug)
-    try {
-      const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getSessionToken() ?? ''}` },
-        body: JSON.stringify({ order: images.map((image) => image.ref ?? image.filename) }),
-      })
-      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
-      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? payload.gallery! : item) ?? null)
-    } catch (reason) {
-      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? rollbackGallery : item) ?? null)
-      setError(reason instanceof Error ? reason.message : 'That order could not be saved')
-    } finally {
-      setAccountReorderSaving(null)
-    }
-  }
-
-  const reorderAccountGallery = (gallery: GallerySummary, from: number, to: number) => {
-    if (from === to || to < 0 || to >= gallery.images.length || accountReorderSaving) return
-    const images = [...gallery.images]
-    const [moved] = images.splice(from, 1)
-    if (!moved) return
-    images.splice(to, 0, moved)
-    setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? { ...item, images } : item) ?? null)
-    void persistAccountGalleryOrder(gallery, images)
-  }
-
-  const startAccountGalleryDrag = (gallery: GallerySummary, index: number, event: PointerEvent) => {
-    if (accountReorderSaving || (event.pointerType === 'touch' && !event.isPrimary)) return
-    const item = event.currentTarget as HTMLElement
-    try { item.setPointerCapture(event.pointerId) } catch {}
-    accountGalleryDrag.current = {
-      slug: gallery.slug,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startIndex: index,
-      currentIndex: index,
-      originalGallery: { ...gallery, images: [...gallery.images] },
-      images: [...gallery.images],
-    }
-    event.preventDefault()
-  }
-
-  const moveAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
-    const drag = accountGalleryDrag.current
-    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
-    const rail = (event.currentTarget as HTMLElement).parentElement
-    if (!rail || Math.max(Math.abs(event.clientX - drag.startX), Math.abs(event.clientY - drag.startY)) < 8) return
-    const items = Array.from(rail.children) as HTMLElement[]
-    let target = items.findIndex((item) => {
-      const rect = item.getBoundingClientRect()
-      return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
-    })
-    if (target < 0) {
-      target = items.reduce((closest, item, itemIndex) => {
-        const rect = item.getBoundingClientRect()
-        const distance = Math.abs(event.clientY - (rect.top + rect.height / 2))
-        const closestRect = items[closest]!.getBoundingClientRect()
-        return distance < Math.abs(event.clientY - (closestRect.top + closestRect.height / 2)) ? itemIndex : closest
-      }, 0)
-    }
-    if (target === drag.currentIndex) return
-    const images = [...drag.images]
-    const [moved] = images.splice(drag.currentIndex, 1)
-    if (!moved) return
-    images.splice(target, 0, moved)
-    drag.images = images
-    drag.currentIndex = target
-    setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? { ...item, images } : item) ?? null)
-    event.preventDefault()
-  }
-
-  const finishAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
-    const drag = accountGalleryDrag.current
-    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
-    accountGalleryDrag.current = null
-    if (drag.currentIndex !== drag.startIndex) void persistAccountGalleryOrder(gallery, drag.images, drag.originalGallery)
-  }
-
-  const cancelAccountGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
-    const drag = accountGalleryDrag.current
-    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
-    accountGalleryDrag.current = null
-    if (drag.currentIndex !== drag.startIndex) {
-      setAccountGalleries((previous) => previous?.map((item) => item.slug === gallery.slug ? drag.originalGallery : item) ?? null)
-    }
-  }
-
   /** Secure storage normally holds the URL name, but a session minted before
    *  slug persistence (or a wiped store) leaves it empty — ask the identities
    *  endpoint before letting the confirm ride blank. */
@@ -743,6 +636,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value
   const retryAccountLists = () => setAccountRevision((revision) => revision + 1)
+  const retainedAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention === 'retained') ?? []
+  const temporaryAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention === 'pipeline') ?? []
+  const visibleAccountGalleries = billingState?.isPro
+    ? (accountGalleries ?? [])
+    : retainedAccountGalleries.slice(0, 3)
+  const galleryLimit = billingState?.isPro ? 99 : 3
+  const userType = billingState?.isPro ? 'Visionary' : 'Free'
+  const welcomeMessage = `Hello ${userType} ${ownerName ?? ownerSlug ?? 'friend'}, Welcome to manorama.xyz. You have used ${retainedAccountGalleries.length} of your ${galleryLimit} gallery limit.`
   const message = authError ?? error ?? galleryStatusMessage(status)
   // The manual form stays as the secondary path for galleries outside the
   // signed-in account; the opening screen is the sign-in door alone.
@@ -777,54 +678,34 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   )
   const deviceMeta = (gallery: DeviceGallery) =>
     `${gallery.itemCount} ${gallery.itemCount === 1 ? 'item' : 'items'} · ${gallery.sourceKind} · on ${gallery.deviceLabel}`
-  const accountGalleryRail = (gallery: GallerySummary) => gallery.images.length > 0 ? (
-    <>
-    <div class="native-account-editor-label">
-      <span>Photo Editor</span>
-      <small>sequence only</small>
-    </div>
-    <div class="native-account-rail" aria-label={`${gallery.title} photos`}>
-      <div class="native-account-rail-track" role="list" aria-label={`${gallery.title} photos`}>
-        {gallery.images.map((image, imageIndex) => (
-          <figure
-            class="native-account-rail-item"
-            role="listitem"
-            key={image.id}
-            draggable="false"
-            data-image-id={image.id}
-            tabIndex={0}
-            aria-grabbed={accountReorderSaving === gallery.slug ? 'false' : undefined}
-            aria-label={`${image.filename}, image ${imageIndex + 1} of ${gallery.images.length}`}
-            onPointerDown={(event) => startAccountGalleryDrag(gallery, imageIndex, event)}
-            onPointerMove={(event) => moveAccountGalleryDrag(gallery, event)}
-            onPointerUp={(event) => finishAccountGalleryDrag(gallery, event)}
-            onPointerCancel={(event) => cancelAccountGalleryDrag(gallery, event)}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
-                event.preventDefault()
-                reorderAccountGallery(gallery, imageIndex, imageIndex - 1)
-              }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
-                event.preventDefault()
-                reorderAccountGallery(gallery, imageIndex, imageIndex + 1)
-              }
-            }}
-            >
-            <img
-              src={image.src}
-              width={image.width}
-              height={image.height}
-              alt=""
-              loading="lazy"
-              draggable={false}
-            />
-            <span class="native-account-rail-handle" aria-hidden="true">⠿</span>
-          </figure>
-        ))}
-      </div>
-    </div>
-    </>
-  ) : null
+  const accountGallerySubtitle = (gallery: GallerySummary) => gallery.caption?.trim() || gallery.date?.trim() || ''
+  const accountGalleryLink = (gallery: GallerySummary) => ownerSlug
+    ? `manorama.xyz/${ownerSlug}/${gallery.slug}`
+    : `manorama.xyz/${gallery.slug}`
+  const accountGalleryRow = (gallery: GallerySummary) => {
+    const firstImage = gallery.images[0]
+    return (
+      <button
+        type="button"
+        class="native-gallery-row native-gallery-row-with-thumb"
+        onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
+        disabled={!ownerSlug}
+        aria-label={`Open ${gallery.title || gallery.slug}`}
+      >
+        <span class="native-gallery-row-copy">
+          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
+          {accountGallerySubtitle(gallery) ? <span class="native-gallery-subtitle">{accountGallerySubtitle(gallery)}</span> : null}
+          <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
+          <span class="native-gallery-meta">{gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}</span>
+        </span>
+        {firstImage ? (
+          <span class="native-gallery-thumb" aria-hidden="true">
+            <img src={firstImage.src} width={firstImage.width} height={firstImage.height} alt="" loading="lazy" draggable={false} />
+          </span>
+        ) : null}
+      </button>
+    )
+  }
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
@@ -941,7 +822,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             }}
             onBlur={() => { void saveOwnerSlug() }}
           /></p>
-          <p><br/>Hello <mark class="admin-greeting-name">{ownerName ?? ownerSlug ?? 'friend'}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <button type="button" class="admin-signout" onClick={() => void signOut()}>sign out</button> <br/><br/>Or not. This is your manoramic world.</p>
+          <p>{welcomeMessage} <button type="button" class="admin-signout" onClick={() => void signOut()}>sign out</button></p>
           {slugNote ? <p class="native-account-note">{slugNote}</p> : null}
         </div>
       </div>
@@ -955,7 +836,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       </div>
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <h1>Your galleries</h1>
-        <p>{message}</p>
+        {authError || error ? <p>{message}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {signedIn ? (
@@ -968,31 +849,26 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 </button>
               </p>
             ) : null}
-            {accountGalleries && accountGalleries.length > 0 ? (
+            {visibleAccountGalleries.length > 0 ? (
               <ul class="native-gallery-list">
-                {accountGalleries.map((gallery) => (
+                {visibleAccountGalleries.map((gallery) => (
                   <li key={gallery.slug}>
-                    {ownerSlug ? (
-                      <>
-                        <button type="button" onClick={() => openSelection(ownerSlug, gallery.slug)}>
-                          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
-                          <span class="native-gallery-meta">
-                            {gallery.slug} · {gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'}
-                          </span>
-                        </button>
-                        {accountGalleryRail(gallery)}
-                      </>
-                    ) : (
-                      <span class="native-gallery-row">
-                        <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
-                        <span class="native-gallery-meta">{gallery.slug}</span>
-                      </span>
-                    )}
+                    {accountGalleryRow(gallery)}
                   </li>
                 ))}
               </ul>
-            ) : accountGalleries && !accountListFailed ? (
+            ) : accountGalleries && !accountListFailed && temporaryAccountGalleries.length === 0 ? (
               <p class="native-account-note">No galleries on this account yet.</p>
+            ) : null}
+            {!billingState?.isPro && temporaryAccountGalleries.length > 0 ? (
+              <section class="native-temporary-galleries" aria-labelledby="native-temporary-galleries-title">
+                <h2 id="native-temporary-galleries-title">Temp Galleries</h2>
+                <ul class="native-gallery-list">
+                  {temporaryAccountGalleries.map((gallery) => (
+                    <li key={gallery.slug}>{accountGalleryRow(gallery)}</li>
+                  ))}
+                </ul>
+              </section>
             ) : null}
             {deviceListFailed ? (
               <p class="native-account-note">

@@ -112,8 +112,8 @@ test('lands the stage on the last of two rapid frame taps', async ({ page }) => 
 
 test('stays in the local selector until enabled from admin', async ({ page }) => {
   await openFixture(page, undefined, false)
-  await page.getByRole('button', { name: /open Photo Picker/i }).click()
+  await page.getByRole('button', { name: /open .*picker/i }).click()
 
   await expect(page.locator('[data-global-view]')).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'Photo Picker' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Global fixture photographs' })).toBeVisible()
 })

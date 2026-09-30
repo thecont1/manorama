@@ -812,3 +812,75 @@ body:has(.native-diptych) {
   cursor: progress;
   opacity: .5;
 }
+
+/* Mobile account catalogue: one calm row per gallery. The web dashboard
+   keeps its horizontal thumbnail strip; native account screens show only the
+   first photograph so the list stays scannable. */
+.native-gallery-list button.native-gallery-row-with-thumb {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  align-items: center;
+  gap: 14px;
+  min-height: 96px;
+  padding-block: 12px;
+}
+
+.native-gallery-row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.native-gallery-subtitle,
+.native-gallery-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-gallery-subtitle {
+  color: rgba(var(--ink), .62);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.native-gallery-link {
+  overflow: hidden;
+  color: rgba(var(--ink), .48);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.native-gallery-thumb {
+  display: block;
+  width: 92px;
+  height: 72px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .04);
+}
+
+.native-gallery-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.native-temporary-galleries {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(var(--ink), .18);
+}
+
+.native-temporary-galleries h2 {
+  margin: 0 0 10px;
+  color: rgba(var(--ink), .68);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}

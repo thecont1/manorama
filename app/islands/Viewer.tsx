@@ -2144,7 +2144,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open Photo Picker`} onClick={openGrid}>
+            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`} onClick={openGrid}>
             <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
             <span class="stage-seq-detail" aria-hidden="true">
               <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
@@ -2169,7 +2169,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="Photo Picker" onKeyDown={(event) => {
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${galleryTitle || slug} photographs`} onKeyDown={(event) => {
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
             stepGridSel(event.key)
@@ -2184,12 +2184,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         }}>
           <div class="viewer-picker-header">
             <strong>
-              <span>Photo Picker</span>
+              <span>{galleryTitle || slug}</span>
               <span class="viewer-picker-meta">
                 {galleryTitle ? `${galleryTitle} · ` : ''}{images.length} photos
               </span>
             </strong>
-            <button type="button" onClick={requestCloseModals} aria-label="Close Photo Picker">Close</button>
+            <button type="button" onClick={requestCloseModals} aria-label={`Close ${galleryTitle || slug}`}>Close</button>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
             <div class="viewer-filmstrip-track">

@@ -153,11 +153,13 @@ Playwright matrix green for anything touching the viewer. No exceptions during a
 week — a red suite on Friday is how a submission gets missed.
 
 **Native/desktop visual evidence:** after every native or desktop presentation change, capture
-the current six-state matrix for both builds under `demo-captures/{ios,macos}/`: opening screen,
-gallery curtain, first image with controls, display-settings popover, signed-in account/admin
-surface, and Global View (or the desktop filmstrip selector where the Tauri shell does not mount
-the native encrypted-vault GlobalView island). Captures must come from freshly built bundles,
-use authorized source photographs without editing their pixels, and be reviewed before commit.
+the current six-state matrix for iPhone, iPad landscape, and macOS builds under
+`demo-captures/{ios,ipad,macos}/`: opening screen, gallery curtain, first image with controls,
+display-settings popover, signed-in account/admin surface, and Global View (or the desktop
+filmstrip selector where the Tauri shell does not mount the native encrypted-vault GlobalView
+island). The iPad evidence is horizontal **2752×2064**; iPhone and macOS use their documented
+submission dimensions. Captures must come from freshly built bundles, use authorized source
+photographs without editing their pixels, and be reviewed before commit.
 
 **Photo Picker / Photo Editor layout requirement:** both surfaces are a **matrix of loosely
 organised and closely hanging together thumbnails**, not a horizontal or single-column strip.

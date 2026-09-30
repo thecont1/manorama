@@ -455,7 +455,10 @@ describe('signed-in account area', () => {
   test('lists the account galleries and tapping one opens it under the owner slug', async () => {
     installLocalStorage()
     signInStorage()
-    stubFetch({ galleries: json({ galleries: [accountSummary()] }) })
+    stubFetch({ galleries: json({ galleries: [accountSummary({
+      caption: 'A winter album',
+      images: [{ id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 }],
+    })] }) })
     const { container } = mountAccount()
     await settle()
 
@@ -466,8 +469,13 @@ describe('signed-in account area', () => {
     expect(html).toContain('manorama.xyz/')
     expect((container.querySelector('.admin-owner-slug-input') as HTMLInputElement)?.value).toBe('quiet-owner')
     expect(html).toContain('Kashmir')
+    expect(html).toContain('A winter album')
+    expect(html).toContain('manorama.xyz/quiet-owner/kashmir')
     expect(html).toContain('kashmir')
     expect(html).toContain('12 items')
+    expect(html).toContain('Hello Free quiet-owner, Welcome to manorama.xyz. You have used 1 of your 3 gallery limit.')
+    expect(container.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
+    expect(html).not.toContain('sequence only')
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'sign out')).toBe(true)
     // Signed-in home replaces the provider row, but keeps the manual path.
     expect(html).not.toContain('Sign in with Apple')
@@ -508,9 +516,9 @@ describe('signed-in account area', () => {
     await settle()
 
     const html = container.innerHTML
-    expect(html).toContain('Hello <mark')
+    expect(html).toContain('Hello Free Mahesh Shantaram, Welcome to manorama.xyz. You have used 1 of your 3 gallery limit.')
     expect(html).toContain('Mahesh Shantaram')
-    expect(html).toContain('This is your manoramic world')
+    expect(html).not.toContain('This is your manoramic world')
     expect(html).toContain('Privacy Policy')
     expect(html).toContain('© 2026 Mahesh Shantaram')
 
