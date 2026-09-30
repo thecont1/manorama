@@ -14,11 +14,13 @@ If the binding is absent, `/opman`, the account-monitoring API, and site-wide ad
 
 Open `/opman` while signed in as the master account. The console shows:
 
-- display name, owner slug, tier, immutable account ID, and creation date;
+- display name, owner slug, tier, immutable account ID, creation date, and last-seen country;
 - the number of stored galleries, device-gallery catalogues, and linked sign-in identities;
-- a refresh action for current metadata.
+- a persistent **Master** role with controls to grant or revoke additional operators;
+- 100 rows per page, with the configured bootstrap master and other masters first, then newest accounts;
+- an instant server-side two-letter country filter and Previous/Next pagination.
 
-The console intentionally does not show image bytes, source URLs, OAuth provider subjects, or gallery contents.
+The console intentionally does not show image bytes, source URLs, OAuth provider subjects, or gallery contents. The table is bounded to 100 rows per response; pagination remains the control for thousands of users rather than rendering an unbounded page. A future high-volume lane can add cursor pagination and search without changing the role or deletion API.
 
 ## Delete a user
 
@@ -28,4 +30,6 @@ Account self-deletion remains available to each signed-in user through the exist
 
 ## Global settings
 
-The **Global presentation** section manages site-wide ad-plate suppression by UTC day or ISO-3166 region. These controls call the same protected suppression API used by the ad policy and are master-only. The public `/api/ads/visibility` response remains read-only and does not reveal account data.
+The **Global presentation** section manages site-wide ad-plate suppression by UTC day or ISO-3166 alpha-2 viewer country. `IN` means Cloudflare’s Geo-IP country code for the viewer’s current request, not that the account lives in India. The public `/api/ads/visibility` response reads `request.cf.country`, returns an empty region when Cloudflare cannot determine it, and fails open by showing the plate. These controls call the same protected suppression API used by the ad policy and are master-only.
+
+Additional masters are stored in `master_accounts`. The configured Dropbox-subject master is the bootstrap operator and cannot be revoked from the console; the current operator also cannot revoke their own access. This prevents the last known owner from locking out all operators.

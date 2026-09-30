@@ -116,9 +116,12 @@ describe('session token issuance and resolution', () => {
     const identityDb = {
       prepare: (sql: string) => ({
         bind: (...args: unknown[]) => {
-          expect(sql).toContain('provider = ? AND provider_subject = ?')
-          lookupCalls.push(args)
-          return { first: async () => ({ account_id: TEST_OWNER.accountId }) }
+          if (sql.includes('provider = ? AND provider_subject = ?')) {
+            expect(sql).toContain('provider = ? AND provider_subject = ?')
+            lookupCalls.push(args)
+            return { first: async () => ({ account_id: TEST_OWNER.accountId }) }
+          }
+          return { first: async () => null }
         },
       }),
     }

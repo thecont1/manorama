@@ -1,4 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types'
+import { isMasterAccountId, type MasterAccountEnv } from './master-accounts'
 
 /**
  * Manorama user accounts. Identity is the immutable account ID —
@@ -15,6 +16,9 @@ export type UserRecord = {
   tier: 'free' | 'pro'
   billingEventTimestampMs?: number
   billingEventId?: string
+  lastSeenCountry?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type AdminUserSummary = UserRecord & {
@@ -23,6 +27,15 @@ export type AdminUserSummary = UserRecord & {
   identityCount: number
   createdAt?: string
   updatedAt?: string
+  isMaster: boolean
+}
+
+export type AdminUserPage = {
+  users: AdminUserSummary[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 export type UserRepositoryEnv = { DB?: D1Database }
@@ -59,6 +72,11 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
   if (typeof row.billing_event_id === 'string' && row.billing_event_id.length > 0) {
     user.billingEventId = row.billing_event_id
   }
+  if (typeof row.last_seen_country === 'string' && row.last_seen_country.length > 0) {
+    user.lastSeenCountry = row.last_seen_country
+  }
+  if (typeof row.created_at === 'string') user.createdAt = row.created_at
+  if (typeof row.updated_at === 'string') user.updatedAt = row.updated_at
   return user
 }
 
@@ -161,7 +179,8 @@ export const upsertUser = async (
     return existing
   }
   const ownerSlug = await deriveOwnerSlug(displayName, env)
-  const user: UserRecord = { accountId: account.accountId, ownerSlug, displayName, tier: 'free', ...(email !== undefined ? { email } : {}) }
+  const now = new Date().toISOString()
+  const user: UserRecord = { accountId: account.accountId, ownerSlug, displayName, tier: 'free', createdAt: now, updatedAt: now, ...(email !== undefined ? { email } : {}) }
   users.set(user.accountId, user)
   ownerSlugIndex.set(user.ownerSlug, user.accountId)
   return user
@@ -198,9 +217,22 @@ export const getUserByOwnerSlug = async (
 
 /** Lists account metadata only. This intentionally contains no photo bytes or
  * source URLs; the master console is an operations surface, not a gallery
- * index. */
-export const listUsersForAdmin = async (env?: UserRepositoryEnv): Promise<AdminUserSummary[]> => {
+ * index. Results are bounded to 100 rows so the console remains usable as the
+ * account count grows. */
+export const listUsersForAdmin = async (
+  env?: UserRepositoryEnv & MasterAccountEnv,
+  options: { page?: number; country?: string; bootstrapAccountId?: string } = {},
+): Promise<AdminUserPage> => {
+  const page = Math.max(1, Math.floor(options.page ?? 1))
+  const country = options.country?.trim().toUpperCase() ?? ''
+  const pageSize = 100
+  const offset = (page - 1) * pageSize
+  const bootstrapAccountId = options.bootstrapAccountId?.trim() ?? ''
   if (d1Configured(env)) {
+    const totalRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS total FROM users
+       WHERE (? = '' OR COALESCE(last_seen_country, '') = ?)`,
+    ).bind(country, country).first<{ total: number }>()
     const result = await env.DB.prepare(`
       SELECT
         u.account_id,
@@ -210,13 +242,20 @@ export const listUsersForAdmin = async (env?: UserRepositoryEnv): Promise<AdminU
         u.tier,
         u.created_at,
         u.updated_at,
+        u.last_seen_country,
+        CASE WHEN u.account_id = ? THEN 0 ELSE 1 END AS bootstrap_order,
+        CASE WHEN u.account_id = ? OR EXISTS (
+          SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
+        ) THEN 1 ELSE 0 END AS is_master,
         (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
         (SELECT COUNT(*) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
         (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count
       FROM users u
-      ORDER BY u.created_at DESC, u.account_id ASC
-    `).all<Record<string, unknown>>()
-    return (result.results ?? []).flatMap((row) => {
+      WHERE (? = '' OR COALESCE(u.last_seen_country, '') = ?)
+      ORDER BY bootstrap_order ASC, is_master DESC, u.created_at DESC, u.account_id ASC
+      LIMIT ? OFFSET ?
+    `).bind(bootstrapAccountId, bootstrapAccountId, country, country, pageSize, offset).all<Record<string, unknown>>()
+    const users = (result.results ?? []).flatMap((row) => {
       const user = rowToUser(row)
       if (!user) return []
       return [{
@@ -224,17 +263,45 @@ export const listUsersForAdmin = async (env?: UserRepositoryEnv): Promise<AdminU
         galleryCount: Number(row.gallery_count) || 0,
         deviceGalleryCount: Number(row.device_gallery_count) || 0,
         identityCount: Number(row.identity_count) || 0,
+        isMaster: Number(row.is_master) === 1,
         ...(typeof row.created_at === 'string' ? { createdAt: row.created_at } : {}),
         ...(typeof row.updated_at === 'string' ? { updatedAt: row.updated_at } : {}),
       }]
     })
+    const total = Number(totalRow?.total) || 0
+    return { users, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   }
-  return [...users.values()].map((user) => ({
+  const allUsers = [...users.values()].map((user) => ({
     ...user,
     galleryCount: 0,
     deviceGalleryCount: 0,
     identityCount: 0,
-  })).sort((a, b) => a.ownerSlug.localeCompare(b.ownerSlug))
+    isMaster: false,
+  }))
+  for (const user of allUsers) user.isMaster = await isMasterAccountId(user.accountId, env)
+  const filtered = country ? allUsers.filter((user) => user.lastSeenCountry === country) : allUsers
+  filtered.sort((a, b) => Number(b.accountId === bootstrapAccountId) - Number(a.accountId === bootstrapAccountId)
+    || Number(b.isMaster) - Number(a.isMaster)
+    || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+    || a.accountId.localeCompare(b.accountId))
+  const total = filtered.length
+  return {
+    users: filtered.slice(offset, offset + pageSize),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  }
+}
+
+export const setLastSeenCountry = async (accountId: string, country: string | undefined, env?: UserRepositoryEnv): Promise<void> => {
+  if (!country || !/^[A-Z]{2}$/.test(country)) return
+  if (d1Configured(env)) {
+    await env.DB.prepare('UPDATE users SET last_seen_country = ? WHERE account_id = ?').bind(country, accountId).run()
+    return
+  }
+  const user = users.get(accountId)
+  if (user) user.lastSeenCountry = country
 }
 
 export class OwnerSlugError extends Error {}
@@ -362,6 +429,7 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
       env.DB.prepare('DELETE FROM auth_flows WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM galleries WHERE owner_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM master_accounts WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM users WHERE account_id = ?').bind(accountId),
     ])
     return (results[results.length - 1]?.meta.changes ?? 0) > 0
