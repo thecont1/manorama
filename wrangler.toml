@@ -2,34 +2,26 @@ name = "manorama"
 main = "./dist/index.js"
 compatibility_date = "2026-08-26"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = true
 
-[vars]
-PUBLIC_HOST = "manorama.xyz"
-# Production public origin — Vendo derives its OAuth/MCP resource URLs
-# and audience binding from this behind the reverse proxy.
-VENDO_BASE_URL = "https://manorama.xyz"
-# VENDO_API_KEY and the session signing key are SECRETS:
-# `bunx wrangler secret put VENDO_API_KEY` — never in this file.
-# HOST_API_JWT_SECRET signs the Dropbox session cookie.
-# MASTER_DROPBOX_SUBJECT is the immutable Dropbox subject allowed to use
-# /opman and change site-wide settings. Set it as a protected secret after the
-# owner signs in once; never use a display name, email, or password.
-# GOOGLE_DRIVE_API_KEY enables public Google Drive folder ingestion
-# (iCloud shared albums need no secret).
-# Stripe web billing: STRIPE_PRO_PAYMENT_LINK is a public buy.stripe.com URL
-# (safe in vars). STRIPE_WEBHOOK_SIGNING_SECRET is a SECRET:
-# `bunx wrangler secret put STRIPE_WEBHOOK_SIGNING_SECRET`.
-# The link below is TEST mode for local dev — the dashboard suppresses
-# test-mode links on the public host, so the live link MUST land here
-# before launch or Upgrade degrades to a mailto.
-STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
+# Vendo derives its OAuth/MCP resource URLs and audience binding from this
+# behind the reverse proxy. The live link MUST land here before launch.
+# Secrets live in Worker bindings — never in this file.
+# See AGENTS.md §6 (Secrets) for details.
 
 [[d1_databases]]
 binding = "DB"
 database_name = "manorama"
 database_id = "23a75dd6-1d27-4f61-afc0-79b83c30cee7"
 migrations_dir = "migrations"
+
+[[routes]]
+pattern = "manorama.xyz"
+custom_domain = true
+
+[vars]
+PUBLIC_HOST = "manorama.xyz"
+VENDO_BASE_URL = "https://manorama.xyz"
+STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
 
 [assets]
 directory = "./dist"
@@ -44,9 +36,23 @@ head_sampling_rate = 1
 [triggers]
 crons = ["17 3 * * *"]
 
-[[routes]]
+[env.production]
+workers_dev = false
+
+[[env.production.routes]]
 pattern = "manorama.xyz"
 custom_domain = true
+
+[env.production.vars]
+PUBLIC_HOST = "manorama.xyz"
+VENDO_BASE_URL = "https://manorama.xyz"
+STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "manorama"
+database_id = "23a75dd6-1d27-4f61-afc0-79b83c30cee7"
+migrations_dir = "migrations"
 
 # Optional future adapter binding. Enable when switching ImageSource to R2Source.
 # [[r2_buckets]]
