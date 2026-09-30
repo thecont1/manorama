@@ -1600,6 +1600,7 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 /* Private master operations surface. It is deliberately visually distinct
    from the public gallery and never shares its controls with the photograph
    stage. */
+body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-page { min-height: 100svh; width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: clamp(28px, 6vw, 76px) 0; color: rgb(var(--ink)); }
 .ops-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; padding-bottom: 36px; border-bottom: 1px solid rgba(var(--ink), .16); }
 .ops-header h1 { max-width: 12ch; margin: 16px 0; font-size: clamp(42px, 7vw, 84px); font-weight: 500; letter-spacing: -.065em; line-height: .94; }
