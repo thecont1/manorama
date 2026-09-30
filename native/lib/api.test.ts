@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError } from './api'
+import { createGalleryFromQuickAdd, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError } from './api'
 
 const originalFetch = globalThis.fetch
 const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
@@ -65,6 +65,25 @@ describe('native gallery HTTP errors', () => {
 
     await expect(opening).rejects.toBeInstanceOf(NativeGalleryHttpError)
     await expect(opening).rejects.toMatchObject({ status: 410, message: 'Gallery has gone' })
+  })
+})
+
+describe('native quick-add', () => {
+  test('creates from the wrapped provider URL and returns its canonical selection', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ galleryUrl: '/thecontrarian/quiet-album' }, 201))
+    const selection = await createGalleryFromQuickAdd(
+      'https://manorama.xyz/',
+      'https://www.dropbox.com/scl/fo/folder/key?rlkey=read-key&dl=0',
+    )
+
+    expect(selection).toEqual({ owner: 'thecontrarian', slug: 'quiet-album' })
+    expect(calls[0]?.url).toBe('https://manorama.xyz/api/galleries')
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      url: 'https://www.dropbox.com/scl/fo/folder/key?rlkey=read-key&dl=0',
+      quick: true,
+    })
+    expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
   })
 })
 

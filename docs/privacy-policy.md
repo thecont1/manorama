@@ -8,7 +8,7 @@ Manorama is a place to share and look at photographs. This policy covers manoram
 
 ### Just looking
 
-Open a public gallery link without an account. We do not keep a history of galleries you view or run page-view analytics. A link is unlisted, not private: anyone who has it can open it. When the native app is installed and the platform association is active, a public two-segment Manorama link may open in the app instead of the browser. Your browser may remember display choices; the app may keep encrypted offline copies on your device.
+Open a public gallery link without an account. We do not keep a history of galleries you view or run page-view analytics. A link is unlisted, not private: anyone who has it can open it. When the native app is installed and the platform association is active, a public two-segment Manorama link may open in the app instead of the browser. A direct Dropbox, Google Drive, iCloud, or MEGA URL remains the provider’s link; only when someone deliberately wraps a supported public folder or album as `https://manorama.xyz/<provider-url>` may the native app receive an import intent. After sign-in, that intent sends the provider URL to Manorama to create the gallery; a signed-out app waits for sign-in. Your browser may remember display choices; the app may keep encrypted offline copies on your device.
 
 ### Making galleries
 

@@ -7,7 +7,7 @@ import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug } from '../lib/api'
+import { createGalleryFromQuickAdd, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -23,7 +23,7 @@ import { thumbnailEntryId } from '../lib/thumbs'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
-import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
+import { clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { DEFAULT_VAULT_LOAD_POLICY, loadVaultLoadPolicy, saveVaultLoadPolicy, type VaultLoadPolicy } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
@@ -118,6 +118,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // null while secure storage is still being asked; sign-in completes with a
   // full reload, so by the first paint the token is already on the device.
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
+  const [pendingQuickAdd, setPendingQuickAdd] = useState<string | null>(null)
+  const [quickAddBusy, setQuickAddBusy] = useState(false)
   const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
   const [ownerName, setOwnerName] = useState<string | undefined>(undefined)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
@@ -163,11 +165,49 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   useEffect(() => {
     if (!deepLinkSelection) return
+    if (!('owner' in deepLinkSelection)) {
+      setPendingQuickAdd(deepLinkSelection.sourceUrl)
+      return
+    }
     setFrameKick({ index: 0, nonce: 0 })
     setOwnerInput(deepLinkSelection.owner)
     setSlugInput(deepLinkSelection.slug)
     setSelection(deepLinkSelection)
   }, [deepLinkSelection])
+
+  useEffect(() => {
+    let active = true
+    void getPendingQuickAdd().then((sourceUrl) => {
+      if (active && sourceUrl) setPendingQuickAdd(sourceUrl)
+    })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!pendingQuickAdd || signedIn !== true || quickAddBusy) return
+    let active = true
+    setQuickAddBusy(true)
+    setError(null)
+    void createGalleryFromQuickAdd(base, pendingQuickAdd)
+      .then((next) => {
+        if (!active) return
+        setPendingQuickAdd(null)
+        setQuickAddBusy(false)
+        void clearPendingQuickAdd()
+        setFrameKick({ index: 0, nonce: 0 })
+        setOwnerInput(next.owner)
+        setSlugInput(next.slug)
+        setSelection(next)
+      })
+      .catch((reason: unknown) => {
+        if (!active) return
+        setQuickAddBusy(false)
+        setPendingQuickAdd(null)
+        void clearPendingQuickAdd()
+        setError(reason instanceof Error ? reason.message : 'That cloud folder could not be turned into a gallery')
+      })
+    return () => { active = false }
+  }, [base, pendingQuickAdd, quickAddBusy, signedIn])
 
   useEffect(() => {
     if (!selection.owner || !selection.slug || loadPolicy === null) return
@@ -816,6 +856,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             </div>
           ) : null}
           {authError ? <p class="landing-note">{authError}</p> : null}
+          {pendingQuickAdd ? <p class="landing-note">Sign in to turn this supported cloud folder into a Manorama gallery.</p> : null}
         </div>
       </main>
     )
@@ -874,6 +915,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <h1>Your galleries</h1>
         <p>{message}</p>
+        {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
+        {error && !galleryOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {signedIn ? (
           <div class="native-account" data-account>
             {accountListFailed ? (

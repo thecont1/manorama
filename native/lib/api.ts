@@ -75,6 +75,31 @@ export const fetchGallery = async (
   }
 }
 
+/** The native counterpart of the web quick-add interstitial. The wrapped URL
+ * has already been intentionally accepted by the deep-link parser; the Worker
+ * remains the single source scanner and gallery creator. */
+export const createGalleryFromQuickAdd = async (
+  apiBase: string,
+  sourceUrl: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ owner: string; slug: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ url: sourceUrl, quick: true }),
+  })
+  const payload = await response.json().catch(() => ({})) as { galleryUrl?: string; error?: string }
+  if (!response.ok || typeof payload.galleryUrl !== 'string') {
+    throw new NativeGalleryHttpError(response.status, payload.error || 'That cloud folder could not be turned into a gallery')
+  }
+  const target = new URL(payload.galleryUrl, `${normalizeApiBase(apiBase)}/`)
+  const parts = target.pathname.split('/').filter(Boolean)
+  if (target.hostname !== new URL(`${normalizeApiBase(apiBase)}/`).hostname || parts.length !== 2) {
+    throw new Error('The created gallery link was invalid')
+  }
+  return { owner: parts[0]!, slug: parts[1]! }
+}
+
 /** The signed-in account's own gallery summaries — the same rows the web
  *  dashboard lists, so the phone can offer them without a typed slug. */
 export const fetchAccountGalleries = async (
