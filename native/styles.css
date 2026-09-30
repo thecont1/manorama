@@ -44,6 +44,16 @@ body.manorama-native .stage-arrows {
   pointer-events: none;
 }
 body.manorama-native .stage-arrows--vertical { flex-direction: initial; align-items: stretch; }
+/* A quarter of a phone's width is roughly 100pt, which is what makes the four
+   chrome pills read as four compact controls. On an iPad the same four columns
+   stretch to fill 1376pt and the pills become long bars, so past phone widths
+   the columns keep their phone size and the slack falls between them. */
+@media (min-width: 480px) {
+  body.manorama-native .stage-arrows {
+    grid-template-columns: repeat(4, minmax(0, 110px));
+    justify-content: space-between;
+  }
+}
 body.manorama-native .stage-arrows > button,
 body.manorama-native .control-logo {
   box-sizing: border-box;
@@ -395,19 +405,34 @@ body:has(.native-diptych) {
   color: rgb(var(--ink));
 }
 
-/* The master's plate switch sits under the actions — quieter than the
-   controls it governs, and honest about what it is reporting. */
-.native-plate-switch {
+/* The account's preferences are three questions, and they only read as three
+   when each one carries its own heading. The visibility switch sat unlabelled
+   between the load policy and the photo picker, so all three ran together as
+   one undifferentiated list. */
+.native-house-cards,
+.native-load-policy {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 22px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(var(--ink), .1);
+}
+
+.native-house-cards h2,
+.native-load-policy h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.native-house-cards-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 22px 0 6px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(var(--ink), .1);
 }
 
-.native-plate-switch-state {
+.native-house-cards-status {
   flex: 1 1 auto;
   color: rgba(var(--ink), .62);
   font-family: 'DM Mono', ui-monospace, monospace;
@@ -416,13 +441,13 @@ body:has(.native-diptych) {
   text-transform: uppercase;
 }
 
-.native-plate-switch button {
+.native-house-cards-actions button {
   padding: 7px 12px;
   border-color: rgba(var(--ink), .24);
   font-size: 13px;
 }
 
-.native-plate-switch button:disabled {
+.native-house-cards-actions button:disabled {
   opacity: .4;
   cursor: default;
 }
@@ -764,14 +789,14 @@ body:has(.native-diptych) {
   letter-spacing: .06em;
 }
 
-.native-device h2 {
+/* The account's four questions are peers, so their headings are too. The device
+   catalogue used to shout its heading in tracked caps while the preferences
+   below it spoke in sentence case, which read as two different kinds of thing. */
+.native-device h2,
+.native-temporary-galleries h2 {
   margin: 0 0 10px;
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-size: 17px;
+  font-weight: 500;
 }
 
 .native-another {
@@ -952,47 +977,36 @@ body:has(.native-diptych) {
   opacity: .5;
 }
 
-/* Mobile account catalogue: one calm row per gallery. The web dashboard
-   keeps its horizontal thumbnail strip; native account screens show only the
-   first photograph so the list stays scannable. */
+/* Mobile account catalogue: one calm column per gallery — a single cover,
+   then what it is, then where it lives. The web dashboard has a draggable
+   sequence strip; this is not that surface. */
 .native-gallery-list button.native-gallery-row-with-thumb {
   display: grid;
-  grid-template-rows: auto auto auto;
-  align-items: center;
-  column-gap: 16px;
-  row-gap: 3px;
+  align-items: start;
+  gap: 3px;
   padding-block: 14px;
 }
 
-.native-gallery-row-thumb-left {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.native-gallery-row-thumb-right {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.native-gallery-row-copy {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-  grid-row: 1 / span 2;
-}
-
-.native-gallery-row-thumb-left .native-gallery-row-copy {
-  grid-column: 2;
-}
-
-.native-gallery-row-thumb-right .native-gallery-row-copy {
-  grid-column: 1;
+/* The first photograph gets a row of its own in the same 12dvh, aspect-true
+   language as the picker, without showing the rest of the sequence here. */
+.native-gallery-cover-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 0;
+  max-width: 100%;
+  margin-bottom: 9px;
+  overflow: hidden;
 }
 
 .native-gallery-heading {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  /* The count belongs to the title, not to the far edge of the row. */
+  justify-content: flex-start;
+  gap: 6px;
 }
 
 .native-gallery-title {
@@ -1019,8 +1033,6 @@ body:has(.native-diptych) {
 }
 
 .native-gallery-link {
-  grid-column: 1 / -1;
-  grid-row: 3;
   min-width: 0;
   overflow: hidden;
   color: rgba(var(--ink), .48);
@@ -1033,21 +1045,29 @@ body:has(.native-diptych) {
 
 .native-gallery-thumb {
   display: block;
-  grid-row: 1 / span 2;
+  flex: 0 0 auto;
   width: auto;
-  height: 16dvh;
-  overflow: visible;
+  height: 12dvh;
+  min-height: 12dvh;
+  margin: 0;
+  padding: 0;
   background: rgba(255, 255, 255, .04);
 }
-
-.native-gallery-row-thumb-left .native-gallery-thumb { grid-column: 1; }
-.native-gallery-row-thumb-right .native-gallery-thumb { grid-column: 2; }
 
 .native-gallery-thumb img {
   display: block;
   width: auto;
-  height: 16dvh;
+  height: 100%;
+  max-width: none;
   object-fit: contain;
+}
+
+/* The first frame is the gallery's face wherever the gallery appears alone, so
+   it carries the same shocking pink the picker gives the photograph in hand. */
+.native-gallery-thumb.is-active {
+  z-index: 1;
+  outline: 3px solid #fc0fc0;
+  outline-offset: -3px;
 }
 
 .native-temporary-galleries {
@@ -1056,12 +1076,114 @@ body:has(.native-diptych) {
   border-top: 1px solid rgba(var(--ink), .18);
 }
 
-.native-temporary-galleries h2 {
-  margin: 0 0 10px;
-  color: rgba(var(--ink), .68);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+/* The web app keeps its chrome out of the way until the gallery is entered, and
+   the native shells should match: while the curtain is up the photograph and the
+   title are the whole interface. `gallery-entered` is set on the body when the
+   curtain lifts, so nothing else has to know about this. */
+body.manorama-native:not(.gallery-entered) .stage-arrows,
+body.manorama-native:not(.gallery-entered) .control-logo {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The settings topbar reads as one line: the wordmark sets the height and the
+   Close control matches it, so neither sits proud of the other. */
+body.manorama-native .controls-panel-topbar { align-items: center; }
+body.manorama-native .controls-panel-topbar .controls-panel-brand,
+body.manorama-native .controls-panel-topbar .panel-close {
+  box-sizing: border-box;
+  height: var(--native-chrome-height);
+}
+/* Four controls do not fit across a phone: the previous arrow was encroaching on
+   the sequence readout, and three equal pills wasted the fact that the index is
+   always a circle. On narrow viewports the row carries three controls — the
+   wordmark, the position, and the way forward. The strip still pans backwards by
+   drag, swipe and keyboard; only the button goes.
+
+   The wordmark stays: it is the only way into the settings modal, and the modal
+   is the single home for every control — dropping it would strand everything
+   behind a gesture nobody knows about. So the row is [ wordmark pill ][ index ]
+   [ forward ], the pill taking the free space and the two circles fixed at the
+   row height, which makes them true circles rather than circles stretched to
+   whatever width was left over. */
+@media (max-width: 720px) {
+  body.manorama-native .stage-arrows {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+  }
+  body.manorama-native .stage-arrows .stage-nav-arrow--previous { display: none; }
+  body.manorama-native .stage-arrows .stage-seq,
+  body.manorama-native .stage-arrows .stage-nav-arrow--next {
+    width: var(--native-chrome-height);
+    min-width: var(--native-chrome-height);
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border-radius: 50%;
+  }
+  body.manorama-native .stage-arrows .stage-seq { grid-column: 2; }
+  body.manorama-native .stage-arrows .stage-nav-arrow--next { grid-column: 3; }
+
+  /* The pill is anchored to the row's leading edge and spans what is left after
+     the two circles and their gaps. `left` is given as a length rather than 50%
+     so the centring transform has to go with it. */
+  body.manorama-native .control-logo {
+    left: max(12px, var(--native-safe-left));
+    /* The pill hugs the wordmark instead of spanning the free space, so the row
+       reads as a compact pill, a gap, then the two circles. */
+    width: auto;
+    /* The wordmark's ink frame is drawn by ::before at inset -5px -12px. While
+       the pill was wide that frame sat inside it; hugging the wordmark left it
+       hanging outside, which reads as a second button tucked behind this one.
+       The padding gives the frame somewhere to live. */
+    padding: 0 14px;
+    transform: none;
+  }
+  body.manorama-native .control-logo:hover { transform: none; }
+}
+/* The landing used to subtract both safe-area insets from its height. That made
+   it shorter than the viewport, so the strip it gave back showed the root
+   background instead of the landing's own — the black bar at the bottom of the
+   opening screen. Fill the viewport instead and move the safe-area spacing into
+   padding, where it keeps the content clear of the notch and the home indicator
+   without ever exposing a seam. */
+.native-landing {
+  min-height: 100svh;
+  box-sizing: border-box;
+  padding-bottom: var(--native-safe-bottom);
+}
+/* The title begins where the mark's half ends. The curtain's two halves are the
+   grid's two rows, and the container centres each half's contents, so the title
+   was being centred in the lower half — about a third of a screen below the
+   equator. `align-self: start` puts the block at the top of its own row, which
+   is the equator exactly, at every size.
+
+   A negative `margin-top` is the tempting fix and the wrong one: the container
+   centres the *margin* box, so pulling the block up by 148px moves it up by 74.
+   Portrait only — the landscape curtain is a two-column grid and needs no
+   nudge. */
+@media (orientation: portrait) {
+  body.manorama-native .curtain-details {
+    align-self: start;
+    margin-top: 0;
+  }
+}
+/* The Close control is a square with a thin X in it, and no word. The wordmark
+   on the other side already names the panel, so "Close" was repeating it, and a
+   square matching the round controls the rest of the viewer uses keeps the panel
+   reading as the same family. */
+body.manorama-native .controls-panel-topbar .panel-close {
+  display: grid;
+  place-items: center;
+  gap: 0;
+  padding: 0;
+  width: var(--native-chrome-height);
+  height: var(--native-chrome-height);
+  border-radius: 0;
+}
+body.manorama-native .controls-panel-topbar .panel-close > span:last-child { display: none; }
+body.manorama-native .controls-panel-topbar .panel-close-mark {
+  font-size: calc(var(--native-chrome-height) * .52);
+  font-weight: 200;
+  line-height: 1;
 }
