@@ -101,11 +101,22 @@ Full table in `README.md` § Project layout.
 bun install
 bun run dev                  # vite dev server with the dev-seed plugin, port 5173
 bunx tsc --noEmit            # typecheck — must be clean
-bun test                     # unit tests — 449 passing at time of writing
+bun run test:unit            # unit tests — 1050 passing at time of writing
 bun run build                # client + worker production build
 bunx playwright test         # acceptance suite; needs a seeded dev server
 bun run vendo:check          # contract drift
 ```
+
+`bun test` does **not** work from the repository root in this checkout. The git worktrees
+live inside the repository at `.worktrees/`, each with its own `node_modules` — about a
+million files under bun's scan root — so the runner dies with `EMFILE` before it can load
+its preload. `bun run test:unit` mirrors the working tree into a scratch root without the
+worktrees and runs the suite from there. Running the suite from a subdirectory instead is
+not equivalent: the preloaded DOM renderer is order-sensitive, and `app/server.test.ts` is
+30 pass / 0 fail from the repository root but 25 pass / 5 fail from `app/`. Two files —
+`app/lib/gallery-retention.test.ts` and `app/account-deletion-api.test.ts` — start a local
+miniflare server, so they need a writable `~/.wrangler` and permission to bind a loopback
+port. Details in `VERIFICATION.md` § Running the unit suite.
 
 Playwright needs the dev seed, which needs `MANORAMA_DEV_SOURCE_*` vars in `.env.local`:
 
@@ -148,7 +159,7 @@ profile lives in `~/Library/Developer/Xcode/UserData/Provisioning Profiles/` and
 covers bundle `in.thecontrarian.manorama` plus the connected device. No Xcode GUI step or
 manual profile download is needed — the build resolves everything on its own.
 
-**Definition of done for any change:** `bunx tsc --noEmit` clean, `bun test` green, and the
+**Definition of done for any change:** `bunx tsc --noEmit` clean, `bun run test:unit` green, and the
 Playwright matrix green for anything touching the viewer. No exceptions during a deadline
 week — a red suite on Friday is how a submission gets missed.
 
