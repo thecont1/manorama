@@ -294,7 +294,7 @@ export const createManoramaApi = () => {
     try {
       return c.json({
         users: await listUsersForAdmin(dbEnv(c)),
-        suppressions: await listAdSuppressions(dbEnv(c)).catch(() => []),
+        suppressions: await listAdSuppressions(dbEnv(c)),
       })
     } catch {
       return c.json({ error: 'The operations overview is temporarily unavailable' }, 503)
@@ -305,8 +305,12 @@ export const createManoramaApi = () => {
     const session = c.get('manoramaSession')
     if (!accountId) return c.json({ error: 'That account was not found' }, 404)
     if (accountId === session.accountId) return c.json({ error: 'The master account cannot be deleted from this console' }, 409)
-    const payload = await c.req.json<{ confirmAccountId?: string }>().catch((): { confirmAccountId?: string } => ({}))
-    if (payload.confirmAccountId?.trim() !== accountId) {
+    const payload = await c.req.json().catch(() => null) as unknown
+    const confirmAccountId = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      && typeof (payload as { confirmAccountId?: unknown }).confirmAccountId === 'string'
+      ? (payload as { confirmAccountId: string }).confirmAccountId.trim()
+      : null
+    if (confirmAccountId !== accountId) {
       return c.json({ error: 'Type the exact account ID to confirm deletion' }, 400)
     }
     if (!(await getUserByAccountId(accountId, dbEnv(c)))) return c.json({ error: 'That account was not found' }, 404)

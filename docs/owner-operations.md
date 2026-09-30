@@ -1,16 +1,16 @@
 # Owner operations
 
-Manorama has no public user directory or gallery index. The private master operations console lives at **`/ops`** and is available only to the immutable account ID configured as `MASTER_ACCOUNT_ID`.
+Manorama has no public user directory or gallery index. The private master operations console lives at **`/opman`** and is available only to the immutable account ID configured as `MASTER_ACCOUNT_ID`.
 
 ## Configure the master account
 
-Set `MASTER_ACCOUNT_ID` to the account's immutable `account_id` value in the Worker environment. Do not use an email address or the editable owner slug. In production, set it as a secret or protected environment value through the deployment system; never commit the value to the repository.
+Set `MASTER_ACCOUNT_ID` to the account's immutable `account_id` value in the Worker environment. The current deployment configuration uses `shantarm07`. Do not use an email address or the editable owner slug. In production, set it as a protected environment value through the deployment system; never commit a password to the repository.
 
-If the binding is absent, `/ops`, the account-monitoring API, and site-wide ad suppression management fail closed. A normal signed-in owner can still maintain their own galleries, but cannot access master controls.
+If the binding is absent, `/opman`, the account-monitoring API, and site-wide ad suppression management fail closed. A normal signed-in owner can still maintain their own galleries, but cannot access master controls.
 
 ## Monitor accounts
 
-Open `/ops` while signed in as the master account. The console shows:
+Open `/opman` while signed in as the master account. The console shows:
 
 - display name, owner slug, tier, immutable account ID, and creation date;
 - the number of stored galleries, device-gallery catalogues, and linked sign-in identities;

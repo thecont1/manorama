@@ -40,6 +40,40 @@ describe('master operations API', () => {
     expect(JSON.stringify(body)).not.toContain('provider_subject')
   })
 
+  test('does not turn suppression storage failures into an empty overview', async () => {
+    const api = createManoramaApi()
+    const row = {
+      account_id: TEST_OWNER.accountId,
+      owner_slug: 'test-owner',
+      display_name: TEST_OWNER.displayName,
+      email: TEST_OWNER.email,
+      tier: 'free',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      gallery_count: 0,
+      device_gallery_count: 0,
+      identity_count: 0,
+    }
+    const failingDb = {
+      prepare(sql: string) {
+        const statement = {
+          bind: () => statement,
+          first: async () => row,
+          all: async () => {
+            if (sql.includes('ad_suppressions')) throw new Error('d1 unavailable')
+            return { results: [row] }
+          },
+        }
+        return statement
+      },
+    }
+    const response = await api.request('/api/admin/overview', {
+      headers: { Cookie: await sessionCookieFor(TEST_OWNER.accountId) },
+    }, { ...env, DB: failingDb as never })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'The operations overview is temporarily unavailable' })
+  })
+
   test('requires exact account ID confirmation and never deletes the master account', async () => {
     const api = createManoramaApi()
     const headers = { Cookie: await sessionCookieFor(TEST_OWNER.accountId), 'Content-Type': 'application/json' }
@@ -48,6 +82,15 @@ describe('master operations API', () => {
 
     const missingConfirmation = await api.request(path, { method: 'DELETE', headers, body: JSON.stringify({}) }, env)
     expect(missingConfirmation.status).toBe(400)
+
+    for (const body of [null, [], 42, 'acct_delete_me', true, { confirmAccountId: 42 }]) {
+      const malformed = await api.request(path, {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify(body),
+      }, env)
+      expect(malformed.status).toBe(400)
+    }
 
     const deleted = await api.request(path, { method: 'DELETE', headers, body: JSON.stringify({ confirmAccountId: other.accountId }) }, env)
     expect(deleted.status).toBe(200)
