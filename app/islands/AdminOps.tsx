@@ -131,7 +131,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
           <div><p class="eyebrow">site-wide</p><h2 id="ops-settings-heading">Global presentation</h2></div>
           <span class="ops-count">{suppressions.length} active</span>
         </div>
-        <p class="ops-copy">These settings affect all public gallery plates. Day values use UTC. Region values are ISO-3166 alpha-2 viewer-country codes supplied by Cloudflare Geo-IP; an undetermined country fails open and shows the plate.</p>
+        <p class="ops-copy">These settings affect all public gallery cards. Day values use UTC. Region values are ISO-3166 alpha-2 viewer-country codes supplied by Cloudflare Geo-IP; an undetermined country fails open and may show a card.</p>
         <div class="ops-settings-grid">
           <form onSubmit={(event: Event) => { event.preventDefault(); void toggleSuppression('day', day, !isSuppressed('day', day)) }}>
             <label>UTC day<input type="date" value={day} onInput={(event) => setDay((event.target as HTMLInputElement).value)} /></label>
