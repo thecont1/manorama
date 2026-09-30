@@ -410,6 +410,26 @@ describe('openGalleryNetworkFirst', () => {
     await opened.cacheFill
     expect(cacheFinished).toBe(true)
   })
+
+  test('stream policy does not start a new vault cache fill', async () => {
+    let cacheCalls = 0
+    const { store } = makeHarness()
+    const originalCache = store.cache.bind(store)
+    store.cache = async (...args) => {
+      cacheCalls += 1
+      return originalCache(...args)
+    }
+
+    const opened = await openGalleryNetworkFirst({
+      selection,
+      store,
+      cachePolicy: 'stream',
+      fetchOnline: async () => gallery,
+    })
+    expect(opened.source).toBe('online')
+    expect(opened.cacheFill).toBeUndefined()
+    expect(cacheCalls).toBe(0)
+  })
 })
 
 describe('EncryptedOfflineGalleryStore catalog and purge', () => {

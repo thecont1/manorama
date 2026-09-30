@@ -97,6 +97,7 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
     snapshotValue: {
       cap: FREE_VAULT_CAP_BYTES,
       preference: undefined,
+      loadPolicy: 'vault',
       usage: usage(),
       galleries: [...summaries],
       ...snapshot,
@@ -112,6 +113,9 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
       calls.selectCap.push(preference)
       this.snapshotValue = { ...this.snapshotValue, cap: preference === null ? null : preference, preference }
       return { evictedBytes: 0 }
+    },
+    async selectLoadPolicy(policy) {
+      this.snapshotValue = { ...this.snapshotValue, loadPolicy: policy }
     },
     async purgeGallery(galleryId) {
       if (this.failNextPurge) {

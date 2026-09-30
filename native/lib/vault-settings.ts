@@ -4,6 +4,11 @@ import type { OfflineGallerySummary, OfflineGalleryStore } from './offline-galle
 import { DEFAULT_VAULT_CAP_BYTES, type EncryptedVault, type VaultUsage } from './vault'
 
 export const VAULT_CAP_PREFERENCE_KEY = 'manorama.vault.cap'
+export const VAULT_LOAD_POLICY_KEY = 'manorama.vault.load-policy'
+/** Whether newly opened online galleries are downloaded into the encrypted
+ * vault or left as cloud URLs that the viewer loads on demand. */
+export type VaultLoadPolicy = 'vault' | 'stream'
+export const DEFAULT_VAULT_LOAD_POLICY: VaultLoadPolicy = 'vault'
 /** The Free default and ceiling. Pro may hold any positive cap or unlimited. */
 export const FREE_VAULT_CAP_BYTES = DEFAULT_VAULT_CAP_BYTES
 const UNLIMITED_VALUE = 'unlimited'
@@ -46,6 +51,18 @@ export const saveVaultCapPreference = async (
 ): Promise<void> =>
   persistence.set(VAULT_CAP_PREFERENCE_KEY, preference === null ? UNLIMITED_VALUE : String(preference))
 
+export const loadVaultLoadPolicy = async (
+  persistence: VaultCapPersistence = preferencesPersistence,
+): Promise<VaultLoadPolicy> => {
+  const raw = await persistence.get(VAULT_LOAD_POLICY_KEY)
+  return raw === 'stream' || raw === 'vault' ? raw : DEFAULT_VAULT_LOAD_POLICY
+}
+
+export const saveVaultLoadPolicy = async (
+  policy: VaultLoadPolicy,
+  persistence: VaultCapPersistence = preferencesPersistence,
+): Promise<void> => persistence.set(VAULT_LOAD_POLICY_KEY, policy)
+
 /**
  * The cap the vault should hold right now. A stored choice survives tier
  * changes verbatim — it is only clamped at resolution time. Unknown
@@ -75,6 +92,8 @@ export type VaultSettingsSnapshot = {
   cap: number | null
   /** The user's stored choice (undefined = default). */
   preference: VaultCapPreference | undefined
+  /** The policy applied to newly opened online galleries. */
+  loadPolicy: VaultLoadPolicy
   usage: VaultUsage
   galleries: OfflineGallerySummary[]
 }
@@ -84,6 +103,7 @@ export interface VaultSettingsController {
   /** Persist the choice and apply it. Lowering the cap evicts immediately —
     the control explains that offline copies may be removed. */
   selectCap(preference: VaultCapPreference): Promise<{ evictedBytes: number }>
+  selectLoadPolicy(policy: VaultLoadPolicy): Promise<void>
   purgeGallery(galleryId: string): Promise<void>
   /** Cryptographic erasure of every cached gallery. Preferences and all
    *  non-vault credentials are deliberately left alone. */
@@ -101,13 +121,14 @@ export const createVaultSettingsController = (options: {
   return {
     async snapshot() {
       const preference = await loadVaultCapPreference(persistence)
+      const loadPolicy = await loadVaultLoadPolicy(persistence)
       // Snapshot is the apply seam: the resolved cap reaches the vault on
       // every read — startup and post-purchase alike — before a later write
       // could evict under the stale default. Reporting vault.cap keeps the
       // UI honest about what is actually enforced.
       applyVaultCap(options.vault, options.tier(), preference)
       const [usage, galleries] = await Promise.all([options.vault.usage(), options.store.listGalleries()])
-      return { cap: options.vault.cap, preference, usage, galleries }
+      return { cap: options.vault.cap, preference, loadPolicy, usage, galleries }
     },
     async selectCap(preference) {
       assertCapAllowed(options.tier(), preference)
@@ -115,6 +136,9 @@ export const createVaultSettingsController = (options: {
       options.vault.setCap(resolveVaultCap(options.tier(), preference))
       const { removedBytes } = await options.vault.evictToCap()
       return { evictedBytes: removedBytes }
+    },
+    async selectLoadPolicy(policy) {
+      await saveVaultLoadPolicy(policy, persistence)
     },
     async purgeGallery(galleryId) {
       await options.store.purgeGallery(galleryId)

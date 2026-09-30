@@ -9,6 +9,27 @@ type NativeTokenResponse = { token?: string; ownerSlug?: string }
 const SESSION_TOKEN_KEY = 'manorama.session-token'
 const OWNER_SLUG_KEY = 'manorama.owner-slug'
 export const NATIVE_CALLBACK_URL = 'in.thecontrarian.manorama://auth/callback'
+export type NativeGallerySelection = { owner: string; slug: string }
+
+/** Accept only public Manorama gallery URLs. Auth callbacks and arbitrary
+ * external HTTPS links must never be turned into gallery selections. */
+export const gallerySelectionFromDeepLink = (
+  rawUrl: string,
+  apiBase = 'https://manorama.xyz',
+): NativeGallerySelection | null => {
+  try {
+    const url = new URL(rawUrl)
+    const expected = new URL(`${apiBase.replace(/\/+$/, '')}/`)
+    if (url.protocol !== 'https:' || url.hostname !== expected.hostname) return null
+    const parts = url.pathname.split('/').filter(Boolean)
+    if (parts.length !== 2 || url.search || url.hash) return null
+    const [owner, slug] = parts
+    if (!owner || !slug || !/^[a-z0-9-]+$/i.test(owner) || !/^[a-z0-9-]+$/i.test(slug)) return null
+    return { owner, slug }
+  } catch {
+    return null
+  }
+}
 
 export const authErrorMessage = (reason: unknown): string =>
   reason instanceof Error && reason.message.trim() ? reason.message : 'Sign-in could not be completed. Please try again.'
@@ -152,18 +173,24 @@ const exchangeHandoff = async (url: string, apiBase: string): Promise<boolean> =
 export const installNativeAuth = async (
   apiBase: string,
   onError?: (message: string) => void,
+  onGalleryOpen?: (selection: NativeGallerySelection) => void,
 ): Promise<() => Promise<void>> => {
   const reportError = (reason: unknown) => onError?.(authErrorMessage(reason))
-  const handleExchange = (url: string) => {
+  const handleUrl = (url: string) => {
+    const selection = gallerySelectionFromDeepLink(url, apiBase)
+    if (selection) {
+      onGalleryOpen?.(selection)
+      return
+    }
     void exchangeHandoff(url, apiBase)
       .then((handled) => {
         if (handled && typeof window !== 'undefined') window.location.reload()
       })
       .catch(reportError)
   }
-  const listener = await App.addListener('appUrlOpen', ({ url }) => handleExchange(url))
+  const listener = await App.addListener('appUrlOpen', ({ url }) => handleUrl(url))
   const launch = await App.getLaunchUrl()
-  if (launch?.url) handleExchange(launch.url)
+  if (launch?.url) handleUrl(launch.url)
   return async () => listener.remove()
 }
 

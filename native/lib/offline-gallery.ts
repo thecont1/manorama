@@ -2,6 +2,7 @@ import type { GalleryImage, GalleryManifest, GalleryMediaItem, ImageVariant } fr
 import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import { NativeGalleryHttpError, type NativeGalleryResponse } from './api'
+import type { VaultLoadPolicy } from './vault-settings'
 import { thumbnailEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault } from './vault'
@@ -527,11 +528,16 @@ export const openGalleryNetworkFirst = async (options: {
   selection: GallerySelection
   fetchOnline(signal?: AbortSignal): Promise<NativeGalleryResponse>
   store: OfflineGalleryStore
+  /** Defaults to the secure on-device vault. Stream mode never starts a new
+   * cache fill, but existing complete vault copies remain available offline. */
+  cachePolicy?: VaultLoadPolicy
   signal?: AbortSignal
 }): Promise<NetworkFirstGallery> => {
   try {
     const gallery = await options.fetchOnline(options.signal)
-    const cacheFill = options.store.cache(options.selection, gallery, options.signal)
+    const cacheFill = options.cachePolicy === 'stream'
+      ? undefined
+      : options.store.cache(options.selection, gallery, options.signal)
     return { ...gallery, source: 'online', cacheFill }
   } catch (networkError) {
     throwIfAborted(options.signal)

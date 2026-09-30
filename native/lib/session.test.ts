@@ -7,6 +7,7 @@ import {
   clearSessionToken,
   getOwnerSlug,
   getSessionToken,
+  gallerySelectionFromDeepLink,
   setOwnerSlug,
 } from './session'
 
@@ -66,6 +67,17 @@ describe('beginProviderSignIn', () => {
 })
 
 describe('native OAuth callback', () => {
+  test('extracts only a two-segment public gallery link', () => {
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy')).toEqual({
+      owner: 'thecontrarian',
+      slug: 'italy',
+    })
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/auth/callback?handoff=x')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://example.com/thecontrarian/italy')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy?mode=single')).toBeNull()
+    expect(gallerySelectionFromDeepLink('in.thecontrarian.manorama://auth/callback')).toBeNull()
+  })
+
   test('uses the manorama custom scheme and auth host', () => {
     const url = new URL(`${NATIVE_CALLBACK_URL}?handoff=abc`)
     expect(url.protocol).toBe('in.thecontrarian.manorama:')

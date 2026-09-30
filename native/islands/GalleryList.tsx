@@ -22,7 +22,8 @@ import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '.
 import { thumbnailEntryId } from '../lib/thumbs'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
-import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider } from '../lib/session'
+import { clearSessionToken, getOwnerSlug, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
+import { DEFAULT_VAULT_LOAD_POLICY, loadVaultLoadPolicy, saveVaultLoadPolicy, type VaultLoadPolicy } from '../lib/vault-settings'
 import type { AdSuppression } from '../../app/lib/ads-visibility'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../lib/fold'
 import Paywall from './Paywall'
@@ -35,6 +36,8 @@ type Props = {
   apiBase: string
   owner?: string
   slug?: string
+  /** A public HTTPS gallery link delivered while the app is cold or running. */
+  deepLinkSelection?: NativeGallerySelection | null
   onSignIn?: (provider: AuthProvider) => void
   authError?: string | null
   billing?: RevenueCatBilling
@@ -77,12 +80,14 @@ export const galleryStatusMessage = (status: GalleryStatus): string => {
 
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
-export default function GalleryList({ apiBase, owner, slug, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
+export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
   const initial = selectionFromLocation()
   const [selection, setSelection] = useState<Selection>({
     owner: owner ?? initial.owner,
     slug: slug ?? initial.slug,
   })
+  const [loadPolicy, setLoadPolicy] = useState<VaultLoadPolicy | null>(null)
+  const [policySaving, setPolicySaving] = useState(false)
   const [ownerInput, setOwnerInput] = useState(selection.owner)
   const [slugInput, setSlugInput] = useState(selection.slug)
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
@@ -126,7 +131,25 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
   useEffect(() => {
-    if (!selection.owner || !selection.slug) return
+    let active = true
+    void loadVaultLoadPolicy().then((policy) => {
+      if (active) setLoadPolicy(policy)
+    }).catch(() => {
+      if (active) setLoadPolicy(DEFAULT_VAULT_LOAD_POLICY)
+    })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!deepLinkSelection) return
+    setFrameKick({ index: 0, nonce: 0 })
+    setOwnerInput(deepLinkSelection.owner)
+    setSlugInput(deepLinkSelection.slug)
+    setSelection(deepLinkSelection)
+  }, [deepLinkSelection?.owner, deepLinkSelection?.slug])
+
+  useEffect(() => {
+    if (!selection.owner || !selection.slug || loadPolicy === null) return
     const controller = new AbortController()
     let active = true
     let currentManifest: GalleryManifest | null = null
@@ -144,7 +167,11 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       setSettings(gallery.settings)
       setStatus(gallery.source)
       setError(null)
-      const cacheReady = gallery.cacheFill ?? Promise.resolve(undefined)
+          // Streaming mode deliberately does not start a cache fill. Existing
+          // encrypted galleries may still be opened offline, but a fresh
+          // online link never writes image bytes when the policy is stream.
+          if (gallery.source === 'online' && !gallery.cacheFill) return
+          const cacheReady = gallery.cacheFill ?? Promise.resolve(undefined)
       void cacheReady
         .then(async () => {
           if (!active) return
@@ -172,6 +199,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       return openGalleryNetworkFirst({
         selection,
         store: productionOfflineGalleryStore,
+        cachePolicy: loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY,
         signal: controller.signal,
         fetchOnline: (signal) => fetchGallery(base, selection.owner, selection.slug, signal),
       })
@@ -211,7 +239,7 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       window.removeEventListener('online', upgradeWhenOnline)
       disposeLease()
     }
-  }, [base, selection.owner, selection.slug])
+  }, [base, loadPolicy, selection.owner, selection.slug])
 
   // Visibility resolves once per base — it is a day/region answer, not a
   // per-gallery one.
@@ -404,6 +432,20 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
       // A RevenueCat sign-out failure must not trap the manorama session.
     }
     if (typeof window !== 'undefined') window.location.reload()
+  }
+
+  const changeLoadPolicy = async (next: VaultLoadPolicy) => {
+    const previous = loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY
+    setLoadPolicy(next)
+    setPolicySaving(true)
+    try {
+      await saveVaultLoadPolicy(next)
+    } catch {
+      setLoadPolicy(previous)
+      setError('The gallery loading preference could not be saved on this device.')
+    } finally {
+      setPolicySaving(false)
+    }
   }
 
   /** Secure storage normally holds the URL name, but a session minted before
@@ -825,6 +867,24 @@ export default function GalleryList({ apiBase, owner, slug, onSignIn, authError,
                 </button>
               </div>
             ) : null}
+            <section class="native-load-policy" aria-labelledby="native-load-policy-title">
+              <h2 id="native-load-policy-title">Gallery loading</h2>
+              <label>
+                <span>When you open an online gallery</span>
+                <select
+                  value={loadPolicy ?? DEFAULT_VAULT_LOAD_POLICY}
+                  disabled={policySaving || loadPolicy === null}
+                  onChange={(event: Event) => void changeLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}
+                >
+                  <option value="vault">Download to encrypted vault (default)</option>
+                  <option value="stream">Stream from cloud when needed</option>
+                </select>
+              </label>
+              <p class="native-account-note">
+                Vault copies are encrypted and visible only inside the manorama app — not in Files or another image viewer.
+                Streaming does not save new image bytes on this device.
+              </p>
+            </section>
             <button type="button" onClick={() => setGlobalViewOpen(true)}>
               Global view
             </button>
