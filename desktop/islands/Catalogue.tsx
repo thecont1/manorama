@@ -41,11 +41,9 @@ import {
 
 const CATALOGUE_FILE = 'catalogue.json'
 const DEVICE_LABEL = 'This Mac'
-
 const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
-
 const sourceLabel = (record: LocalGalleryRecord): string =>
-  record.sourceKind === 'card' ? 'Memory card' : 'Folder on this Mac'
+  record.sourceKind === 'card' ? 'Memory card' : 'Folder on this device'
 
 const openExternal = (url: string) => {
   // External links leave the app for the system browser via the opener
@@ -466,7 +464,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         <header class="desktop-list-heading">
           <div>
             <h1>Your galleries</h1>
-            <p>Folders and cards you have opened on this Mac.</p>
+            <p>Folders and cards you have opened on this device.</p>
           </div>
           <div class="desktop-toolbar">
             <button type="button" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : 'Choose a folder or card'}</button>
