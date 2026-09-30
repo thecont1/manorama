@@ -58,6 +58,22 @@ const openExternal = (url: string) => {
   }
 }
 
+const PRIVACY_URL = 'https://manorama.xyz/privacy'
+const AUTHOR_URL = 'https://thecontrarian.in'
+
+/** The footer markup the web and mobile shells use, verbatim, with the click
+ *  routed to the system browser: inside the Tauri webview a bare external href
+ *  would navigate the app itself away from the catalogue. */
+const externalAnchor = (url: string) => ({
+  href: url,
+  target: '_blank',
+  rel: 'noopener',
+  onClick: (event: MouseEvent) => {
+    event.preventDefault()
+    openExternal(url)
+  },
+})
+
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
@@ -368,7 +384,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     )
   }
 
-  if (desktopScreen({ signedIn: !!session, galleryCount: catalogue.galleries.length }) === 'welcome') {
+  if (desktopScreen({ signedIn: !!session }) === 'welcome') {
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
@@ -380,21 +396,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </span>
             </header>
             <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-            <div class="desktop-welcome-actions">
-              <button type="button" class="desktop-folder-action" onClick={() => void addFolder()} disabled={busy || !catalogue}>
-                <span class="desktop-action-kicker">Start locally</span>
-                <strong>{busy ? 'Scanning…' : 'Choose a folder or card'}</strong>
-              </button>
-              <p class="desktop-welcome-caption">Originals stay where you keep them — nothing is copied, uploaded, or moved.</p>
-            </div>
             <div class="desktop-signin">
               <span class="desktop-signin-lead">Continue with</span>
               <div class="desktop-signin-icons">
                 {[...SIGN_IN_PROVIDERS]
                   .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
-                  .map(({ id, name, Glyph }) => (
-                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${name}`} onClick={() => signIn(id)}>
+                  .map(({ id, label, Glyph }) => (
+                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${label}`} onClick={() => signIn(id)}>
                       <Glyph />
+                      <span class="desktop-signin-label">{label}</span>
                     </button>
                   ))}
               </div>
@@ -404,8 +414,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             {pasteForm}
           </div>
           <footer class="site-footer">
-            <button type="button" class="site-footer-link" onClick={() => openExternal('https://manorama.xyz/privacy')}>Privacy Policy</button>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
+            <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
           </footer>
         </main>
       </>
@@ -447,8 +457,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {notice ? <p class="landing-note" role="status">{notice}</p> : null}
           {pasteForm}
           <footer class="site-footer desktop-account-footer">
-            <button type="button" class="site-footer-link" onClick={() => openExternal('https://manorama.xyz/privacy')}>Privacy Policy</button>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram</p>
+            <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
+            <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
           </footer>
         </div>
       </div>

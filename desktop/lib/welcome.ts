@@ -1,12 +1,13 @@
 /**
- * Which top-level surface the desktop shell shows: the landing-style welcome
- * is only for a signed-out launch with an empty catalogue — anyone with saved
- * galleries or a session goes straight to the catalogue.
+ * Which top-level surface the desktop shell shows. A signed-out launch always
+ * lands on the welcome surface, because signing in is the only thing anyone can
+ * do until they have: the Mac shell used to open the catalogue for a signed-out
+ * owner with saved galleries, which let a local folder be opened before sign-in
+ * and put the Mac out of step with the mobile shells. Nothing is lost — the
+ * saved catalogue reappears the moment the session restores.
  */
-export const desktopScreen = (state: {
-  signedIn: boolean
-  galleryCount: number
-}): 'welcome' | 'catalogue' => (!state.signedIn && state.galleryCount === 0 ? 'welcome' : 'catalogue')
+export const desktopScreen = (state: { signedIn: boolean }): 'welcome' | 'catalogue' =>
+  state.signedIn ? 'catalogue' : 'welcome'
 
 /**
  * The paste-the-link fallback exists only because a `tauri dev` build cannot

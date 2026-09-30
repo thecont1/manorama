@@ -32,9 +32,9 @@ const AppleGlyph = () => (
 )
 
 export const SIGN_IN_PROVIDERS = [
-  { id: 'dropbox', name: 'Dropbox', Glyph: DropboxGlyph },
-  { id: 'google', name: 'Google', Glyph: GoogleGlyph },
-  { id: 'apple', name: 'Apple', Glyph: AppleGlyph },
+  { id: 'dropbox', name: 'Dropbox', label: 'Dropbox', Glyph: DropboxGlyph },
+  { id: 'google', name: 'Google', label: 'Google Drive', Glyph: GoogleGlyph },
+  { id: 'apple', name: 'Apple', label: 'Apple', Glyph: AppleGlyph },
 ] as const
 
 export const SignInLinks = ({

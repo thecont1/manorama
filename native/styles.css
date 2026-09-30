@@ -40,7 +40,7 @@ body.manorama-native .stage-arrows {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
   gap: 6px;
-  height: clamp(44px, 7.4svh, 68px);
+  height: var(--native-chrome-height);
   pointer-events: none;
 }
 body.manorama-native .stage-arrows--vertical { flex-direction: initial; align-items: stretch; }
@@ -84,6 +84,11 @@ body.manorama-native .control-logo {
   z-index: 22;
   left: 50%;
   bottom: max(12px, var(--native-safe-bottom));
+  /* This button is `position: fixed`, so the `height: 100%` it shares with the
+     row's buttons above resolved against the viewport, not the row: the
+     wordmark and its pill painted at viewport scale and floated behind the
+     photographs. Pin it to the row height instead. */
+  height: var(--native-chrome-height);
   width: calc((100vw - (2 * max(12px, var(--native-safe-left))) - (2 * max(12px, var(--native-safe-right))) - 18px) / 4);
   display: grid;
   place-items: center;
@@ -95,7 +100,10 @@ body.manorama-native .control-logo {
 body.manorama-native .control-logo:hover { transform: translateX(-50%); }
 body.manorama-native .control-logo .brand-mark-wrap {
   width: auto;
-  height: 78%;
+  /* A percentage height is no safer here than on the button: the wrap's
+     containing block is a fixed-position element, so 78% resolved against the
+     viewport and the wordmark painted at viewport scale. Derive it instead. */
+  height: calc(var(--native-chrome-height) * .78);
   margin: 0 auto;
   opacity: .9;
   transform: none;
@@ -141,6 +149,9 @@ body.manorama-native .control-logo .brand-mark-wrap::before { inset: -5px -12px;
   --native-safe-right: env(safe-area-inset-right, 0px);
   --native-safe-bottom: env(safe-area-inset-bottom, 0px);
   --native-safe-left: env(safe-area-inset-left, 0px);
+  /* One height for the whole bottom control row — the row, the brand button and
+     the wordmark inside it all derive from this, so they cannot drift apart. */
+  --native-chrome-height: clamp(44px, 7.4svh, 68px);
 }
 
 /* fold.ts reads these values instead of guessing from a device UA. The
@@ -468,21 +479,28 @@ body:has(.native-diptych) {
 }
 
 .native-signin-icons {
-  position: relative;
-  width: min(196px, 72vw);
-  height: 150px;
+  /* Three glyphs in a row, each named beneath. The row is the whole chooser, so
+     no glyph depends on its neighbour's position to be understood. */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: clamp(10px, 3vw, 28px);
+  /* No width on the row: it stays full-width so `justify-content` centres the
+     cells under the lead whatever the landing column's inset happens to be. */
   margin-inline: auto;
 }
 
 /* Bare glyphs, no button chrome — the hit area is generous but invisible,
    and the bob rides on the svg so the clickable box never moves. */
 .native-signin-icons .native-signin-icon {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 76px;
-  height: 76px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
+     "Google Drive" is more than twice "Apple" and would otherwise push the row
+     off centre. */
+  flex: 0 0 clamp(88px, 26vw, 112px);
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -491,9 +509,16 @@ body:has(.native-diptych) {
   cursor: pointer;
 }
 
-.native-signin-icons .native-signin-icon:nth-child(1) { left: 50%; top: 0; transform: translateX(-50%); }
-.native-signin-icons .native-signin-icon:nth-child(2) { left: 0; top: 66px; }
-.native-signin-icons .native-signin-icon:nth-child(3) { right: 0; top: 66px; }
+/* The visible name is the accessible name too: WCAG 2.5.3 wants the visible
+   label inside the accessible one, and the row has to read on its own. */
+.native-signin-icons .native-signin-label {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+  white-space: nowrap;
+}
 
 .native-signin-icons .native-signin-icon svg {
   width: 46px;

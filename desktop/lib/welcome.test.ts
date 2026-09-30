@@ -2,17 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { desktopScreen, showPasteFallback } from './welcome'
 
 describe('desktopScreen', () => {
-  test('signed out with an empty catalogue shows the welcome screen', () => {
-    expect(desktopScreen({ signedIn: false, galleryCount: 0 })).toBe('welcome')
+  // "Signed out with saved galleries still shows the catalogue" used to be
+  // asserted here. That is precisely the behaviour the Mac shell dropped to
+  // match the mobile shells, where sign-in precedes everything, so the case is
+  // gone rather than inverted — the gallery count no longer enters the decision.
+  test('a signed-out launch shows the welcome surface', () => {
+    expect(desktopScreen({ signedIn: false })).toBe('welcome')
   })
-  test('signed out with saved galleries still shows the catalogue', () => {
-    expect(desktopScreen({ signedIn: false, galleryCount: 2 })).toBe('catalogue')
-  })
-  test('signed in with an empty catalogue shows the catalogue', () => {
-    expect(desktopScreen({ signedIn: true, galleryCount: 0 })).toBe('catalogue')
-  })
-  test('signed in with saved galleries shows the catalogue', () => {
-    expect(desktopScreen({ signedIn: true, galleryCount: 2 })).toBe('catalogue')
+  test('a signed-in launch shows the catalogue, even when it is empty', () => {
+    expect(desktopScreen({ signedIn: true })).toBe('catalogue')
   })
 })
 

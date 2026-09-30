@@ -5,6 +5,9 @@
    photo-first viewer geometry while retaining local-folder affordances. */
 body.manorama-desktop {
   --desktop-safe-top: 28px;
+  /* One height for the whole bottom control row — the row, the brand button and
+     the wordmark inside it all derive from this, so they cannot drift apart. */
+  --desktop-chrome-height: clamp(48px, 7.4svh, 72px);
   background: var(--gallery-canvas);
   color: rgb(var(--ink));
   padding: 0;
@@ -47,24 +50,6 @@ body.manorama-desktop {
   font-size: clamp(15px, 1.35vw, 20px);
   line-height: 1.45;
 }
-.desktop-welcome-actions { width: min(100%, 520px); margin: clamp(42px, 8vh, 92px) auto 0; }
-.desktop-folder-action {
-  display: grid;
-  gap: 8px;
-  width: 100%;
-  padding: 18px 24px;
-  border: 1px solid rgba(var(--ink), .24);
-  border-radius: 999px;
-  background: rgba(10, 10, 10, .38);
-  color: rgb(var(--ink));
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.desktop-folder-action:hover,
-.desktop-folder-action:focus-visible { border-color: rgba(var(--ink), .78); background: rgba(10, 10, 10, .62); }
-.desktop-folder-action:disabled { opacity: .55; cursor: progress; }
-.desktop-action-kicker,
 .desktop-signin-lead {
   color: rgba(var(--ink), .52);
   font-family: 'DM Mono', ui-monospace, monospace;
@@ -72,27 +57,39 @@ body.manorama-desktop {
   letter-spacing: .08em;
   text-transform: uppercase;
 }
-.desktop-folder-action strong { font-size: 16px; font-weight: 400; }
-.desktop-welcome-caption { margin: 14px 0 0; color: rgba(var(--ink), .58); font-size: 12px; line-height: 1.45; }
 .desktop-signin { margin-top: clamp(42px, 7vh, 78px); text-align: center; }
 .desktop-signin-lead { display: block; margin-bottom: 22px; }
-.desktop-signin-icons { position: relative; width: 196px; height: 142px; margin-inline: auto; }
+/* Three glyphs in a row, each named beneath. The row is the whole chooser, so
+   no glyph depends on its neighbour's position to be understood. */
+/* 100%, not a viewport unit: the landing column is inset, and a row sized off
+   the viewport overflows it and stops being centred under the lead. No width on
+   the row: it stays full-width so `justify-content` centres the cells. */
+.desktop-signin-icons { display: flex; justify-content: center; align-items: flex-start; gap: clamp(8px, 2.5vw, 28px); margin-inline: auto; }
 .desktop-signin-icon {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 76px;
-  height: 76px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
+     "Google Drive" is more than twice "Apple" and would otherwise push the row
+     off centre. */
+  flex: 0 0 clamp(88px, 26vw, 112px);
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
   color: rgb(var(--ink));
   cursor: pointer;
 }
-.desktop-signin-icon:nth-child(1) { left: 50%; top: 0; transform: translateX(-50%); }
-.desktop-signin-icon:nth-child(2) { left: 0; top: 62px; }
-.desktop-signin-icon:nth-child(3) { right: 0; top: 62px; }
+/* The visible name is the accessible name too: WCAG 2.5.3 wants the visible
+   label inside the accessible one, and the row has to read on its own. */
+.desktop-signin-label {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+  white-space: nowrap;
+}
 .desktop-signin-icon svg { width: 46px; height: 46px; filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28)); transition: transform 180ms cubic-bezier(.3, 1.45, .5, 1), filter 180ms ease; }
 .desktop-signin-icon:hover svg,
 .desktop-signin-icon:focus-visible svg { transform: translateY(-4px) scale(1.08); filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45)); }
@@ -211,3 +208,13 @@ body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: 78%;
 @media (prefers-reduced-motion: reduce) {
   .desktop-signin-icon svg { transition: none; }
 }
+/* This button is `position: fixed`, so the `height: 100%` it shares with the
+   row's buttons above resolved against the viewport, not the row: the wordmark
+   and its pill painted at viewport scale and floated behind the photographs.
+   Pin it to the row height instead. */
+body.manorama-desktop .control-logo { height: var(--desktop-chrome-height); }
+body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
+/* A percentage height is no safer here than on the button: the wrap's containing
+   block is a fixed-position element, so 78% resolved against the viewport and
+   the wordmark painted at viewport scale. Derive it instead. */
+body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: calc(var(--desktop-chrome-height) * .78); margin: 0 auto; opacity: .9; transform: none; animation: none; }
