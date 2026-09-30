@@ -26,7 +26,7 @@
 # Usage:
 #   bun run test:unit              # whole suite
 #   bun run test:unit -- -t 'name' # any extra arguments reach `bun test`
-#   MANORAMA_TEST_ROOT=/tmp/x bun run test:unit
+#   MANORAMA_TEST_ROOT=/tmp/x bun run test:unit  # parent dir for the mirror
 #
 # Caveat: the mirror is not a git checkout, so a spec that shells out to git, or
 # one run with `-u` to rewrite snapshots, would write into the mirror rather than
@@ -35,9 +35,14 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-root="${MANORAMA_TEST_ROOT:-${TMPDIR:-/tmp}/manorama-test-root}"
 
-mkdir -p "$root"
+# Each run gets its own scratch dir so concurrent runs cannot rsync over each
+# other, and `--delete` can never reach files the script did not create.
+# MANORAMA_TEST_ROOT, when set, is the parent — never the mirror itself.
+parent="${MANORAMA_TEST_ROOT:-${TMPDIR:-/tmp}/manorama-test-root}"
+mkdir -p "$parent"
+root="$(mktemp -d "$parent/run-XXXXXXXX")"
+trap 'rm -rf "$root"' EXIT
 
 # Build output and the nested worktrees are the only large subtrees; everything
 # else is small enough to copy on every run.
@@ -63,4 +68,4 @@ rsync -a --delete \
 ln -sfn "$repo/node_modules" "$root/node_modules"
 
 cd "$root"
-exec bun test "$@"
+bun test "$@"
