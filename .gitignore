@@ -19,3 +19,9 @@ playwright-report/
 # Tauri build artifacts and generated capability schemas
 src-tauri/target/
 src-tauri/gen/
+
+# Simulator derived data written by scripts/capture-screens.sh
+ios/build/
+
+# Per-run simulator ids
+.work/udid-*
