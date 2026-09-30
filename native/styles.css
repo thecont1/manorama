@@ -520,6 +520,65 @@ body:has(.native-diptych) {
   margin-top: 14px;
 }
 
+/* The signed-in phone view should get to the photographs quickly. Keep the
+   account copy intact, but reduce its display footprint so the first few
+   gallery rows are useful at a glance rather than below the fold. */
+@media (max-width: 819px) {
+  .native-list-shell {
+    place-items: start center;
+    padding: max(16px, var(--native-safe-top)) 20px max(20px, var(--native-safe-bottom));
+  }
+
+  .native-account-shell {
+    justify-content: start;
+    gap: 12px;
+  }
+
+  .native-account-side .landing-brand-mark {
+    width: min(220px, 56vw);
+  }
+
+  .native-account-side .landing-brand-intro {
+    margin-top: 8px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .native-account-side .admin-greeting {
+    margin-top: 4px;
+  }
+
+  .native-account-side .admin-greeting p {
+    margin-bottom: 8px;
+    font-size: 15px;
+    line-height: 1.28;
+  }
+
+  .native-list-card h1 {
+    margin-bottom: 8px;
+    font-size: clamp(30px, 8vw, 38px);
+    line-height: .95;
+  }
+
+  .native-list-card > p {
+    min-height: 0;
+    margin-bottom: 12px;
+    font-size: 13px;
+    line-height: 1.25;
+  }
+
+  .native-gallery-list button,
+  .native-gallery-row {
+    padding-block: 10px;
+  }
+
+  .native-gallery-title {
+    font-size: 15px;
+    line-height: 1.2;
+  }
+}
+
 .native-paywall-shell {
   min-height: 100svh;
   display: grid;
