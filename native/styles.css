@@ -495,6 +495,26 @@ body:has(.native-diptych) {
   overscroll-behavior: contain;
 }
 
+.native-account-editor-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+  color: rgba(var(--ink), .78);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.native-account-editor-label small {
+  color: rgba(var(--ink), .48);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .native-account-rail-track {
   display: flex;
   flex-direction: row;
@@ -511,8 +531,8 @@ body:has(.native-diptych) {
   position: relative;
   flex: 0 0 auto;
   width: auto;
-  height: 10dvh;
-  min-height: 10dvh;
+  height: 12dvh;
+  min-height: 12dvh;
   margin: 0;
   outline: none;
   cursor: grab;

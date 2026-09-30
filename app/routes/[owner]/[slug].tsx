@@ -44,6 +44,7 @@ export default createRoute(async (c) => {
     <GalleryShell settings={settings}>
       <Viewer
         slug={gallery.slug}
+        galleryTitle={gallery.title}
         images={source.list()}
         settings={settings}
         plate={plate}

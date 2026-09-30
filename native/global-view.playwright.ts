@@ -60,7 +60,7 @@ const openFixture = async (
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
 const enableGlobalView = async (page: Page) => {
-  await page.getByRole('button', { name: /open photo picker/ }).click()
+  await page.getByRole('button', { name: /open photo picker/i }).click()
 }
 
 test.beforeEach(() => {
@@ -87,9 +87,9 @@ test('lands the stage on a tapped frame that cannot dock at the left edge', asyn
   await openFixture(page)
   await enableGlobalView(page)
 
-  // Photograph 11's left edge lies past the strip's maximum scroll, so the
-  // entry end-docks — the requested frame is fully on stage and must own
-  // the position instead of the docked-end rule reporting photograph 12.
+  // A later frame remains directly selectable after the vertical contact sheet
+  // has materialized and scrolled beyond its first screenful.
+  await page.locator('[data-global-scroll]').evaluate((element) => { element.scrollTop = element.scrollHeight })
   await page.locator('[data-grid-frame]').nth(10).click()
   await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
 })
@@ -112,8 +112,8 @@ test('lands the stage on the last of two rapid frame taps', async ({ page }) => 
 
 test('stays in the local selector until enabled from admin', async ({ page }) => {
   await openFixture(page, undefined, false)
-  await page.getByRole('button', { name: /open selector/ }).click()
+  await page.getByRole('button', { name: /open Photo Picker/i }).click()
 
   await expect(page.locator('[data-global-view]')).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'All photographs' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Photo Picker' })).toBeVisible()
 })

@@ -20,6 +20,9 @@ type Props = {
   tier: NativeTier | undefined
   /** The gallery currently open on the stage — the Free tier's whole scope. */
   current: GallerySelection | null
+  /** The photograph currently on the stage, so the picker can keep the active
+   * frame visibly selected while other galleries remain available to Pro. */
+  active?: { selection: GallerySelection; index: number } | null
   objectUrls?: OfflineObjectUrlProvider
   onOpenFrame: (selection: GallerySelection, index: number) => void
   onClose: () => void
@@ -48,12 +51,14 @@ const FrameCell = ({
   frame,
   loader,
   observe,
+  active,
   onOpen,
 }: {
   gallery: OfflineGridGallery
   frame: OfflineGridFrame
   loader: GridThumbLoader
   observe: ((el: Element, cb: () => void) => () => void) | null
+  active: boolean
   onOpen: (selection: GallerySelection, index: number) => void
 }) => {
   const [url, setUrl] = useState<string | null>(() => loader.peek(gallery.galleryId, frame) ?? null)
@@ -83,9 +88,10 @@ const FrameCell = ({
     <button
       ref={cellRef}
       type="button"
-      class="native-global-cell"
+      class={`native-global-cell ${active ? 'is-active' : ''}`}
       data-grid-frame
       data-index={frame.index}
+      aria-current={active ? 'true' : undefined}
       style={`aspect-ratio: ${Math.max(1, frame.width)} / ${Math.max(1, frame.height)}`}
       onClick={() => onOpen({ owner: gallery.owner, slug: gallery.slug }, frame.index)}
       aria-label={`${gallery.title}, photo ${frame.index + 1} of ${gallery.frames.length}`}
@@ -103,6 +109,7 @@ export default function GlobalView({
   store,
   tier,
   current,
+  active = null,
   objectUrls = defaultObjectUrls,
   onOpenFrame,
   onClose,
@@ -197,13 +204,17 @@ export default function GlobalView({
       }
 
   const frameCount = galleries?.reduce((sum, gallery) => sum + gallery.frames.length, 0) ?? 0
+  const currentGallery = galleries?.find((gallery) => gallery.owner === current?.owner && gallery.slug === current?.slug)
+  const pickerMeta = currentGallery
+    ? `${currentGallery.title} · ${currentGallery.frames.length} photos`
+    : `${frameCount} photos`
 
   return (
     <section class="native-global-view" role="dialog" aria-modal="true" aria-label="Photo picker" data-global-view>
       <header class="native-global-header">
         <div>
-          <p class="native-global-kicker">Photos</p>
-          <h1>Choose a photograph</h1>
+          <h1>Photo Picker</h1>
+          <p class="native-global-picker-meta">{pickerMeta}</p>
         </div>
         <div class="native-global-header-actions">
           <button type="button" class="native-global-close" onClick={onClose} aria-label="Close photo picker">
@@ -224,12 +235,6 @@ export default function GlobalView({
         <div class="native-global-scroll" ref={gridRef} data-global-scroll>
           {galleries.map((gallery) => (
             <section class="native-global-gallery" key={gallery.galleryId}>
-              <h2>
-                {gallery.title}
-                <span class="native-global-gallery-meta">
-                  {gallery.frames.length} photos
-                </span>
-              </h2>
               <div class="native-global-grid" role="list">
                 {gallery.frames.map((frame) => (
                   <FrameCell
@@ -238,15 +243,13 @@ export default function GlobalView({
                     frame={frame}
                     loader={loader}
                     observe={observe}
+                    active={active?.selection.owner === gallery.owner && active.selection.slug === gallery.slug && active.index === frame.index}
                     onOpen={onOpenFrame}
                   />
                 ))}
               </div>
             </section>
           ))}
-          <p class="native-global-note native-global-count" aria-hidden="true">
-            {frameCount} photos
-          </p>
         </div>
       )}
     </section>

@@ -25,12 +25,13 @@ type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
 type Props = {
   slug: string
+  galleryTitle?: string
   images: readonly GalleryMediaItem[]
   settings: GallerySettings
   plate?: AdFrame | null
   /** Native shells route the existing position pill to their vault-backed
    *  global thumbnail picker. Web and desktop keep the local filmstrip. */
-  onOpenGlobalView?: () => void
+  onOpenGlobalView?: (index: number) => void
   /** Mount-time frame entry — the global grid lands the stage on the tapped
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
@@ -148,7 +149,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, initialIndex = 0, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, initialIndex = 0, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -234,8 +235,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const infoModalRef = useRef<HTMLDivElement | null>(null)
   const gridModalRef = useRef<HTMLDivElement | null>(null)
   const filmstripFrameRef = useRef<HTMLDivElement | null>(null)
-  const filmstripPanRef = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null)
-  const scrollLeftAtDownRef = useRef(0)
+  const filmstripPanRef = useRef<{ pointerId: number; y: number; scrollTop: number } | null>(null)
+  const scrollTopAtDownRef = useRef(0)
   const gridSuppressClickRef = useRef(false)
   const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dotRef = useRef<HTMLButtonElement | null>(null)
@@ -252,7 +253,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
   const openGrid = () => {
     if (onOpenGlobalView) {
-      onOpenGlobalView()
+      onOpenGlobalView(indexRef.current)
       return
     }
     if (gridCloseTimerRef.current) {
@@ -1015,7 +1016,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const frame = requestAnimationFrame(() => {
       const container = filmstripFrameRef.current
       const active = gridModalRef.current?.querySelector<HTMLElement>('[data-grid-active]')
-      if (container && active) container.scrollLeft = active.offsetLeft + active.offsetWidth / 2 - container.clientWidth / 2
+      if (container && active) container.scrollTop = active.offsetTop + active.offsetHeight / 2 - container.clientHeight / 2
       active?.focus({ preventScroll: true })
     })
     return () => cancelAnimationFrame(frame)
@@ -1038,16 +1039,16 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
   const startFilmstripPan = (event: PointerEvent) => {
     const frame = filmstripFrameRef.current
     if (!frame) return
-    filmstripPanRef.current = { pointerId: event.pointerId, x: event.clientX, scrollLeft: frame.scrollLeft }
-    scrollLeftAtDownRef.current = frame.scrollLeft
+    filmstripPanRef.current = { pointerId: event.pointerId, y: event.clientY, scrollTop: frame.scrollTop }
+    scrollTopAtDownRef.current = frame.scrollTop
     gridSuppressClickRef.current = false
   }
   const moveFilmstripPan = (event: PointerEvent) => {
     const pan = filmstripPanRef.current
     const frame = filmstripFrameRef.current
     if (!pan || !frame || pan.pointerId !== event.pointerId) return
-    frame.scrollLeft = pan.scrollLeft - (event.clientX - pan.x)
-    if (Math.abs(frame.scrollLeft - scrollLeftAtDownRef.current) > 6) {
+    frame.scrollTop = pan.scrollTop - (event.clientY - pan.y)
+    if (Math.abs(frame.scrollTop - scrollTopAtDownRef.current) > 6) {
       gridSuppressClickRef.current = true
       if (!frame.hasPointerCapture(event.pointerId)) frame.setPointerCapture(event.pointerId)
     }
@@ -1062,9 +1063,9 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const frame = filmstripFrameRef.current
     if (!frame) return
     event.preventDefault()
-    const delta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
     const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? frame.clientWidth : 1
-    frame.scrollLeft += delta * factor
+    frame.scrollTop += delta * factor
   }
   const selectFilmstripImage = (imageIndex: number) => {
     if (gridSuppressClickRef.current) { gridSuppressClickRef.current = false; return }
@@ -1089,7 +1090,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
     const items = gridItems()
     if (!items.length) return
     const current = Math.max(0, items.findIndex((el) => el.hasAttribute('data-grid-active')))
-    const next = key === 'Home' ? 0 : key === 'End' ? items.length - 1 : (current + (key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
+    const next = key === 'Home' ? 0 : key === 'End' ? items.length - 1 : (current + (key === 'ArrowDown' || key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
     setGridSel(next)
     items[next]?.focus()
     items[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
@@ -2143,7 +2144,7 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — ${onOpenGlobalView ? 'open photo picker' : 'open selector'}`} onClick={openGrid}>
+            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open Photo Picker`} onClick={openGrid}>
             <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
             <span class="stage-seq-detail" aria-hidden="true">
               <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
@@ -2168,8 +2169,8 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} style={foldControlRegion ? { left: `${foldControlRegion.x}px`, top: `${foldControlRegion.y + foldControlRegion.height / 2}px`, width: `${foldControlRegion.width}px` } : undefined} role="dialog" aria-modal="true" aria-label="All photographs" onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="Photo Picker" onKeyDown={(event) => {
+          if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
             stepGridSel(event.key)
             return
@@ -2181,6 +2182,15 @@ export default function Viewer({ slug, images: sourceImages, settings: initialSe
           }
           onModalKeyDown(event)
         }}>
+          <div class="viewer-picker-header">
+            <strong>
+              <span>Photo Picker</span>
+              <span class="viewer-picker-meta">
+                {galleryTitle ? `${galleryTitle} · ` : ''}{images.length} photos
+              </span>
+            </strong>
+            <button type="button" onClick={requestCloseModals} aria-label="Close Photo Picker">Close</button>
+          </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
             <div class="viewer-filmstrip-track">
               {images.map((image, imageIndex) => {

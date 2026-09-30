@@ -159,6 +159,12 @@ surface, and Global View (or the desktop filmstrip selector where the Tauri shel
 the native encrypted-vault GlobalView island). Captures must come from freshly built bundles,
 use authorized source photographs without editing their pixels, and be reviewed before commit.
 
+**Photo Picker / Photo Editor layout requirement:** both surfaces are a **matrix of loosely
+organised and closely hanging together thumbnails**, not a horizontal or single-column strip.
+The matrix scrolls vertically; every thumbnail has the same fixed viewport-relative height,
+its width follows the source aspect ratio, gaps remain zero, and the active photograph is
+highlighted in shocking pink.
+
 ---
 
 ## 5. Model routing

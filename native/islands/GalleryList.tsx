@@ -54,6 +54,7 @@ type AccountGalleryDrag = {
   slug: string
   pointerId: number
   startX: number
+  startY: number
   startIndex: number
   currentIndex: number
   originalGallery: GallerySummary
@@ -144,6 +145,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // Global-grid frame entry: index is the Viewer mount seed, nonce forces a
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0)
   const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
@@ -424,6 +426,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const openGlobalFrame = (next: Selection, index: number) => {
     setGlobalViewOpen(false)
+    setActivePhotoIndex(index)
     if (next.owner === selection.owner && next.slug === selection.slug) {
       // Same gallery: bump the remount nonce so the viewer re-seeds at index.
       setFrameKick((kick) => ({ index, nonce: kick.nonce + 1 }))
@@ -462,7 +465,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             images={source.list()}
             settings={settings}
             plate={plate}
-            onOpenGlobalView={globalViewEnabled === true ? () => setGlobalViewOpen(true) : undefined}
+            onOpenGlobalView={globalViewEnabled === true ? (index = 0) => {
+              setActivePhotoIndex(index)
+              setGlobalViewOpen(true)
+            } : undefined}
             initialIndex={frameKick.index}
             foldLayout={foldEligible ? foldLayout : null}
             foldRenderer={foldEligible ? renderFold : undefined}
@@ -473,6 +479,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             store={productionOfflineGalleryStore}
             tier={billingState?.tier}
             current={selection}
+            active={{ selection, index: activePhotoIndex }}
             onOpenFrame={openGlobalFrame}
             onClose={() => setGlobalViewOpen(false)}
           />
@@ -569,6 +576,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       slug: gallery.slug,
       pointerId: event.pointerId,
       startX: event.clientX,
+      startY: event.clientY,
       startIndex: index,
       currentIndex: index,
       originalGallery: { ...gallery, images: [...gallery.images] },
@@ -581,13 +589,20 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const drag = accountGalleryDrag.current
     if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
     const rail = (event.currentTarget as HTMLElement).parentElement
-    if (!rail || Math.abs(event.clientX - drag.startX) < 8) return
+    if (!rail || Math.max(Math.abs(event.clientX - drag.startX), Math.abs(event.clientY - drag.startY)) < 8) return
     const items = Array.from(rail.children) as HTMLElement[]
     let target = items.findIndex((item) => {
       const rect = item.getBoundingClientRect()
-      return event.clientX >= rect.left && event.clientX <= rect.right
+      return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
     })
-    if (target < 0) target = event.clientX < items[0]!.getBoundingClientRect().left ? 0 : items.length - 1
+    if (target < 0) {
+      target = items.reduce((closest, item, itemIndex) => {
+        const rect = item.getBoundingClientRect()
+        const distance = Math.abs(event.clientY - (rect.top + rect.height / 2))
+        const closestRect = items[closest]!.getBoundingClientRect()
+        return distance < Math.abs(event.clientY - (closestRect.top + closestRect.height / 2)) ? itemIndex : closest
+      }, 0)
+    }
     if (target === drag.currentIndex) return
     const images = [...drag.images]
     const [moved] = images.splice(drag.currentIndex, 1)
@@ -763,6 +778,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const deviceMeta = (gallery: DeviceGallery) =>
     `${gallery.itemCount} ${gallery.itemCount === 1 ? 'item' : 'items'} · ${gallery.sourceKind} · on ${gallery.deviceLabel}`
   const accountGalleryRail = (gallery: GallerySummary) => gallery.images.length > 0 ? (
+    <>
+    <div class="native-account-editor-label">
+      <span>Photo Editor</span>
+      <small>sequence only</small>
+    </div>
     <div class="native-account-rail" aria-label={`${gallery.title} photos`}>
       <div class="native-account-rail-track" role="list" aria-label={`${gallery.title} photos`}>
         {gallery.images.map((image, imageIndex) => (
@@ -780,11 +800,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             onPointerUp={(event) => finishAccountGalleryDrag(gallery, event)}
             onPointerCancel={(event) => cancelAccountGalleryDrag(gallery, event)}
             onKeyDown={(event) => {
-              if (event.key === 'ArrowLeft') {
+              if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
                 event.preventDefault()
                 reorderAccountGallery(gallery, imageIndex, imageIndex - 1)
               }
-              if (event.key === 'ArrowRight') {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
                 event.preventDefault()
                 reorderAccountGallery(gallery, imageIndex, imageIndex + 1)
               }
@@ -803,6 +823,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         ))}
       </div>
     </div>
+    </>
   ) : null
   // Render gate: an unresolved entitlement drops the slot in the same paint
   // that learns the tier, so no stale creative can outlive a change. The

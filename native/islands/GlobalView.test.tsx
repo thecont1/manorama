@@ -210,7 +210,8 @@ describe('GlobalView', () => {
     expect(store.calls.gridGallery).toEqual([])
     expect(container.querySelectorAll('.native-global-gallery')).toHaveLength(2)
     expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(3)
-    expect(container.textContent).toContain('Second album')
+    expect(container.textContent).toContain('3 photos')
+    expect(container.textContent).not.toContain('Second album')
     container.remove()
   })
 

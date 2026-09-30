@@ -22,6 +22,7 @@ type GalleryDrag = {
   slug: string
   pointerId: number
   startX: number
+  startY: number
   startIndex: number
   currentIndex: number
   images: GallerySummary['images']
@@ -238,7 +239,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       localStorage.setItem(THEME_KEY, theme)
     } catch { /* private browsing */ }
   }, [theme])
-  const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
+  const panState = useRef<{ pointerId: number; startY: number; startScrollTop: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
   const saveEditingInFlight = useRef(false)
@@ -321,7 +322,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (busy || (event.pointerType === 'touch' && !event.isPrimary)) return
     const item = event.currentTarget as HTMLElement
     try { item.setPointerCapture(event.pointerId) } catch {}
-    galleryDrag.current = { slug: gallery.slug, pointerId: event.pointerId, startX: event.clientX, startIndex: index, currentIndex: index, images: [...gallery.images] }
+    galleryDrag.current = { slug: gallery.slug, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, startIndex: index, currentIndex: index, images: [...gallery.images] }
     event.preventDefault()
   }
 
@@ -332,12 +333,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const strip = (event.currentTarget as HTMLElement).parentElement
     if (!strip) return
     const items = Array.from(strip.children) as HTMLElement[]
-    if (items.length < 2 || Math.abs(event.clientX - drag.startX) < 8) return
+    if (items.length < 2 || Math.max(Math.abs(event.clientX - drag.startX), Math.abs(event.clientY - drag.startY)) < 8) return
     let target = items.findIndex((item) => {
       const rect = item.getBoundingClientRect()
-      return event.clientX >= rect.left && event.clientX <= rect.right
+      return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
     })
-    if (target < 0) target = event.clientX < items[0].getBoundingClientRect().left ? 0 : items.length - 1
+    if (target < 0) {
+      target = items.reduce((closest, item, itemIndex) => {
+        const rect = item.getBoundingClientRect()
+        const distance = Math.abs(event.clientY - (rect.top + rect.height / 2))
+        const closestRect = items[closest]!.getBoundingClientRect()
+        return distance < Math.abs(event.clientY - (closestRect.top + closestRect.height / 2)) ? itemIndex : closest
+      }, 0)
+    }
     if (target === drag.currentIndex) return
     const images = [...drag.images]
     const [moved] = images.splice(drag.currentIndex, 1)
@@ -370,14 +378,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     const frame = event.currentTarget as HTMLDivElement
     try { frame.setPointerCapture(event.pointerId) } catch {}
-    panState.current = { pointerId: event.pointerId, startX: event.clientX, startScrollLeft: frame.scrollLeft }
+    panState.current = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: frame.scrollTop }
     event.preventDefault()
   }
 
   const moveStripPan = (event: PointerEvent) => {
     if (panState.current?.pointerId !== event.pointerId) return
     const frame = event.currentTarget as HTMLDivElement
-    frame.scrollLeft = panState.current.startScrollLeft - (event.clientX - panState.current.startX)
+    frame.scrollTop = panState.current.startScrollTop - (event.clientY - panState.current.startY)
     event.preventDefault()
   }
 
@@ -698,7 +706,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
-          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY; frame.scrollLeft += delta; event.preventDefault() }}>
+          <div class="admin-gallery-editor-label"><span>Photo Editor</span><small>sequence only</small></div>
+          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollTop += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
               {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery)} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />

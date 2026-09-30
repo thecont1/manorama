@@ -6,20 +6,21 @@
   inset: 0;
   z-index: 40;
   display: block;
-  background: rgba(8, 10, 10, .8);
+  background: rgba(8, 10, 10, .68);
   color: rgba(var(--ink), .92);
   pointer-events: none;
-  backdrop-filter: blur(68px) saturate(.28) brightness(.58);
-  -webkit-backdrop-filter: blur(68px) saturate(.28) brightness(.58);
+  backdrop-filter: blur(92px) saturate(.22) brightness(.52);
+  -webkit-backdrop-filter: blur(92px) saturate(.22) brightness(.52);
 }
 
 .native-global-header {
   position: fixed;
   z-index: 1;
-  top: calc(20vh + env(safe-area-inset-top));
+  top: auto;
+  bottom: calc(14px + env(safe-area-inset-bottom));
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
-  width: min(920px, calc(100% - 24px));
+  width: auto;
   margin-inline: auto;
   display: flex;
   flex-wrap: wrap;
@@ -50,6 +51,14 @@
   font-size: 20px;
   font-weight: 500;
   letter-spacing: -0.01em;
+}
+
+.native-global-picker-meta {
+  margin: 3px 0 0;
+  color: rgba(var(--ink), .58);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .02em;
 }
 
 .native-global-header-actions {
@@ -92,24 +101,23 @@
 
 .native-global-scroll {
   position: fixed;
-  top: calc(20vh + 82px + env(safe-area-inset-top));
-  bottom: calc(14px + env(safe-area-inset-bottom));
-  left: max(12px, env(safe-area-inset-left));
-  right: max(12px, env(safe-area-inset-right));
-  width: 100%;
+  top: 0;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  left: 0;
+  right: 0;
+  width: auto;
   margin-inline: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 0 32px;
+  padding: env(safe-area-inset-top) 0 32px;
   display: grid;
   gap: 24px;
   align-content: start;
-  border-top: 1px solid rgba(var(--ink), .12);
-  border-bottom: 1px solid rgba(var(--ink), .12);
-  background: rgba(14, 17, 16, .52);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, .22);
-  backdrop-filter: blur(48px) saturate(.3) brightness(.62);
-  -webkit-backdrop-filter: blur(48px) saturate(.3) brightness(.62);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   scrollbar-width: thin;
   pointer-events: auto;
 }
@@ -149,10 +157,9 @@
 .native-global-cell {
   flex: 0 0 auto;
   width: auto;
-  height: 10dvh;
-  min-height: 10dvh;
+  height: 12dvh;
+  min-height: 12dvh;
   min-width: 0;
-  min-height: 0;
   margin: 0;
   padding: 0;
   border: 0;
@@ -161,7 +168,7 @@
   cursor: pointer;
   display: block;
   content-visibility: auto;
-  contain-intrinsic-size: 10dvh 100px;
+  contain-intrinsic-size: 12dvh 100px;
 }
 
 .native-global-cell img {
@@ -176,6 +183,13 @@
 .native-global-cell:focus-visible {
   outline: 2px solid #fc0fc0;
   outline-offset: 3px;
+}
+
+.native-global-cell.is-active {
+  z-index: 1;
+  outline: 3px solid #fc0fc0;
+  outline-offset: -3px;
+  box-shadow: 0 0 0 1px #fc0fc0;
 }
 
 .native-global-count {
