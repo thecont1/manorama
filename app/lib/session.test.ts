@@ -112,9 +112,14 @@ describe('session token issuance and resolution', () => {
   })
 
   test('recognizes the configured Dropbox subject through its linked account', async () => {
+    const lookupCalls: unknown[][] = []
     const identityDb = {
-      prepare: () => ({
-        bind: () => ({ first: async () => ({ account_id: TEST_OWNER.accountId }) }),
+      prepare: (sql: string) => ({
+        bind: (...args: unknown[]) => {
+          expect(sql).toContain('provider = ? AND provider_subject = ?')
+          lookupCalls.push(args)
+          return { first: async () => ({ account_id: TEST_OWNER.accountId }) }
+        },
       }),
     }
     const session = { accountId: TEST_OWNER.accountId }
@@ -125,6 +130,30 @@ describe('session token issuance and resolution', () => {
     expect(await isMasterAccount({ accountId: 'acct_other' }, {
       MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
       DB: identityDb as never,
+    })).toBe(false)
+    expect(lookupCalls).toEqual([
+      ['dropbox', 'dbid:mahesh-dropbox'],
+      ['dropbox', 'dbid:mahesh-dropbox'],
+    ])
+
+    const missingIdentityDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => null }),
+      }),
+    }
+    expect(await isMasterAccount(session, {
+      MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
+      DB: missingIdentityDb as never,
+    })).toBe(false)
+
+    const failedIdentityDb = {
+      prepare: () => ({
+        bind: () => ({ first: async () => { throw new Error('identity lookup unavailable') } }),
+      }),
+    }
+    expect(await isMasterAccount(session, {
+      MASTER_DROPBOX_SUBJECT: 'dbid:mahesh-dropbox',
+      DB: failedIdentityDb as never,
     })).toBe(false)
     expect(await isMasterAccount(session, {})).toBe(false)
   })
