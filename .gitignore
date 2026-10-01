@@ -34,3 +34,12 @@ ios/build/
 # Recorded preview takes and their run logs — outputs, not source
 .work/preview/
 .work/testrun.log
+
+# Submission bundle. The written submission documents stay tracked; the
+# exported IPAs, screenshot sets, evidence archives and the preview video
+# are deliverables for the handoff, not repository content. The curated
+# in-repo evidence lives in demo-captures/.
+submission/build/
+submission/screens/
+submission/video/
+submission/*.zip
