@@ -25,3 +25,8 @@ ios/build/
 
 # Per-run simulator ids
 .work/udid-*
+
+# Throwaway inspection artifacts from capture and App Store Connect sessions
+.work/shots/
+.work/snap.json
+.work/ax.sh
