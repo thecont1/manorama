@@ -38,10 +38,33 @@ concurrency:
 
 jobs:
   archive:
+    # The macos-15 image ships Xcode 26.3 but defaults to 16.4, and the app
+    # uses iOS 26 APIs, so the toolchain is chosen explicitly below instead of
+    # carries Xcode 26.x, but its default is 16.4 — and the app uses iOS 26
+    # APIs, so the default decides whether this job compiles at all.
     runs-on: macos-15
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+
+      - name: Select an Xcode with the iOS 26 SDK
+        run: |
+          set -euo pipefail
+          latest="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$latest" ]; then
+            echo "::error::no Xcode found on the runner image"
+            exit 1
+          fi
+          sudo xcode-select -s "$latest/Contents/Developer"
+          xcodebuild -version
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK: $sdk"
+          # UIVerticalBarBehavior and UIView.reservedRegions are iOS 26 APIs.
+          # Fail here, with a reason, rather than inside the Swift compiler.
+          case "$sdk" in
+            2[6-9]*|[3-9][0-9]*) ;;
+            *) echo "::error::$latest provides iOS SDK $sdk, but the app needs 26 or newer — move this job to a newer runner image."; exit 1 ;;
+          esac
 
       - uses: oven-sh/setup-bun@v2
         with:
