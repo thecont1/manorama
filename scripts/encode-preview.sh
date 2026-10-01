@@ -5,11 +5,17 @@
 #   .work/preview/preview-14.5s.mov   -> 14.5s cut
 #   .work/preview/preview-16s-asc.mov -> 16s App Store Connect cut
 #
-# The take is a real capture of the app; this script only trims it, sets the
-# copy, and encodes. It never resamples the pictures: the scale is a cover-fit
-# that crops the odd device pixel rather than stretching, no grain, no vignette,
-# no grade, no sharpen. The photographs arrive at the size they were recorded
-# at and leave at the size Apple accepts.
+# The take is a real capture of the app; this script only trims it and encodes
+# it. The copy is not burned on here: it is set in the app's own type inside the
+# capture itself (see CHOREO in .work/capture-server.ts), so Playfair is
+# rasterised by the same engine that rasterised the photographs beside it and
+# there is no second compositor to disagree about colour. This build of ffmpeg
+# has no drawtext or overlay filter in any case.
+#
+# It never resamples the pictures: the scale is a cover-fit that crops the odd
+# device pixel rather than stretching, no grain, no vignette, no grade, no
+# sharpen. The photographs arrive at the size they were recorded at and leave at
+# the size Apple accepts.
 #
 # The head is measured, not assumed. The choreography holds the account screen
 # still until it taps at a known time, so the first frame that changes is t0
@@ -28,42 +34,11 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAKES="$REPO/.work/preview"
 DELIVER="$REPO/.work/preview/deliver"
-FONTS="$REPO/native/dist/fonts"
+
 
 # Apple's accepted upload size for the 6.9"/6.5" iPhone slots.
 W=886
 H=1920
-
-# The app's own type. Playfair is the serif the curtain caption is set in, so
-# the overlay is the product's treatment rather than a caption track bolted on.
-SERIF="$FONTS/Playfair-variable.ttf"
-SERIF_ITALIC="$FONTS/Playfair-Italic-variable.ttf"
-
-# Copy, from the brief's §5. Lowercase, small, secondary to the pictures, and
-# never over the centre of a photograph — the strip is vertically centred, so
-# the band between the status bar and the top of a photograph is always stage
-# black at any frame of the take.
-#
-# Line 2 is NOT the brief's wording, and the substitution is deliberate. The
-# brief asks for "every photograph at full height", but packages/core's
-# imageStageSize caps a strip frame at min(stageHeight/h, 1/dpr): a 2560x1707
-# source on a 3x screen would need a 1.63x upscale to reach full height, so the
-# app floats it at honest size and leaves stage black above and below. Putting
-# "full height" on screen would be a false claim in Apple's own review of a
-# product whose whole thesis is that it never fabricates pixels. "never
-# upscaled" is the same line, true, and the better one.
-COPY_SCROLL_1='one strip, no gaps — drag it'
-COPY_SCROLL_2='every photograph, never upscaled'
-COPY_END_1='manorama.xyz'
-COPY_END_2='Sign in required'
-
-# The status bar is roughly the top 4% of the frame; a photograph's top edge
-# starts around 22%. Type sits at 8% — clear of both, and out of the picture.
-X=64
-Y=152
-SIZE=36
-END_SIZE=40
-INK='white@0.88'
 
 ONLY=""
 while [[ $# -gt 0 ]]; do
@@ -75,9 +50,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 log() { printf '\033[1m%s\033[0m\n' "$*"; }
-for f in "$SERIF" "$SERIF_ITALIC"; do
-  [[ -f "$f" ]] || { echo "missing the app's own typeface: $f" >&2; exit 1; }
-done
 mkdir -p "$DELIVER"
 
 # --- cut definitions ----------------------------------------------------------
@@ -91,8 +63,18 @@ cuts=(
 
 # --- helpers ------------------------------------------------------------------
 
-# The instant the choreography's clock started, expressed in take time. Read
-# back out of the report the page posted rather than recomputed here.
+# The instant the choreography's clock started, expressed in take time.
+#
+# The tap is the anchor: the account screen is held still until the choreography
+# taps the gallery card at a time the page reported, and the tap is by far the
+# largest change in the take. So the first frame that moves by more than a
+# threshold is t0 plus that tap, and the difference is the head to cut.
+#
+# A much lower threshold finds a smaller, earlier change — the copy layer
+# mounting at t0 — and lands within ~30ms of the same answer. It is a useful
+# cross-check but not the primary: before the copy was part of the capture there
+# was nothing at t0 at all, and the low threshold would have reported the tap
+# itself as the first motion. The tap is the one landmark that is always there.
 t0_in_take() {
   local raw="$1"
   ffmpeg -v error -i "$raw" -vf "select='gt(scene,0.0015)',metadata=print:file=-" -an -f null - 2>/dev/null \
@@ -125,21 +107,9 @@ for cut in "${cuts[@]}"; do
   head="$(python3 -c "print(round(max(0.0, $first_motion - $tap), 3))")"
   echo "  tap at ${tap}s, first motion at ${first_motion}s -> head ${head}s"
 
-  # Overlay windows, relative to the cut. The 16s cut keeps the same opening and
-  # gives the extra second to the end frame, which is where the shot list wants
-  # it and where Apple wants the disclosure to sit.
-  if [[ "$seconds" == "16.0" ]]; then
-    W1_A=5.0;  W1_B=8.5
-    W2_A=9.0;  W2_B=12.5
-    E1_A=13.0; E1_B=16.0
-    E2_A=13.6; E2_B=16.0
-  else
-    W1_A=5.0;  W1_B=8.5
-    W2_A=9.0;  W2_B=12.5
-    E1_A=13.0; E1_B=14.5
-    E2_A=13.6; E2_B=14.5
-  fi
-
+  # The copy rides the take's own clock, so there is nothing to window here.
+  # The 16s cut simply holds the same end frame 1.5s longer, which is where the
+  # extra second goes and where Apple wants the sign-in disclosure to sit.
   out="$DELIVER/$name.mp4"
 
   # Cover-fit, then crop the odd pixel. The recording is 1284x2778 (19.5:9) and
@@ -147,16 +117,14 @@ for cut in "${cuts[@]}"; do
   # by 0.16% and scaling to the height and padding would letterbox. Cropping
   # one or two columns is the only one of the three that neither lies about the
   # aspect nor adds a bar.
-  ffmpeg -y -v error -ss "$head" -i "$raw" -t "$seconds" \
-    -vf "\
-      scale=-2:$H,crop=$W:$H,setsar=1,fps=30,\
-      drawtext=fontfile=$SERIF_ITALIC:text='$COPY_SCROLL_1':fontsize=$SIZE:fontcolor=$INK:x=$X:y=$Y:enable='between(t\,$W1_A\,$W1_B)',\
-      drawtext=fontfile=$SERIF_ITALIC:text='$COPY_SCROLL_2':fontsize=$SIZE:fontcolor=$INK:x=$X:y=$Y:enable='between(t\,$W2_A\,$W2_B)',\
-      drawtext=fontfile=$SERIF:text='$COPY_END_1':fontsize=$END_SIZE:fontcolor=$INK:x=$X:y=$Y:enable='between(t\,$E1_A\,$E1_B)',\
-      drawtext=fontfile=$SERIF:text='$COPY_END_2':fontsize=$END_SIZE:fontcolor=$INK:x=$X:y=$((Y+58)):enable='between(t\,$E2_A\,$E2_B)'\
-    " \
+  # Output seeking, not input. The simulator's recording carries a keyframe
+  # every couple of seconds, and `-ss` before `-i` snaps to one — which silently
+  # threw away 1.6s of the head and left the cut short. Seeking after `-i`
+  # decodes and discards, so the cut starts where it says it does.
+  ffmpeg -y -v error -i "$raw" -ss "$head" -t "$seconds" \
+    -vf "scale=-2:$H,crop=$W:$H,setsar=1,fps=30" \
     -c:v libx264 -profile:v high -level:v 4.0 -preset slow \
-    -b:v 11M -maxrate 12M -bufsize 24M -pix_fmt yuv420p \
+    -b:v 12M -minrate 10M -maxrate 12M -bufsize 24M -pix_fmt yuv420p \
     -x264-params "keyint=60:min-keyint=60:scenecut=0" \
     -an -movflags +faststart \
     "$out"
@@ -168,6 +136,16 @@ for cut in "${cuts[@]}"; do
   ffprobe -v error -select_streams v:0 \
     -show_entries stream=codec_name,profile,level,width,height,r_frame_rate,pix_fmt,bit_rate \
     -show_entries format=duration,size -of default=nw=1 "$out" | sed 's/^/  /'
+
+  # A take that ran short must fail here rather than ship as a clip that ends
+  # mid-gesture. 0.2s of tolerance is the frame boundary.
+  got="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out")"
+  short="$(python3 -c "print(1 if $got < $seconds - 0.2 else 0)")"
+  if [[ "$short" -eq 1 ]]; then
+    echo "  cut is ${got}s, wanted ${seconds}s — the take ran short" >&2
+    echo "  raise TAIL in scripts/capture-preview.sh and record again" >&2
+    exit 1
+  fi
 done
 
 log "deliverables in $DELIVER"

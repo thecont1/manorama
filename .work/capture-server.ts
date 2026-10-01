@@ -274,11 +274,12 @@ const PREBOOT = (which: number) => {
     return { thumbs: images.length, loaded: loaded }
   }
   var send = function (body) {
-    // State 5 has its own readiness signal from the choreography, and this one
-    // reports for state 3 only. Both write the same slot, so on a preview take
-    // this would land second and overwrite the page's "account is up" — and the
-    // recording script, which is waiting for exactly that, would never see it.
-    if (${which} !== 5) {
+    // The preview takes (5 and 6) have their own readiness signal from the
+    // choreography, and this one is the state-3 screenshot's. Both write the same
+    // slot, so on a preview take this would land second and overwrite the page's
+    // "account is up" — and the recording script, which is waiting for exactly
+    // that, would never see it.
+    if (!(${which} === 5 || ${which} === 6)) {
       var url = '/__capture/report'
       body.state = ${which}
       return real(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -435,6 +436,66 @@ const CHOREO = (which: number) => {
   const mark = (name) => { marks[name] = +((performance.now() - t0) / 1000).toFixed(3) }
   const at = (s) => sleep(Math.max(0, t0 + s * 1000 - performance.now()))
 
+  // --- the copy ---------------------------------------------------------------
+  //
+  // Set in the app's own type, not burned on afterwards. Playfair at the curtain
+  // caption's own variation settings is the treatment the gallery already uses,
+  // and the browser has the variable font loaded already, so the overlay is
+  // rasterised by the same engine that rasterised the photographs beside it —
+  // no second compositor, no resample, nothing to disagree about the colour.
+  //
+  // It sits in the band between the status bar and the top of a photograph,
+  // which is stage black at every frame of the take: strip frames are
+  // vertically centred, so the band never closes as the strip moves.
+  //
+  // Line 2 is not the brief's wording and the substitution is deliberate. The
+  // brief asks for "every photograph at full height", but imageStageSize caps a
+  // strip frame at min(stageHeight/h, 1/dpr) — a 2560x1707 source on a 3x screen
+  // would need a 1.63x upscale to reach full height, so the app floats it at
+  // honest size and leaves stage black above and below. "full height" on screen
+  // would be a false claim in Apple's own review of a product whose thesis is
+  // that it never fabricates pixels.
+  const COPY = [
+    { from: 5.0, to: 8.5, text: 'one strip, no gaps — drag it', italic: true, top: 64 },
+    { from: 9.0, to: 12.5, text: 'every photograph, never upscaled', italic: true, top: 64 },
+    { from: 13.0, to: SCHEMA.total, text: 'manorama.xyz', italic: false, top: 62 },
+    // Stacked under the wordmark, not on it: the end frame carries both at
+    // once, and they are the same size so neither reads as the disclaimer.
+    { from: 13.6, to: SCHEMA.total, text: 'Sign in required', italic: false, top: 96 },
+  ]
+  const copyLayer = document.createElement('div')
+  copyLayer.setAttribute('data-preview-copy', '')
+  copyLayer.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:2147483647', 'pointer-events:none',
+    'font-family:Playfair,Bricolate Grotesque,ui-serif,Georgia,serif',
+    'font-optical-sizing:auto', 'font-variation-settings:"wdght" 300,"wdth" 85',
+    "color:rgba(243,240,232,.88)", 'letter-spacing:-.01em',
+  ].join(';')
+  for (const line of COPY) {
+    const el = document.createElement('div')
+    el.textContent = line.text
+    el.style.cssText = [
+      'position:absolute', 'left:22px',
+      // Clear of the status bar, and above the tallest frame's top edge.
+      'top:' + line.top + 'px',
+      'font-size:16px', 'line-height:1.5', 'font-style:' + (line.italic ? 'italic' : 'normal'),
+      'opacity:0', 'transition:opacity 260ms ease',
+    ].join(';')
+    copyLayer.appendChild(el)
+    line.el = el
+  }
+  const mountCopy = () => document.body.appendChild(copyLayer)
+  // Driven off the same clock as the choreography rather than off its own
+  // timers, so a stroke running long cannot leave the copy off its marks.
+  const runCopy = () => {
+    const now = (performance.now() - t0) / 1000
+    for (const line of COPY) {
+      const on = t0 > 0 && now >= line.from && now <= line.to
+      if (on !== line.on) { line.on = on; line.el.style.opacity = on ? '1' : '0' }
+    }
+    requestAnimationFrame(runCopy)
+  }
+
   const trackX = () => {
     const track = document.querySelector('[data-track]')
     const m = track && /translate3d\\(\\s*(-?[\\d.]+)px/.exec(track.style.transform || '')
@@ -498,6 +559,8 @@ const CHOREO = (which: number) => {
     // so t0 is the first frame of the hold rather than whenever the app booted.
     await fetch('/__capture/run')
     t0 = performance.now()
+    mountCopy()
+    requestAnimationFrame(runCopy)
     // Wall-clock epoch of t0, so the calling script can trim the head exactly
     // instead of guessing at the recorder's spin-up. performance.now() and the
     // host clock are bridged here, once, at the instant the gate opens.
