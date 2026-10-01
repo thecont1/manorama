@@ -19,9 +19,19 @@
 #     error: exportArchive No signing certificate "iOS Distribution" found
 #
 # because a development profile cannot produce an App Store package. The export
-# must be signed manually with an Apple Distribution identity and the App Store
+# therefore signs manually with an Apple Distribution identity and the App Store
 # provisioning profile; both are exported once from the account that owns the
 # app with scripts/prepare-ios-signing-cert.sh.
+#
+# Only the *export* is manual, on purpose. The profile is an Xcode-managed one,
+# and Xcode refuses to use it while CODE_SIGN_STYLE=Manual:
+#
+#     error: Provisioning profile "…" is Xcode managed, but signing settings
+#            require a manually managed profile. (in target 'App')
+#
+# Forcing manual signing on the archive also strips the development team from
+# the RevenueCat SPM package targets, so the archive keeps automatic signing and
+# the export re-signs the archived app with the identity installed above.
 #
 # Runs on a tag (`v*`) or by hand. Manual runs are the escape hatch when a
 # submission has to be re-cut without a new tag.
@@ -179,16 +189,15 @@ jobs:
           ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
         run: |
           set -euo pipefail
+          # Automatic signing here, manual signing at export. Passing
+          # CODE_SIGN_STYLE=Manual would reject the Xcode-managed App Store
+          # profile and unset the team on the RevenueCat SPM targets.
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/signing.keychain-db" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8" \
             -authenticationKeyID "$KEY_ID" \
