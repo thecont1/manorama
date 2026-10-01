@@ -97,7 +97,15 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -d user -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import signing.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          if ! security import signing.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security 2>import.err; then
+            cat import.err
+            # "MAC verification failed" reads like a wrong password but is
+            # usually an encoding mismatch: macOS refuses a .p12 that OpenSSL 3
+            # wrote with its default encryption. Name both causes here so the
+            # next run does not have to be diagnosed from a log.
+            echo "::error::macOS could not import the signing certificate. If the line above says 'MAC verification failed', then either APPLE_CERTIFICATE_PASSWORD does not match APPLE_CERTIFICATE, or the .p12 was written with OpenSSL 3's default encryption — run scripts/prepare-macos-signing-cert.sh to produce an importable one."
+            exit 1
+          fi
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm signing.p12
 
