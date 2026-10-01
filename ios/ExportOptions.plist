@@ -2,13 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- App Store upload options: xcodebuild -exportArchive consumes this so
-	     the release pipeline stays reproducible outside Xcode's UI.
-
-	     signingStyle is manual on purpose. With automatic signing the export
-	     falls back to an iOS development team profile and fails with
-	     "No signing certificate \"iOS Distribution\" found"; the profile named
-	     below is the App Store profile installed by .github/workflows/ios.yml. -->
+	<!-- App Store upload options consumed by `xcodebuild -exportArchive`.
+	     signingStyle stays automatic on purpose: the App Store profile the
+	     workflow installs is Xcode-managed, and an export that names it under
+	     a manual signing style is rejected with "provisioning profile ... is
+	     Xcode managed, but signing settings require a manually managed
+	     profile". Automatic signing reuses that managed profile together with
+	     the Apple Distribution certificate installed before archiving. -->
 	<key>method</key>
 	<string>app-store-connect</string>
 	<key>destination</key>
@@ -16,12 +16,7 @@
 	<key>teamID</key>
 	<string>373K7W3LKU</string>
 	<key>signingStyle</key>
-	<string>manual</string>
-	<key>provisioningProfiles</key>
-	<dict>
-		<key>in.thecontrarian.manorama</key>
-		<string>iOS Team Store Provisioning Profile: in.thecontrarian.manorama</string>
-	</dict>
+	<string>automatic</string>
 	<key>uploadSymbols</key>
 	<true/>
 	<key>manageAppVersionAndBuildNumber</key>
