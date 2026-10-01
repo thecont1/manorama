@@ -54,6 +54,9 @@ jobs:
     steps:
       - name: Validate the release tag
         if: github.event_name == 'workflow_dispatch'
+        # `case` is bash; the Windows runner's default shell is PowerShell, so
+        # the check has to name its shell or the dispatch dies before it builds.
+        shell: bash
         env:
           TAG: ${{ inputs.tag }}
         run: |
