@@ -5,14 +5,12 @@ import WebKit
 private final class ManoramaBridgeViewController: CAPBridgeViewController {
     var foldDocumentStartScript = ""
 
-    /// The gallery is a fullscreen visual surface with its own controls in a
-    /// modal. A UIKit vertical bar would add chrome beside one pane and could
-    /// compete with the hinge-safe control region, so opt out on iOS 27.1+.
-    @available(iOS 27.1, *)
-    override var preferredVerticalBarBehavior: UIVerticalBarBehavior {
-        .disabled
-    }
-
+    // Two iOS 27.1 refinements — the vertical-bar opt-out and the hinge reader —
+    // need the iOS 27 SDK, which is still beta, and App Review rejects binaries
+    // built with beta Xcode. This file therefore compiles against the current
+    // public SDK; both refinements return with the iOS 27 GM SDK. Nothing else
+    // depends on them: the JS contract in packages/core/fold.ts already reads a
+    // missing hinge as a non-folded display.
     override func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let webView = super.webView(with: frame, configuration: configuration)
         guard !foldDocumentStartScript.isEmpty else { return webView }
@@ -81,12 +79,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         var json = "{\"horizontalSizeClass\":\"\(horizontal)\",\"verticalSizeClass\":\"\(vertical)\""
 
-        if #available(iOS 27.1, *) {
-            if let hinge = Self.detectHinge(in: windowScene) {
-                json += ",\"hinge\":{\"axis\":\"\(hinge.axis)\",\"start\":\(hinge.start),\"size\":\(hinge.size)}"
-            }
-        }
-
         json += "}"
 
         return "window.__MANORAMA_IOS_FOLD__ = \(json);"
@@ -97,24 +89,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         case .regular: return "regular"
         case .compact: return "compact"
         default: return "regular"
-        }
-    }
-
-    /// iOS 27.1: reads the physical hinge region from UIView.reservedRegions
-    /// and maps it to the { axis, start, size } shape expected by
-    /// packages/core/fold.ts#segmentsFromHinge.
-    @available(iOS 27.1, *)
-    private static func detectHinge(in scene: UIWindowScene) -> (axis: String, start: CGFloat, size: CGFloat)? {
-        guard let rootView = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController?.view else { return nil }
-        let regions = rootView.reservedRegions(kind: .division, options: [])
-        guard let region = regions.first(where: { $0.isActive }) else { return nil }
-        let frame = region.frame
-        // A wider-than-tall region is a horizontal hinge splitting top/bottom
-        // panes. A taller-than-wide region is a vertical hinge splitting left/right.
-        if frame.width > frame.height {
-            return ("horizontal", frame.minY, frame.height)
-        } else {
-            return ("vertical", frame.minX, frame.width)
         }
     }
 
