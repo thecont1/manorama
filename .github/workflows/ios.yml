@@ -1,0 +1,131 @@
+# Archive the Capacitor iOS app and hand the build to App Store Connect.
+#
+# The app is a shell around the web bundle, so the bundle is rebuilt here from
+# the tagged commit and copied into the Xcode project before archiving — the
+# uploaded build is never a stale copy of the web app.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   APPSTORE_API_KEY_ID       the Key ID of an App Store Connect API key
+#   APPSTORE_API_ISSUER_ID    its Issuer ID
+#   APPSTORE_API_PRIVATE_KEY  the .p8 file's contents, newlines included
+#
+# The key needs the App Manager role so `-allowProvisioningUpdates` can create
+# the distribution certificate and provisioning profile on the first run.
+# Nothing else is needed: the team is set in the Xcode project, and
+# ITSAppUsesNonExemptEncryption is already declared in Info.plist.
+#
+# Runs on a tag (`v*`) or by hand. Manual runs are the escape hatch when a
+# submission has to be re-cut without a new tag.
+#
+# Until the key is in place the job warns and stops rather than failing, so a
+# tag still ships the desktop release while the iOS half waits for its secrets.
+
+name: iOS release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload the build to App Store Connect
+        type: boolean
+        default: true
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build the web bundle the app loads
+        run: bun run build:native
+
+      - name: Copy the bundle into the Xcode project
+        run: bunx cap sync ios
+
+      - name: Check for the App Store Connect API key
+        id: key
+        env:
+          KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY:-}" ] || [ -z "${KEY_ID:-}" ]; then
+            echo "::warning::No App Store Connect API key is configured (APPSTORE_API_KEY_ID, APPSTORE_API_ISSUER_ID, APPSTORE_API_PRIVATE_KEY). Skipping the archive; add the secrets and re-run this workflow to ship a build."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          printf '%s' "$KEY" > "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      # App Store Connect rejects a build number it has already seen, so every
+      # run stamps its own. The marketing version stays whatever the project
+      # says (1.0) — bump that by hand when the version being submitted changes.
+      - name: Stamp a unique build number
+        if: steps.key.outputs.ready == 'true'
+        run: (cd ios/App && xcrun agvtool new-version -all "$GITHUB_RUN_NUMBER")
+
+      - name: Archive
+        if: steps.key.outputs.ready == 'true'
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            archive
+
+      - name: Export and upload to App Store Connect
+        if: steps.key.outputs.ready == 'true' && (github.event_name == 'push' || inputs.upload)
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      # Kept even when the upload happened, so a failed App Store Connect
+      # processing step can be re-run by hand instead of rebuilding.
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.ready == 'true'
+        with:
+          name: ios-build
+          path: |
+            ${{ runner.temp }}/export/*.ipa
+            ${{ runner.temp }}/App.xcarchive/**/*.app.dSYM
+          if-no-files-found: warn
+          retention-days: 14
