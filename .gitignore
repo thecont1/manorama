@@ -30,3 +30,7 @@ ios/build/
 .work/shots/
 .work/snap.json
 .work/ax.sh
+
+# Recorded preview takes and their run logs — outputs, not source
+.work/preview/
+.work/testrun.log
