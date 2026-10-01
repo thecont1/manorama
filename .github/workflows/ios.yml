@@ -41,7 +41,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -56,22 +56,33 @@ jobs:
       - name: Copy the bundle into the Xcode project
         run: bunx cap sync ios
 
-      - name: Check for the App Store Connect API key
+      # Names what the run can actually see, without printing any value, so a
+      # missing secret is diagnosed from the run page instead of guessed at.
+      - name: Report which credentials this run can see
         id: key
         env:
-          KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
         run: |
-          set -euo pipefail
-          if [ -z "${KEY:-}" ] || [ -z "${KEY_ID:-}" ]; then
-            echo "::warning::No App Store Connect API key is configured (APPSTORE_API_KEY_ID, APPSTORE_API_ISSUER_ID, APPSTORE_API_PRIVATE_KEY). Skipping the archive; add the secrets and re-run this workflow to ship a build."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          set -uo pipefail
+          ready=true
+          for name in APPSTORE_API_KEY_ID APPSTORE_API_ISSUER_ID APPSTORE_API_PRIVATE_KEY; do
+            value="${!name:-}"
+            if [ -n "$value" ]; then
+              printf '%-26s set (%s characters)\n' "$name" "${#value}"
+            else
+              printf '%-26s MISSING\n' "$name"
+              echo "::warning::$name is not set for this repository, so the workflow cannot see it. Check the spelling, and that it sits under Settings -> Secrets and variables -> Actions in this repo (not another repo, an environment, or the Variables tab)."
+              ready=false
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [ "$ready" = true ]; then
+            mkdir -p "$RUNNER_TEMP/private_keys"
+            printf '%s' "$APPSTORE_API_PRIVATE_KEY" > "$RUNNER_TEMP/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+            chmod 600 "$RUNNER_TEMP/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
           fi
-          mkdir -p "$RUNNER_TEMP/private_keys"
-          printf '%s' "$KEY" > "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8"
-          chmod 600 "$RUNNER_TEMP/private_keys/AuthKey_${KEY_ID}.p8"
-          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       # App Store Connect rejects a build number it has already seen, so every
       # run stamps its own. The marketing version stays whatever the project
@@ -120,7 +131,7 @@ jobs:
 
       # Kept even when the upload happened, so a failed App Store Connect
       # processing step can be re-run by hand instead of rebuilding.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && steps.key.outputs.ready == 'true'
         with:
           name: ios-build
