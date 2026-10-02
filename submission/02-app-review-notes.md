@@ -9,6 +9,38 @@
 - **Demo account:** Leave username/password empty; Sign in with Apple is available.
 - **Release:** Manual release; no phased release.
 
+## Guideline 2.1 reply (1 October 2026)
+
+Apple asked for six items under "Information Needed — New App Submission". Send this
+block as the Resolution Center reply, then paste it into the Notes field so it travels
+with future submissions. Attach or link the physical-device recording where indicated.
+
+```text
+Thank you for reviewing manorama. Answers to your questions follow, and a reviewer walkthrough is at the end.
+
+1. SCREEN RECORDING
+A screen recording captured on a physical iPhone running iOS 26 is provided with this reply. It begins with launching the app and shows the typical flow: sign-in with Apple, opening a public gallery, the photo-first viewer, the subscription paywall, and self-serve account deletion from the account page. The app carries no user-to-user content — only a gallery owner publishes, from their own cloud folder, and viewers cannot post, comment, or upload anything — so content reporting and blocking mechanisms are not applicable.
+
+2. PURPOSE AND TARGET AUDIENCE
+manorama is a photography-first gallery viewer and publisher for photographers and anyone who shares photo albums. The owner points the app at a public Dropbox, Google Drive, iCloud, or MEGA album and manorama publishes it as a gallery at manorama.xyz/<owner>/<gallery> that displays every image at its honest size — never upscaled, cropped, or re-compressed — with colour profiles and provenance intact. The app adds what the web cannot: an encrypted on-device vault for true offline viewing and a device-local photo picker. The problem it solves: cloud album links and social feeds re-encode and crop photographs; manorama shows them as they are.
+
+3. SETUP AND ACCESS
+No demo credentials are needed. Launch the app, tap the Apple icon under "Continue with", and sign in with any Apple ID (Google and Dropbox sign-in also work). On the account page, expand "Open another gallery", enter owner "thecontrarian" and slug "italy", and tap "Open gallery" to load the real gallery "italia, amore mio". Viewing a public gallery never requires an account — https://manorama.xyz/thecontrarian/italy works in any browser.
+
+4. EXTERNAL SERVICES
+- Cloudflare Workers and D1: hosting and gallery metadata.
+- Dropbox, Google Drive, iCloud Shared Albums, MEGA: user-supplied photo sources; media is fetched on view and never stored by manorama.
+- Sign in with Apple, Google sign-in, Dropbox sign-in (OAuth).
+- RevenueCat and App Store in-app purchase for the optional Visionary subscription; Stripe is used on the website only.
+- Google Fonts. No analytics SDKs, no advertising identifier, no AI services.
+
+5. REGIONAL DIFFERENCES
+None. The app functions identically in all regions. Our own in-gallery promotional placements may be suppressed per day or per region by us; no third-party ad networks are enabled.
+
+6. REGULATED INDUSTRY / PROTECTED MATERIAL
+Not applicable. The app is not in a regulated industry and ships no third-party protected material; owners link their own photographs and are responsible for their rights.
+```
+
 ## Notes field
 
 ```text

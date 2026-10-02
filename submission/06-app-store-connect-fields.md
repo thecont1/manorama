@@ -102,6 +102,10 @@ The same shadowing will break the tag-triggered ASC upload in CI if the runner h
 
 ## Final checklist
 
+- [ ] **Physical-device screen recording (Guideline 2.1, requested 1 Oct 2026)** — record on the iPhone running current iOS: launch → Sign in with Apple → open `thecontrarian/italy` → viewer → "View subscription options" paywall → account deletion. Use a throwaway sign-in for the deletion take — the flow really deletes the account. Attach to the Resolution Center reply.
+- [ ] **Paste the Guideline 2.1 reply** from `02-app-review-notes.md` into the Notes field (Apple asked for it there too) and send the Resolution Center reply.
+- [ ] **Publish the RevenueCat paywall** — the `Oct 2026 Launch` draft still has unresolved issues; the reviewer cannot see the real paywall until it is published.
+- [ ] **Submit Visionary Annual with the version** — the IAP must be attached to this submission, with the IAP review screenshot (live paywall) in its Review Information row.
 - [ ] Confirm the exact build attached to version 1.0.
 - [ ] Confirm all required iPhone screenshots are accepted.
 - [ ] Upload/confirm the six iPad landscape screenshots in `screens/ipad/`.

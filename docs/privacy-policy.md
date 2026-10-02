@@ -1,8 +1,8 @@
 # Privacy Policy
 
-Last updated: 30 September 2026
+Last updated: 1 October 2026
 
-Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
+Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS, Windows, and Linux. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
 
 ## Who this is for
 
@@ -22,7 +22,7 @@ Paid plans use the same account data. On mobile, RevenueCat and your app store h
 
 For a cloud-source gallery, your photographs and videos stay with the public source you chose: Dropbox, Google Drive, iCloud Shared Albums, or MEGA. For each gallery, we keep its title, caption, public source link, media names and descriptive details, order, and any expiry date. When someone opens a gallery, Manorama fetches media from that source and passes it through to the viewer; we do not keep copies of ordinary image or video bytes on our server. Today only iCloud Shared Albums can include video — the other sources supply photographs. Source services may process requests under their own privacy policies. A shared album or folder must remain publicly reachable for a cloud-source gallery to work.
 
-The desktop app can also scan a folder you choose on that Mac. Its local catalogue keeps the folder path and file list on the device; the catalogue metadata may sync to Manorama and contains only a title, source type, item count, device identifier, and device label. Opening, rescanning, launching, or mounting a folder does not upload the original files. If you explicitly choose **Share**, the app uploads supported originals to your connected Dropbox or Google Drive, creates a public provider link, and sends Manorama that link plus the gallery metadata. Local paths, file lists, and image bytes are not sent to the Manorama Worker.
+The desktop app can also scan a folder you choose on that computer. Its local catalogue keeps the folder path and file list on the device; the catalogue metadata may sync to Manorama and contains only a title, source type, item count, device identifier, and device label. Opening, rescanning, launching, or mounting a folder does not upload the original files. If you explicitly choose **Share**, the app uploads supported originals to your connected Dropbox or Google Drive, creates a public provider link, and sends Manorama that link plus the gallery metadata. Local paths, file lists, and image bytes are not sent to the Manorama Worker.
 
 If an image includes Content Credentials — information about where an image came from and how it changed — verification happens on the viewer’s device when requested. We do not upload its provenance record for that check. Link previews may fetch a cover image transiently; they are not a stored photo library. One exception: MEGA galleries can hold originals in a format browsers cannot display, so the server decrypts a small preview photo on request. Those previews are held in a bounded in-memory cache — at most 200 entries — which is discarded when the server restarts. They are never written to our database or to durable storage.
 
@@ -54,7 +54,7 @@ You can delete your account yourself, from your dashboard or in the app under ac
 
 ## Services and what comes next
 
-Cloudflare hosts Manorama and may handle request details such as IP address and time for delivery and security. Apple, Google, or Dropbox handles sign-in, depending on which you choose. The linked photo provider supplies the media. The website and apps may request fonts from Google. RevenueCat and the app store handle mobile purchases; Stripe handles web purchases. We do not sell your account or gallery records or use them to personalize ads.
+Cloudflare hosts Manorama and may handle request details such as IP address and time for delivery and security. Apple, Google, or Dropbox handles sign-in, depending on which you choose. The linked photo provider supplies the media. The website and apps may request fonts from Google. RevenueCat and the app store handle mobile purchases; Stripe handles web purchases. If you install the app through the App Store or TestFlight, Apple may share crash reports, diagnostics, and any tester feedback you choose to send, under Apple's own policies and your device settings. We do not sell your account or gallery records or use them to personalize ads.
 
 We are exploring opt-in, session-only nearby sharing and on-device photo suggestions. These are not active collection or sharing practices today. We will update this policy before any of them changes what leaves your device or who receives it.
 
