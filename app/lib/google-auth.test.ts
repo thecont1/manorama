@@ -106,7 +106,7 @@ describe('google identity exchange', () => {
     expect(stub.calls).toHaveLength(1)
     expect(stub.calls[0].url).toBe('https://oauth2.googleapis.com/token')
     expect(stub.calls[0].init?.method).toBe('POST')
-    expect(stub.calls[0].init?.redirect).toBe('error')
+    expect(stub.calls[0].init?.redirect).toBe('manual')
     expect(stub.calls[0].init?.signal).toBeInstanceOf(AbortSignal)
     expect((stub.calls[0].init?.headers as Record<string, string>)['Content-Type'])
       .toBe('application/x-www-form-urlencoded')

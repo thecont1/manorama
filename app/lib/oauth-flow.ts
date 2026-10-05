@@ -148,11 +148,7 @@ export const providerAuthEntry = async (c: Context, provider: AuthProvider) => {
   return startProviderAuth(c, provider)
 }
 
-const finishFailure = (c: Context, reason?: string) => {
-  // Temporary diagnosis for the provider-callback failures — remove with the fix.
-  console.warn('auth-finish-failure', { reason })
-  return c.redirect('/?error=1')
-}
+const finishFailure = (c: Context) => c.redirect('/?error=1')
 
 /**
  * The provider callback. The state row is consumed first — before the
@@ -169,19 +165,17 @@ export const finishProviderAuth = async (
   const requestUrl = new URL(c.req.url)
   const env = accessEnvOf(c)
   const flow = params.state ? await consumeAuthFlow(params.state, env).catch(() => null) : null
-  if (!flow || flow.provider !== provider) {
-    return finishFailure(c, !params.state ? 'no-state' : flow ? 'provider-mismatch' : 'flow-not-found')
-  }
-  if (params.error || !params.code) return finishFailure(c, `provider-error:${params.error ?? 'no-code'}`)
+  if (!flow || flow.provider !== provider) return finishFailure(c)
+  if (params.error || !params.code) return finishFailure(c)
   const secret = env.HOST_API_JWT_SECRET?.trim()
-  if (!secret) return finishFailure(c, 'no-session-secret')
+  if (!secret) return finishFailure(c)
 
   // A link flow must still belong to the browser that started it — check
   // the session before spending the authorization code.
   let linkSessionAccount: { accountId: string; ownerSlug: string } | null = null
   if (flow.intent === 'link') {
     const session = await resolveManoramaSession(c.req.raw, env)
-    if (!session || session.accountId !== flow.accountId) return finishFailure(c, 'link-session-mismatch')
+    if (!session || session.accountId !== flow.accountId) return finishFailure(c)
     linkSessionAccount = session
   }
 
@@ -244,11 +238,6 @@ export const finishProviderAuth = async (
       c.header('Cache-Control', 'no-store')
       return c.text('Sign-in is temporarily unavailable', 503)
     }
-    console.warn('auth-finish-error', {
-      provider,
-      name: error instanceof Error ? error.name : 'unknown',
-      message: error instanceof Error ? error.message : String(error),
-    })
-    return finishFailure(c, 'exception')
+    return finishFailure(c)
   }
 }

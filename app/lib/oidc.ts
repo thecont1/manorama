@@ -108,7 +108,9 @@ export const exchangeOidcCode = async (
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form,
-    redirect: 'error',
+    // 'manual' because Workers' fetch rejects 'error': a token endpoint
+    // that answers with a redirect fails the !response.ok check below.
+    redirect: 'manual',
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!response.ok) throw new Error(EXCHANGE_ERROR)

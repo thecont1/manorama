@@ -135,7 +135,7 @@ describe('apple identity exchange', () => {
     expect(result.refreshToken).toBe('apple-refresh-1')
     expect(stub.calls[0].url).toBe('https://appleid.apple.com/auth/token')
     expect(stub.calls[0].init?.method).toBe('POST')
-    expect(stub.calls[0].init?.redirect).toBe('error')
+    expect(stub.calls[0].init?.redirect).toBe('manual')
     expect(stub.calls[0].init?.signal).toBeInstanceOf(AbortSignal)
     expect((stub.calls[0].init?.headers as Record<string, string>)['Content-Type'])
       .toBe('application/x-www-form-urlencoded')
