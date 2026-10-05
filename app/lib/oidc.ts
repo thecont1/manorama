@@ -113,11 +113,7 @@ export const exchangeOidcCode = async (
     redirect: 'manual',
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    console.error('auth-exchange-error', response.status, detail.slice(0, 300))
-    throw new Error(EXCHANGE_ERROR)
-  }
+  if (!response.ok) throw new Error(EXCHANGE_ERROR)
   const json = await response.json().catch(() => null)
   if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error(EXCHANGE_ERROR)
   const { id_token: idToken, refresh_token: refreshToken } = json as {

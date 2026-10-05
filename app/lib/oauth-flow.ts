@@ -238,7 +238,6 @@ export const finishProviderAuth = async (
       c.header('Cache-Control', 'no-store')
       return c.text('Sign-in is temporarily unavailable', 503)
     }
-    console.error('auth-finish-error', provider, error)
     return finishFailure(c)
   }
 }
