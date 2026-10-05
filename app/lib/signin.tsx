@@ -46,16 +46,26 @@ export const SignInLinks = ({
   anchorClass?: string
   anchorAttrs?: Record<string, unknown>
 }) => (
-  <div class="landing-signin-group">
-    {SIGN_IN_PROVIDERS.map(({ id, name, Glyph }) => (
-      <a
-        class={anchorClass ? `landing-signin ${anchorClass}` : 'landing-signin'}
-        href={`/auth/${id}`}
-        {...anchorAttrs}
-      >
-        <Glyph />
-        {returning || id === 'apple' ? `Sign in with ${name}` : `Continue with ${name}`}
-      </a>
-    ))}
+  <div class="signin">
+    <span class="signin-lead">{returning ? 'Sign in with' : 'Continue with'}</span>
+    <div class="signin-icons">
+      {[...SIGN_IN_PROVIDERS]
+        // Apple leads the row everywhere — App Review 4.8 requires it given
+        // no less prominence than the other providers, and one order across
+        // web and the shells keeps the door recognisable on every platform.
+        .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+        .map(({ id, label, Glyph }) => (
+          <a
+            key={id}
+            class={anchorClass ? `signin-icon ${anchorClass}` : 'signin-icon'}
+            href={`/auth/${id}`}
+            aria-label={`${returning ? 'Sign in' : 'Continue'} with ${label}`}
+            {...anchorAttrs}
+          >
+            <Glyph />
+            <span class="signin-label">{label}</span>
+          </a>
+        ))}
+    </div>
   </div>
 )

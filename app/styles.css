@@ -931,17 +931,87 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
 .manu-upgrade p:last-child { margin: 0; }
 .manu-upgrade a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 
-/* Sign-in: the one door into manorama, on the landing page. A quiet stack
-   of provider buttons — the group's margin keeps the door's original
-   spacing while each anchor shares the same understated outline. */
-.landing-signin-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  margin-top: clamp(64px, 10vw, 112px);
+/* Sign-in: the one door into manorama, identical on the web landing and in
+   the shells — a "Continue with" lead over three provider orbs, each glyph
+   bobbing on its own delay and named beneath in mono caps. The anchors are
+   bare glyphs: the hit area is generous but invisible, and the bob rides on
+   the svg so the clickable box never moves. */
+.signin {
+  margin-top: clamp(56px, 11vw, 96px);
+  text-align: center;
 }
-.landing-signin-group .landing-signin { margin-top: 0; }
+.signin-lead {
+  display: block;
+  margin: 0 0 26px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.signin-icons {
+  /* Three glyphs in a row, each named beneath. The row is the whole chooser, so
+     no glyph depends on its neighbour's position to be understood. */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: clamp(10px, 3vw, 28px);
+  margin-inline: auto;
+}
+.signin-icon {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
+     "Google Drive" is more than twice "Apple" and would otherwise push the row
+     off centre. */
+  flex: 0 0 clamp(88px, 26vw, 112px);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: rgb(var(--ink));
+  cursor: pointer;
+  text-decoration: none;
+}
+/* The visible name is the accessible name too: WCAG 2.5.3 wants the visible
+   label inside the accessible one, and the row has to read on its own. */
+.signin-label {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+  white-space: nowrap;
+}
+.signin-icon svg {
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28));
+  transition: transform 200ms cubic-bezier(.3, 1.45, .5, 1), filter 200ms ease;
+  animation: signin-icon-bob 4.6s ease-in-out infinite;
+}
+.signin-icon:nth-child(2) svg { animation-delay: -1.5s; }
+.signin-icon:nth-child(3) svg { animation-delay: -3s; }
+.signin-icon:hover svg,
+.signin-icon:focus-visible svg {
+  transform: translateY(-4px) scale(1.08);
+  filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45));
+  animation-play-state: paused;
+}
+.signin-icon:focus-visible { outline: none; }
+.signin-icon:active svg { transform: scale(.94); }
+@media (prefers-reduced-motion: reduce) {
+  .signin-icon svg { animation: none; }
+}
+@keyframes signin-icon-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+
+/* The single quiet outline button remains for standalone sign-in anchors —
+   today the quick-add dev-seed link. */
 .landing-signin {
   display: inline-flex;
   align-items: center;
@@ -968,9 +1038,8 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
 }
 /* Wide screens — desktop web and the Duo in its wide posture — split the
    door: brand copy left, sign-in right. The grid needs no markup change:
-   every child lands in column 1 except whichever sign-in element a
-   platform renders (.landing-signin-group on web, .native-signin in the
-   shells), which spans the right column for the full height. */
+   every child lands in column 1 except the .signin orb chooser, which spans
+   the right column for the full height on every platform. */
 @media (min-width: 820px) {
   .landing-brand {
     display: grid;
@@ -980,13 +1049,12 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
     max-width: min(1180px, 100%);
     text-align: left;
   }
-  .landing-brand > :where(:not(.landing-signin-group):not(.native-signin)) {
+  .landing-brand > :where(:not(.signin)) {
     grid-column: 1;
     justify-self: stretch;
   }
   .landing-brand .brand-mark-wrap { margin-bottom: clamp(20px, 3vw, 36px); }
-  .landing-brand .landing-signin-group,
-  .landing-brand .native-signin {
+  .landing-brand .signin {
     grid-column: 2;
     grid-row: 1 / -1;
     align-self: center;

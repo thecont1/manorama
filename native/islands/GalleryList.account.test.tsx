@@ -336,7 +336,7 @@ describe('account slot layout contract', () => {
     expect(html).toContain('Continue with Dropbox')
     expect(html.indexOf('Continue with Apple')).toBeLessThan(html.indexOf('Continue with Dropbox'))
     expect(html.indexOf('native-account-header')).toBeLessThan(slotAt)
-    expect(html.indexOf('native-signin-icons')).toBeGreaterThan(slotAt)
+    expect(html.indexOf('signin-icons')).toBeGreaterThan(slotAt)
     // The opening screen is the sign-in door alone — the manual form and the
     // gallery shortcuts wait behind sign-in.
     expect(container.querySelector('form')).toBeNull()

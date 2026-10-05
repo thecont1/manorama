@@ -807,21 +807,21 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           {signedIn === false && onSignIn ? (
             // App Review 4.8: a third-party sign-in must sit beside Sign in
             // with Apple, given no less prominence — Apple leads the row.
-            <div class="native-signin">
-              <span class="native-signin-lead">Continue with</span>
-              <div class="native-signin-icons">
+            <div class="signin">
+              <span class="signin-lead">Continue with</span>
+              <div class="signin-icons">
                 {[...SIGN_IN_PROVIDERS]
                   .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
                   .map(({ id, label, Glyph }) => (
                     <button
                       key={id}
                       type="button"
-                      class="native-signin-icon"
+                      class="signin-icon"
                       aria-label={`Continue with ${label}`}
                       onClick={() => onSignIn(id)}
                     >
                       <Glyph />
-                      <span class="native-signin-label">{label}</span>
+                      <span class="signin-label">{label}</span>
                     </button>
                   ))}
               </div>
