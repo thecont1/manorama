@@ -7,6 +7,7 @@ import {
   type UserRecord,
   type UserRepositoryEnv,
 } from './user-repository'
+import { randomGalleryName } from './gallery-name'
 
 export type AuthProvider = 'dropbox' | 'google' | 'apple'
 
@@ -99,7 +100,12 @@ export const upsertIdentitySignIn = async (
   }
   const initialName = displayName ?? 'Photographer'
   const slugified = slugifyName(initialName).replace(/-+$/, '')
-  const slugBase = slugified.length >= OWNER_SLUG_MIN ? slugified : 'photographer'
+  // Apple withholds the name on every consent after the first, so a missing
+  // displayName mints a three-word slug — like a quick-add gallery — rather
+  // than pinning the account to an endless run of photographer-N URLs.
+  const slugBase = displayName
+    ? (slugified.length >= OWNER_SLUG_MIN ? slugified : 'photographer')
+    : randomGalleryName()
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const suffix = attempt === 0 ? '' : `-${attempt + 1}`
     const stem = slugBase.slice(0, OWNER_SLUG_MAX - suffix.length).replace(/-+$/, '')

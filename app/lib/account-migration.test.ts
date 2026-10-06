@@ -204,6 +204,9 @@ describe('identity sign-in and linking on the migrated schema', () => {
     expect(google.accountId).not.toBe(apple.accountId)
     expect(google.ownerSlug).not.toBe(apple.ownerSlug)
     expect(apple.displayName).toBe('Photographer')
+    // No displayName from Apple → a generated three-word slug, not photographer-N
+    expect(apple.ownerSlug).toMatch(/^[a-z]+-[a-z]+-[a-z]+(-[0-9]+)?$/)
+    expect(apple.ownerSlug.startsWith('photographer')).toBe(false)
   })
 
   test('linking google then apple lands on one account without touching slug, tier, billing or galleries', async () => {
