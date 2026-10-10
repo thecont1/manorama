@@ -147,11 +147,17 @@ for (const engine of engines) {
       }
 
       const liftCurtain = async () => {
+        // A click is what the app's own handler wants. Pressing Enter on the
+        // curtain does flip it away, but the body never gains
+        // `gallery-entered`, and the `g` shortcut checks exactly that class —
+        // which is why the picker opened for the click and not for the key.
+        // `force` skips the actionability probe the curtain's content fails.
         await until(
           page,
           'the curtain never lifted',
-          () => page.locator('[aria-label="Enter gallery"]').press('Enter', { timeout: 5_000 }),
-          async () => (await controls()) > 0,
+          () => page.locator('[aria-label="Enter gallery"]').click({ position: { x: 6, y: 6 }, timeout: 5_000, force: true }),
+          async () => (await controls()) > 0 && await page.evaluate(() => document.body.classList.contains('gallery-entered')),
+          12,
         )
         await page.waitForTimeout(900)
       }

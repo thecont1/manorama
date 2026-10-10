@@ -55,7 +55,7 @@
     "state": "06-selector",
     "file": null,
     "ok": false,
-    "note": "the photo picker never appeared (at http://localhost:5175/thecontrarian/mixed-album)"
+    "note": "the curtain never lifted (at http://localhost:5175/thecontrarian/mixed-album)"
   },
   {
     "engine": "chromium",
@@ -96,8 +96,9 @@
     "engine": "chromium",
     "viewport": "ipad",
     "state": "05-account-pane",
-    "file": "chromium-ipad-05-account-pane.png",
-    "ok": true
+    "file": null,
+    "ok": false,
+    "note": "the account pane never opened (at http://localhost:5175/thecontrarian)"
   },
   {
     "engine": "chromium",
@@ -112,7 +113,7 @@
     "state": "06-selector",
     "file": null,
     "ok": false,
-    "note": "the photo picker never appeared (at http://localhost:5175/thecontrarian/mixed-album)"
+    "note": "the curtain never lifted (at http://localhost:5175/thecontrarian/mixed-album)"
   },
   {
     "engine": "chromium",
@@ -160,16 +161,14 @@
     "engine": "chromium",
     "viewport": "desktop",
     "state": "05-editor-row",
-    "file": null,
-    "ok": false,
-    "note": "the account pane never closed (at http://localhost:5175/thecontrarian)"
+    "file": "chromium-desktop-05-editor-row.png",
+    "ok": true
   },
   {
     "engine": "chromium",
     "viewport": "desktop",
     "state": "06-selector",
-    "file": null,
-    "ok": false,
-    "note": "the photo picker never appeared (at http://localhost:5175/thecontrarian/mixed-album)"
+    "file": "chromium-desktop-06-selector.png",
+    "ok": true
   }
 ]
