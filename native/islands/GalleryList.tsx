@@ -481,6 +481,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <Viewer
             key={`${manifest.slug}:${frameKick.nonce}`}
             slug={manifest.slug}
+            galleryTitle={manifest.title}
             images={source.list()}
             settings={settings}
             plate={plate}
@@ -489,7 +490,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               setGlobalViewOpen(true)
             } : undefined}
             initialIndex={frameKick.index}
-            alwaysShowNavigation
             foldLayout={foldEligible ? foldLayout : null}
             foldRenderer={foldEligible ? renderFold : undefined}
           />

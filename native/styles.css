@@ -1029,14 +1029,20 @@ body.manorama-native .controls-panel-topbar .panel-close {
   body.manorama-native .stage-arrows .stage-seq { grid-column: 2; }
   body.manorama-native .stage-arrows .stage-nav-arrow--next { grid-column: 3; }
 
-  /* The pill is anchored to the row's leading edge and spans what is left after
-     the two circles and their gaps. `left` is given as a length rather than 50%
-     so the centring transform has to go with it. */
+  /* The pill is centred rather than anchored to the row's leading edge.
+     Anchored left it read as a pill, a wide void, and then two buttons — three
+     unrelated things in a row.
+     Centring is done with `left: 0; right: 0; margin-inline: auto` and a
+     `fit-content` width, not with `left: 50%` and a transform: the box has to
+     keep hugging the wordmark, because this button paints its own bar and a
+     stretched box turns that bar into a full-width rule across the bottom of
+     the stage. It also leaves `transform` free for the press states. */
   body.manorama-native .control-logo {
-    left: max(12px, var(--native-safe-left));
-    /* The pill hugs the wordmark instead of spanning the free space, so the row
-       reads as a compact pill, a gap, then the two circles. */
-    width: auto;
+    left: 0;
+    right: 0;
+    width: fit-content;
+    margin-inline: auto;
+    /* The pill hugs the wordmark instead of spanning the free space. */
     /* The wordmark's ink frame is drawn by ::before at inset -5px -12px. While
        the pill was wide that frame sat inside it; hugging the wordmark left it
        hanging outside, which reads as a second button tucked behind this one.
@@ -1045,6 +1051,15 @@ body.manorama-native .controls-panel-topbar .panel-close {
     transform: none;
   }
   body.manorama-native .control-logo:hover { transform: none; }
+  /* With no arrows shown the circles leave the stage's centre free, so the pill
+     takes it — the composition the web uses at this width, wordmark centred
+     with the position at the corner. With arrows shown the trailing cluster is
+     twice as wide and a stage-centred pill would run its bar into the position
+     circle, so there the pill centres in the room they leave. Only `right`
+     changes; the auto margins re-centre inside whatever box is left. */
+  body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .control-logo {
+    right: calc((2 * var(--native-chrome-height)) + 8px);
+  }
 }
 /* The landing used to subtract both safe-area insets from its height. That made
    it shorter than the viewport, so the strip it gave back showed the root
@@ -1092,3 +1107,11 @@ body.manorama-native .controls-panel-topbar .panel-close-mark {
   font-weight: 200;
   line-height: 1;
 }
+/* The WebView paints under the status bar now, and the body reserves the notch
+   as padding — so the strip above a surface is the *body's* own background.
+   That is `#0a0a0a`, the viewer's canvas, which is right while a gallery is on
+   screen and wrong everywhere else: the opening screen and the account screen
+   sit on `#111312`, and the mismatch read as a black bar across the top of
+   them. Paint the body to match whichever surface is mounted. */
+body.manorama-native:has(.native-landing),
+body.manorama-native:has(.native-list-shell) { background: #111312; }
