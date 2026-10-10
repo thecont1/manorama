@@ -52,3 +52,6 @@ submission/build/
 submission/screens/
 submission/video/
 submission/*.zip
+
+# MCP result cache written by the local tool bridge.
+.manus/
