@@ -1284,3 +1284,33 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
   outline: 2px solid rgb(var(--ink));
   outline-offset: 2px;
 }
+
+/* Account overview: only the photographic list spans both top quadrants. */
+.native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: max(24px, var(--native-safe-top)) 24px max(24px, var(--native-safe-bottom)) 56px; }
+.native-account-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; width: 100%; max-width: 1440px; margin-inline: auto; padding-bottom: 28px; }
+.native-account-overview .native-account-left { display: block; overflow: visible; min-width: 0; }
+.native-account-overview .native-account-side { width: 100%; margin: 0; }
+.native-account-overview .native-account-head { display: block; }
+.native-account-overview .brand-mark-wrap { display: block; width: min(300px, 100%); }
+.native-account-overview .landing-brand-mark { display: block; width: 100%; max-width: 100%; height: auto; }
+.native-account-overview .native-legal { display: none; }
+.native-account-overview .native-gallery-import { min-width: 0; margin: 0; }
+.native-account-overview .native-gallery-import form { display: grid; gap: 12px; }
+.native-account-overview .native-gallery-import input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 48px; border: 1px solid rgba(var(--ink), .24); padding: 12px; background: rgba(var(--ink), .04); color: rgb(var(--ink)); font: inherit; font-size: 16px; }
+.native-account-overview .native-gallery-import label { color: rgba(var(--ink), .75); font-size: 12px; }
+.native-account-overview .native-gallery-import button { justify-self: start; border: 1px solid rgba(var(--ink), .25); min-height: 48px; padding: 12px 18px; background: transparent; color: rgb(var(--ink)); font: inherit; }
+.native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
+.native-account-edge-tab { position: fixed; z-index: 40; left: 0; top: 50%; transform: translateY(-50%); border-radius: 0 10px 10px 0; width: 44px; height: 110px; background: var(--gallery-canvas); }
+.native-account-edge-tab > span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
+.native-drawer { justify-content: flex-start; }
+.native-drawer-panel { border-left: 0; border-right: 1px solid rgba(var(--ink), .14); max-width: var(--admin-pane-limit, 100vw); }
+@keyframes native-drawer-in { from { transform: translateX(-100%); opacity: .8; } to { transform: none; opacity: 1; } }
+@media (min-width: 820px) {
+  .native-account-overview { grid-template-columns: minmax(0, calc(50% - 32px)) minmax(0, 1fr); column-gap: 32px; align-items: start; }
+  .native-account-overview .native-gallery-import { padding-left: 12px; }
+}
+@media (max-width: 819px) {
+  .native-account-overview .native-gallery-import button { justify-self: stretch; }
+}
+
+.native-account-shell[data-admin-segmented] .native-account-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }

@@ -445,11 +445,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }, [galleryOpen, billingState?.tier, billingState?.isPro, platesVisible])
 
   useEffect(() => {
-    if (!manifest) return
+    // Account controls use the same safe regions as the viewer; they need
+    // geometry before any photograph has been opened.
     const sync = () => setFoldLayout(readRuntimeFoldLayout())
     sync()
     return subscribeToRuntimeFoldLayout(sync)
-  }, [manifest])
+  }, [])
 
   const openGlobalFrame = (next: Selection, index: number) => {
     setGlobalViewOpen(false)
@@ -694,7 +695,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountName = ownerName ?? ownerSlug ?? 'friend'
   const closeAccountMenu = () => {
     setAccountMenuOpen(false)
-    accountMenuButtonRef.current?.focus()
+    // WebKit can drop immediate focus while Hono removes the focused drawer
+    // during a pending resize commit. Restore it on the surviving trigger.
+    requestAnimationFrame(() => accountMenuButtonRef.current?.focus())
   }
   // Focus moves into the drawer, Tab stays inside it, and Esc hands the caret
   // back to the button that opened it — the contract the viewer's modal keeps.
@@ -763,6 +766,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountGalleryLink = (gallery: GallerySummary) => ownerSlug
     ? `manorama.xyz/${ownerSlug}/${gallery.slug}`
     : `manorama.xyz/${gallery.slug}`
+  const leftRegion = foldLayout?.controlRegions[0]
+  const rightRegion = foldLayout?.controlRegions[1]
+  const accountFoldStyle = leftRegion && rightRegion && rightRegion.x > leftRegion.x + leftRegion.width
+    ? { '--admin-pane-limit': `${leftRegion.x + leftRegion.width}px`, '--admin-left-end': `${leftRegion.x + leftRegion.width}px`, '--admin-right-start': `${rightRegion.x}px` }
+    : undefined
   // The first variant is the provider's own thumbnail, and for a film it is the
   // poster — `src` would be the video itself, which no <img> can show. This is
   // the same `variants?.[0]?.src ?? src` the web dashboard's row previews use.
@@ -892,7 +900,20 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   return (
     <>
-    <main class="native-list-shell native-account-shell">
+    <main class="native-list-shell native-account-shell" style={accountFoldStyle} data-admin-segmented={accountFoldStyle ? 'true' : undefined}>
+          <button
+            type="button"
+            class="native-account-menu native-account-edge-tab"
+            aria-label="Account menu"
+            aria-expanded={accountMenuOpen}
+            aria-controls="native-account-drawer"
+            ref={accountMenuButtonRef}
+            onClick={() => setAccountMenuOpen(true)}
+          >
+            <span aria-hidden="true">Account <span>›</span></span>
+          </button>
+
+      <div class="native-account-overview" aria-label="Account overview">
       {/* The brand column — same classes as the web's landing and dashboard,
           so logo, tagline, greeting and footer can't drift between platforms.
           Wide screens pin it left beside the account card; narrow screens
@@ -910,17 +931,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             />
             <span class="brand-tld" aria-hidden="true">.xyz</span>
           </span>
-          <button
-            type="button"
-            class="native-account-menu"
-            aria-label="Account menu"
-            aria-expanded={accountMenuOpen}
-            aria-controls="native-account-drawer"
-            ref={accountMenuButtonRef}
-            onClick={() => setAccountMenuOpen(true)}
-          >
-            <span class="native-account-menu-bars" aria-hidden="true" />
-          </button>
         </div>
         <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         {accountAdAside}
@@ -956,8 +966,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href={AUTHOR_URL} onClick={(event) => { event.preventDefault(); openExternal(AUTHOR_URL) }}>thecontrarian.in</a></p>
         </footer>
       </div>
-      <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
-        <h1>Your galleries</h1>
         <section class="native-gallery-import" aria-labelledby="native-import-heading">
           <h2 id="native-import-heading">Add a gallery</h2>
           <form onSubmit={importCloudGallery} aria-busy={quickAddBusy}>
@@ -979,6 +987,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             </button>
           </form>
         </section>
+      </div>
+      <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
+        <h1>Your galleries</h1>
         {authError ? <p role="alert">{authError}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
@@ -1173,7 +1184,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       </section>
     </main>
     {accountMenuOpen ? (
-      <div class="native-drawer" id="native-account-drawer" data-account-drawer>
+      <div class="native-drawer" id="native-account-drawer" data-account-drawer style={accountFoldStyle}>
         <div class="native-drawer-scrim" aria-hidden="true" onClick={closeAccountMenu} />
         <div
           class="native-drawer-panel"
@@ -1181,6 +1192,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           aria-modal="true"
           aria-label="Account"
           ref={accountDrawerRef}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return
+            event.preventDefault()
+            event.stopPropagation()
+            closeAccountMenu()
+          }}
         >
           <div class="native-drawer-head">
             <h2>Account</h2>

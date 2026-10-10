@@ -478,6 +478,11 @@ describe('signed-in account area', () => {
 
     const html = container.innerHTML
     expect(html).toContain('Your galleries')
+    const overview = container.querySelector('.native-account-overview')
+    expect(overview?.querySelector('.native-gallery-import')).not.toBeNull()
+    expect(overview?.querySelector('.native-account-left')).not.toBeNull()
+    expect(container.querySelector('.native-list-card .native-gallery-import')).toBeNull()
+    expect(html.indexOf('native-account-overview')).toBeLessThan(html.indexOf('Your galleries'))
     // The address lives in the greeting's editable URL field — the same
     // `manorama.xyz/` + slug the web dashboard renders.
     expect(html).toContain('manorama.xyz/')

@@ -1237,8 +1237,8 @@ html.light .admin-theme-toggle img { filter: brightness(0); }
 /* Light theme (editor only): the toggle adds .light to <html>; --ink flips every
    ink-derived color. Hard-coded surfaces and white-hover states need overrides. */
 html.light { --ink: 22, 24, 23; color-scheme: light; }
-html.light, html.light body, html.light body:has(.admin-page) { background: #e9e5dc; }
-html.light .admin-page { color: #161817; background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .14), transparent 35rem), #e9e5dc; }
+html.light:has(.admin-page), html.light body:has(.admin-page) { background: #e9e5dc; }
+html.light .admin-page { --admin-surface: #e9e5dc; --admin-muted: .72; color: rgb(var(--ink)); background: var(--admin-surface); }
 html.light .admin-gallery-strip-frame, html.light .dropbox-strip-item img { background: #dcd7cb; }
 html.light .admin-toast { color: #f3f0e8; }
 html.light .admin-button--solid { color: #e9e5dc; }
@@ -1250,6 +1250,8 @@ html.light .admin-gallery-url:hover, html.light .admin-gallery-url:focus-visible
 html.light .admin-row-action:hover, html.light .admin-row-action:focus-visible { border-color: #000; color: #000; }
 html.light .admin-icon-action:hover, html.light .admin-icon-action:focus-visible { color: #000; }
 html.light .gallery-selector-field option { background: #e9e5dc; }
+html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { color: #e9e5dc; }
+html.light .admin-page :is(.admin-brand-logo, .admin-topbar-logo) { filter: brightness(0); }
 
 
 /* ── M magnifier ─────────────────────────────────────────────────────
@@ -1794,93 +1796,114 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    galleries run the full width.
    --------------------------------------------------------------------------- */
 
-.admin-page--selector { display: block; height: auto; overflow: visible; }
-.admin-page--selector .admin-left { display: block; }
-.admin-page--selector .admin-content { order: 0; overflow: visible; }
+.admin-page--selector { --admin-surface: #111312; --admin-muted: .68; display: block; width: 100%; height: auto; overflow: visible; background: var(--admin-surface); padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
+.admin-page--selector .admin-left { display: block; overflow: visible; min-width: 0; }
+.admin-page--selector .admin-content { order: 0; overflow: visible; width: min(1440px, 100%); margin-inline: auto; }
+.admin-page--selector :is(.gallery-import, .gallery-list) { width: 100%; }
+.admin-page--selector :is(.admin-topbar-title, .admin-field > span, .admin-limit-count, .admin-privacy-note, .admin-gallery-caption, .admin-gallery-caption.is-empty, .site-footer-link, .site-footer-copy, .site-footer-copy a, .admin-delete-account summary) { color: rgba(var(--ink), var(--admin-muted)); }
+.admin-page--selector input::placeholder { color: rgba(var(--ink), var(--admin-muted)); opacity: 1; }
 .admin-page--selector .site-footer { order: 0; }
 .admin-page--selector .admin-header { width: 100%; margin: 0; padding-bottom: 0; }
 
-.admin-topbar {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  width: min(1040px, 100%);
-  margin: 0 auto;
-  padding-bottom: 26px;
+.admin-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; padding-bottom: 32px; }
+.admin-welcome { min-width: 0; }
+.admin-welcome-brand { display: block; position: relative; width: min(340px, 100%); margin-bottom: 24px; }
+.admin-welcome-brand .admin-topbar-logo { display: block; width: 100%; max-width: 100%; height: auto; }
+.admin-welcome .admin-intro { max-width: 44ch; font-size: 16px; line-height: 1.55; }
+.admin-welcome-note { max-width: 46ch; margin: 24px 0 0; color: rgba(var(--ink), .86); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.admin-overview .gallery-import { min-width: 0; padding: 0; border-top: 0; }
+.admin-overview .gallery-selector-heading { margin-bottom: 22px; }
+.admin-overview .gallery-import-form { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.admin-overview .gallery-import-form .admin-button { justify-self: start; }
+.admin-overview .admin-retention-policy { margin: 0 0 22px; }
+.admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 20px; font-weight: 500; letter-spacing: -.025em; }
+@media (min-width: 820px) {
+  /* The page's asymmetric edge-tab gutter would pull a simple 50/50 split
+     right of the physical centre. Compensate so neither top block crosses it. */
+  .admin-overview { --overview-gutter: 32px; grid-template-columns: minmax(0, calc(50% - 16px - var(--overview-gutter) / 2)) minmax(0, 1fr); column-gap: var(--overview-gutter); }
+  .admin-welcome { padding-right: 12px; }
+  .admin-overview .gallery-import { padding-left: 12px; }
+}
+@media (horizontal-viewport-segments: 2) {
+  .admin-overview { grid-template-columns: minmax(0, calc(env(viewport-segment-width 0 0) - 56px)) minmax(0, 1fr); column-gap: max(32px, calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0))); }
 }
 
-.admin-topbar-brand { display: inline-flex; align-items: flex-end; gap: 2px; }
-.admin-topbar-logo { display: block; width: clamp(112px, 13vw, 168px); }
-
-.admin-topbar-title {
-  flex: 1 1 auto;
-  margin: 0;
-  color: rgba(var(--ink), .5);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: .08em;
-  text-transform: lowercase;
-}
-
-.admin-menu-button {
-  flex: 0 0 auto;
+.admin-edge-tab {
+  position: fixed;
+  z-index: 45;
+  left: env(safe-area-inset-left, 0px);
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   width: 44px;
-  height: 44px;
+  min-height: 112px;
   place-items: center;
-  border: 1px solid rgba(var(--ink), .22);
-  border-radius: 999px;
-  background: transparent;
+  gap: 10px;
+  padding: 16px 8px;
+  border: 1px solid rgba(var(--ink), .32);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--admin-surface);
   color: rgb(var(--ink));
   cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease;
 }
 
-.admin-menu-button:hover { border-color: rgba(var(--ink), .7); }
-.admin-menu-button:focus-visible { border-color: rgba(var(--ink), .7); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-edge-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .035em; }
+.admin-edge-tab svg { width: 16px; height: 16px; }
+.admin-edge-tab:hover { border-color: rgb(var(--ink)); }
+.admin-edge-tab:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 
-.admin-menu-bars,
-.admin-menu-bars::before,
-.admin-menu-bars::after {
-  display: block;
-  width: 18px;
-  height: 1.5px;
-  background: currentColor;
-  content: '';
-}
-
-.admin-menu-bars { position: relative; }
-.admin-menu-bars::before { position: absolute; top: -5.5px; left: 0; }
-.admin-menu-bars::after { position: absolute; top: 5.5px; left: 0; }
-
-.admin-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
+.admin-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-start; }
 /* `hidden` has to out-rank the flex display above, or a closed pane would
    still paint over the galleries. */
 .admin-drawer[hidden] { display: none; }
-.admin-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .66); }
+.admin-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .45); animation: admin-scrim-in 220ms ease; }
 
 .admin-drawer-panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(460px, 92vw);
+  width: min(460px, calc(100% - 24px));
   height: 100%;
+  min-width: 0;
   box-sizing: border-box;
-  padding: clamp(24px, 3.4vw, 44px);
+  padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-left: 1px solid rgba(var(--ink), .14);
-  background: #111312;
+  border-right: 1px solid rgba(var(--ink), .2);
+  background: var(--admin-surface);
   color: rgb(var(--ink));
-  animation: admin-drawer-in 220ms cubic-bezier(.22, 1, .36, 1);
+  animation: admin-drawer-in 280ms cubic-bezier(.22, 1, .36, 1);
 }
+
+.admin-drawer-close { display: grid; place-items: center; align-self: flex-end; flex: 0 0 44px; width: 44px; height: 44px; margin-bottom: 12px; padding: 0; border: 1px solid rgba(var(--ink), .3); background: transparent; color: rgb(var(--ink)); cursor: pointer; }
+.admin-drawer-close svg { width: 20px; height: 20px; }
+.admin-drawer-close:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-drawer-panel .admin-header > div { width: 100%; min-width: 0; }
+.admin-drawer-panel .admin-brand-title { font-size: 0; white-space: normal; }
+.admin-drawer-panel .brand-mark-wrap { display: block; max-width: 100%; }
+.admin-drawer-panel .admin-brand-logo { display: block; width: 100%; max-width: 320px; height: auto; }
+.admin-drawer-panel .admin-brand-title .brand-mark-wrap { width: min(320px, 100%); }
+.admin-drawer-panel .admin-greeting-url { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 16px; overflow-wrap: anywhere; }
+.admin-drawer-panel .admin-owner-slug-input { min-width: 0; max-width: 100%; margin: 0; }
+.admin-drawer-panel .admin-greeting { font-size: 15px; line-height: 1.65; }
+.admin-drawer-panel .admin-intro { font-size: 16px; }
 
 @keyframes admin-drawer-in {
-  from { transform: translateX(14px); opacity: 0; }
+  from { transform: translateX(-100%); }
   to { transform: none; opacity: 1; }
 }
+@keyframes admin-scrim-in { from { opacity: 0; } to { opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .admin-drawer-panel { animation: none; }
+  .admin-drawer-panel, .admin-drawer-scrim { animation: none; }
+}
+@media (max-width: 640px) {
+  .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
+  .admin-welcome-brand { width: min(280px, 100%); }
+  .admin-overview .gallery-import-form .admin-button { justify-self: stretch; }
 }
 
 .admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
@@ -1903,8 +1926,8 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   cursor: pointer;
 }
 
-.admin-drawer-action:hover { border-color: rgba(var(--ink), .72); color: #fff; }
-.admin-drawer-action:focus-visible { border-color: rgba(var(--ink), .72); color: #fff; outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-drawer-action:hover { border-color: rgb(var(--ink)); color: rgb(var(--ink)); background: rgba(var(--ink), .06); }
+.admin-drawer-action:focus-visible { border-color: rgb(var(--ink)); color: rgb(var(--ink)); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 .admin-signout-form { margin: 0; }
 .admin-signout-form .admin-drawer-action { width: 100%; }
 
@@ -1922,6 +1945,9 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   touch-action: pan-x;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(var(--ink), .035);
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
 }
@@ -1937,3 +1963,8 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 
 .admin-gallery-strip-item { flex: 0 0 auto; height: clamp(96px, 16dvh, 208px); }
 .admin-gallery-strip-item img { height: 100%; width: auto; }
+
+/* Two physical control regions: copy and inputs avoid the hinge, scrolling
+   photographic rails deliberately continue across it. */
+.admin-page--selector[data-admin-segmented] .admin-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
+.admin-page--selector .admin-drawer-panel { max-width: var(--admin-pane-limit, 100vw); }

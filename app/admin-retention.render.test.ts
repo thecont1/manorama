@@ -87,6 +87,28 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-background-toggle')
   })
 
+  test('the account opens from an edge tab and editor rails need no repeated heading', async () => {
+    const html = await renderDashboard(seedPipelineOwner)
+    expect(html).toContain('class="admin-edge-tab"')
+    expect(html).toContain('aria-controls="admin-account-drawer"')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('aria-label="Close account menu"')
+    expect(html).not.toContain('admin-menu-bars')
+    expect(html).not.toContain('admin-gallery-editor-label')
+    expect(html).not.toContain('Photo Editor')
+    expect(html).toContain('aria-label="Reorder Locked images"')
+  })
+
+  test('welcome and import share the top level with galleries below both', async () => {
+    const html = await renderDashboard(seedPipelineOwner)
+    expect(html).toContain('class="admin-overview"')
+    expect(html).toContain('aria-label="Welcome to manorama"')
+    expect(html).toContain('You are a Free User. You have used 3 of your 3 gallery limit.')
+    expect(html.indexOf('class="admin-welcome"')).toBeLessThan(html.indexOf('id="import-heading"'))
+    expect(html.indexOf('id="import-heading"')).toBeLessThan(html.indexOf('id="galleries-heading"'))
+    expect(html).toContain('aria-labelledby="galleries-heading"')
+  })
+
   test('a pipeline card locks every edit surface and explains the deadline', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     expect(html).toContain('data-retention="pipeline"')

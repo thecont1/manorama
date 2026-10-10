@@ -5,6 +5,7 @@ import { friendlySourceError } from '../lib/source-errors'
 import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
 import type { AuthProvider } from '../lib/identity-repository'
 import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
+import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -245,6 +246,26 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef<HTMLButtonElement | null>(null)
   const drawerRef = useRef<HTMLDivElement | null>(null)
+  const pageRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    pageRef.current?.setAttribute('data-admin-ready', 'true')
+    const sync = () => {
+      const page = pageRef.current
+      if (!page) return
+      const [left, right] = readRuntimeFoldLayout().controlRegions
+      const segmented = Boolean(left && right && right.x > left.x + left.width)
+      page.toggleAttribute('data-admin-segmented', segmented)
+      if (segmented) {
+        page.style.setProperty('--admin-left-end', `${left.x + left.width}px`)
+        page.style.setProperty('--admin-right-start', `${right.x}px`)
+        page.style.setProperty('--admin-pane-limit', `${left.x + left.width}px`)
+      } else {
+        for (const name of ['--admin-left-end', '--admin-right-start', '--admin-pane-limit']) page.style.removeProperty(name)
+      }
+    }
+    sync()
+    return subscribeToRuntimeFoldLayout(sync)
+  }, [])
   const closeMenu = () => {
     setMenuOpen(false)
     menuButtonRef.current?.focus()
@@ -254,11 +275,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   useEffect(() => {
     if (!menuOpen) return
     const panel = drawerRef.current
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     panel?.querySelector<HTMLButtonElement>('button')?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
       if (event.key !== 'Tab' || !panel) return
-      const focusable = panel.querySelectorAll<HTMLElement>('button, a[href], input')
+      const focusable = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), summary')]
+        .filter((element) => element.getClientRects().length > 0)
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       if (!first || !last) return
@@ -266,7 +290,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = overflow
+    }
   }, [menuOpen])
 
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
@@ -597,42 +624,34 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // ticker rerenders every minute): expired pipeline galleries are already
   // gone logically and drop out of the next fetch, so skip them here too.
   const liveGalleries = galleries.filter((gallery) => !isGalleryExpired(gallery, new Date(now).toISOString()))
+  const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
+  const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
   return (
     <>
-      <main class="admin-page admin-page--selector">
-      {/* On wide screens the page locks to the viewport and each column
-          scrolls on its own — the left from brand down to this footer, the
-          right through the galleries. On narrow screens .admin-left is
-          display:contents, so the footer orders itself back to the bottom
-          of the stacked page. */}
-      {/* The wordmark and the account button share one quiet row, and the
-          account itself waits in a pane to the right — the galleries get the
-          page's full width. */}
-      <header class="admin-topbar">
-        <span class="admin-topbar-brand brand-mark-wrap">
-          <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
-          <span class="brand-tld" aria-hidden="true">.xyz</span>
-        </span>
-        <h1 class="admin-topbar-title">Your galleries</h1>
-        <button
-          type="button"
-          class="admin-menu-button"
-          aria-label="Account menu"
-          aria-expanded={menuOpen}
-          aria-controls="admin-account-drawer"
-          ref={menuButtonRef}
-          onClick={() => setMenuOpen(true)}
-        >
-          <span class="admin-menu-bars" aria-hidden="true" />
-        </button>
-      </header>
-      {/* The pane is always in the document — the dashboard has to work
-          without JavaScript, and the account is not a decoration. `hidden`
-          keeps it out of the layout and out of the accessibility tree. */}
+      <main class="admin-page admin-page--selector" ref={pageRef}>
+      {/* Account tools live at the edge; the photographs keep the page width.
+          The tab belongs to the dashboard only, never to the viewing stage. */}
+      <button
+        type="button"
+        class="admin-edge-tab"
+        aria-label="Account menu"
+        aria-expanded={menuOpen ? 'true' : 'false'}
+        aria-controls="admin-account-drawer"
+        ref={menuButtonRef}
+        onClick={() => setMenuOpen(true)}
+      >
+        <span aria-hidden="true">Account</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+      </button>
+      {/* Hidden account controls stay outside the accessibility tree until
+          the hydrated dashboard opens them. */}
       <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
       <div class="admin-drawer-scrim" aria-hidden="true" onClick={closeMenu} />
       <aside class="admin-drawer-panel" role="dialog" aria-modal="true" aria-label="Account" ref={drawerRef}>
+      <button type="button" class="admin-drawer-close" aria-label="Close account menu" onClick={closeMenu}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+      </button>
       <div class="admin-left">
       <header class="admin-header">
         <div>
@@ -730,11 +749,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </aside>
       </div>
 
-      {/* Wide screens split the page in two: the header (brand, greeting,
-          sign-in methods, account) holds the left column while everything
-          operational — adding and curating galleries — runs down the right.
-          Narrow screens read top to bottom, header first. */}
+      {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
+      {/* Only the continuous photographic rails span the centre. Account copy
+          and the import form each fit inside one half of the top workbench. */}
+      <div class="admin-overview">
+      <section class="admin-welcome" aria-label="Welcome to manorama">
+        <span class="admin-welcome-brand brand-mark-wrap">
+          <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
+          <span class="brand-tld" aria-hidden="true">.xyz</span>
+        </span>
+        <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. You have used {retainedCount} of your {retainedLimit} gallery limit.</p>
+      </section>
       <section class="gallery-import" aria-labelledby="import-heading">
         <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
         {(() => {
@@ -751,8 +778,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         </form>
         <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
       </section>
+      </div>
 
-      <section class="gallery-list" aria-label="Published galleries">
+      <section class="gallery-list" aria-labelledby="galleries-heading">
+        <h1 class="admin-galleries-heading" id="galleries-heading">Your galleries</h1>
         {liveGalleries.length ? <div class="admin-gallery-list">{liveGalleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
           {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
@@ -764,7 +793,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
-          <div class="admin-gallery-editor-label"><span>Photo Editor</span></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
               {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery)} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
