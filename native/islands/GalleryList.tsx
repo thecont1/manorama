@@ -136,7 +136,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [pendingQuickAdd, setPendingQuickAdd] = useState<string | null>(null)
   const [quickAddBusy, setQuickAddBusy] = useState(false)
+  const [sourceUrl, setSourceUrl] = useState('')
   const quickAddInFlight = useRef<string | null>(null)
+  // The account actions used to be scattered through the greeting copy. They
+  // live in one drawer now, closed on every mount and never encoded in the URL.
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const accountMenuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const accountDrawerRef = useRef<HTMLDivElement | null>(null)
   const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
   const [ownerName, setOwnerName] = useState<string | undefined>(undefined)
   const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
@@ -209,6 +215,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       .then((next) => {
         if (quickAddInFlight.current !== sourceUrl) return
         setPendingQuickAdd(null)
+        setSourceUrl('')
         void clearPendingQuickAdd()
         setFrameKick({ index: 0, nonce: 0 })
         setOwnerInput(next.owner)
@@ -225,6 +232,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         if (quickAddInFlight.current !== sourceUrl) return
         quickAddInFlight.current = null
         setQuickAddBusy(false)
+        setAccountRevision((revision) => revision + 1)
       })
   }, [base, pendingQuickAdd, signedIn])
 
@@ -668,14 +676,55 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value
   const retryAccountLists = () => setAccountRevision((revision) => revision + 1)
+  const importCloudGallery = (event: Event) => {
+    event.preventDefault()
+    const url = sourceUrl.trim()
+    // The in-flight ref also closes the gap before the disabled state paints.
+    if (!url || quickAddBusy || pendingQuickAdd || quickAddInFlight.current) return
+    setError(null)
+    setPendingQuickAdd(url)
+  }
   const retainedAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention === 'retained') ?? []
   const temporaryAccountGalleries = accountGalleries?.filter((gallery) => gallery.retention === 'pipeline') ?? []
   const visibleAccountGalleries = billingState?.isPro
     ? (accountGalleries ?? [])
     : retainedAccountGalleries.slice(0, 3)
   const galleryLimit = billingState?.isPro ? 99 : 3
-  const userType = billingState?.isPro ? 'Visionary' : 'Free'
-  const welcomeMessage = `Hello ${userType} ${ownerName ?? ownerSlug ?? 'friend'}, Welcome to manorama.xyz. You have used ${retainedAccountGalleries.length} of your ${galleryLimit} gallery limit.`
+  const userType = billingState?.isPro ? 'Pro' : 'Free'
+  const accountName = ownerName ?? ownerSlug ?? 'friend'
+  const closeAccountMenu = () => {
+    setAccountMenuOpen(false)
+    accountMenuButtonRef.current?.focus()
+  }
+  // Focus moves into the drawer, Tab stays inside it, and Esc hands the caret
+  // back to the button that opened it — the contract the viewer's modal keeps.
+  // None of this touches the stage.
+  useEffect(() => {
+    if (!accountMenuOpen) return
+    const panel = accountDrawerRef.current
+    panel?.querySelector<HTMLButtonElement>('button')?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeAccountMenu()
+        return
+      }
+      if (event.key !== 'Tab' || !panel) return
+      const focusable = panel.querySelectorAll<HTMLElement>('button, a[href], input')
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) return
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [accountMenuOpen])
   const message = authError ?? error ?? galleryStatusMessage(status)
   // The manual form stays as the secondary path for galleries outside the
   // signed-in account; the opening screen is the sign-in door alone.
@@ -850,14 +899,29 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           stack it above. */}
       <div class="native-account-left">
       <div class="native-account-side">
-        <span class="brand-mark-wrap">
-          <img
-            src="/manorama-merged-logo.png"
-            alt="manorama"
-            class="landing-brand-mark"
-          />
-          <span class="brand-tld" aria-hidden="true">.xyz</span>
-        </span>
+        {/* The wordmark and the account menu share one row: the mark is the
+            quiet opening gesture, the menu holds the account actions. */}
+        <div class="native-account-head">
+          <span class="brand-mark-wrap">
+            <img
+              src="/manorama-merged-logo.png"
+              alt="manorama"
+              class="landing-brand-mark"
+            />
+            <span class="brand-tld" aria-hidden="true">.xyz</span>
+          </span>
+          <button
+            type="button"
+            class="native-account-menu"
+            aria-label="Account menu"
+            aria-expanded={accountMenuOpen}
+            aria-controls="native-account-drawer"
+            ref={accountMenuButtonRef}
+            onClick={() => setAccountMenuOpen(true)}
+          >
+            <span class="native-account-menu-bars" aria-hidden="true" />
+          </button>
+        </div>
         <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         {accountAdAside}
         <div class="admin-greeting">
@@ -879,7 +943,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             }}
             onBlur={() => { void saveOwnerSlug() }}
           /></p>
-          <p>{welcomeMessage} <button type="button" class="admin-signout" onClick={() => void signOut()}>sign out</button></p>
+          <p class="admin-greeting-hello">Hello, <mark class="admin-greeting-name">{accountName}</mark>. Welcome to manorama.xyz.</p>
+          <p class="admin-greeting-plan">You are a {userType} User. You have used {retainedAccountGalleries.length} of your {galleryLimit} gallery limit.</p>
           {slugNote ? <p class="native-account-note">{slugNote}</p> : null}
         </div>
       </div>
@@ -893,7 +958,28 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       </div>
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <h1>Your galleries</h1>
-        {authError || error ? <p>{message}</p> : null}
+        <section class="native-gallery-import" aria-labelledby="native-import-heading">
+          <h2 id="native-import-heading">Add a gallery</h2>
+          <form onSubmit={importCloudGallery} aria-busy={quickAddBusy}>
+            <label htmlFor="native-source-url">Public Dropbox, Google Drive, iCloud, or MEGA link</label>
+            <input
+              id="native-source-url"
+              type="url"
+              value={sourceUrl}
+              onInput={(event) => setSourceUrl(readInput(event))}
+              placeholder="Paste a public folder or album link"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellcheck={false}
+              required
+              disabled={quickAddBusy}
+            />
+            <button type="submit" disabled={quickAddBusy || pendingQuickAdd !== null}>
+              {quickAddBusy ? 'Working…' : 'Manorama-fy it!'}
+            </button>
+          </form>
+        </section>
+        {authError ? <p role="alert">{authError}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {signedIn ? (
@@ -1086,6 +1172,32 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         ) : null}
       </section>
     </main>
+    {accountMenuOpen ? (
+      <div class="native-drawer" id="native-account-drawer" data-account-drawer>
+        <div class="native-drawer-scrim" aria-hidden="true" onClick={closeAccountMenu} />
+        <div
+          class="native-drawer-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Account"
+          ref={accountDrawerRef}
+        >
+          <div class="native-drawer-head">
+            <h2>Account</h2>
+            <button
+              type="button"
+              class="native-drawer-close"
+              aria-label="Close account menu"
+              onClick={closeAccountMenu}
+            >
+              ×
+            </button>
+          </div>
+          <p class="native-drawer-note">{accountName} · manorama.xyz/{ownerSlug ?? ''}</p>
+          <button type="button" class="native-drawer-action" onClick={() => void signOut()}>Sign out</button>
+        </div>
+      </div>
+    ) : null}
     {globalViewOpen ? (
       <GlobalView
         store={productionOfflineGalleryStore}

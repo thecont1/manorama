@@ -726,6 +726,35 @@ body:has(.native-diptych) {
 /* The signed-in phone view should get to the photographs quickly. Keep the
    account copy intact, but reduce its display footprint so the first few
    gallery rows are useful at a glance rather than below the fold. */
+/* The web stage deliberately locks body scrolling; an account is a document,
+   not a stage. Without this reset the phone's preferences and secondary form
+   can be clipped below the viewport with no way to reach them. */
+body.manorama-native:has(.native-account-shell) {
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+.native-gallery-import {
+  margin: 20px 0 28px;
+}
+.native-gallery-import h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.native-gallery-import input {
+  font-size: 16px; /* iOS must not zoom the whole account on field focus. */
+  min-height: 44px;
+}
+.native-gallery-import label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.native-gallery-import button:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
 @media (max-width: 819px) {
   .native-list-shell {
     place-items: start center;
@@ -777,8 +806,8 @@ body:has(.native-diptych) {
   }
 
   .native-gallery-title {
-    font-size: 15px;
-    line-height: 1.2;
+    font-size: 22px;
+    line-height: 1.15;
   }
 }
 
@@ -916,25 +945,30 @@ body:has(.native-diptych) {
 
 .native-gallery-title {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* The account rows wear the web dashboard's type: the brand face for the
+     title, a quieter subtitle beneath. Only the public address truncates — a
+     long title wraps rather than losing its words. */
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-variation-settings: "wdth" 100, "wght" 500;
+  letter-spacing: -.04em;
+  line-height: 1.15;
 }
+
+.native-gallery-heading { flex-wrap: wrap; }
 
 .native-gallery-heading .native-gallery-meta { flex: none; }
 
-.native-gallery-subtitle,
-.native-gallery-link,
-.native-gallery-heading {
+.native-gallery-link {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .native-gallery-subtitle {
-  color: rgba(var(--ink), .62);
-  font-size: 12px;
-  line-height: 1.25;
+  color: rgba(var(--ink), .58);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .native-gallery-link {
@@ -1083,6 +1117,21 @@ body.manorama-native .controls-panel-topbar .panel-close {
    Portrait only — the landscape curtain is a two-column grid and needs no
    nudge. */
 @media (orientation: portrait) {
+  /* Keep the logo, title and caption together like the web reference. The
+     two equal-height native rows stranded the logo in the upper quarter.
+     Wider landscape keeps its existing two-column composition. */
+  body.manorama-native .curtain-content {
+    display: block;
+    width: min(640px, 100%);
+    height: auto;
+  }
+  body.manorama-native .curtain-logo-wrap {
+    display: block;
+    margin: 0 auto 36px;
+  }
+  body.manorama-native .curtain-logo {
+    width: min(220px, 64vw);
+  }
   body.manorama-native .curtain-details {
     align-self: start;
     margin-top: 0;
@@ -1115,3 +1164,123 @@ body.manorama-native .controls-panel-topbar .panel-close-mark {
    them. Paint the body to match whichever surface is mounted. */
 body.manorama-native:has(.native-landing),
 body.manorama-native:has(.native-list-shell) { background: #111312; }
+/* The account introduction: wordmark and menu share one row, and the greeting
+   reads as two short statements instead of one run-on paragraph. */
+.native-account-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.native-account-head .brand-mark-wrap { min-width: 0; }
+
+.native-account-menu {
+  flex: 0 0 auto;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--ink));
+  cursor: pointer;
+}
+
+.native-account-menu:hover { border-color: rgba(var(--ink), .7); }
+
+.native-account-menu:focus-visible {
+  border-color: rgba(var(--ink), .7);
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 2px;
+}
+
+.native-account-menu-bars,
+.native-account-menu-bars::before,
+.native-account-menu-bars::after {
+  display: block;
+  width: 18px;
+  height: 1.5px;
+  background: currentColor;
+  content: '';
+}
+
+.native-account-menu-bars { position: relative; }
+.native-account-menu-bars::before { position: absolute; top: -5.5px; left: 0; }
+.native-account-menu-bars::after { position: absolute; top: 5.5px; left: 0; }
+
+.admin-greeting-hello { margin-top: 14px; }
+.admin-greeting-plan { color: rgba(var(--ink), .72); }
+
+/* The account drawer: a modal surface over the account page. The stage is never
+   involved, the panel owns the caret, and the scrim takes the dismissal. */
+.native-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
+.native-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .66); }
+
+.native-drawer-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(360px, 86vw);
+  height: 100%;
+  box-sizing: border-box;
+  padding: max(20px, var(--native-safe-top)) 20px max(20px, var(--native-safe-bottom));
+  border-left: 1px solid rgba(var(--ink), .14);
+  background: #151817;
+  color: rgb(var(--ink));
+  animation: native-drawer-in 220ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes native-drawer-in {
+  from { transform: translateX(12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .native-drawer-panel { animation: none; }
+}
+
+.native-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.native-drawer-head h2 { margin: 0; font-size: 17px; font-weight: 500; }
+
+.native-drawer-close {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--ink), .7);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.native-drawer-close:hover { color: #fff; }
+
+.native-drawer-close:focus-visible {
+  color: #fff;
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 2px;
+}
+
+.native-drawer-note {
+  margin: 0;
+  color: rgba(var(--ink), .5);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.native-drawer-action {
+  min-height: 48px;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(var(--ink), .82);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.native-drawer-action:hover { border-color: rgba(var(--ink), .72); color: #fff; }
+
+.native-drawer-action:focus-visible {
+  border-color: rgba(var(--ink), .72);
+  color: #fff;
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 2px;
+}

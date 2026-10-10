@@ -385,6 +385,7 @@ describe('signed-in account area', () => {
   type ApiStubs = {
     galleries?: Response
     deviceGalleries?: Response
+    import?: () => Response
     visibility?: Response
     suppressions?: Response
     fallback?: (url: string, init?: RequestInit) => Response
@@ -394,6 +395,7 @@ describe('signed-in account area', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
       calls.push({ url, init })
+      if (url.includes('/api/galleries') && init?.method === 'POST' && stubs.import) return stubs.import()
       if (url.includes('/api/device-galleries')) return stubs.deviceGalleries ?? json({ galleries: [] })
       if (url.includes('/api/galleries')) return stubs.galleries ?? json({ galleries: [] })
       if (url.includes('/api/ads/visibility')) return stubs.visibility ?? json({ show: true, day: '2026-10-01' })
@@ -485,10 +487,21 @@ describe('signed-in account area', () => {
     expect(html).toContain('manorama.xyz/quiet-owner/kashmir')
     expect(html).toContain('kashmir')
     expect(html).toContain('12 items')
-    expect(html).toContain('Hello Free quiet-owner, Welcome to manorama.xyz. You have used 1 of your 3 gallery limit.')
+    expect(html).toContain('Hello, <mark class="admin-greeting-name">quiet-owner</mark>. Welcome to manorama.xyz.')
+    expect(html).toContain('You are a Free User. You have used 1 of your 3 gallery limit.')
+    // The account menu is the only account affordance on the page, and the
+    // drawer it opens is closed until asked for.
+    expect(html).toContain('aria-label="Account menu"')
+    expect(html).not.toContain('data-account-drawer')
     expect(container.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
     expect(html).not.toContain('sequence only')
-    expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'sign out')).toBe(true)
+    // Sign out waits behind the account menu now, so the drawer has to be
+    // opened before it exists.
+    const accountMenu = container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement
+    accountMenu.click()
+    await settle()
+    expect(container.querySelector('[data-account-drawer]')).not.toBeNull()
+    expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'Sign out')).toBe(true)
     // Signed-in home replaces the provider row, but keeps the manual path.
     expect(html).not.toContain('Sign in with Apple')
     expect(html).toContain('Open another gallery')
@@ -546,7 +559,12 @@ describe('signed-in account area', () => {
     await settle()
 
     const html = container.innerHTML
-    expect(html).toContain('Hello Free Mahesh Shantaram, Welcome to manorama.xyz. You have used 1 of your 3 gallery limit.')
+    expect(html).toContain('Hello, <mark class="admin-greeting-name">Mahesh Shantaram</mark>. Welcome to manorama.xyz.')
+    expect(html).toContain('You are a Free User. You have used 1 of your 3 gallery limit.')
+    // The account menu is the only account affordance on the page, and the
+    // drawer it opens is closed until asked for.
+    expect(html).toContain('aria-label="Account menu"')
+    expect(html).not.toContain('data-account-drawer')
     expect(html).toContain('Mahesh Shantaram')
     expect(html).not.toContain('This is your manoramic world')
     expect(html).toContain('Privacy Policy')
@@ -705,7 +723,10 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
-    const signOut = [...container.querySelectorAll('button')].find((button) => button.textContent === 'sign out') as HTMLButtonElement
+    const accountMenu = container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement
+    accountMenu.click()
+    await settle()
+    const signOut = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Sign out') as HTMLButtonElement
     expect(signOut).toBeDefined()
     signOut.click()
     await settle()
@@ -898,7 +919,7 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
-    const form = container.querySelector('form') as HTMLFormElement | null
+    const form = container.querySelector('.native-another form') as HTMLFormElement | null
     expect(form).not.toBeNull()
     const inputs = [...form!.querySelectorAll('input')] as HTMLInputElement[]
     inputs[0].value = 'other-owner'
@@ -910,6 +931,52 @@ describe('signed-in account area', () => {
     await settle()
 
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/other-owner/elsewhere')).toBe(true)
+  })
+
+  for (const status of [200, 409]) {
+    test(`the visible cloud-link form opens the ${status === 409 ? 'existing' : 'created'} gallery without duplicate POSTs`, async () => {
+      installLocalStorage()
+      signInStorage()
+      stubFetch({ import: () => json({ galleryUrl: '/quiet-owner/imported' }, status) })
+      const { container } = mountAccount()
+      await settle()
+      const input = container.querySelector('#native-source-url') as HTMLInputElement
+      expect(input.type).toBe('url')
+      expect(input.required).toBe(true)
+      expect(input.getAttribute('autocapitalize')).toBe('none')
+      expect(input.closest('details')).toBeNull()
+      input.value = ' https://mega.nz/folder/example#keep-the-key '
+      input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
+      await settle()
+      const form = container.querySelector('.native-gallery-import form')!
+      form.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
+      form.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
+      await settle()
+      const imports = calls.filter((call) => call.init?.method === 'POST' && call.url.endsWith('/api/galleries'))
+      expect(imports).toHaveLength(1)
+      expect(JSON.parse(String(imports[0].init?.body))).toEqual({ url: 'https://mega.nz/folder/example#keep-the-key', quick: true })
+      expect((imports[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+      expect(galleryCalls().some((call) => call.url.endsWith('/quiet-owner/imported'))).toBe(true)
+    })
+  }
+
+  test('a rejected cloud link remains editable with one actionable error', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ import: () => json({ error: 'Share a public folder first.' }, 422) })
+    const { container } = mountAccount()
+    await settle()
+    const input = container.querySelector('#native-source-url') as HTMLInputElement
+    input.value = 'https://drive.google.com/drive/folders/private'
+    input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
+    await settle()
+    container.querySelector('.native-gallery-import form')!.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
+    await settle()
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1)
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('Share a public folder first.')
+    expect(input.value).toBe('https://drive.google.com/drive/folders/private')
+    expect(input.disabled).toBe(false)
+    expect((container.querySelector('.native-gallery-import button') as HTMLButtonElement).disabled).toBe(false)
   })
 
   test('an empty offering answers honestly instead of opening a dead paywall', async () => {
