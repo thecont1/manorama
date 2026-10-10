@@ -5,6 +5,7 @@ import { defineConfig } from 'vite'
  *  standalone SPA, so each shell gets its own config. */
 export default defineConfig({
   root: 'desktop',
+  cacheDir: '../.work/vite-desktop-cache',
   publicDir: '../public',
   // Provider OAuth client ids are public app identifiers injected at build
   // time; envDir reaches the repo root so .env.local works for desktop dev

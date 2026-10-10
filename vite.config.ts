@@ -144,6 +144,10 @@ const manoramaDevSeed = (): Plugin => {
   // ssrLoadModule). Handlers await this so a reset never races the initial
   // seed and returns a 500 from null repositories.
   let seeded: Promise<void> = Promise.resolve()
+  const waitForSeed = () => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Dev seed is still starting. Retry in a moment.')), 12_000)
+    seeded.then(() => { clearTimeout(timer); resolve() }, error => { clearTimeout(timer); reject(error) })
+  })
 
   return {
     name: 'manorama-dev-seed',
@@ -156,12 +160,46 @@ const manoramaDevSeed = (): Plugin => {
       // can ever see it set.
       ;(globalThis as { __manoramaLocalSources?: boolean }).__manoramaLocalSources = true
 
+      // Explicit local-account door for a Mac build targeting localhost.
+      // It never imitates provider OAuth, never ships, and only mints a
+      // purpose-bound handoff the app's in-memory verifier can redeem.
+      server.middlewares.use('/.dev-seed/desktop-login', (req, res) => {
+        const host = req.headers.host ?? ''
+        if (!/^(localhost|127\.0\.0\.1):5173$/.test(host) || req.method !== 'GET') {
+          res.statusCode = 403
+          res.end('Local development account only')
+          return
+        }
+        const challenge = new URLSearchParams(req.url?.split('?')[1] ?? '').get('code_challenge')
+        if (!challenge || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) {
+          res.statusCode = 400
+          res.end('Start sign-in from the manorama app')
+          return
+        }
+        void waitForSeed().then(async () => {
+          const secret = process.env.HOST_API_JWT_SECRET?.trim()
+          if (!secret) throw new Error('Development sign-in is not configured')
+          const auth = await server.ssrLoadModule('/app/lib/desktop-auth.ts') as unknown as typeof import('./app/lib/desktop-auth')
+          const handoff = await auth.createDesktopHandoffToken('dbid:AAATESTowner1', secret, challenge)
+          const callback = new URL(auth.DESKTOP_CALLBACK)
+          callback.searchParams.set('handoff', handoff)
+          res.setHeader('Content-Type', 'text/html; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store')
+          res.setHeader('Referrer-Policy', 'no-referrer')
+          res.end(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>manorama development sign-in</title><style>body{font:18px system-ui;background:#111312;color:#efecdf;max-width:36rem;padding:4rem 2rem;margin:auto}a{color:inherit;display:inline-block;border:1px solid;padding:1rem;text-decoration:none}</style><h1>Local development account</h1><p>This signs into the seeded localhost account, not your cloud-provider account.</p><p>Keep the manorama app open while completing sign-in.</p><a id="return-to-app" href="${callback.href}">Return to manorama</a></html>`)
+        }).catch(() => {
+          res.statusCode = 503
+          res.setHeader('Retry-After', '2')
+          res.end('Development sign-in is starting. Please retry shortly.')
+        })
+      })
+
       // Dev sign-in for the seeded owner — the quick-add interstitial points
       // here for local folders, so a folder path becomes a gallery without a
       // Dropbox round-trip. Mints the same manorama_session cookie OAuth
       // would, then returns to `next`.
       server.middlewares.use('/.dev-seed/login', (req, res) => {
-        seeded
+        waitForSeed()
           .then(async () => {
             const secret = process.env.HOST_API_JWT_SECRET?.trim()
             if (!secret) throw new Error('HOST_API_JWT_SECRET is not set')
@@ -197,7 +235,8 @@ const manoramaDevSeed = (): Plugin => {
             res.end()
           })
           .catch((error) => {
-            res.statusCode = 500
+            res.statusCode = 503
+            res.setHeader('Retry-After', '2')
             res.end(String(error))
           })
       })
@@ -299,15 +338,17 @@ const manoramaDevSeed = (): Plugin => {
         }, now)
       }))
       server.httpServer?.once('listening', () => {
-        seeded = seed(server).catch((error) => {
-          console.warn('[dev-seed] seeding failed:', error)
-        })
+        seeded = seed(server)
+        // Observe the rejection without replacing the promise awaited by
+        // middleware: failed fixtures must not masquerade as a ready seed.
+        void seeded.catch(error => console.warn('[dev-seed] seeding failed:', error))
       })
     },
   }
 }
 
 export default defineConfig(() => ({
+  cacheDir: '.work/vite-web-cache',
   plugins: [
     manoramaDevSeed(),
     honox({
@@ -327,6 +368,7 @@ export default defineConfig(() => ({
           /^\/static\/.+/,
           /^\/node_modules\/.*/,
           /^\/\.vite\/.*/,
+          /^\/\.work\/vite-web-cache\/.*/,
           /.*\.svelte$/,
           /.*\.vue$/,
           /.*\.js$/,
@@ -362,7 +404,18 @@ export default defineConfig(() => ({
       // galleries for the ~40s live rescan. These tool-managed dirs write
       // files on their own schedule (vendo's embedded Postgres keeps its
       // data + WAL under .vendo/data), so keep them out of the watch set.
-      ignored: ['**/.vendo/**', '**/.playwright-mcp/**', '**/.wrangler/**', '.worktrees/**'],
+      ignored: [
+        '**/.vendo/**', '**/.playwright-mcp/**', '**/.wrangler/**', '**/.worktrees/**',
+        // Captures and native builds are not web source. Watching their
+        // add/unlink events restarts HonoX during the very tests it serves,
+        // invalidates the SSR graph, and clears the seeded session store.
+        '**/.work/**', '**/demo-captures/**', '**/outputs/**', '**/test-results/**',
+        '**/playwright-report/**', '**/src-tauri/target/**', '**/src-tauri/gen/**',
+        '**/desktop/dist/**', '**/native/dist/**', '**/dist/**',
+        // Native sync and the local tool bridge create files on every run.
+        // They are not Hono routes; restarting here invalidates live auth.
+        '**/.manus/**', '**/ios/**', '**/android/**', '**/src-tauri/**',
+      ],
     },
   },
   build: {

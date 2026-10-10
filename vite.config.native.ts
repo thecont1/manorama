@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
  * untouched because it cannot emit a standalone SPA. */
 export default defineConfig({
   root: 'native',
+  cacheDir: '../.work/vite-native-cache',
   // `root` moves .env resolution into native/, but the shared env files —
   // VITE_REVENUECAT_API_KEY included — live at the repo root.
   envDir: '..',

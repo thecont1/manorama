@@ -39,33 +39,9 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT=4181
 DEVICE=iphone
-# SwiftPM compiles and runs every package manifest under `sandbox-exec`, and the
-# macOS sandbox does not nest: inside an already-sandboxed shell xcodebuild dies
-# with "sandbox-exec: sandbox_apply: Operation not permitted" before it can
-# resolve a single dependency. These build settings turn the manifest and plugin
-# sandboxes off for this build only, and are harmless in an ordinary shell.
-XCODE_PACKAGE_FLAGS=(
-  -IDEPackageSupportDisableManifestSandbox=1
-  -IDEPackageSupportDisablePluginExecutionSandbox=1
-  # ...and the Swift flag that stops the compiler wrapping macro plugin servers
-  # in a sandbox of their own. Without it RevenueCat never emits its module.
-  'OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox'
-)
-# Those two settings are not enough on their own. Xcode also spawns the Swift
-# *macro* plugin server under `sandbox-exec`, so RevenueCat — whose RulesEngine
-# uses `@TaskLocal` and `@State` — fails with "external macro implementation
-# type 'SwiftMacros.TaskLocalMacro' could not be found ... produced malformed
-# response". A passthrough `sandbox-exec` ahead of the real one on PATH is the
-# workaround SwiftPM and Homebrew users settled on. Every package here is
-# already resolved and pinned in `Package.resolved`, and the shim exists only
-# for the length of this script.
-SHIM_DIR="$(mktemp -d /tmp/manorama-capture-shims.XXXXXX)"
-printf '%s\n' \
-  '#!/bin/sh' \
-  'while [ $# -gt 0 ]; do case "$1" in -p|-f) shift 2 ;; -*) shift ;; *) break ;; esac; done' \
-  'exec "$@"' > "$SHIM_DIR/sandbox-exec"
-chmod +x "$SHIM_DIR/sandbox-exec"
-export PATH="$SHIM_DIR:$PATH"
+# Run the supported Xcode toolchain unchanged. Cache, build and simulator
+# permissions belong to the caller, never to a shadow sandbox-exec command.
+XCODE_PACKAGE_FLAGS=()
 OUT=""
 SKIP_BUILD=0
 KEEP_CONFIG_BACKUP=""
@@ -106,7 +82,6 @@ cleanup() {
     log "restored capacitor.config.ts"
   fi
   if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; fi
-  if [[ -n "${SHIM_DIR:-}" ]]; then rm -rf "$SHIM_DIR"; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -225,7 +200,13 @@ mkdir -p "$OUT"
 shoot() { # <name> <countdown seconds>
   sleep "$2"
   xcrun simctl io "$UDID" screenshot "$OUT/$1" >/dev/null 2>&1
-  printf '  %-30s %s\n' "$1" "$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
+  local dimensions
+  dimensions="$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
+  if [[ "$DEVICE" == "ipad" && "$dimensions" != "2752x2064" ]]; then
+    echo "iPad capture is $dimensions, expected actual landscape 2752x2064; refusing invalid evidence" >&2
+    exit 1
+  fi
+  printf '  %-30s %s\n' "$1" "$dimensions"
 }
 
 log "01 opening screen"
