@@ -188,7 +188,7 @@ The first suite run showed 2 timeouts (`deterministic Vendo sync`, and a `(d1)` 
 
 The working tree is 4 files, 19 insertions: `capacitor.config.ts`, `native/main.tsx`,
 `native/styles.css`, `native/islands/GalleryList.tsx`. `native/dist` is ignored, so the rebuilt
-bundle adds no commit noise. Nothing has been committed.
+bundle adds no commit noise. (These, and the rest of the work, are committed — see §7.)
 
 ---
 
@@ -196,14 +196,14 @@ bundle adds no commit noise. Nothing has been committed.
 
 Ranked by what a viewer notices first.
 
-| # | Item | Owner decision needed? |
+| # | Item | Status |
 | --- | --- | --- |
-| 1 | **D1** — strip sizing on 3× screens | **Yes.** Two options in §3. |
-| 2 | **D3** — the chrome row's dead gap and missing back control; whether the app keeps arrows permanently on | **Yes.** Design call. |
-| 3 | **D4** — scanner records thumbnail dimensions | No. Fix `imageDimensions()` to probe the original first, keep the thumbnail probe as the aspect-only fallback; add a test with a 2560-wide fixture. |
-| 4 | Re-run the six-state evidence matrix for iPhone, iPad and macOS after 1–3 land (the current `demo-captures/` predate both the Oct 1 redesign and these fixes) | No |
-| 5 | Repair `.work/capture-server.ts`, which no longer reaches `ready` on this commit | No |
-| 6 | **D5** — curtain composition | Cosmetic, on the capture |
+| 1 | **D1** — strip sizing on 3× screens | **Resolved** — the staging rule is untouched; the vacated canvas is presented as a mount. See §7. |
+| 2 | **D3** — the chrome row's dead gap, missing back control, permanently-on arrows | **Resolved** — see §7. |
+| 3 | **D4** — scanner records thumbnail dimensions | **Resolved** — `imageDimensions()` probes the original first; four tests in `app/lib/dropbox-public.test.ts`. |
+| 4 | Re-run the six-state evidence matrix for iPhone, iPad and macOS (the current `demo-captures/` predate both the Oct 1 redesign and these fixes) | Outstanding |
+| 5 | Repair `.work/capture-server.ts`, which no longer reaches `ready` on this commit | Outstanding — `.work/stocktake/driver-server.ts` replaces it for now |
+| 6 | **D5** — curtain composition | Open, cosmetic |
 
 ### Not verified in this pass
 
@@ -239,3 +239,78 @@ bun .work/stocktake/web-capture2.ts
 
 `xcodebuild` needs `~/Library/Caches/org.swift.swiftpm` writable, and `bun` needs
 `BUN_INSTALL_CACHE_DIR` pointed inside the workspace — `$HOME` is read-only in this shell.
+
+---
+
+## 7. What was done after this stock-take
+
+Five commits on `main`. The staging rule was not touched in any of them.
+
+### D1 — the strip presents an honest-size photograph as a plate on a mount
+
+`feat(viewer): present an honest-size photograph as a plate on a mount`
+
+`imageStageSize` still decides the photograph's size from the source's dimensions against this
+screen's format and density — that is the project's founding rule and nothing second-guesses it.
+What changed is what the *frame* does with the room left over.
+
+Previously the frame shrank to the staged size, which punched a hole in the strip: the strip is
+one continuous canvas, so a short frame broke the run and the break read as a rendering fault.
+Now the frame keeps the stage's full height and the photograph stays centred inside it at its
+honest size. The canvas above and below is the mount, marked in the app's existing quiet
+vocabulary:
+
+- a **2.8% white lift** on the frame. Over the app's `#0a0a0a` ground that lands on `#111111`,
+  the top of the range Rule 3 allows, and it stays correct on any ground a theme sets because it
+  lifts whatever is behind it instead of naming a tone. (`--gallery-canvas` was the wrong source:
+  it is `transparent` for the default "no background" gallery, so mixing into it produced
+  nothing.)
+- a **hairline at the photograph's own edge**, `rgba(var(--ink), .14)` — the same rule the modal
+  and every divider use.
+
+No colour, no rounding, no shadow: Rule 3 allows a photograph none of them.
+
+*Measured on device:* frame 853 × 926 CSS px (full stage), photograph 853 × 569 at `y=226` —
+centred, unchanged in size; mount `rgb(17,17,17)` above and below; hairline present at the
+plate's top and bottom edges.
+
+### D3 — the bottom control row
+
+`fix(native): centre the bottom control row and let the modal own the arrows`
+
+The wordmark was pinned to the row's leading edge, leaving 84 pt of dead space, and the forward
+arrow was forced on by `alwaysShowNavigation`, so the modal's "show navigation arrows" toggle
+could not turn it off. The wordmark now centres on the stage — in the room the circles leave when
+arrows are shown — and the arrows follow the web's default.
+
+Centring uses `left: 0; right: 0; margin-inline: auto` with a `fit-content` width rather than a
+transform, because this button paints its own bar: a stretched box turned that bar into a
+full-width rule across the bottom of the stage. *Measured on device:* pill at x=120 w=189 (centre
+214.5 — the stage centre), position circle at x=340, no overlap, no dead gap.
+
+The same commit passes `galleryTitle` to the viewer, which the web mount always did.
+
+### D2 — the status-bar strip
+
+`fix(native): paint the WebView under the status bar`
+
+### D4 — the scanner
+
+`fix(dropbox): resolve dimensions from the original, not the 256px preview`
+
+Resolution order is now `media_info` → a ranged read of the original's head → the preview, which
+survives only as the last resort. Four tests, including one that asserts the preview is still
+fetched as the placeholder rendition but is barred from answering how big the photograph is.
+
+### Checks after the changes
+
+| Check | Result |
+| --- | --- |
+| `bunx tsc --noEmit` | clean |
+| `bun run test:unit` | **1054 pass / 0 fail** (83 files) |
+| Simulator build, install, launch | green |
+| Strip, chrome and mount measured on device | as recorded above |
+
+One caveat on the suite: across four runs it reported a single 5 s timeout twice, in different
+places, and was green the other times. Both were the miniflare-backed specs `VERIFICATION.md`
+already flags. Not attributable to these changes, but not fully explained either.
