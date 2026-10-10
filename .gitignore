@@ -31,6 +31,15 @@ ios/build/
 .work/snap.json
 .work/ax.sh
 
+# Scratch used when $HOME is not writable: bun's package cache and TMPDIR. They
+# are caches, not source, and between them they are thousands of files.
+.work/bun-cache/
+.work/tmp/
+
+# Capture output. The harnesses under .work/stocktake are tracked; the
+# screenshots they produce are evidence, not repository content.
+.work/stocktake/**/*.png
+
 # Recorded preview takes and their run logs — outputs, not source
 .work/preview/
 .work/testrun.log
