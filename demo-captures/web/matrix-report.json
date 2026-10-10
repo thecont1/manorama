@@ -1,0 +1,175 @@
+[
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "01-landing",
+    "file": "chromium-iphone-01-landing.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "02-gallery-curtain",
+    "file": "chromium-iphone-02-gallery-curtain.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "03-first-image",
+    "file": "chromium-iphone-03-first-image.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "04-controls",
+    "file": "chromium-iphone-04-controls.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "05-account-admin",
+    "file": "chromium-iphone-05-account-admin.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "05-account-pane",
+    "file": null,
+    "ok": false,
+    "note": "the account pane never opened (at http://localhost:5175/thecontrarian)"
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "05-editor-row",
+    "file": "chromium-iphone-05-editor-row.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "iphone",
+    "state": "06-selector",
+    "file": null,
+    "ok": false,
+    "note": "the photo picker never appeared (at http://localhost:5175/thecontrarian/mixed-album)"
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "01-landing",
+    "file": "chromium-ipad-01-landing.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "02-gallery-curtain",
+    "file": "chromium-ipad-02-gallery-curtain.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "03-first-image",
+    "file": "chromium-ipad-03-first-image.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "04-controls",
+    "file": "chromium-ipad-04-controls.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "05-account-admin",
+    "file": "chromium-ipad-05-account-admin.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "05-account-pane",
+    "file": "chromium-ipad-05-account-pane.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "05-editor-row",
+    "file": "chromium-ipad-05-editor-row.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "ipad",
+    "state": "06-selector",
+    "file": null,
+    "ok": false,
+    "note": "the photo picker never appeared (at http://localhost:5175/thecontrarian/mixed-album)"
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "01-landing",
+    "file": "chromium-desktop-01-landing.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "02-gallery-curtain",
+    "file": "chromium-desktop-02-gallery-curtain.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "03-first-image",
+    "file": "chromium-desktop-03-first-image.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "04-controls",
+    "file": "chromium-desktop-04-controls.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "05-account-admin",
+    "file": "chromium-desktop-05-account-admin.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "05-account-pane",
+    "file": "chromium-desktop-05-account-pane.png",
+    "ok": true
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "05-editor-row",
+    "file": null,
+    "ok": false,
+    "note": "the account pane never closed (at http://localhost:5175/thecontrarian)"
+  },
+  {
+    "engine": "chromium",
+    "viewport": "desktop",
+    "state": "06-selector",
+    "file": null,
+    "ok": false,
+    "note": "the photo picker never appeared (at http://localhost:5175/thecontrarian/mixed-album)"
+  }
+]
