@@ -8,7 +8,7 @@ import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 import { platePositionsFor, type AdFrame } from '../lib/adframe'
-import { clamp, glideEase } from '../lib/sizing'
+import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
 
 // A Tauri or Capacitor webview reports the real backing scale; the open web
@@ -321,6 +321,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const stripMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
+  const stageMeasurementsRef = useRef({ width: 0, height: 0, dpr: 0 })
   const plateActionFrameRef = useRef<number | null>(null)
   const armedPlatePosRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
@@ -511,7 +512,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // pushes past the last photograph — subtract its footprint (width
     // plus its trailing margin) while it is unrevealed.
     if (!endcapRevealedRef.current) {
-      const cap = trackRef.current?.querySelector<HTMLElement>('.viewer-endcap')
+      const cap = trackRef.current?.querySelector<HTMLElement>('[data-endcard]')
       if (cap) max = Math.max(0, max - cap.offsetWidth - imageMarginPx)
     }
     boundsRef.current = { min: 0, max }
@@ -667,6 +668,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // travel distance — a full-gallery rewind still glides back
     // deliberately instead of covering tens of thousands of px in a blur.
     const duration = clamp(Math.abs(destination - from) / 10, 650, 2800)
+    let previousEase = 0
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
       const eased = glideEase(progress)
@@ -677,7 +679,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // the bound (e.g. End docking a photo narrower than the stage)
       // must never read as the visitor pushing into the endcard.
       const liveDest = clamp(navDestXRef.current ?? destination, -getBounds().max, 0)
-      const next = from + (liveDest - from) * eased
+      // Consume only this tick's share of the remaining ease. Re-evaluating
+      // from + distance*eased jumps by delta*eased when a decoded frame
+      // changes liveDest. This is identical for a fixed target, but a new
+      // target joins the remaining travel instead of teleporting the canvas.
+      const next = advanceEasedPosition(currentXRef.current, liveDest, previousEase, eased)
+      previousEase = eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
@@ -787,7 +794,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
     if (direction === -1 && base <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
-    let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${leftmostFrameIndex(base) + 1}"]`) ?? null
+    // Ads have no photo index, but occupy real strip space. Looking up the
+    // preceding photograph when parked on a plate returns that SAME plate as
+    // nextElementSibling, producing a zero-distance advance forever.
+    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-ad-frame], [data-endcard]') ?? [])]
+    let frame: HTMLElement | null = frames[0] ?? null
+    for (const candidate of frames) {
+      if (candidate.offsetLeft > base + 1) break
+      frame = candidate
+    }
     let advance: number
     if (direction === 1) {
       // Dock the next image: scroll until the following frame's left edge
@@ -911,6 +926,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
     stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
     const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: reportedDpr() }
+    // Observers may repeat the same box after a decoded image commits. That
+    // is not an orientation change and must not cancel an active glide.
+    const previous = stageMeasurementsRef.current
+    if (previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr) return
+    stageMeasurementsRef.current = measured
     setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
     boundsDirtyRef.current = true
     if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
@@ -2154,7 +2174,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               start. `inert` until revealed — it sits past the pan bound
               before then, so its link must not take focus or announce. */}
           {mode === 'strip' ? (
-            <div class="viewer-endcap" inert={!endcapRevealed}>
+            <div class="viewer-endcap" data-endcard inert={!endcapRevealed}>
               <span>The</span>
               <span>End.</span>
               <button class="endcap-reset" onClick={backToStart}>Back to Start</button>

@@ -395,3 +395,56 @@ test.describe('native ad plate rules', () => {
     expect(refetched).toBe(body)
   })
 })
+
+for (const width of [375, 1440, 2560]) {
+  test(`strip arrows traverse every ad and reach the real last photograph at ${width}px`, async ({ page }) => {
+    test.setTimeout(45_000)
+    await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openFixture(page, { photoCount: 60, tier: 'free' })
+    await expect(page.locator('[data-ad-frame]')).toHaveCount(2)
+    const position = () => page.locator('[data-track]').evaluate(element => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41)
+    const bounds = await page.evaluate(() => {
+      const track = document.querySelector<HTMLElement>('[data-track]')!
+      const stage = document.querySelector<HTMLElement>('[data-stage]')!
+      const end = track.querySelector<HTMLElement>('[data-endcard]')!
+      return { max: track.scrollWidth - stage.clientWidth - end.offsetWidth,
+        plates: [...track.querySelectorAll<HTMLElement>('[data-ad-frame]')].map(e => e.offsetLeft) }
+    })
+    let current = await position()
+    let steps = 0
+    const passed = new Set<number>()
+    while (-current < bounds.max - 1 && steps++ < 160) {
+      const previous = current
+      await page.keyboard.press('ArrowRight')
+      await expect.poll(position).toBeLessThan(previous - .01)
+      current = await position()
+      for (const offset of bounds.plates) if (-current > offset + 1) passed.add(offset)
+    }
+    expect(passed.size).toBe(2)
+    expect(-current).toBeCloseTo(bounds.max, 0)
+    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', /Photograph 60 of 60/)
+    // Backward traversal must cross the plates too, rather than becoming trapped.
+    for (let step = 0; step < 160 && current < -1; step++) {
+      const previous = current
+      await page.keyboard.press('ArrowLeft')
+      await expect.poll(position).toBeGreaterThan(previous + .01)
+      current = await position()
+    }
+    expect(current).toBeCloseTo(0, 0)
+  })
+}
+
+test('unchanged viewport notifications cannot snap an in-flight button glide', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await openFixture(page, { photoCount: 60, tier: 'free' })
+  await page.keyboard.press('ArrowRight')
+  await page.waitForTimeout(160)
+  const position = () => page.locator('[data-track]').evaluate(element => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41)
+  const before = await position()
+  expect(before).toBeLessThan(-1)
+  await page.evaluate(() => { for (let i = 0; i < 5; i++) window.dispatchEvent(new Event('resize')) })
+  await page.waitForTimeout(50)
+  expect(await position()).toBeLessThan(before)
+  await expect.poll(position).toBeLessThan(before - 5)
+})
