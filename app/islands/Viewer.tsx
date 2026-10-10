@@ -1924,6 +1924,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               isDesktop,
             }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
+            // A photograph whose own pixels cannot fill the stage is still
+            // shown at its honest size — `imageStageSize` decides that from the
+            // source's dimensions against this screen's format and density, and
+            // nothing here second-guesses it. What the *frame* does with the
+            // room left over is a presentation question, and the answer is not
+            // a shorter frame: the strip is one continuous canvas, so a short
+            // frame punches a hole in the run and the hole reads as a rendering
+            // fault rather than as a print hung on a wall. The frame keeps the
+            // stage's full height, the photograph stays centred inside it at
+            // its honest size, and `.viewer-frame--short` marks the plate so the
+            // canvas around it can read as a mount.
+            const plateShort = staged !== null && mode === 'strip' && stagingHeight > 0 && staged.height > 0 && staged.height < stagingHeight - 1
             // A capped video gets an explicit box. Strip frames are laid
             // out edge-to-edge, so the frame keeps full stage height and
             // only the media inside it shrinks — that is what centres the
@@ -1935,7 +1947,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               ? cappedVideo
                 ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
                 : staged && staged.width > 0 && staged.height > 0
-                  ? { width: `${staged.width}px`, height: `${staged.height}px` }
+                  ? { width: `${staged.width}px`, height: `${plateShort ? stagingHeight : staged.height}px` }
                   : { aspectRatio: `${frameW} / ${frameH}` }
               : mode === 'vertical'
                 ? video
@@ -1950,7 +1962,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             const photoFrame = (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
@@ -2058,8 +2070,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                               trustDeviceDpr: deviceReportedDpr,
                             })
                             if (restaged.width > 0) {
+                              // The frame keeps the stage's height whenever the
+                              // healed source still cannot fill it — see
+                              // `plateShort` above. Without this a heal would
+                              // shrink the plate back and punch the hole again.
+                              const stillShort = stagingHeight > 0 && restaged.height > 0 && restaged.height < stagingHeight - 1
                               frame.style.width = `${restaged.width}px`
-                              frame.style.height = `${restaged.height}px`
+                              frame.style.height = `${stillShort ? stagingHeight : restaged.height}px`
+                              frame.classList.toggle('viewer-frame--short', stillShort)
                             }
                             // A corrected frame changes track geometry —
                             // drop the cached bounds, then once layout

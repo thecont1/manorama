@@ -66,6 +66,22 @@ button { color: inherit; }
 .viewer-frame .frame-ph[src^="data:image/svg+xml"] { visibility: hidden; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
+/* A plate: a photograph whose own pixels cannot fill this stage, shown at its
+   honest size inside a frame that keeps the stage's full height. The canvas
+   left above and below is the mount, and the mount is marked the way every
+   other quiet surface in the app is marked — one step up from the canvas, and
+   a hairline at the photograph's own edge. Rule 3 allows a photograph no
+   colour, no rounding and no shadow, so the plate is defined rather than
+   dressed; the point is only that the space around it reads as a mount
+   instead of as a hole in the strip. */
+/* A 2.8% white lift, not a colour: over the app's #0a0a0a ground it lands on
+   #111111 — the top of the range Rule 3 allows — and it stays correct on any
+   other ground a theme sets, because it lifts whatever is behind it instead of
+   naming a tone. `--gallery-canvas` is the wrong source here: it is
+   `transparent` for the default "no background" gallery, so mixing into it
+   produced nothing at all. */
+:is(.viewer-stage, .magnifier-world) .viewer-frame.viewer-frame--short { background: rgba(255, 255, 255, .028); }
+.viewer-frame--short .frame-img { outline: 1px solid rgba(var(--ink), .14); outline-offset: 0; }
 
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
 .viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); margin: 0 auto; object-fit: contain; }
