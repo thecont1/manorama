@@ -1785,3 +1785,155 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .ops-user-facts { grid-template-columns: repeat(2, minmax(70px, 1fr)); }
   .ops-delete, .ops-master-label { justify-self: start; }
 }
+/* ---------------------------------------------------------------------------
+   Account pane and the single-row Photo Editor.
+
+   The account used to hold a standing left column, which cost the galleries
+   half the page and left the theme toggle floating beside unrelated content.
+   The account now waits in a slide-out pane behind one quiet top bar, and the
+   galleries run the full width.
+   --------------------------------------------------------------------------- */
+
+.admin-page--selector { display: block; height: auto; overflow: visible; }
+.admin-page--selector .admin-left { display: block; }
+.admin-page--selector .admin-content { order: 0; overflow: visible; }
+.admin-page--selector .site-footer { order: 0; }
+.admin-page--selector .admin-header { width: 100%; margin: 0; padding-bottom: 0; }
+
+.admin-topbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: min(1040px, 100%);
+  margin: 0 auto;
+  padding-bottom: 26px;
+}
+
+.admin-topbar-brand { display: inline-flex; align-items: flex-end; gap: 2px; }
+.admin-topbar-logo { display: block; width: clamp(112px, 13vw, 168px); }
+
+.admin-topbar-title {
+  flex: 1 1 auto;
+  margin: 0;
+  color: rgba(var(--ink), .5);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: .08em;
+  text-transform: lowercase;
+}
+
+.admin-menu-button {
+  flex: 0 0 auto;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--ink));
+  cursor: pointer;
+}
+
+.admin-menu-button:hover { border-color: rgba(var(--ink), .7); }
+.admin-menu-button:focus-visible { border-color: rgba(var(--ink), .7); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+
+.admin-menu-bars,
+.admin-menu-bars::before,
+.admin-menu-bars::after {
+  display: block;
+  width: 18px;
+  height: 1.5px;
+  background: currentColor;
+  content: '';
+}
+
+.admin-menu-bars { position: relative; }
+.admin-menu-bars::before { position: absolute; top: -5.5px; left: 0; }
+.admin-menu-bars::after { position: absolute; top: 5.5px; left: 0; }
+
+.admin-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
+/* `hidden` has to out-rank the flex display above, or a closed pane would
+   still paint over the galleries. */
+.admin-drawer[hidden] { display: none; }
+.admin-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .66); }
+
+.admin-drawer-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 92vw);
+  height: 100%;
+  box-sizing: border-box;
+  padding: clamp(24px, 3.4vw, 44px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-left: 1px solid rgba(var(--ink), .14);
+  background: #111312;
+  color: rgb(var(--ink));
+  animation: admin-drawer-in 220ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes admin-drawer-in {
+  from { transform: translateX(14px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-drawer-panel { animation: none; }
+}
+
+.admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
+
+.admin-drawer-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(var(--ink), .12);
+}
+
+.admin-drawer-action {
+  min-height: 46px;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(var(--ink), .8);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.admin-drawer-action:hover { border-color: rgba(var(--ink), .72); color: #fff; }
+.admin-drawer-action:focus-visible { border-color: rgba(var(--ink), .72); color: #fff; outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-signout-form { margin: 0; }
+.admin-signout-form .admin-drawer-action { width: 100%; }
+
+/* Owner-approved on 10 October 2026: the web Photo Editor is a single
+   horizontal row per gallery. The Photo Picker and Global View stay matrices.
+   One row means the frame scrolls sideways, so the pan math, the wheel handler
+   and the drop target all follow the column instead of the row. */
+.admin-gallery-strip-frame {
+  grid-column: 1 / -1;
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-left: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-gallery-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  width: max-content;
+  min-width: 100%;
+  height: auto;
+  min-height: 0;
+}
+
+.admin-gallery-strip-item { flex: 0 0 auto; height: clamp(96px, 16dvh, 208px); }
+.admin-gallery-strip-item img { height: 100%; width: auto; }

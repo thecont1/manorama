@@ -75,7 +75,10 @@ const seedPipelineOwner = async () => {
 describe('the dashboard renders retention state', () => {
   test('the owner grid keeps its theme control and never paints a doodle field', async () => {
     const html = await renderDashboard(async () => {})
-    expect(html).toContain('aria-label="Display preferences"')
+    // The theme action lives with the other account actions in the labelled
+    // account pane now, not in a toggle floating beside the galleries.
+    expect(html).toContain('aria-label="Account"')
+    expect(html).toContain('Switch to light mode')
     // Doodles belong to gallery pages only: the account page must ship no
     // background layer, no has-doodle surface, and no background toggle.
     expect(html).not.toContain('data-doodle-bg')

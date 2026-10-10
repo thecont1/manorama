@@ -239,7 +239,37 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       localStorage.setItem(THEME_KEY, theme)
     } catch { /* private browsing */ }
   }, [theme])
-  const panState = useRef<{ pointerId: number; startY: number; startScrollTop: number } | null>(null)
+
+  // The account lives in a slide-out pane so the galleries can use the page's
+  // full width. It opens closed on every load and is never encoded in the URL.
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const drawerRef = useRef<HTMLDivElement | null>(null)
+  const closeMenu = () => {
+    setMenuOpen(false)
+    menuButtonRef.current?.focus()
+  }
+  // Focus enters the pane, Tab stays inside it, and Esc hands the caret back to
+  // the button that opened it.
+  useEffect(() => {
+    if (!menuOpen) return
+    const panel = drawerRef.current
+    panel?.querySelector<HTMLButtonElement>('button')?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
+      if (event.key !== 'Tab' || !panel) return
+      const focusable = panel.querySelectorAll<HTMLElement>('button, a[href], input')
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) return
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [menuOpen])
+
+  const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
   const saveEditingInFlight = useRef(false)
@@ -341,9 +371,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (target < 0) {
       target = items.reduce((closest, item, itemIndex) => {
         const rect = item.getBoundingClientRect()
-        const distance = Math.abs(event.clientY - (rect.top + rect.height / 2))
+        const distance = Math.abs(event.clientX - (rect.left + rect.width / 2))
         const closestRect = items[closest]!.getBoundingClientRect()
-        return distance < Math.abs(event.clientY - (closestRect.top + closestRect.height / 2)) ? itemIndex : closest
+        return distance < Math.abs(event.clientX - (closestRect.left + closestRect.width / 2)) ? itemIndex : closest
       }, 0)
     }
     if (target === drag.currentIndex) return
@@ -378,14 +408,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     const frame = event.currentTarget as HTMLDivElement
     try { frame.setPointerCapture(event.pointerId) } catch {}
-    panState.current = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: frame.scrollTop }
+    panState.current = { pointerId: event.pointerId, startX: event.clientX, startScrollLeft: frame.scrollLeft }
     event.preventDefault()
   }
 
   const moveStripPan = (event: PointerEvent) => {
     if (panState.current?.pointerId !== event.pointerId) return
     const frame = event.currentTarget as HTMLDivElement
-    frame.scrollTop = panState.current.startScrollTop - (event.clientY - panState.current.startY)
+    frame.scrollLeft = panState.current.startScrollLeft - (event.clientX - panState.current.startX)
     event.preventDefault()
   }
 
@@ -576,12 +606,37 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           right through the galleries. On narrow screens .admin-left is
           display:contents, so the footer orders itself back to the bottom
           of the stacked page. */}
+      {/* The wordmark and the account button share one quiet row, and the
+          account itself waits in a pane to the right — the galleries get the
+          page's full width. */}
+      <header class="admin-topbar">
+        <span class="admin-topbar-brand brand-mark-wrap">
+          <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
+          <span class="brand-tld" aria-hidden="true">.xyz</span>
+        </span>
+        <h1 class="admin-topbar-title">Your galleries</h1>
+        <button
+          type="button"
+          class="admin-menu-button"
+          aria-label="Account menu"
+          aria-expanded={menuOpen}
+          aria-controls="admin-account-drawer"
+          ref={menuButtonRef}
+          onClick={() => setMenuOpen(true)}
+        >
+          <span class="admin-menu-bars" aria-hidden="true" />
+        </button>
+      </header>
+      {/* The pane is always in the document — the dashboard has to work
+          without JavaScript, and the account is not a decoration. `hidden`
+          keeps it out of the layout and out of the accessibility tree. */}
+      <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
+      <div class="admin-drawer-scrim" aria-hidden="true" onClick={closeMenu} />
+      <aside class="admin-drawer-panel" role="dialog" aria-modal="true" aria-label="Account" ref={drawerRef}>
       <div class="admin-left">
       <header class="admin-header">
         <div>
-          <form method="post" action="/auth/logout" class="admin-brand-form">
-            <h1 class="admin-brand-title"><button type="submit" class="admin-brand-logo-button" aria-label="Sign out and return to the homepage" title="Sign out"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></button></h1>
-          </form>
+          <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
           <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
           <div class="admin-greeting">
             <p class="admin-greeting-url">manorama.xyz/<input
@@ -598,7 +653,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               }}
               onBlur={() => { void saveOwnerSlug() }}
             /></p>
-            <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. Whenever you're done, feel free to <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-signout">sign out</button></form> <br/><br/>Or not. This is your manoramic world.</p>
+            <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. This is your manoramic world.</p>
             {identities || identityNote ? (
               <section class="admin-identities" aria-label="Sign-in methods">
                 <p class="admin-identities-heading">Sign-in methods</p>
@@ -660,16 +715,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </details>
           </div>
         </div>
-        <div class="admin-display-toggles" role="group" aria-label="Display preferences">
-          <button type="button" class="admin-theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={themeControlLabel(theme)} aria-pressed={theme === 'light'} title={themeControlLabel(theme)}>
-            <img src={theme === 'light' ? '/icons/thin-sunglasses_23303233.svg' : '/icons/regular-sunglasses_28c9e1cf.svg'} alt="" />
-          </button>
-        </div>
       </header>
       <footer class="site-footer">
         <a class="site-footer-link" href="/privacy">Privacy Policy</a>
         <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
       </footer>
+      </div>
+      {/* The account actions sit at the pane's foot: labelled, and away from
+          the galleries. */}
+      <div class="admin-drawer-actions">
+        <button type="button" class="admin-drawer-action" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-pressed={theme === 'light'}>{themeControlLabel(theme)}</button>
+        <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-drawer-action">Sign out</button></form>
+      </div>
+      </aside>
       </div>
 
       {/* Wide screens split the page in two: the header (brand, greeting,
@@ -707,7 +765,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-editor-label"><span>Photo Editor</span></div>
-          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollTop += delta; event.preventDefault() }}>
+          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
               {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery)} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
