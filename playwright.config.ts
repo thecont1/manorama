@@ -5,4 +5,7 @@ import { defineConfig } from '@playwright/test'
 // green and `bun run test` runs this suite.
 export default defineConfig({
   testMatch: '**/*.playwright.ts',
+  // Every linked checkout has its own runner; collecting it here loads a
+  // second @playwright/test and aborts before the requested suite can start.
+  testIgnore: ['**/.worktrees/**', '**/node_modules/**'],
 })

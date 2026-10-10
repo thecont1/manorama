@@ -69,11 +69,14 @@ export PATH="$SHIM_DIR:$PATH"
 OUT=""
 SKIP_BUILD=0
 KEEP_CONFIG_BACKUP=""
+SERVER_PID=""
+REQUESTED_UDID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device) DEVICE="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
+    --udid) REQUESTED_UDID="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -84,8 +87,8 @@ done
 # carry suffixes ("iPhone 13 Pro Max r265", "iPhone 13 Pro Max capture"), and
 # anchoring on the paren quietly matched nothing and took the script down.
 case "$DEVICE" in
-  iphone) TYPE_RE='iPhone 13 Pro Max' ; DEFAULT_OUT=/Users/home/DEV/manorama-submission/screens/ios ;;
-  ipad)   TYPE_RE='iPad Pro 13-inch'  ; DEFAULT_OUT=/Users/home/DEV/manorama-submission/screens/ipad ;;
+  iphone) TYPE_RE='iPhone 13 Pro Max' ; DEFAULT_OUT="$REPO/demo-captures/ios" ;;
+  ipad)   TYPE_RE='iPad Pro 13-inch'  ; DEFAULT_OUT="$REPO/demo-captures/ipad" ;;
   *) echo "--device must be iphone or ipad" >&2; exit 2 ;;
 esac
 OUT="${OUT:-$DEFAULT_OUT}"
@@ -102,7 +105,7 @@ cleanup() {
     cp "$KEEP_CONFIG_BACKUP" "$CONFIG"
     log "restored capacitor.config.ts"
   fi
-  pkill -f 'capture-server.ts' 2>/dev/null || true
+  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; fi
   if [[ -n "${SHIM_DIR:-}" ]]; then rm -rf "$SHIM_DIR"; fi
 }
 trap cleanup EXIT INT TERM
@@ -119,7 +122,9 @@ existing="$(xcrun simctl list devices available | grep -E "$TYPE_RE" | sed -n '1
 runtime="$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+' | sed -n '$p' || true)"
 type_id="$(xcrun simctl list devicetypes | grep -E "$TYPE_RE" | sed -n '1p' | sed -E 's/.*\((com\.apple[^)]*)\).*/\1/' || true)"
 
-if [[ -n "$existing" ]]; then
+if [[ -n "$REQUESTED_UDID" ]]; then
+  UDID="$REQUESTED_UDID"
+elif [[ -n "$existing" ]]; then
   UDID="$existing"
   log "using simulator $UDID"
 else
@@ -173,8 +178,8 @@ prep_app() {
   # Two statements, not one: under `set -u` bash rejects a `local` that reads a
   # name it is declaring on the same line.
   local src="$1"
-  local dest="/tmp/stage-$(basename "$(dirname "$src")")"
-  mkdir -p "$dest"
+  local dest
+  dest="$(mktemp -d /tmp/manorama-capture-app.XXXXXX)"
   cp -R "$src" "$dest/App.app"
   local plist="$dest/App.app/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist" 2>/dev/null || true
@@ -187,6 +192,8 @@ prep_app() {
   # landscape for the staged bundle makes iOS launch it that way, so the pixels
   # are the real app's pixels in the orientation the evidence calls for.
   if [[ "$DEVICE" == "ipad" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :UIInterfaceOrientation string UIInterfaceOrientationLandscapeLeft" "$plist" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Set :UIInterfaceOrientation UIInterfaceOrientationLandscapeLeft" "$plist"
     /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$plist" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" "$plist"
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:0 string UIInterfaceOrientationLandscapeLeft" "$plist"
@@ -204,8 +211,13 @@ prep_app() {
 # --- the harness --------------------------------------------------------------
 
 ( cd "$REPO" && bun .work/build-global-view-fixture.ts >/tmp/capture-global-build.log )
-( cd "$REPO" && bun .work/capture-server.ts >/tmp/capture-server.log 2>&1 & )
-sleep 3
+( cd "$REPO" && exec bun .work/capture-server.ts ) >/tmp/capture-server.log 2>&1 &
+SERVER_PID=$!
+for _ in $(seq 1 60); do
+  if curl -sf "http://localhost:$PORT/__capture/status" >/dev/null; then break; fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat /tmp/capture-server.log >&2; exit 1; fi
+  sleep 1
+done
 curl -sf "http://localhost:$PORT/state/0" >/dev/null || { echo "harness did not start; see /tmp/capture-server.log" >&2; exit 1; }
 
 mkdir -p "$OUT"
@@ -220,11 +232,11 @@ log "01 opening screen"
 xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$(prep_app "$PLAIN_APP")" >/dev/null 2>&1
 xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1
-shoot 01-opening-screen.png 15
+shoot 01-opening-screen.png 5
 
 log "02 curtain, 03 first image, 04 controls"
 xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1
-for pair in "0:02-gallery-curtain.png" "1:03-first-image.png" "2:04-controls-popover.png"; do
+for pair in "0:02-gallery-curtain.png" "1:03-first-image-hover.png" "2:04-controls-popover.png"; do
   state="${pair%%:*}"; name="${pair#*:}"
   curl -sf "http://localhost:$PORT/state/$state" >/dev/null
   xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true

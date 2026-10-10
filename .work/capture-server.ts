@@ -38,12 +38,14 @@
  * Requires `server.url` to point here for the duration of a harness build; see
  * scripts/capture-screens.sh, which owns that toggle and restores it.
  */
+import { probeImageDimensions } from '../packages/core/image-dims'
+
 const ROOT = new URL('../native/dist/', import.meta.url).pathname
-const PORT = 4181
+const PORT = Number(process.env.CAPTURE_PORT ?? 4181)
 
 /** The owner's public gallery, which stands in for the private list. */
 const PUBLIC_MANIFEST = 'https://manorama.xyz/api/gallery/thecontrarian/italy'
-const PHOTO_DIR = '/Users/home/Library/CloudStorage/Dropbox/italy'
+const PHOTO_DIR = process.env.CAPTURE_PHOTO_DIR ?? '/Users/home/Library/CloudStorage/Dropbox/italy'
 const FIRST_ORIGINAL = `${PHOTO_DIR}/MS201810-Italy0005.jpg`
 const FIRST_CAPTURE_PATH = '/__capture/first-original.jpg'
 const FIRST_CAPTURE_BASE = `http://localhost:${PORT}`
@@ -58,6 +60,7 @@ const DEVICE_LABEL = 'iPhone 17 Pro Max'
 type Json = Record<string, unknown>
 
 let state = 0
+let generation = 0
 let report: Json | null = null
 let fixture: { gallery: Json; galleries: Json; deviceGalleries: Json } | null = null
 /** Held open by the preview choreography until the recorder is rolling. */
@@ -76,11 +79,11 @@ const absolute = (src: string) => (src.startsWith('/') ? `https://manorama.xyz${
  *  the strip reflows mid-scroll. Written by scripts/capture-preview.sh; absent
  *  until that runs, in which case the public manifest is left alone. */
 const DIMS_PATH = '/tmp/mano-photo-dims.json'
-const photoDims = (): Record<string, [number, number]> => {
+const photoDims = async (): Promise<Record<string, [number, number]>> => {
   const file = Bun.file(DIMS_PATH)
-  if (!file.size) return {}
+  if (!(await file.exists())) return {}
   try {
-    return JSON.parse(file.text()) as Record<string, [number, number]>
+    return JSON.parse(await file.text()) as Record<string, [number, number]>
   } catch {
     return {}
   }
@@ -91,10 +94,10 @@ const photoDims = (): Record<string, [number, number]> => {
  *  the provider returns — no resize, no re-encode, no metadata edit — so the
  *  scroll in the preview shows the real photographs instead of a decode race
  *  against the network. Order and declared dimensions are preserved. */
-const localGallery = () => {
+const localGallery = async () => {
   const gallery = fixture?.gallery
   if (!gallery) return null
-  const dims = photoDims()
+  const dims = await photoDims()
   const manifest = gallery.manifest as Json
   const images = (manifest.images as Json[]).map((image) => {
     const filename = image.filename as string
@@ -111,10 +114,13 @@ const localGallery = () => {
 }
 
 const buildFixture = async () => {
-  const response = await fetch(PUBLIC_MANIFEST)
+  const response = await fetch(PUBLIC_MANIFEST, { signal: AbortSignal.timeout(30000) })
   if (!response.ok) throw new Error(`fixture source answered ${response.status}`)
   const body = (await response.json()) as Json
   const manifest = body.manifest as Json
+  if (!Array.isArray(manifest?.images) || !manifest.images.length || !body.settings) {
+    throw new Error('Capture fixture requires a gallery, settings and at least one photograph')
+  }
   const images = (manifest.images as Json[]).map((image) => ({
     id: image.id,
     ref: image.ref ?? image.id,
@@ -128,21 +134,11 @@ const buildFixture = async () => {
   }))
   const title = manifest.title as string
   const caption = manifest.caption as string
-  const original = Bun.file(FIRST_ORIGINAL)
-  if (!(await original.exists())) throw new Error(`the owner's first original is unavailable: ${FIRST_ORIGINAL}`)
-  // The remote thumbnail proxy may not answer in the simulator before its
-  // screenshot deadline. The stage gets a byte-identical master through the
-  // harness origin instead; no resize, re-encode, or metadata edit occurs.
-  const galleryImages = [...(manifest.images as Json[])]
-  galleryImages[0] = {
-    ...galleryImages[0], src: FIRST_CAPTURE_URL,
-    width: 2560, height: 1707, variants: [],
-  }
   fixture = {
-    gallery: { ...body, manifest: { ...manifest, images: galleryImages } },
+    gallery: body,
     galleries: {
       galleries: [{
-        slug: 'capture-gallery',
+        slug: manifest.slug,
         title,
         caption,
         date: manifest.date ?? '',
@@ -166,19 +162,60 @@ const buildFixture = async () => {
       }],
     },
   }
+  // Provider placeholders may exist without readable bytes. Resolve metadata
+  // from the same local-or-provider original path that serves the image.
+  const sourceImages = manifest.images as Json[]
+  const resolved: Json[] = new Array(sourceImages.length)
+  let cursor = 0
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    while (cursor < sourceImages.length) {
+      const index = cursor++
+      const image = sourceImages[index]
+      const bytes = await originalBytes(image)
+      const dimensions = probeImageDimensions(bytes)
+      if (!dimensions) throw new Error(`Original dimensions unavailable: ${image.filename}`)
+      resolved[index] = { ...image, ...dimensions, variants: [] }
+    }
+  }))
+  fixture.gallery = { ...body, manifest: { ...manifest, images: resolved } }
+  const summaries = fixture.galleries.galleries as Json[]
+  summaries[0].images = resolved.map((image) => ({
+    ...image, src: `${FIRST_CAPTURE_BASE}/__capture/photo/${encodeURIComponent(image.filename as string)}`,
+  }))
   return fixture
+}
+
+/** Never re-encode or persist bytes. A File Provider placeholder's stat is not
+ * proof of a readable original; reject incomplete reads and use the proxy. */
+async function originalBytes(image: Json): Promise<Uint8Array> {
+  const file = Bun.file(`${PHOTO_DIR}/${image.filename as string}`)
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (bytes.length > 0 && bytes.length === file.size) return bytes
+  } catch { /* Unmaterialized Dropbox file; use the public original below. */ }
+  let response: Response | undefined
+  for (let attempt = 0; attempt < 3; attempt++) {
+    response = await fetch(absolute(image.src as string), { signal: AbortSignal.timeout(30000) })
+    if (response.ok || (response.status < 500 && response.status !== 429)) break
+    await response.body?.cancel()
+    if (attempt < 2) await Bun.sleep(500 * (attempt + 1))
+  }
+  if (!response?.ok) throw new Error(`Original ${image.filename} answered ${response?.status}`)
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  if (!bytes.length) throw new Error(`Original ${image.filename} was empty`)
+  return bytes
 }
 
 /** Runs before the app's module, so the bridge and `fetch` are already patched
  *  by the time the island reads its session. */
-const PREBOOT = (which: number) => {
+const PREBOOT = async (which: number) => {
   // 3 is the account screenshot; 5 and 6 are the preview takes, which open on
   // that same account surface. All three seed the session and answer the two
   // session-gated lists; only 5 and 6 also need a gallery they can navigate
   // into, which the branch below adds.
   const account = which === 3 || which === 5 || which === 6
   if (!account) {
-    const gallery = JSON.stringify(fixture?.gallery)
+    const gallery = JSON.stringify(await localGallery())
     return `
 <script>
 (function () {
@@ -203,7 +240,7 @@ const PREBOOT = (which: number) => {
   // never had to answer. It gets the same manifest with the photographs served
   // from the owner's local originals, so the clip's scroll is not racing the
   // network for the pixels it is about to show.
-  const local = JSON.stringify(localGallery())
+  const local = JSON.stringify(await localGallery())
   return `
 <script>
 (function () {
@@ -257,7 +294,13 @@ const PREBOOT = (which: number) => {
     if (url.indexOf('__capture') !== -1) return real(input, init)
     if (url.indexOf('/api/gallery/') !== -1) return Promise.resolve(json(local))
     if (url.indexOf('/api/device-galleries') !== -1) return Promise.resolve(json(seeded.deviceGalleries))
-    if (url.indexOf('/api/galleries') !== -1) return Promise.resolve(json(seeded.galleries))
+    if (url.indexOf('/api/galleries') !== -1) {
+      if (init && init.method === 'POST') {
+        window.__captureImport = JSON.parse(init.body)
+        return Promise.resolve(json({ galleryUrl: '/thecontrarian/italy' }))
+      }
+      return Promise.resolve(json(seeded.galleries))
+    }
     if (url.indexOf('/api/account/identities') !== -1) {
       return Promise.resolve(json({ identities: [{ provider: 'dropbox', displayName: seeded.ownerName }] }))
     }
@@ -282,6 +325,7 @@ const PREBOOT = (which: number) => {
     if (!(${which} === 5 || ${which} === 6)) {
       var url = '/__capture/report'
       body.state = ${which}
+      body.generation = ${generation}
       return real(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
     }
     return Promise.resolve()
@@ -291,14 +335,19 @@ const PREBOOT = (which: number) => {
     var account = document.querySelector('.native-account')
     var cards = document.querySelector('.native-house-cards')
     var policy = document.querySelector('.native-load-policy')
+    var input = document.querySelector('#native-source-url')
     var strip = stills()
-    var ready = Boolean(account && cards && policy && strip.thumbs > 0 && strip.loaded >= 1)
+    var bounds = input && input.getBoundingClientRect()
+    var inputVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
+    var ready = Boolean(account && cards && policy && inputVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
     if (ready || Date.now() - started > 40000) {
       log('state ${which} ready:', ready, JSON.stringify(strip))
       send({
         ready: ready,
         elapsed: Date.now() - started,
         signedIn: Boolean(account),
+        inputVisible: inputVisible,
+        inputBounds: bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
         houseCards: cards ? (cards.querySelector('.native-house-cards-status') || {}).textContent : null,
         buttons: [].map.call(document.querySelectorAll('.native-house-cards-actions button'), function (b) { return b.textContent }),
         headings: [].map.call(document.querySelectorAll('.native-house-cards h2, .native-load-policy h2, .native-global-setting h2, .native-device h2'), function (h) { return h.textContent }),
@@ -330,7 +379,9 @@ const DRIVER = (which: number) => `
   })
   const click = (el) => {
     if (!el) { log('click: element missing'); return false }
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    const bounds = el.getBoundingClientRect()
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true,
+      clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 }))
     return true
   }
   const firstImage = async (timeout = 30000) => {
@@ -344,7 +395,12 @@ const DRIVER = (which: number) => `
   }
   const report = (ready) => fetch('/__capture/report', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ state: ${which}, ready, firstImageWidth: document.querySelector('[data-stage] .viewer-frame[data-index="1"] img.frame-img')?.naturalWidth ?? 0 })
+    body: JSON.stringify({ state: ${which}, generation: ${generation}, ready,
+      firstImageWidth: document.querySelector('[data-stage] .viewer-frame[data-index="1"] img.frame-img')?.naturalWidth ?? 0,
+      entered: document.body.classList.contains('gallery-entered'),
+      modalVisible: Boolean(document.querySelector('.controls-modal[aria-label="Display settings"]:not([hidden])')),
+      viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
+      errors: window.__captureErrors || [] })
   })
 
   ;(async () => {
@@ -362,7 +418,7 @@ const DRIVER = (which: number) => `
     log('lifting curtain:', click(curtain))
     if (${which} === 1) {
       await new Promise((r) => setTimeout(r, 1300))
-      await report(!document.querySelector('body:not(.gallery-entered)'))
+      await report(document.body.classList.contains('gallery-entered') && Boolean(curtain.hidden))
       return
     }
 
@@ -370,9 +426,13 @@ const DRIVER = (which: number) => `
     // left it before the settings modal opens.
     await new Promise((r) => setTimeout(r, 2200))
     log('opening settings:', click(document.querySelector('button.control-logo')))
-    await new Promise((r) => setTimeout(r, 300))
-    await report(true)
-  })()
+    const modal = await waitFor('.controls-modal[aria-label="Display settings"]:not([hidden])')
+    await new Promise((r) => setTimeout(r, 1000))
+    await report(Boolean(modal && document.querySelector('.controls-panel')))
+  })().catch(async (error) => {
+    window.__captureErrors.push(String(error))
+    await report(false)
+  })
 })()
 </script>
 `
@@ -646,6 +706,8 @@ const CHOREO = (which: number) => {
 `
 }
 
+await buildFixture()
+
 const server = Bun.serve({
   port: PORT,
   hostname: '0.0.0.0',
@@ -661,13 +723,14 @@ const server = Bun.serve({
     const stateMatch = url.pathname.match(/^\/state\/(\d+)$/)
     if (stateMatch) {
       state = Number(stateMatch[1])
+      generation += 1
       report = null
       // A gate left over from a previous take would let the next one start
       // before its recorder is rolling.
       openRun?.()
       runGate = null
       openRun = null
-      return new Response(`state=${state}\n`)
+      return Response.json({ state, generation })
     }
 
     if (url.pathname === '/__capture/run') {
@@ -690,7 +753,11 @@ const server = Bun.serve({
 
     if (url.pathname === '/__capture/report') {
       if (request.method === 'POST') {
-        report = (await request.json()) as Json
+        const incoming = (await request.json()) as Json
+        if (incoming.state !== state || (incoming.generation !== undefined && incoming.generation !== generation)) {
+          return new Response('stale capture report', { status: 409 })
+        }
+        report = incoming
         console.log('capture report:', JSON.stringify(report))
         return new Response('ok\n')
       }
@@ -700,13 +767,17 @@ const server = Bun.serve({
     }
 
     if (url.pathname === FIRST_CAPTURE_PATH) {
-      return new Response(Bun.file(FIRST_ORIGINAL), {
+      const images = (fixture!.gallery.manifest as Json).images as Json[]
+      return new Response(await originalBytes(images[0]), {
         headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-store' },
       })
     }
 
     if (url.pathname === '/__capture/gallery-fixture') {
-      return Response.json(fixture?.gallery, { headers: { 'cache-control': 'no-store' } })
+      return Response.json(await localGallery(), { headers: { 'cache-control': 'no-store' } })
+    }
+    if (url.pathname === '/__capture/status') {
+      return Response.json({ state, generation, fixtureReady: Boolean(fixture), bundleRoot: ROOT })
     }
     if (url.pathname.startsWith('/__capture/photo/')) {
       const filename = decodeURIComponent(url.pathname.slice('/__capture/photo/'.length))
@@ -755,6 +826,9 @@ const server = Bun.serve({
     const file = Bun.file(ROOT + path.replace(/^\//, ''))
 
     if (!(await file.exists())) {
+      if (/\.(?:js|css|wasm|png|jpg|svg|woff2?)$/i.test(path)) {
+        return new Response('asset not found', { status: 404 })
+      }
       // A route the SPA owns still needs the shell, exactly as the bundled
       // shell would serve it.
       const shell = Bun.file(ROOT + 'index.html')
@@ -766,7 +840,25 @@ const server = Bun.serve({
   },
 })
 
-function html(source: string) {
+async function html(source: string) {
+  const setup = `<script>
+    window.__captureGeneration = ${generation};
+    window.__captureErrors = [];
+    window.addEventListener('error', (event) => window.__captureErrors.push(event.message));
+    window.addEventListener('unhandledrejection', (event) => window.__captureErrors.push(String(event.reason)));
+    // Stream in captures: do not fill or modify a simulator's encrypted vault.
+    localStorage.setItem('CapacitorStorage.manorama.vault.load-policy', 'stream');
+    const bridge = window.Capacitor;
+    if (bridge && bridge.nativePromise) {
+      const real = bridge.nativePromise.bind(bridge);
+      bridge.nativePromise = (plugin, method, options) => {
+        if (plugin === 'Preferences' && method === 'get' && options.key === 'manorama.vault.load-policy') {
+          return Promise.resolve({ value: 'stream' });
+        }
+        return real(plugin, method, options);
+      };
+    }
+  </script>`
   if (state === 4) {
     const style = source.match(/href="(\/assets\/[^" ]+\.css)"/)?.[1]
     if (!style) return new Response('native CSS not found', { status: 500 })
@@ -775,19 +867,19 @@ function html(source: string) {
 <link rel="stylesheet" href="${style}" /><link rel="stylesheet" href="/__capture/global-view.css" /></head>
 <body style="margin:0;background:#0a0a0a"><img src="${FIRST_CAPTURE_PATH}" alt="" aria-hidden="true"
 style="position:fixed;inset:0;width:100%;height:100%;object-fit:contain" /><div id="app"></div>
-<script type="module" src="/__capture/global-view-fixture.js"></script></body></html>`, {
+${setup}<script type="module" src="/__capture/global-view-fixture.js"></script></body></html>`, {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
     })
   }
-  const injected = PREBOOT(state) + (state === 5 || state === 6 ? CHOREO(state) : DRIVER(state))
-  const body = source.includes('</body>')
-    ? source.replace('</body>', injected + '</body>')
-    : source + injected
+  const preboot = setup + await PREBOOT(state)
+  const driver = state === 5 || state === 6 ? CHOREO(state) : DRIVER(state)
+  // Before the first application module, including browsers that begin module
+  // evaluation while parsing. Seeding at </body> was not a reliable contract.
+  const body = source.replace(/<script\b/, preboot + '<script').replace('</body>', driver + '</body>')
   return new Response(body, {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
   })
 }
 
-await buildFixture()
 console.log(`capture harness on http://localhost:${server.port} serving ${ROOT}`)
 console.log(`state 3 fixture: ${JSON.stringify(fixture?.galleries).slice(0, 120)}…`)
