@@ -6,6 +6,7 @@ import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, 
 import type { AuthProvider } from '../lib/identity-repository'
 import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
+import { CopyIcon, OpenIcon, RefreshIcon, SourceIcon, TrashIcon } from '../components/admin-icons'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -79,12 +80,6 @@ const scrollToGalleryCard = (slug: string) => {
     window.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' })
   })
 }
-
-const CopyIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v10A1.5 1.5 0 0 0 5.5 17H8" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-const TrashIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 4h4l1 3H9l1-3ZM8 7l.7 13h6.6L16 7M10 10v7M14 10v7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-const OpenIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M19 13v5.5A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-11A1.5 1.5 0 0 1 6.5 6H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 16M4 20v-4h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-const SourceIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5v9A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 19 8h-7.5L9.5 5.5A1.5 1.5 0 0 0 8.5 5H5a1.5 1.5 0 0 0-1.5 1.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /><path d="M3.5 8.5h17" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
 
 /** Renders the owner's dashboard for importing, editing, and managing galleries. */
 export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free', accountId, upgradeUrl }: Props) {
@@ -641,8 +636,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         ref={menuButtonRef}
         onClick={() => setMenuOpen(true)}
       >
-        <span aria-hidden="true">Account</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        <span class="admin-tab-label" aria-hidden="true">Account</span>
+        <svg class="admin-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        <svg class="admin-tab-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
       </button>
       {/* Hidden account controls stay outside the accessibility tree until
           the hydrated dashboard opens them. */}
@@ -742,6 +738,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </div>
       {/* The account actions sit at the pane's foot: labelled, and away from
           the galleries. */}
+        {(() => {
+          const retained = galleries.filter((gallery) => gallery.retention !== 'pipeline').length
+          return <div class="admin-retention-policy">
+            <p class="admin-limit-count" aria-live="polite">{retained} retained {retained === 1 ? 'gallery' : 'galleries'}{tier === 'pro' ? ` · ${Math.max(0, PAID_RETAINED_LIMIT - retained)} available` : ` · ${Math.max(0, FREE_RETAINED_LIMIT - retained)} editable slots available`}</p>
+            {tier === 'free' ? <p>{FREE_RETENTION_DISCLOSURE}</p> : <p>Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>}
+            {tier === 'pro' && retained >= PAID_RETAINED_LIMIT ? <p>{paidGalleryLimitError().message}</p> : null}
+          </div>
+        })()}
+
+        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
       <div class="admin-drawer-actions">
         <button type="button" class="admin-drawer-action" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-pressed={theme === 'light'}>{themeControlLabel(theme)}</button>
         <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-drawer-action">Sign out</button></form>
@@ -760,23 +766,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
         <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. You have used {retainedCount} of your {retainedLimit} gallery limit.</p>
+        <p class="admin-profile-address">manorama.xyz/{owner}</p>
+        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
       </section>
       <section class="gallery-import" aria-labelledby="import-heading">
         <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
-        {(() => {
-          const retained = galleries.filter((gallery) => gallery.retention !== 'pipeline').length
-          return <div class="admin-retention-policy">
-            <p class="admin-limit-count" aria-live="polite">{retained} retained {retained === 1 ? 'gallery' : 'galleries'}{tier === 'pro' ? ` · ${Math.max(0, PAID_RETAINED_LIMIT - retained)} available` : ` · ${Math.max(0, FREE_RETAINED_LIMIT - retained)} editable slots available`}</p>
-            {tier === 'free' ? <p>{FREE_RETENTION_DISCLOSURE}</p> : <p>Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>}
-            {tier === 'pro' && retained >= PAID_RETAINED_LIMIT ? <p>{paidGalleryLimitError().message}</p> : null}
-          </div>
-        })()}
         <form class="gallery-import-form" onSubmit={addGallery}>
           <label class="admin-field"><span>Public Dropbox, Google Drive, iCloud, or MEGA link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, iCloud album, or MEGA link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
-        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
+
       </section>
       </div>
 

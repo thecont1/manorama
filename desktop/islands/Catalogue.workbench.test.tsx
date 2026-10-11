@@ -253,7 +253,7 @@ describe('desktop catalogue workbench', () => {
     expect(dom.document.documentElement.classList.contains('light')).toBe(true)
   })
 
-  test('a gallery card is one row of clickable originals, first frame pink', async () => {
+  test('a gallery card is one row of clickable originals without picker selection borders', async () => {
     const container = await mount(true)
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
     expect(card.getAttribute('data-availability')).toBe('available')
@@ -267,7 +267,7 @@ describe('desktop catalogue workbench', () => {
     const framesInStrip = [...strip.querySelectorAll<HTMLButtonElement>('.admin-gallery-strip-item')]
     expect(framesInStrip).toHaveLength(2)
     expect(framesInStrip[0].tagName).toBe('BUTTON')
-    expect(framesInStrip[0].classList.contains('is-active')).toBe(true)
+    expect(framesInStrip[0].classList.contains('is-active')).toBe(false)
     expect(framesInStrip[1].classList.contains('is-active')).toBe(false)
     expect(framesInStrip[1].getAttribute('aria-label')).toBe(`Open MS201810-Italy0100.jpg — photograph 2 of 2 in ${TITLE}`)
     // Originals are referenced in place through the asset protocol: no copy,

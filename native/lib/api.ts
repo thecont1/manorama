@@ -114,7 +114,15 @@ export const fetchAccountGalleries = async (
   const payload = await response.json().catch(() => ({})) as { galleries?: GallerySummary[]; error?: string }
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Gallery list request failed (${response.status})`)
   if (!Array.isArray(payload.galleries)) throw new Error('Gallery list response was incomplete')
-  return payload.galleries
+  return payload.galleries.map((gallery) => ({
+    ...gallery,
+    ...(gallery.images ? { images: gallery.images.map((image) => ({
+      ...image,
+      src: absoluteUrl(image.src, apiBase),
+      variants: image.variants?.map((variant) => rewriteVariant(variant, apiBase)),
+      ...('type' in image && image.type === 'video' ? { poster: { ...image.poster, src: absoluteUrl(image.poster.src, apiBase) } } : {}),
+    })) } : {}),
+  }))
 }
 
 /** The private device catalogue the Mac publishes: metadata only, no paths
@@ -165,6 +173,36 @@ export const fetchAccountIdentities = async (
   return Array.isArray(payload.identities) ? payload.identities : []
 }
 
+/** The gallery editor's one write: the running order of a gallery's
+ *  photographs, as image ids. The server reorders against the gallery's own
+ *  manifest and answers with the stored summary, exactly as the web
+ *  dashboard's strip editor does. */
+export const updateGalleryOrder = async (apiBase: string, slug: string, order: readonly string[]): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ order }),
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string }
+    throw new NativeGalleryHttpError(response.status, payload.error || 'That order could not be saved')
+  }
+}
+/** The caption under a gallery's title. The dashboard treats the caption as
+ *  editable metadata, and the account card does the same, so the write lives
+ *  beside the other gallery mutations. The route answers with the stored
+ *  summary, which is what the card then shows: trimmed, smart-quoted and
+ *  length-capped by the same handler the web dashboard writes through. */
+export const updateGalleryCaption = async (apiBase: string, slug: string, caption: string): Promise<string> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ caption }),
+  })
+  const payload = await response.json().catch(() => ({})) as { gallery?: { caption?: string }; error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'That caption could not be saved')
+  return payload.gallery?.caption ?? caption.trim()
+}
 /** The dashboard's custom-URL edit: PATCHes the owner slug and answers the
  *  slug the server actually stored, lowercased and normalised. */
 export const renameOwnerSlug = async (apiBase: string, ownerSlug: string): Promise<string> => {

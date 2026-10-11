@@ -242,7 +242,11 @@ describe('account slot resolution lifecycle', () => {
     await settle()
     // The request went out while free and is still in flight.
     expect(pending).toHaveLength(1)
-    expect(slots(container)).toHaveLength(0)
+    // The plate is reserved from the moment the tier is known, because the
+    // live rectangle is positioned from this element's own rect; it carries
+    // the house creative until a fill arrives.
+    expect(slots(container)).toHaveLength(1)
+    expect(container.innerHTML).toContain('More photographs')
 
     flushSync(() => controls.setBilling(entitlement('pro')))
     await settle()
@@ -397,7 +401,7 @@ describe('signed-in account area', () => {
       calls.push({ url, init })
       if (url.includes('/api/galleries') && init?.method === 'POST' && stubs.import) return stubs.import()
       if (url.includes('/api/device-galleries')) return stubs.deviceGalleries ?? json({ galleries: [] })
-      if (url.includes('/api/galleries')) return stubs.galleries ?? json({ galleries: [] })
+      if (url.includes('/api/galleries')) return stubs.galleries?.clone() ?? json({ galleries: [] })
       if (url.includes('/api/ads/visibility')) return stubs.visibility ?? json({ show: true, day: '2026-10-01' })
       // The suppression list is session-gated: an unanswered list leaves the
       // switch unrendered, which is the state every other test runs in.
@@ -509,39 +513,56 @@ describe('signed-in account area', () => {
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'Sign out')).toBe(true)
     // Signed-in home replaces the provider row, but keeps the manual path.
     expect(html).not.toContain('Sign in with Apple')
-    expect(html).toContain('Open another gallery')
-    expect(html).toContain('Photo picker')
-    expect(html).toContain('Keep photos from this device ready to choose in galleries')
+    expect(container.querySelector('main')?.textContent).not.toContain('Open another gallery')
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Photo picker')
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Keep photos from this device ready to choose in galleries')
     expect(html).not.toContain('Open photo picker')
 
     // The account list asked with the stored bearer token.
     const listCall = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries')
     expect((listCall?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
 
-    const row = container.querySelector('.native-gallery-list button') as HTMLButtonElement | null
-    expect(row).not.toBeNull()
-    // The single cover takes a row of its own ahead of the copy. The second
-    // fixture image proves mobile does not render the web's sequencing strip.
-    const cover = row!.querySelector(':scope > .native-gallery-cover-row')
-    expect(cover).not.toBeNull()
-    expect(cover!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
-    expect(cover!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
-    expect([...cover!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
-      'native-gallery-thumb is-active',
+    // The cover is its own opener, holding one column of the card across every
+    // text row, so the four actions can sit beside the photograph instead of
+    // under the whole card. The second fixture image proves mobile still does
+    // not render the web's sequencing strip.
+    const coverButton = container.querySelector('.native-gallery-cover-open') as HTMLButtonElement | null
+    expect(coverButton).not.toBeNull()
+    expect(coverButton!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
+    expect(coverButton!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
+    expect([...coverButton!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
+      'native-gallery-thumb',
     ])
-    // Then title with its count, subtitle and address, each on its own line.
-    expect([...(row!.children as unknown as Element[])].map((child) => child.className)).toEqual([
-      'native-gallery-cover-row',
-      'native-gallery-heading',
-      'native-gallery-subtitle',
+    expect(coverButton!.getAttribute('aria-label')).toBe('Edit the running order of Kashmir')
+    // Name with its count, then the caption line, then the address, then the
+    // photograph, then the actions: the order the owner asked for, in one
+    // column.
+    const card = coverButton!.closest('li') as HTMLElement
+    expect([...(card.children as unknown as Element[])].map((child) => child.className)).toEqual([
+      'native-gallery-row native-gallery-row-with-thumb',
+      'native-gallery-caption',
       'native-gallery-link',
+      'native-gallery-cover-open',
+      'native-gallery-actions',
     ])
-    expect(row?.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
-    expect(row?.querySelector(':scope > .native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
-    row!.click()
-    await settle()
+    expect(card.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
+    expect(card.querySelector('.native-gallery-caption')?.textContent).toBe('A winter album')
+    expect(card.querySelector('.native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
 
+    // The cover opens the editor for this gallery, not the gallery itself.
+    coverButton!.click()
+    await settle()
+    expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
+    ;(container.querySelector('[data-gallery-editor] [aria-label="Close the editor"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-gallery-editor]')).toBeNull()
+
+    // The title row is what opens the gallery on the stage.
+    ;(container.querySelector('.native-gallery-row-with-thumb') as HTMLButtonElement).click()
+    await settle()
+    expect(galleryCalls().filter((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir').length)
+      .toBeGreaterThanOrEqual(2)
   })
 
   test('greets by the provider name and PATCHes an edited URL name', async () => {
@@ -572,8 +593,10 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('data-account-drawer')
     expect(html).toContain('Mahesh Shantaram')
     expect(html).not.toContain('This is your manoramic world')
-    expect(html).toContain('Privacy Policy')
-    expect(html).toContain('© 2026 Mahesh Shantaram')
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Privacy Policy')
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('© 2026 Mahesh Shantaram')
 
     const input = container.querySelector('.admin-owner-slug-input') as HTMLInputElement | null
     expect(input).not.toBeNull()
@@ -620,6 +643,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const html = container.innerHTML
     expect(html).toContain('This device')
     // The web dashboard's "Mac" is the wrong word in an iOS app, and the list
@@ -658,6 +683,9 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    expect(container.querySelector('main .native-load-policy')).toBeNull()
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     // Each preference is its own headed question rather than one undifferentiated
     // list running from the device down to the load policy.
     expect(
@@ -682,13 +710,102 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('Gallery loading')
   })
 
+  test('a gallery card reads in one column, in the order it is managed', async () => {
+    installLocalStorage()
+    signInStorage()
+    const cover = [
+      { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+    ]
+    stubFetch({ galleries: json({ galleries: [
+      accountSummary({ slug: 'kashmir', title: 'Kashmir', images: cover }),
+      accountSummary({ slug: 'italy', title: 'Italy', images: cover }),
+    ] }) })
+    const { container } = mountAccount()
+    await settle()
+    const cards = [...container.querySelectorAll('.native-gallery-list > li')]
+    expect(cards.length).toBe(2)
+    for (const card of cards) {
+      // Name and count share the first line, then the caption, then the
+      // address, then the photograph, then the actions — one column, the same
+      // order the web dashboard reads in.
+      const heading = card.querySelector('.native-gallery-heading')
+      expect(heading?.querySelector('.native-gallery-title')).not.toBeNull()
+      expect(heading?.querySelector('.native-gallery-meta')).not.toBeNull()
+      const order = [...card.children].map((child) => child.className)
+      const at = (needle: string) => order.findIndex((name) => name.includes(needle))
+      expect(at('native-gallery-link')).toBeGreaterThan(at('native-gallery-row'))
+      expect(at('native-gallery-cover-open')).toBeGreaterThan(at('native-gallery-link'))
+      expect(at('native-gallery-actions')).toBeGreaterThan(at('native-gallery-cover-open'))
+      // The photograph spans the card, so the actions cannot sit beside it.
+      expect(card.querySelector('.native-gallery-row button')).toBeNull()
+      expect(card.querySelector('.native-gallery-actions')).not.toBeNull()
+      expect(card.querySelector('.native-gallery-row .native-gallery-actions')).toBeNull()
+    }
+  })
+
+  test('gallery actions stay outside the card opener and deletion waits for confirmation', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://dropbox.com/scl/fo/example' })] }) })
+    const { container } = mountAccount()
+    await settle()
+    expect(container.querySelector('.native-gallery-row button')).toBeNull()
+    expect(container.querySelector('[aria-label="Copy Kashmir link"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Open Kashmir source"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Refresh Kashmir from source"]')).not.toBeNull()
+    ;(container.querySelector('[aria-label="Delete Kashmir"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.textContent).toContain('This cannot be undone')
+    expect(calls.some((call) => call.init?.method === 'DELETE')).toBe(false)
+    const cancel = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Cancel') as HTMLButtonElement
+    cancel.click()
+    await settle()
+    expect(container.querySelector('.native-gallery-remove-confirm')).toBeNull()
+  })
+
+  test('confirmed gallery delete and refresh use owner-authenticated API routes', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://dropbox.com/scl/fo/example' })] }),
+      fallback: (url) => url.includes('/api/galleries/kashmir') ? json({ ok: true }) : new Response('{}', { status: 404 }) })
+    const { container } = mountAccount()
+    await settle()
+    ;(container.querySelector('[aria-label="Refresh Kashmir from source"]') as HTMLButtonElement).click()
+    await settle()
+    const refresh = calls.find((call) => call.url.endsWith('/api/galleries/kashmir/refresh'))
+    expect(refresh?.init?.method).toBe('POST')
+    expect((refresh?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    ;(container.querySelector('[aria-label="Delete Kashmir"]') as HTMLButtonElement).click()
+    await settle()
+    const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Remove gallery') as HTMLButtonElement
+    confirm.click()
+    await settle()
+    const deletion = calls.find((call) => call.url.endsWith('/api/galleries/kashmir') && call.init?.method === 'DELETE')
+    expect(deletion).toBeDefined()
+    expect((deletion?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    expect(calls.some((call) => call.url.startsWith('https://dropbox.com'))).toBe(false)
+  })
+
+  test('Free owners can see every retained gallery even above their editing limit', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: Array.from({ length: 5 }, (_, index) => accountSummary({ slug: `album-${index}`, title: `Album ${index}` })) }) })
+    const { container } = mountAccount()
+    await settle()
+    expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
+    expect(container.textContent).toContain('You have 5 retained galleries')
+    expect(container.textContent).toContain('3 editable gallery slots')
+    expect(container.querySelectorAll('.native-gallery-thumb.is-active')).toHaveLength(0)
+    expect(container.querySelector('main .native-account-delete')).toBeNull()
+  })
+
   test('names pipeline galleries without a shortened internal label', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({ retention: 'pipeline' })] }) })
     const { container } = mountAccount()
     await settle()
-    expect(container.querySelector('.native-temporary-galleries h2')?.textContent).toBe('Temporary galleries')
+    expect(container.querySelector('.native-gallery-list')?.textContent).toContain('Temporary gallery')
     expect(container.innerHTML).not.toContain('Temp Galleries')
   })
 
@@ -703,8 +820,10 @@ describe('signed-in account area', () => {
     expect(html).toContain('Your galleries could not be loaded.')
     expect(html).toContain('Try again')
     // The manual path survives a dead list.
-    expect(html).toContain('Open another gallery')
-    expect(container.querySelector('details form')).not.toBeNull()
+    expect(container.querySelector('main')?.textContent).not.toContain('Open another gallery')
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-account-drawer] details form')).not.toBeNull()
 
     const listCalls = () => calls.filter((call) => call.url === 'https://manorama.xyz/api/galleries').length
     expect(listCalls()).toBe(1)
@@ -760,6 +879,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     expect(entry).toBeDefined()
     entry.click()
@@ -792,6 +913,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -817,6 +940,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -842,6 +967,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -869,6 +996,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -897,6 +1026,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -924,6 +1055,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const form = container.querySelector('.native-another form') as HTMLFormElement | null
     expect(form).not.toBeNull()
     const inputs = [...form!.querySelectorAll('input')] as HTMLInputElement[]
@@ -994,6 +1127,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ billing: entitlement('free'), client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
     expect(entry).toBeDefined()
     entry.click()
@@ -1015,6 +1150,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ billing: entitlement('free'), client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
     entry.click()
     await settle()
@@ -1037,12 +1174,97 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ billing: entitlement('free'), client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
     entry.click()
     await settle()
 
     expect(container.querySelector('.native-paywall-card')).not.toBeNull()
     expect(container.innerHTML).not.toContain('Subscriptions are unavailable right now. Please try again shortly.')
+  })
+
+  test('the caption line invites one when there is none and saves the one given', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary({ caption: '' })] }),
+      fallback: (url, init) => url === 'https://manorama.xyz/api/galleries/kashmir' && init?.method === 'PATCH'
+        ? json({ gallery: accountSummary({ caption: 'Morning in the valley' }) })
+        : new Response('{}', { status: 404 }),
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    const idle = container.querySelector('.native-gallery-caption') as HTMLButtonElement
+    expect(idle.textContent).toBe('Add a caption')
+    expect(idle.className).toContain('is-empty')
+    expect(idle.getAttribute('aria-label')).toBe('Add a caption to Kashmir')
+
+    idle.click()
+    await settle()
+    const form = container.querySelector('.native-gallery-caption-edit') as HTMLFormElement
+    expect(form).not.toBeNull()
+    const input = form.querySelector('input') as HTMLInputElement
+    expect(input.getAttribute('aria-label')).toBe('Caption for Kashmir')
+    input.value = 'Morning in the valley'
+    input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
+    await settle()
+    form.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
+    await settle()
+
+    const patch = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries/kashmir' && call.init?.method === 'PATCH')
+    expect(JSON.parse(String(patch?.init?.body))).toEqual({ caption: 'Morning in the valley' })
+    expect((patch?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    // The sentence the server stored is the one the card then shows.
+    expect((container.querySelector('.native-gallery-caption') as HTMLButtonElement).textContent).toBe('Morning in the valley')
+    expect(container.querySelector('.native-gallery-caption-edit')).toBeNull()
+  })
+
+  test('the card offers the web actions as four square icons', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://www.dropbox.com/sh/example' })] }) })
+    const { container } = mountAccount()
+    await settle()
+
+    const actions = container.querySelector('.native-gallery-actions') as HTMLElement
+    const buttons = [...actions.querySelectorAll('button')] as HTMLButtonElement[]
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Copy Kashmir link',
+      'Open Kashmir source',
+      'Refresh Kashmir from source',
+      'Delete Kashmir',
+    ])
+    // Drawings, not words — the same four controls the web dashboard renders.
+    expect(buttons.every((button) => button.querySelector('svg') !== null)).toBe(true)
+    expect(actions.textContent).toBe('')
+  })
+
+  test('the menu leads with the brand and closes with a circled X', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary()] }) })
+    const { container } = mountAccount()
+    await settle()
+
+    // The cloud-link sentence left the page for the menu; the field keeps its
+    // accessible name, so the form is still announced in full.
+    expect(container.querySelector('.native-gallery-import label')).toBeNull()
+    expect(container.querySelector('.native-gallery-import input')?.getAttribute('aria-label'))
+      .toBe('Public Dropbox, Google Drive, iCloud, or MEGA link')
+
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
+    const drawer = container.querySelector('[data-account-drawer]') as HTMLElement
+    const head = drawer.querySelector('.native-drawer-head') as HTMLElement
+    expect(head.querySelector('.native-drawer-brand .landing-brand-mark')).not.toBeNull()
+    expect(head.querySelector('.native-drawer-brand .brand-tld')?.textContent).toBe('.xyz')
+    expect(head.querySelector('.landing-brand-intro')?.textContent).toContain('adj.')
+    const close = head.querySelector('.native-drawer-close') as HTMLButtonElement
+    expect(close.getAttribute('aria-label')).toBe('Close account menu')
+    expect(close.querySelector('svg')).not.toBeNull()
+    expect(drawer.textContent).toContain('Add a gallery from a public Dropbox, Google Drive, iCloud, or MEGA link')
   })
 
 })

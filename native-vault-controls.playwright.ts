@@ -1,0 +1,228 @@
+import { test, expect } from '@playwright/test'
+const base = process.env.CAPTURE_URL ?? 'http://localhost:4182'
+test.describe.configure({ mode: 'serial' })
+for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032 }, { width: 1440, height: 900 }]) {
+  test(`${viewport.width}: native picker works before caching and controls return to account`, async ({ browser, request }) => {
+    test.setTimeout(75000)
+    const context = await browser.newContext({ viewport })
+    await request.get(`${base}/state/3`)
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await page.goto(base, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('.native-gallery-row-with-thumb').first()).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('main .native-load-policy')).toHaveCount(0)
+    await expect(page.locator('main .native-house-cards')).toHaveCount(0)
+    await expect(page.locator('.native-gallery-thumb.is-active')).toHaveCount(0)
+    const menu = page.getByRole('button', { name: 'Account menu', exact: true })
+    if (viewport.width < 820) await expect(menu.locator('.native-account-hamburger')).toBeVisible()
+    await expect.poll(() => page.locator('.native-gallery-thumb img').first().evaluate((node) => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0), { timeout: 15000 }).toBe(true)
+    // A gallery card reads in one column, in the order it is managed: name and
+    // count on one line, caption, address, the photograph at full width, then
+    // the square actions beneath it.
+    const cards = page.locator('.native-gallery-list > li')
+    const cardCount = await cards.count()
+    expect(cardCount).toBeGreaterThan(0)
+    for (let index = 0; index < cardCount; index += 1) {
+      const card = cards.nth(index)
+      const box = async (selector: string) => (await card.locator(selector).first().boundingBox())!
+      const heading = await box('.native-gallery-heading')
+      const caption = await card.locator('.native-gallery-caption').first().boundingBox()
+      const link = await box('.native-gallery-link')
+      const cover = await box('.native-gallery-cover-row')
+      const actions = await box('.native-gallery-actions')
+      expect(heading.y + heading.height, `card ${index} keeps its caption under the title`).toBeLessThanOrEqual((caption ?? link).y + 4)
+      expect(link.y, `card ${index} puts its address under the caption`).toBeLessThanOrEqual(cover.y)
+      expect(cover.y + cover.height, `card ${index} puts its photograph above the actions`).toBeLessThanOrEqual(actions.y + 4)
+      // The count shares the title's line, and the photograph spans the card.
+      const title = await box('.native-gallery-title')
+      const count = await box('.native-gallery-meta')
+      // Baseline alignment drops the smaller count a few pixels down, so the
+      // test is whether it starts before the title's *second* line.
+      const titleLine = await card.locator('.native-gallery-title').first()
+        .evaluate((node) => parseFloat(getComputedStyle(node).lineHeight))
+      expect(count.y - title.y, `card ${index} keeps its count on the title's line`).toBeLessThan(titleLine)
+      expect(count.x, `card ${index} keeps its count after the title`).toBeGreaterThan(title.x)
+      expect(Math.abs(cover.width - heading.width), `card ${index} spans its cover across the card`).toBeLessThanOrEqual(8)
+    }
+    await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-admin.png`, fullPage: true })
+
+    // The page runs to both edges now that the account tab lives at the top.
+    const shellPadding = await page.locator('.native-account-shell')
+      .evaluate((node) => getComputedStyle(node).paddingLeft)
+    if (viewport.width < 820) expect(shellPadding).toBe('24px')
+
+    // The card reads title, caption, address — and the same four square actions
+    // the web dashboard renders. Drawings, not words.
+    const firstCard = cards.first()
+    const firstActions = firstCard.locator('.native-gallery-actions')
+    const actionLabels = await firstActions.locator('button')
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')))
+    expect(actionLabels.length).toBeGreaterThanOrEqual(2)
+    expect(await firstActions.evaluate((node) => node.textContent)).toBe('')
+    expect(await firstActions.locator('button svg').count()).toBe(actionLabels.length)
+    const actionBox = (await firstActions.locator('button').first().boundingBox())!
+    expect(Math.abs(actionBox.width - actionBox.height)).toBeLessThanOrEqual(1)
+
+    // The caption line edits in place; a gallery without one is invited to add
+    // it rather than left blank.
+    const captionLine = firstCard.locator('.native-gallery-caption')
+    await expect(captionLine).toBeVisible()
+    if (((await captionLine.textContent()) ?? '').includes('Add a caption')) {
+      await captionLine.click()
+      await expect(firstCard.locator('.native-gallery-caption-edit input')).toBeFocused()
+      await page.keyboard.press('Escape')
+    }
+
+    // The cover opens this gallery's editor: the picker's matrix, in order.
+    // One photograph is picked up and put down, and only that order is saved.
+    await firstCard.locator('.native-gallery-cover-open').click()
+    const editor = page.locator('[data-gallery-editor]')
+    await expect(editor).toBeVisible()
+    const cells = editor.locator('.native-global-grid .native-global-cell')
+    await expect(cells.first()).toBeVisible()
+    const cellCount = await cells.count()
+    expect(cellCount).toBeGreaterThan(1)
+    const heights = await cells.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)))
+    expect(new Set(heights).size).toBe(1)
+    const orderBefore = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-photo')))
+    await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-editor.png`, fullPage: false })
+    await cells.nth(cellCount - 1).click()
+    await expect(cells.nth(cellCount - 1)).toHaveClass(/is-active/)
+    await expect(editor.locator('.native-editor-note')).toContainText('in hand')
+    await cells.first().click()
+    const orderAfter = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-photo')))
+    expect(orderAfter[0]).toBe(orderBefore[cellCount - 1])
+    await editor.locator('.native-editor-save').click()
+    await expect(editor.locator('.native-editor-note')).toContainText('saved')
+    const saved = await page.evaluate(() => (window as unknown as {
+      __capturePatch?: { url: string; body: { order?: string[] } }[]
+    }).__capturePatch ?? [])
+    const lastWrite = saved.at(-1)
+    expect(lastWrite?.url).toContain('/api/galleries/')
+    expect(lastWrite?.body.order).toEqual(orderAfter)
+    await editor.locator('[aria-label="Close the editor"]').click()
+    await expect(editor).toHaveCount(0)
+
+    await menu.click()
+    const account = page.getByRole('dialog', { name: 'Account', exact: true })
+    if (viewport.width < 820) {
+      await expect.poll(async () => (await account.boundingBox())?.y ?? -999).toBeGreaterThanOrEqual(0)
+      const bounds = await account.boundingBox()
+      expect(bounds!.x).toBe(0)
+      expect(bounds!.width).toBe(viewport.width)
+      expect(bounds!.height).toBe(viewport.height)
+    }
+    // The menu's brand is the page's brand: same place, same size, same
+    // measure for the tagline, so the menu reads as the page unfolding.
+    const pageMark = (await page.locator('[aria-label="Account overview"] .landing-brand-mark').boundingBox())!
+    const menuMark = (await account.locator('.native-drawer-brand .landing-brand-mark').boundingBox())!
+    // A phone shows the sheet edge to edge, so the wordmark lands on the same
+    // pixel; on a wide screen the page's brand sits in its own column while the
+    // sheet runs full width, so only its size has to match there.
+    if (viewport.width < 820) expect(Math.abs(menuMark.x - pageMark.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(menuMark.width - pageMark.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(menuMark.height - pageMark.height)).toBeLessThanOrEqual(1)
+    // The tagline is set in the page's own type on both surfaces; only a
+    // phone-wide sheet reproduces the page's measure exactly.
+    const introType = (locator: typeof page.locator extends never ? never : ReturnType<typeof page.locator>) => locator.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return `${style.fontSize}/${style.lineHeight}/${style.fontFamily.split(',')[0]}`
+    })
+    const pageIntroType = await introType(page.locator('[aria-label="Account overview"] .landing-brand-intro'))
+    const menuIntroType = await introType(account.locator('.native-drawer-brand .landing-brand-intro'))
+    expect(menuIntroType).toBe(pageIntroType)
+    if (viewport.width < 820) {
+      const pageIntro = await page.locator('[aria-label="Account overview"] .landing-brand-intro').evaluate((node) => Math.round(node.getBoundingClientRect().height))
+      const menuIntro = await account.locator('.native-drawer-brand .landing-brand-intro').evaluate((node) => Math.round(node.getBoundingClientRect().height))
+      expect(menuIntro).toBe(pageIntro)
+    }
+    await expect(account.locator('.native-load-policy')).toBeVisible()
+    await expect(account.locator('.native-house-cards')).toBeVisible()
+    await expect.poll(async () => (await account.boundingBox())?.x ?? -999).toBeGreaterThanOrEqual(0)
+    await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
+    await page.getByRole('button', { name: 'Close account menu', exact: true }).click()
+    await page.locator('.native-gallery-row-with-thumb').first().click()
+    const curtain = page.locator('[data-curtain]')
+    await expect(curtain).toBeVisible()
+    await expect.poll(async () => {
+      if (await curtain.isHidden()) return true
+      await curtain.click({ timeout: 2000 }).catch(() => {})
+      return curtain.isHidden()
+    }, { timeout: 20000 }).toBe(true)
+    // The in-gallery control is the web's control: it rests quiet and bobs,
+    // which is what keeps it discoverable without floating over a photograph.
+    const pill = page.locator('button.control-logo .brand-mark-wrap')
+    await expect(pill).toHaveCSS('opacity', '0.45')
+    expect(await pill.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return [style.animationName, style.animationDuration, style.animationTimingFunction, style.animationIterationCount].join(' ')
+    })).toBe('native-logo-bob 5.6s ease-in-out infinite')
+    // The bob waits a beat before it starts, so the check reads the running
+    // animation rather than waiting out its delay: armed, named, and counting.
+    const bob = await pill.evaluate(async (node) => {
+      const animation = node.getAnimations()[0] as CSSAnimation | undefined
+      if (!animation) return null
+      const before = Number(animation.currentTime)
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      return {
+        name: animation.animationName,
+        playState: animation.playState,
+        delay: getComputedStyle(node).animationDelay,
+        advanced: Number(animation.currentTime) - before,
+      }
+    })
+    expect(bob).not.toBeNull()
+    expect(bob!.name).toBe('native-logo-bob')
+    expect(bob!.playState).toBe('running')
+    expect(bob!.delay).toBe('4.9s')
+    expect(bob!.advanced).toBeGreaterThan(200)
+    await page.locator('button.control-logo').click()
+    const dialog = page.getByRole('dialog', { name: 'Display settings' })
+    await expect(dialog).toBeVisible()
+    const stream = page.getByLabel('Don’t download this gallery', { exact: true })
+    await expect(stream).not.toBeChecked()
+    await stream.check()
+    await expect(stream).toBeChecked()
+    await expect(page.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
+    await page.getByRole('button', { name: 'Close display settings', exact: true }).click()
+    await page.keyboard.press('g')
+    const picker = page.locator('[data-global-view]')
+    await expect(picker).toBeVisible()
+    // The grid is drawn from the vault, or from the open gallery while the
+    // vault is still filling, so the first frame may arrive a beat late.
+    await expect(picker.locator('[data-grid-frame]').first()).toBeVisible({ timeout: 20000 })
+    await expect(picker).not.toContainText('still settling')
+    await page.getByRole('button', { name: 'Close photo picker', exact: true }).click()
+    await page.locator('button.control-logo').click()
+    await page.getByRole('button', { name: 'Back to your galleries', exact: true }).click()
+    await expect(page.locator('.native-account-overview')).toBeVisible()
+    await expect(page.locator('[data-stage]')).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  })
+}
+
+test('375: a viewer that asks for less motion gets a still pill', async ({ browser, request }) => {
+  test.setTimeout(60000)
+  // The bob is decoration, so it stands down when the platform asks for less
+  // motion — the pill itself stays exactly where it is.
+  const context = await browser.newContext({ viewport: { width: 375, height: 812 }, reducedMotion: 'reduce' })
+  await request.get(`${base}/state/3`)
+  const page = await context.newPage()
+  await page.goto(base, { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.native-gallery-row-with-thumb', { timeout: 30000 })
+  await page.locator('.native-gallery-row-with-thumb').first().click()
+  const curtain = page.locator('[data-curtain]')
+  await expect(curtain).toBeVisible()
+  await expect.poll(async () => {
+    if (await curtain.isHidden()) return true
+    await curtain.click({ timeout: 2000 }).catch(() => {})
+    return curtain.isHidden()
+  }, { timeout: 20000 }).toBe(true)
+  const pill = page.locator('button.control-logo .brand-mark-wrap')
+  await expect(pill).toHaveCSS('opacity', '0.45')
+  // The web's fade-in may still run; what must not run is the drift.
+  expect(await pill.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')
+  await context.close()
+})

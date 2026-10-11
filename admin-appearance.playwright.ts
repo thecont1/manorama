@@ -38,8 +38,15 @@ for (const size of sizes) {
         await expect(dialog).toBeHidden()
         await expect(tab).toHaveAttribute('aria-expanded', 'false')
         const tabBox = await tab.boundingBox()
-        expect(tabBox!.x).toBeLessThanOrEqual(1)
-        expect(Math.abs(tabBox!.y + tabBox!.height / 2 - size.height / 2)).toBeLessThan(2)
+        if (size.width < 820) {
+          expect(tabBox!.x).toBeGreaterThan(size.width / 2)
+          expect(tabBox!.y).toBeLessThan(30)
+          expect(tabBox!.height).toBe(44)
+          await expect(tab.locator('.admin-hamburger')).toBeVisible()
+        } else {
+          expect(tabBox!.x).toBeLessThanOrEqual(1)
+          expect(Math.abs(tabBox!.y + tabBox!.height / 2 - size.height / 2)).toBeLessThan(2)
+        }
         expect(tabBox!.width).toBeGreaterThanOrEqual(44)
         await expect(page.getByText('Photo Editor', { exact: true })).toHaveCount(0)
 
@@ -67,6 +74,12 @@ for (const size of sizes) {
           await tab.click()
           await expect(dialog).toBeVisible()
           await expect(tab).toHaveAttribute('aria-expanded', 'true')
+          if (size.width < 820) {
+            await expect.poll(async () => (await page.getByRole('dialog', { name: 'Account', exact: true }).boundingBox())?.y ?? -999).toBeGreaterThanOrEqual(0)
+            const bounds = await page.getByRole('dialog', { name: 'Account', exact: true }).boundingBox()
+            expect(bounds!.width).toBe(size.width)
+            expect(bounds!.height).toBe(size.height)
+          }
           await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
           if (theme === 'light') await page.getByRole('button', { name: 'Switch to light mode', exact: true }).click()
           await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)

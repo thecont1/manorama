@@ -165,24 +165,78 @@ const buildFixture = async () => {
   // Provider placeholders may exist without readable bytes. Resolve metadata
   // from the same local-or-provider original path that serves the image.
   const sourceImages = manifest.images as Json[]
+  // Reading every original on every boot is the slowest part of a capture run
+  // and the reason one throttled provider file could stall the whole matrix.
+  // Once a photograph's true size is known it is remembered, so only a
+  // genuinely new manifest pays for the fetch.
+  const cachedDims: Record<string, { width: number; height: number }> = await BunnyDims.read()
   const resolved: Json[] = new Array(sourceImages.length)
+  const unresolved: string[] = []
   let cursor = 0
-  await Promise.all(Array.from({ length: 3 }, async () => {
+  // Two at a time rather than three: the provider proxy throttles bursts, and a
+  // throttled original used to arrive after its own timeout.
+  await Promise.all(Array.from({ length: 2 }, async () => {
     while (cursor < sourceImages.length) {
       const index = cursor++
       const image = sourceImages[index]
-      const bytes = await originalBytes(image)
-      const dimensions = probeImageDimensions(bytes)
-      if (!dimensions) throw new Error(`Original dimensions unavailable: ${image.filename}`)
-      resolved[index] = { ...image, ...dimensions, variants: [] }
+      const known = cachedDims[image.filename as string]
+      if (known) {
+        resolved[index] = { ...image, ...known, variants: [] }
+        continue
+      }
+      try {
+        const bytes = await originalBytes(image)
+        const dimensions = probeImageDimensions(bytes)
+        if (!dimensions) throw new Error('dimensions unavailable')
+        resolved[index] = { ...image, ...dimensions, variants: [] }
+      } catch {
+        // One unreachable provider original must not take the whole fixture
+        // down. The deployed manifest already declares the photograph's size,
+        // and the harness reads the bytes through /__capture/photo, which
+        // retries on its own.
+        unresolved.push(image.filename as string)
+        resolved[index] = { ...image, variants: [] }
+      }
     }
   }))
+  await BunnyDims.write(
+    resolved.reduce<Record<string, { width: number; height: number }>>((all, image) => {
+      const width = image?.width as number | undefined
+      const height = image?.height as number | undefined
+      if (typeof width === 'number' && typeof height === 'number') {
+        all[image?.filename as string] = { width, height }
+      }
+      return all
+    }, {}),
+  )
+  if (unresolved.length) {
+    console.warn(`capture fixture: ${unresolved.length} original(s) kept their declared dimensions: ${unresolved.join(', ')}`)
+  }
   fixture.gallery = { ...body, manifest: { ...manifest, images: resolved } }
   const summaries = fixture.galleries.galleries as Json[]
   summaries[0].images = resolved.map((image) => ({
     ...image, src: `${FIRST_CAPTURE_BASE}/__capture/photo/${encodeURIComponent(image.filename as string)}`,
   }))
   return fixture
+}
+
+const DIM_CACHE = '/tmp/manorama-capture-dims.json'
+
+/** Photograph sizes the fixture has already resolved, kept between runs. */
+const BunnyDims = {
+  async read(): Promise<Record<string, { width: number; height: number }>> {
+    try {
+      const stored = await Bun.file(DIM_CACHE).json()
+      return stored && typeof stored === 'object' ? stored : {}
+    } catch {
+      return {}
+    }
+  },
+  async write(dims: Record<string, { width: number; height: number }>): Promise<void> {
+    try {
+      await Bun.write(DIM_CACHE, JSON.stringify(dims, null, 2))
+    } catch { /* A missing cache only means the next run pays for the fetch. */ }
+  },
 }
 
 /** Never re-encode or persist bytes. A File Provider placeholder's stat is not
@@ -194,11 +248,11 @@ async function originalBytes(image: Json): Promise<Uint8Array> {
     if (bytes.length > 0 && bytes.length === file.size) return bytes
   } catch { /* Unmaterialized Dropbox file; use the public original below. */ }
   let response: Response | undefined
-  for (let attempt = 0; attempt < 3; attempt++) {
-    response = await fetch(absolute(image.src as string), { signal: AbortSignal.timeout(30000) })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    response = await fetch(absolute(image.src as string), { signal: AbortSignal.timeout(12000) })
     if (response.ok || (response.status < 500 && response.status !== 429)) break
     await response.body?.cancel()
-    if (attempt < 2) await Bun.sleep(500 * (attempt + 1))
+    if (attempt < 1) await Bun.sleep(500)
   }
   if (!response?.ok) throw new Error(`Original ${image.filename} answered ${response?.status}`)
   const bytes = new Uint8Array(await response.arrayBuffer())
@@ -299,6 +353,13 @@ const PREBOOT = async (which: number) => {
         window.__captureImport = JSON.parse(init.body)
         return Promise.resolve(json({ galleryUrl: '/thecontrarian/italy' }))
       }
+      // The editor's writes are recorded and answered here. A fixture must
+      // never reach the owner's real galleries.
+      if (init && init.method === 'PATCH') {
+        window.__capturePatch = window.__capturePatch || []
+        window.__capturePatch.push({ url: url, body: JSON.parse(init.body) })
+        return Promise.resolve(json({ gallery: seeded.galleries.galleries[0] }))
+      }
       return Promise.resolve(json(seeded.galleries))
     }
     if (url.indexOf('/api/account/identities') !== -1) {
@@ -339,7 +400,7 @@ const PREBOOT = async (which: number) => {
     var strip = stills()
     var bounds = input && input.getBoundingClientRect()
     var inputVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
-    var ready = Boolean(account && cards && policy && inputVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
+    var ready = Boolean(account && inputVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
     if (ready || Date.now() - started > 40000) {
       log('state ${which} ready:', ready, JSON.stringify(strip))
       send({

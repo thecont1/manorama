@@ -1968,3 +1968,18 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    photographic rails deliberately continue across it. */
 .admin-page--selector[data-admin-segmented] .admin-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
 .admin-page--selector .admin-drawer-panel { max-width: var(--admin-pane-limit, 100vw); }
+
+.admin-edge-tab .admin-hamburger { display: none; }
+.admin-profile-address { margin: 20px 0; font-size: 14px; overflow-wrap: anywhere; color: rgb(var(--ink)); }
+@media (max-width: 819px) {
+  .admin-edge-tab { top: 14px; right: 14px; left: auto; transform: none; width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; border: 1px solid rgba(var(--ink), .32); border-radius: 50%; padding: 10px; }
+  .admin-edge-tab .admin-tab-label, .admin-edge-tab .admin-tab-arrow { display: none; }
+  .admin-edge-tab .admin-hamburger { display: block; width: 22px; height: 22px; }
+  .admin-welcome-brand { max-width: calc(100% - 50px); }
+}
+
+@keyframes admin-phone-drop { from { transform: translateY(-100%); } to { transform: none; } }
+@media (max-width: 819px) {
+  .admin-page--selector .admin-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; animation: admin-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
+}
+@media (max-width: 819px) and (prefers-reduced-motion: reduce) { .admin-page--selector .admin-drawer-panel { animation: none; } }
