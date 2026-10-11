@@ -116,6 +116,42 @@ describe('live account adapter', () => {
     expect(api).toBeTruthy()
   })
 
+  test('a retirement asked for mid-show cannot land on a newer rectangle', async () => {
+    let releaseShow: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => { releaseShow = resolve })
+    const calls: string[] = []
+    const shown: Shown[] = []
+    const bridge: AdMobBannerBridge = {
+      initialize: async () => { calls.push('initialize') },
+      showBanner: async (options) => { calls.push('show'); await gate; shown.push(options as Shown) },
+      hideBanner: async () => { calls.push('hide') },
+      removeBanner: async () => { calls.push('remove') },
+    }
+    const adapter = createAccountAdAdapter({
+      isNative: true,
+      unitId: UNIT,
+      loadBridge: async () => bridge,
+      readSlotRect: () => settle,
+      viewportHeight: () => 812,
+    })
+
+    // A rectangle is on its way up when the account screen is left.
+    const showingFrame = adapter.loadMediumRectangle()
+    const retiring = adapter.retire()
+    releaseShow?.()
+    await expect(showingFrame).resolves.toBeTruthy()
+    await retiring
+
+    // The show finished, and only then did the teardown run.
+    expect(calls).toEqual(['initialize', 'show', 'hide', 'remove'])
+    expect(shown).toHaveLength(1)
+
+    // A later visit still rents a rectangle: the queued teardown did not stick.
+    const again = await adapter.loadMediumRectangle()
+    expect(again?.provider).toBe('admob-banner')
+    expect(calls.filter((call) => call === 'show')).toHaveLength(2)
+  })
+
   test('rents nothing when the reserve is off its band', async () => {
     const { calls, loads, load } = fakeBridge()
     const adapter = createAccountAdAdapter({

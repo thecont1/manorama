@@ -108,6 +108,17 @@ export const createAccountAdAdapter = (environment: AccountAdEnvironment): Accou
   let pending: Promise<AdMobBannerBridge> | null = null
   let showing = false
 
+  /** Showing and taking down share one chain. A `hideBanner` that was asked
+   *  for while a rectangle was still being shown must not land on top of a
+   *  newer one, and a show must not run underneath a retirement that is
+   *  already on its way to the SDK. */
+  let chain: Promise<unknown> = Promise.resolve()
+  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+    const next = chain.then(operation, operation)
+    chain = next.catch(() => {})
+    return next
+  }
+
   /** The SDK is initialized once per session. A failed handshake clears the
    *  memo so a later visit can try again rather than staying dark forever. */
   const bridgeFor = async (): Promise<AdMobBannerBridge> => {
@@ -127,7 +138,7 @@ export const createAccountAdAdapter = (environment: AccountAdEnvironment): Accou
     return pending
   }
 
-  const retire = async (): Promise<void> => {
+  const retireNow = async (): Promise<void> => {
     if (!showing || !bridge) return
     showing = false
     try {
@@ -138,7 +149,7 @@ export const createAccountAdAdapter = (environment: AccountAdEnvironment): Accou
     }
   }
 
-  const loadMediumRectangle = async (): Promise<AdFrame | null> => {
+  const loadMediumRectangleNow = async (): Promise<AdFrame | null> => {
     if (!live || !unitId) return null
     const slot = readSlotRect()
     if (!slot) return null
@@ -146,7 +157,7 @@ export const createAccountAdAdapter = (environment: AccountAdEnvironment): Accou
     if (!position) {
       // The reserve is off its band — between scrolling and a short viewport
       // there is no position that lands on it, so rent nothing.
-      await retire()
+      await retireNow()
       return null
     }
     try {
@@ -163,10 +174,14 @@ export const createAccountAdAdapter = (environment: AccountAdEnvironment): Accou
       // Limited serving, no fill, or a device that will not paint it: the
       // house plate is the answer, and a failed request is not an error the
       // owner needs to see.
-      await retire()
+      await retireNow()
       return null
     }
   }
 
-  return { live, loadMediumRectangle, retire }
+  return {
+    live,
+    loadMediumRectangle: () => enqueue(loadMediumRectangleNow),
+    retire: () => enqueue(retireNow),
+  }
 }

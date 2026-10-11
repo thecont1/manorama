@@ -61,9 +61,12 @@ shoot() { # <name> <settle seconds>
   fi
   local dims
   dims="$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
-  if [[ -z "$dims" ]]; then
+  # awk prints "x" when either field is missing, so the shape is checked and
+  # both numbers have to be there: a malformed size is a failed capture, not a
+  # success with an odd label.
+  if [[ ! "$dims" =~ ^[0-9]+x[0-9]+$ ]]; then
     rm -f "$OUT/$1"
-    printf '  %-30s CAPTURE UNREADABLE\n' "$1" >&2
+    printf '  %-30s CAPTURE UNREADABLE (%s)\n' "$1" "${dims:-no dimensions}" >&2
     return 1
   fi
   printf '  %-30s %s\n' "$1" "$dims"

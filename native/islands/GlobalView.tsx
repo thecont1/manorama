@@ -103,7 +103,17 @@ const FrameCell = ({
       aria-label={`${gallery.title}, photo ${frame.index + 1} of ${gallery.frames.length}`}
     >
       {url || remoteSrc ? (
-        <img src={url ?? remoteSrc} width={frame.width} height={frame.height} alt={frame.alt} draggable={false} />
+        <img
+          src={url ?? remoteSrc}
+          width={frame.width}
+          height={frame.height}
+          alt={frame.alt}
+          // A remote preview is fetched as the grid reaches it; the vault's
+          // own bytes are already on the device and stay eager.
+          loading={url ? 'eager' : 'lazy'}
+          decoding="async"
+          draggable={false}
+        />
       ) : null}
     </button>
   )
@@ -293,7 +303,11 @@ export default function GlobalView({
                     gallery={gallery}
                     frame={frame}
                     loader={loader}
-                    remoteSrc={gallery.owner === onlineGallery?.selection.owner && gallery.slug === onlineGallery?.selection.slug ? (() => {
+                    // A frame with saved bytes belongs to the vault; the
+                    // remote URL is a preview for the ones with none, so an
+                    // online-looking grid never quietly replaces an offline
+                    // copy — and never pulls a full-size source for it.
+                    remoteSrc={gallery.owner === onlineGallery?.selection.owner && gallery.slug === onlineGallery?.selection.slug && !frame.entryId ? (() => {
                       const image = onlineGallery.manifest.images[frame.index]
                       return isVideoItem(image) ? image.poster.src : image.variants?.[0]?.src ?? image.src
                     })() : undefined}
