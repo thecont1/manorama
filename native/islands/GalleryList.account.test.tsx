@@ -242,7 +242,11 @@ describe('account slot resolution lifecycle', () => {
     await settle()
     // The request went out while free and is still in flight.
     expect(pending).toHaveLength(1)
-    expect(slots(container)).toHaveLength(0)
+    // The plate is reserved from the moment the tier is known, because the
+    // live rectangle is positioned from this element's own rect; it carries
+    // the house creative until a fill arrives.
+    expect(slots(container)).toHaveLength(1)
+    expect(container.innerHTML).toContain('More photographs')
 
     flushSync(() => controls.setBilling(entitlement('pro')))
     await settle()

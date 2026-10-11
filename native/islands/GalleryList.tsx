@@ -23,7 +23,8 @@ import {
 import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
 import { thumbnailEntryId } from '../lib/thumbs'
 import { productionVault } from '../lib/vault'
-import { adFrameFor, fetchAdVisibility, type AdPolicyInput, type AdVisibility } from '../lib/ads'
+import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
+import { createAccountAdAdapter } from '../lib/admob-account-adapter'
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly, DEFAULT_VAULT_LOAD_POLICY, loadVaultLoadPolicy, saveVaultLoadPolicy, type VaultLoadPolicy } from '../lib/vault-settings'
@@ -53,8 +54,22 @@ type Props = {
   accountAdLoader?: (input: AdPolicyInput) => Promise<AdFrame | null>
 }
 
+/** What a gallery calls itself in labels and confirmations. The card shows
+ *  the slug when a title is missing, and every control that speaks about the
+ *  gallery says the same thing. */
+const galleryName = (gallery: { title?: string; slug: string }): string =>
+  gallery.title || gallery.slug
+
 const PRIVACY_URL = 'https://manorama.xyz/privacy'
 const AUTHOR_URL = 'https://thecontrarian.in'
+
+/** The account placement's live side, rented from AdMob. It stays dormant —
+ *  house plate only — until a build carries a real account unit, so every
+ *  development and web bundle keeps the behaviour it has today. */
+const accountAdAdapter = createAccountAdAdapter({
+  isNative: Capacitor.isNativePlatform(),
+  unitId: import.meta.env.VITE_ADMOB_ACCOUNT_UNIT,
+})
 
 /** Legal and attribution links open in an in-app browser sheet — the same
  *  pattern the paywall and the OAuth flow use, because a Capacitor webview does
@@ -122,7 +137,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [vaultProgress, setVaultProgress] = useState<{ completed: number; total: number } | null>(null)
   const selectedPolicyKey = galleryPolicyKey(selection.owner, selection.slug)
   const streamOnly = galleryPolicies?.[selectedPolicyKey] === true
-  useEffect(() => { void loadGalleryStreamOnly().then(setGalleryPolicies) }, [])
+  useEffect(() => {
+    void loadGalleryStreamOnly().then((policies) => {
+      galleryPoliciesRef.current = policies
+      setGalleryPolicies(policies)
+    })
+  }, [])
   const [globalViewEnabled, setGlobalViewEnabled] = useState<boolean | null>(null)
   const [globalViewSaving, setGlobalViewSaving] = useState(false)
   const [ownerInput, setOwnerInput] = useState(selection.owner)
@@ -471,10 +491,19 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       return
     }
     let active = true
-    void accountAdLoader({ tier: billingState.isPro ? 'pro' : 'free', visible: platesVisible }).then((frame) => {
+    void accountAdLoader({
+      tier: billingState.isPro ? 'pro' : 'free',
+      visible: platesVisible,
+      adapter: accountAdAdapter.live ? accountAdAdapter : undefined,
+    }).then((frame) => {
       if (active) setAccountAd(frame)
     })
-    return () => { active = false }
+    return () => {
+      active = false
+      // Leaving the account screen takes the rented rectangle down with it;
+      // an overlay outliving its slot would cover a gallery.
+      void accountAdAdapter.retire()
+    }
   }, [galleryOpen, billingState?.tier, billingState?.isPro, platesVisible])
 
   useEffect(() => {
@@ -527,13 +556,34 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     return () => { active = false; void remove?.() }
   }, [manifest, globalViewOpen, accountMenuOpen])
 
+  /** The newest intent per gallery, which is what a queued write persists.
+   *  State alone lags a tap by a render, and a write that reads it can land
+   *  behind a newer choice. */
+  const galleryPoliciesRef = useRef<Record<string, boolean>>({})
+  const streamOnlyWrites = useRef(new Map<string, Promise<void>>())
   const changeGalleryStreamOnly = async (enabled: boolean) => {
-    const previous = galleryPolicies ?? {}
-    const next = { ...previous, [selectedPolicyKey]: enabled }
-    try {
-      await saveGalleryStreamOnly(next)
-      setGalleryPolicies(next)
-    } catch { setVaultNote('This device preference could not be saved. Please try again.') }
+    const key = selectedPolicyKey
+    const before = galleryPoliciesRef.current[key] === true
+    // Optimistic: the checkbox follows the tap immediately.
+    const next = { ...galleryPoliciesRef.current, [key]: enabled }
+    galleryPoliciesRef.current = next
+    setGalleryPolicies(next)
+    // One write in flight per gallery, each persisting the newest intent
+    // rather than a snapshot of a moment that has already passed.
+    const queued = (streamOnlyWrites.current.get(key) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => saveGalleryStreamOnly({ ...galleryPoliciesRef.current }))
+      .catch(() => {
+        // Step back only if nothing newer has been chosen since.
+        if (galleryPoliciesRef.current[key] === enabled) {
+          const rolledBack = { ...galleryPoliciesRef.current, [key]: before }
+          galleryPoliciesRef.current = rolledBack
+          setGalleryPolicies(rolledBack)
+        }
+        setVaultNote('This device preference could not be saved. Please try again.')
+      })
+    streamOnlyWrites.current.set(key, queued)
+    await queued
   }
 
   if (manifest && settings) {
@@ -992,27 +1042,32 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // that learns the tier, so no stale creative can outlive a change. The
   // master switch suppresses it outright.
   const accountAdFrame = billingState?.tier && visibility?.show !== false ? accountAd : null
-  const accountAdAside = accountAdFrame ? (
+  // The plate is reserved whenever the placement is allowed, not only once a
+  // frame arrives: the live rectangle is positioned from this element's own
+  // rect, so it has to exist before the fill is asked for. Until a rented
+  // rectangle paints over it, the reserve carries the house creative.
+  const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
+  const accountAdAside = billingState?.tier && visibility?.show !== false ? (
     <aside
-      class="native-account-ad"
+      class={`native-account-ad${accountAdFrame?.provider === 'admob-banner' ? ' native-account-ad--live' : ''}`}
       data-account-ad
-      aria-label={`${accountAdFrame.badge}: ${accountAdFrame.advertiser}`}
+      aria-label={`${accountAdCreative.badge}: ${accountAdCreative.advertiser}`}
     >
-      <span class="native-account-ad-badge">{accountAdFrame.badge}</span>
+      <span class="native-account-ad-badge">{accountAdCreative.badge}</span>
       <strong class="native-account-ad-headline">
-        {accountAdFrame.headline ?? accountAdFrame.advertiser}
+        {accountAdCreative.headline ?? accountAdCreative.advertiser}
       </strong>
-      {accountAdFrame.cta ? (
+      {accountAdCreative.cta ? (
         // The account page has no strip in motion, so the same CTA the
         // viewer renders is always actionable here; _blank keeps the
         // tap out of the app's own webview.
         <a
           class="native-account-ad-cta"
-          href={accountAdFrame.cta.url}
+          href={accountAdCreative.cta.url}
           target="_blank"
           rel="noopener"
         >
-          {accountAdFrame.cta.label}
+          {accountAdCreative.cta.label}
         </a>
       ) : null}
     </aside>
@@ -1181,14 +1236,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                     {accountGalleryRow(gallery)}
                     {/* The same four square icon actions the web dashboard offers, so
                         one gallery is managed the same way on either surface. */}
-                    <div class="native-gallery-actions" role="group" aria-label={`${gallery.title} actions`}>
-                      <button type="button" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => void copyGalleryLink(gallery)}><CopyIcon /></button>
-                      {gallery.sourceUrl ? <button type="button" title="Open the source folder" aria-label={`Open ${gallery.title} source`} onClick={() => openExternal(gallery.sourceUrl!)}><OpenIcon /></button> : null}
-                      {gallery.sourceUrl ? <button type="button" title={gallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from source`} disabled={galleryActionBusy !== null || gallery.retention === 'pipeline'} onClick={() => void mutateGallery(gallery, 'refresh')}><RefreshIcon /></button> : null}
-                      <button type="button" class="native-gallery-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} disabled={galleryActionBusy !== null} onClick={() => setRemoveGallerySlug(gallery.slug)}><TrashIcon /></button>
+                    <div class="native-gallery-actions" role="group" aria-label={`${galleryName(gallery)} actions`}>
+                      <button type="button" title="Copy gallery link" aria-label={`Copy ${galleryName(gallery)} link`} onClick={() => void copyGalleryLink(gallery)}><CopyIcon /></button>
+                      {gallery.sourceUrl ? <button type="button" title="Open the source folder" aria-label={`Open ${galleryName(gallery)} source`} onClick={() => openExternal(gallery.sourceUrl!)}><OpenIcon /></button> : null}
+                      {gallery.sourceUrl ? <button type="button" title={gallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : 'Refresh from source'} aria-label={`Refresh ${galleryName(gallery)} from source`} disabled={galleryActionBusy !== null || gallery.retention === 'pipeline'} onClick={() => void mutateGallery(gallery, 'refresh')}><RefreshIcon /></button> : null}
+                      <button type="button" class="native-gallery-action--delete" title="Delete gallery" aria-label={`Delete ${galleryName(gallery)}`} disabled={galleryActionBusy !== null} onClick={() => setRemoveGallerySlug(gallery.slug)}><TrashIcon /></button>
                     </div>
-                    {removeGallerySlug === gallery.slug ? <div class="native-gallery-remove-confirm" role="group" aria-label={`Confirm removal of ${gallery.title}`}>
-                      <p>Remove “{gallery.title}” from manorama? This cannot be undone. Your cloud files and existing device vault copies are not deleted.</p>
+                    {removeGallerySlug === gallery.slug ? <div class="native-gallery-remove-confirm" role="group" aria-label={`Confirm removal of ${galleryName(gallery)}`}>
+                      <p>Remove “{galleryName(gallery)}” from manorama? This cannot be undone. Your cloud files and existing device vault copies are not deleted.</p>
                       <button type="button" disabled={galleryActionBusy !== null} onClick={() => void mutateGallery(gallery, 'delete')}>Remove gallery</button>
                       <button type="button" disabled={galleryActionBusy !== null} onClick={() => setRemoveGallerySlug(null)}>Cancel</button>
                     </div> : null}
