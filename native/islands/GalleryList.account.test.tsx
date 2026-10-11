@@ -518,30 +518,47 @@ describe('signed-in account area', () => {
     const listCall = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries')
     expect((listCall?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
 
-    const row = container.querySelector('.native-gallery-list button') as HTMLButtonElement | null
-    expect(row).not.toBeNull()
-    // The single cover takes a row of its own ahead of the copy. The second
-    // fixture image proves mobile does not render the web's sequencing strip.
-    const cover = row!.querySelector(':scope > .native-gallery-cover-row')
-    expect(cover).not.toBeNull()
-    expect(cover!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
-    expect(cover!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
-    expect([...cover!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
+    // The cover is its own opener, holding one column of the card across every
+    // text row, so the four actions can sit beside the photograph instead of
+    // under the whole card. The second fixture image proves mobile still does
+    // not render the web's sequencing strip.
+    const coverButton = container.querySelector('.native-gallery-cover-open') as HTMLButtonElement | null
+    expect(coverButton).not.toBeNull()
+    expect(coverButton!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
+    expect(coverButton!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
+    expect([...coverButton!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
       'native-gallery-thumb',
     ])
-    // Then title with its count, subtitle and address, each on its own line.
-    expect([...(row!.children as unknown as Element[])].map((child) => child.className)).toEqual([
-      'native-gallery-cover-row',
-      'native-gallery-heading',
-      'native-gallery-subtitle',
+    expect(coverButton!.getAttribute('aria-label')).toBe('Edit the running order of Kashmir')
+    // Name with its count, then the caption line, then the address, then the
+    // photograph, then the actions: the order the owner asked for, in one
+    // column.
+    const card = coverButton!.closest('li') as HTMLElement
+    expect([...(card.children as unknown as Element[])].map((child) => child.className)).toEqual([
+      'native-gallery-row native-gallery-row-with-thumb',
+      'native-gallery-caption',
       'native-gallery-link',
+      'native-gallery-cover-open',
+      'native-gallery-actions',
     ])
-    expect(row?.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
-    expect(row?.querySelector(':scope > .native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
-    row!.click()
-    await settle()
+    expect(card.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
+    expect(card.querySelector('.native-gallery-caption')?.textContent).toBe('A winter album')
+    expect(card.querySelector('.native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
 
+    // The cover opens the editor for this gallery, not the gallery itself.
+    coverButton!.click()
+    await settle()
+    expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
+    ;(container.querySelector('[data-gallery-editor] [aria-label="Close the editor"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-gallery-editor]')).toBeNull()
+
+    // The title row is what opens the gallery on the stage.
+    ;(container.querySelector('.native-gallery-row-with-thumb') as HTMLButtonElement).click()
+    await settle()
+    expect(galleryCalls().filter((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir').length)
+      .toBeGreaterThanOrEqual(2)
   })
 
   test('greets by the provider name and PATCHes an edited URL name', async () => {
@@ -689,23 +706,33 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('Gallery loading')
   })
 
-  test('successive gallery cards alternate the cover from edge to edge', async () => {
+  test('a gallery card reads in one column, in the order it is managed', async () => {
     installLocalStorage()
     signInStorage()
+    const cover = [
+      { id: 'first', ref: 'first', filename: 'first.jpg', src: 'https://cdn.example/first.jpg', width: 1200, height: 800 },
+    ]
     stubFetch({ galleries: json({ galleries: [
-      accountSummary({ slug: 'kashmir', title: 'Kashmir' }),
-      accountSummary({ slug: 'italy', title: 'Italy' }),
+      accountSummary({ slug: 'kashmir', title: 'Kashmir', images: cover }),
+      accountSummary({ slug: 'italy', title: 'Italy', images: cover }),
     ] }) })
     const { container } = mountAccount()
     await settle()
     const cards = [...container.querySelectorAll('.native-gallery-list > li')]
     expect(cards.length).toBe(2)
-    expect(cards[0].classList.contains('is-cover-left')).toBe(true)
-    expect(cards[0].classList.contains('is-cover-right')).toBe(false)
-    expect(cards[1].classList.contains('is-cover-right')).toBe(true)
-    // The opener spans both columns and the actions take the copy column, so
-    // they can only sit beside the cover if the actions leave the opener.
     for (const card of cards) {
+      // Name and count share the first line, then the caption, then the
+      // address, then the photograph, then the actions — one column, the same
+      // order the web dashboard reads in.
+      const heading = card.querySelector('.native-gallery-heading')
+      expect(heading?.querySelector('.native-gallery-title')).not.toBeNull()
+      expect(heading?.querySelector('.native-gallery-meta')).not.toBeNull()
+      const order = [...card.children].map((child) => child.className)
+      const at = (needle: string) => order.findIndex((name) => name.includes(needle))
+      expect(at('native-gallery-link')).toBeGreaterThan(at('native-gallery-row'))
+      expect(at('native-gallery-cover-open')).toBeGreaterThan(at('native-gallery-link'))
+      expect(at('native-gallery-actions')).toBeGreaterThan(at('native-gallery-cover-open'))
+      // The photograph spans the card, so the actions cannot sit beside it.
       expect(card.querySelector('.native-gallery-row button')).toBeNull()
       expect(card.querySelector('.native-gallery-actions')).not.toBeNull()
       expect(card.querySelector('.native-gallery-row .native-gallery-actions')).toBeNull()
@@ -1151,6 +1178,89 @@ describe('signed-in account area', () => {
 
     expect(container.querySelector('.native-paywall-card')).not.toBeNull()
     expect(container.innerHTML).not.toContain('Subscriptions are unavailable right now. Please try again shortly.')
+  })
+
+  test('the caption line invites one when there is none and saves the one given', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary({ caption: '' })] }),
+      fallback: (url, init) => url === 'https://manorama.xyz/api/galleries/kashmir' && init?.method === 'PATCH'
+        ? json({ gallery: accountSummary({ caption: 'Morning in the valley' }) })
+        : new Response('{}', { status: 404 }),
+    })
+    const { container } = mountAccount()
+    await settle()
+
+    const idle = container.querySelector('.native-gallery-caption') as HTMLButtonElement
+    expect(idle.textContent).toBe('Add a caption')
+    expect(idle.className).toContain('is-empty')
+    expect(idle.getAttribute('aria-label')).toBe('Add a caption to Kashmir')
+
+    idle.click()
+    await settle()
+    const form = container.querySelector('.native-gallery-caption-edit') as HTMLFormElement
+    expect(form).not.toBeNull()
+    const input = form.querySelector('input') as HTMLInputElement
+    expect(input.getAttribute('aria-label')).toBe('Caption for Kashmir')
+    input.value = 'Morning in the valley'
+    input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
+    await settle()
+    form.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
+    await settle()
+
+    const patch = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries/kashmir' && call.init?.method === 'PATCH')
+    expect(JSON.parse(String(patch?.init?.body))).toEqual({ caption: 'Morning in the valley' })
+    expect((patch?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    // The sentence the server stored is the one the card then shows.
+    expect((container.querySelector('.native-gallery-caption') as HTMLButtonElement).textContent).toBe('Morning in the valley')
+    expect(container.querySelector('.native-gallery-caption-edit')).toBeNull()
+  })
+
+  test('the card offers the web actions as four square icons', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://www.dropbox.com/sh/example' })] }) })
+    const { container } = mountAccount()
+    await settle()
+
+    const actions = container.querySelector('.native-gallery-actions') as HTMLElement
+    const buttons = [...actions.querySelectorAll('button')] as HTMLButtonElement[]
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Copy Kashmir link',
+      'Open Kashmir source',
+      'Refresh Kashmir from source',
+      'Delete Kashmir',
+    ])
+    // Drawings, not words — the same four controls the web dashboard renders.
+    expect(buttons.every((button) => button.querySelector('svg') !== null)).toBe(true)
+    expect(actions.textContent).toBe('')
+  })
+
+  test('the menu leads with the brand and closes with a circled X', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary()] }) })
+    const { container } = mountAccount()
+    await settle()
+
+    // The cloud-link sentence left the page for the menu; the field keeps its
+    // accessible name, so the form is still announced in full.
+    expect(container.querySelector('.native-gallery-import label')).toBeNull()
+    expect(container.querySelector('.native-gallery-import input')?.getAttribute('aria-label'))
+      .toBe('Public Dropbox, Google Drive, iCloud, or MEGA link')
+
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
+    const drawer = container.querySelector('[data-account-drawer]') as HTMLElement
+    const head = drawer.querySelector('.native-drawer-head') as HTMLElement
+    expect(head.querySelector('.native-drawer-brand .landing-brand-mark')).not.toBeNull()
+    expect(head.querySelector('.native-drawer-brand .brand-tld')?.textContent).toBe('.xyz')
+    expect(head.querySelector('.landing-brand-intro')?.textContent).toContain('adj.')
+    const close = head.querySelector('.native-drawer-close') as HTMLButtonElement
+    expect(close.getAttribute('aria-label')).toBe('Close account menu')
+    expect(close.querySelector('svg')).not.toBeNull()
+    expect(drawer.textContent).toContain('Add a gallery from a public Dropbox, Google Drive, iCloud, or MEGA link')
   })
 
 })

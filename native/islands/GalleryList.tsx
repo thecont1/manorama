@@ -5,9 +5,11 @@ import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
+import GalleryEditor from './GalleryEditor'
+import { CloseIcon, CopyIcon, OpenIcon, RefreshIcon, TrashIcon } from '../../app/components/admin-icons'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { createGalleryFromQuickAdd, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug } from '../lib/api'
+import { createGalleryFromQuickAdd, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, updateGalleryCaption } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -148,6 +150,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [galleryActionBusy, setGalleryActionBusy] = useState<string | null>(null)
   const [galleryActionNote, setGalleryActionNote] = useState<string | null>(null)
   const [removeGallerySlug, setRemoveGallerySlug] = useState<string | null>(null)
+  // The caption under a gallery's title. The draft is local to the card that
+  // opened it, so an abandoned edit never leaves the row it belongs to.
+  const [captionEditingSlug, setCaptionEditingSlug] = useState<string | null>(null)
+  const [captionDraft, setCaptionDraft] = useState('')
+  const [captionBusy, setCaptionBusy] = useState(false)
+  // The editor a card's cover opens: the gallery it resequences, resolved
+  // when the cover is tapped so the island owns its own read and write.
+  const [editorGallery, setEditorGallery] = useState<{ owner: string; slug: string; title: string } | null>(null)
   const quickAddInFlight = useRef<string | null>(null)
   // The account actions used to be scattered through the greeting copy. They
   // live in one drawer now, closed on every mount and never encoded in the URL.
@@ -884,20 +894,82 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setGalleryActionNote(reason instanceof Error ? reason.message : 'That gallery could not be updated.')
     } finally { setGalleryActionBusy(null) }
   }
+  const saveGalleryCaption = async (gallery: GallerySummary, caption: string) => {
+    if (captionBusy) return
+    setCaptionBusy(true)
+    setGalleryActionNote('Saving caption…')
+    try {
+      const stored = await updateGalleryCaption(base, gallery.slug, caption)
+      setAccountGalleries((previous) => previous?.map((item) => (
+        item.slug === gallery.slug ? { ...item, caption: stored } : item
+      )) ?? null)
+      setCaptionEditingSlug(null)
+      setGalleryActionNote(stored ? 'Caption saved' : 'Caption cleared')
+    } catch (reason) {
+      setGalleryActionNote(reason instanceof Error ? reason.message : 'That caption could not be saved.')
+    } finally {
+      setCaptionBusy(false)
+    }
+  }
   const accountGalleryRow = (gallery: GallerySummary) => {
     const cover = gallery.images[0]
+    const title = gallery.title || gallery.slug
+    const caption = gallery.caption?.trim() ?? ''
+    const captionEditing = captionEditingSlug === gallery.slug
     return (
       <>
-        {/* The cover is its own opener so it can hold a column of the card
-          across both text rows; the actions then sit beside the photograph
-          instead of under the whole card on a narrow screen. */}
+        <button
+          type="button"
+          class="native-gallery-row native-gallery-row-with-thumb"
+          onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
+          disabled={!ownerSlug}
+        >
+          <span class="native-gallery-heading">
+            <span class="native-gallery-title">{title}</span>
+            <span class="native-gallery-meta">({gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'})</span>
+          </span>
+          {gallery.retention === 'pipeline' ? <span class="native-account-note">Temporary gallery{gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}</span> : null}
+        </button>
+        {captionEditing ? (
+          <form
+            class="native-gallery-caption-edit"
+            onSubmit={(event) => { event.preventDefault(); void saveGalleryCaption(gallery, captionDraft) }}
+          >
+            <input
+              id={`native-caption-${gallery.slug}`}
+              type="text"
+              value={captionDraft}
+              maxLength={500}
+              placeholder="Add a caption"
+              aria-label={`Caption for ${title}`}
+              onInput={(event) => setCaptionDraft((event.currentTarget as HTMLInputElement).value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setCaptionEditingSlug(null) }}
+            />
+            <button type="submit" disabled={captionBusy}>{captionBusy ? 'Saving…' : 'Save'}</button>
+            <button type="button" disabled={captionBusy} onClick={() => setCaptionEditingSlug(null)}>Cancel</button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            class={`native-gallery-caption${caption ? '' : ' is-empty'}`}
+            aria-label={caption ? `Edit the caption for ${title}` : `Add a caption to ${title}`}
+            onClick={() => { setCaptionDraft(caption); setCaptionEditingSlug(gallery.slug) }}
+          >
+            {caption || 'Add a caption'}
+          </button>
+        )}
+        <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
+        {/* The photograph comes after the words, the way the card reads, and
+          spans the card at its own proportions. It opens the editor, not the
+          gallery: the card is a management surface, and the title row is what
+          opens the gallery. */}
         {cover ? (
           <button
             type="button"
             class="native-gallery-cover-open"
-            onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
+            onClick={() => ownerSlug && setEditorGallery({ owner: ownerSlug, slug: gallery.slug, title })}
             disabled={!ownerSlug}
-            aria-label={`Open ${gallery.title || gallery.slug}`}
+            aria-label={`Edit the running order of ${title}`}
           >
             <span class="native-gallery-cover-row" aria-hidden="true">
               <span class="native-gallery-thumb">
@@ -913,20 +985,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             </span>
           </button>
         ) : null}
-        <button
-          type="button"
-          class="native-gallery-row native-gallery-row-with-thumb"
-          onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
-          disabled={!ownerSlug}
-        >
-        <span class="native-gallery-heading">
-          <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
-          <span class="native-gallery-meta">({gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'})</span>
-        </span>
-        {accountGallerySubtitle(gallery) ? <span class="native-gallery-subtitle">{accountGallerySubtitle(gallery)}</span> : null}
-        <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
-        {gallery.retention === 'pipeline' ? <span class="native-account-note">Temporary gallery{gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}</span> : null}
-        </button>
       </>
     )
   }
@@ -1081,10 +1139,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <section class="native-gallery-import" aria-labelledby="native-import-heading">
           <h2 id="native-import-heading">Add a gallery</h2>
           <form onSubmit={importCloudGallery} aria-busy={quickAddBusy}>
-            <label htmlFor="native-source-url">Public Dropbox, Google Drive, iCloud, or MEGA link</label>
             <input
               id="native-source-url"
               type="url"
+              aria-label="Public Dropbox, Google Drive, iCloud, or MEGA link"
               value={sourceUrl}
               onInput={(event) => setSourceUrl(readInput(event))}
               placeholder="Paste a public folder or album link"
@@ -1118,17 +1176,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
             {visibleAccountGalleries.length > 0 ? (
               <ul class="native-gallery-list">
-                {/* Successive galleries swap the cover from one edge to the
-                    other, so a phone column of cards zig-zags instead of
-                    leaning and every cover stays beside its copy. */}
-                {visibleAccountGalleries.map((gallery, index) => (
-                  <li key={gallery.slug} class={index % 2 === 1 ? 'is-cover-right' : 'is-cover-left'}>
+                {visibleAccountGalleries.map((gallery) => (
+                  <li key={gallery.slug}>
                     {accountGalleryRow(gallery)}
+                    {/* The same four square icon actions the web dashboard offers, so
+                        one gallery is managed the same way on either surface. */}
                     <div class="native-gallery-actions" role="group" aria-label={`${gallery.title} actions`}>
-                      <button type="button" aria-label={`Copy ${gallery.title} link`} onClick={() => void copyGalleryLink(gallery)}>Copy link</button>
-                      {gallery.sourceUrl ? <button type="button" aria-label={`Open ${gallery.title} source`} onClick={() => openExternal(gallery.sourceUrl!)}>Open source</button> : null}
-                      {gallery.sourceUrl ? <button type="button" aria-label={`Refresh ${gallery.title} from source`} disabled={galleryActionBusy !== null || gallery.retention === 'pipeline'} title={gallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : 'Refresh from source'} onClick={() => void mutateGallery(gallery, 'refresh')}>Refresh</button> : null}
-                      <button type="button" aria-label={`Delete ${gallery.title}`} disabled={galleryActionBusy !== null} onClick={() => setRemoveGallerySlug(gallery.slug)}>Delete</button>
+                      <button type="button" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => void copyGalleryLink(gallery)}><CopyIcon /></button>
+                      {gallery.sourceUrl ? <button type="button" title="Open the source folder" aria-label={`Open ${gallery.title} source`} onClick={() => openExternal(gallery.sourceUrl!)}><OpenIcon /></button> : null}
+                      {gallery.sourceUrl ? <button type="button" title={gallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from source`} disabled={galleryActionBusy !== null || gallery.retention === 'pipeline'} onClick={() => void mutateGallery(gallery, 'refresh')}><RefreshIcon /></button> : null}
+                      <button type="button" class="native-gallery-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} disabled={galleryActionBusy !== null} onClick={() => setRemoveGallerySlug(gallery.slug)}><TrashIcon /></button>
                     </div>
                     {removeGallerySlug === gallery.slug ? <div class="native-gallery-remove-confirm" role="group" aria-label={`Confirm removal of ${gallery.title}`}>
                       <p>Remove “{gallery.title}” from manorama? This cannot be undone. Your cloud files and existing device vault copies are not deleted.</p>
@@ -1145,6 +1202,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         ) : null}
       </section>
     </main>
+    {editorGallery ? (
+      <GalleryEditor
+        owner={editorGallery.owner}
+        slug={editorGallery.slug}
+        title={editorGallery.title}
+        apiBase={apiBase}
+        onClose={() => setEditorGallery(null)}
+        onSaved={() => setAccountRevision((revision) => revision + 1)}
+      />
+    ) : null}
     {accountMenuOpen ? (
       <div class="native-drawer" id="native-account-drawer" data-account-drawer style={accountFoldStyle}>
         <div class="native-drawer-scrim" aria-hidden="true" onClick={closeAccountMenu} />
@@ -1162,16 +1229,34 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           }}
         >
           <div class="native-drawer-head">
-            <h2>Account</h2>
+            {/* The brand sits exactly where it sits on the account page, so the
+                menu reads as the page unfolding rather than a second surface
+                arriving, and everything else starts below it. */}
+            <div class="native-drawer-brand native-account-side">
+              {/* The page's own brand row: the wordmark keeps the account
+                  page's cap, including the room the hamburger reserves. */}
+              <div class="native-account-head">
+                <span class="brand-mark-wrap">
+                  <img
+                    src="/manorama-merged-logo.png"
+                    alt="manorama"
+                    class="landing-brand-mark"
+                  />
+                  <span class="brand-tld" aria-hidden="true">.xyz</span>
+                </span>
+              </div>
+              <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+            </div>
             <button
               type="button"
               class="native-drawer-close"
               aria-label="Close account menu"
               onClick={closeAccountMenu}
             >
-              ×
+              <CloseIcon />
             </button>
           </div>
+          <p class="native-drawer-hint">Add a gallery from a public Dropbox, Google Drive, iCloud, or MEGA link. Paste the folder or album link into the box on the main page and manorama will read it.</p>
           <p class="native-drawer-note">{accountName} · manorama.xyz/{ownerSlug ?? ''}</p>
             {deviceListFailed ? (
               <p class="native-account-note">
