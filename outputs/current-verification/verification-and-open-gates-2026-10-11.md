@@ -56,7 +56,7 @@ Original bytes and honest-pixel stage sizing were not altered.
 | iPhone native matrix | 6 states, **1284×2778**, reviewed |
 | iPad native matrix | 6 states, **2752×2064**, reviewed |
 | Live-provider viewer subset | 14 passed, 2 failed (phone and desktop vertical-mode readiness), 1 interrupted — **not green** |
-| Native macOS application | **not verified** — see below |
+| Native macOS application | **verified** — signed in end to end via the system browser; see below |
 
 ## Environment finding: native builds need full access here
 
@@ -69,27 +69,56 @@ xcodebuild: error: Could not resolve package dependencies:
 
 SwiftPM applies its own sandbox to package manifests, and that cannot nest inside the execution sandbox. No `writable_paths` or `network` grant can express this, so the capture run was executed with escalated access rather than weakening the project's build flags. The historical `-IDEPackageSupportDisableManifestSandbox` workaround was **not** restored.
 
-## Remaining gate: native macOS verification
+## Native macOS verification (completed)
+Screen Recording is now granted to the Manus Computer Use helper (0.2.5,
+`im.manus.desktop.computer-use`), so the desktop application was verified end to
+end against the local development server on 11 October.
 
-The Computer Use helper reports `permissions_required`:
+What was observed, in order:
 
-- Accessibility: **granted**
-- Screen Recording: **missing**
-- Helper: Manus Computer Use 0.2.5, `im.manus.desktop.computer-use`
-- Path: the version-numbered `manus-computer-use/1.0.25/helper/darwin/Manus Computer Use.app`
+1. The app's sign-in door exposes **Continue with Apple / Dropbox / Google
+   Drive**. Pressing *Continue with Dropbox* launched the system browser
+   (**Comet**, `ai.perplexity.comet`, the owner's default browser) rather than
+   failing with "The browser could not open".
+2. The browser served the app-issued local sign-in URL, carrying the app's own
+   PKCE challenge (`/.dev-seed/desktop-login?native=desktop&code_challenge=...`).
+   The page read "Local development account ... Keep the manorama app open while
+   completing sign-in", with a **Return to manorama** button.
+3. The minted callback
+   `in.thecontrarian.manorama.desktop://auth/callback?handoff=...` was delivered
+   by LaunchServices (the app came to the front) and the app redeemed it,
+   writing its private store:
+   `~/Library/Application Support/in.thecontrarian.manorama.desktop/session.json`,
+   keys `ownerSlug` and `token`.
+4. The app then rendered the signed-in Catalogue surface: "Hello thecontrarian.
+   Welcome to your manorama catalogue." with *sign out*, and *Your galleries*
+   with *Choose a folder or card* and *Sync now*.
 
-A grant to Manus Studio or Manus itself does not satisfy this, and a grant to an earlier versioned helper path does not carry over. Until it is granted, the app → system browser → app login cannot be observed end to end, and no native macOS six-state matrix can be captured.
+Evidence: `../../demo-captures/macos/05-account-admin.png` (2579x1900, cropped to
+the app window from a 3456x2234 screen capture).
 
-There is **no headless alternative**: `xcrun simctl ui` supports only appearance and contrast (no orientation verb), and DeviceHub ships no scripting dictionary. The iPad rotation that unblocked the iPad matrix was performed manually by the owner in DeviceHub.
+Two earlier attempts failed for environment reasons, recorded here so they are
+not mistaken for product defects. The first redeemed a handoff whose pending PKCE
+flow had already been consumed by a preceding attempt. The second launched the
+binary directly from the command sandbox, which denied the app its own WebKit
+caches (`could not create directory .../WebKit/ServiceWorkers ... Operation not
+permitted`), so a session could not be persisted at all. Launching the app
+normally through LaunchServices, with a fresh flow, completed the loop.
 
-## Observation for owner decision
-
-The landscape curtain uses its two-column composition (logo left, title right). With the large title treatment the gallery title wraps to three lines — "italia," / "amore" / "mio" — where the portrait composition shows it on one line. The portrait grouping fix does not apply to landscape. This is a presentation judgement call, not a defect: it can either stay as an editorial two-column spread or adopt the portrait grouping with a capped title size.
+## Landscape curtain (resolved)
+The landscape curtain previously used a two-column spread, which wrapped the
+gallery title over three lines and detached it from the mark below it. It now
+uses the same centred grouping as portrait and only scales the mark and title up.
+The iPad matrix was rebuilt and recaptured: all six states are genuine landscape
+at **2752x2064**. A pixel comparison against the previous set shows state 02
+(curtain) changed across 4.04% of pixels - the intended redesign - while states
+01 and 06 differ by 0.3% and 0.003% (capture-timing noise) and states 03-05 are
+byte-identical.
 
 ## Evidence
-
-- `iphone-six-state.zip` — opening, curtain, first photograph, settings, signed-in admin, Global View (1284×2778).
-- `ipad-six-state.zip` — the same six states at genuine **2752×2064** landscape.
-- `../current-macos-local/manorama-local-auth.zip` — local-development Mac test bundle (ad-hoc signed, not notarized).
+- `iphone-six-state.zip` - opening, curtain, first photograph, settings, signed-in admin, Global View (1284x2778).
+- `ipad-six-state.zip` - the same six states at genuine 2752x2064 landscape.
+- `../../demo-captures/macos/05-account-admin.png` - the signed-in native macOS surface.
+- `../current-macos-local/manorama-local-auth.zip` - local-development Mac test bundle (ad-hoc signed, not notarized).
 
 No production deploy, remote D1 migration, force-push or provider modification was performed.
