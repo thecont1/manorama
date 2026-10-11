@@ -397,7 +397,7 @@ describe('signed-in account area', () => {
       calls.push({ url, init })
       if (url.includes('/api/galleries') && init?.method === 'POST' && stubs.import) return stubs.import()
       if (url.includes('/api/device-galleries')) return stubs.deviceGalleries ?? json({ galleries: [] })
-      if (url.includes('/api/galleries')) return stubs.galleries ?? json({ galleries: [] })
+      if (url.includes('/api/galleries')) return stubs.galleries?.clone() ?? json({ galleries: [] })
       if (url.includes('/api/ads/visibility')) return stubs.visibility ?? json({ show: true, day: '2026-10-01' })
       // The suppression list is session-gated: an unanswered list leaves the
       // switch unrendered, which is the state every other test runs in.
@@ -509,9 +509,9 @@ describe('signed-in account area', () => {
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'Sign out')).toBe(true)
     // Signed-in home replaces the provider row, but keeps the manual path.
     expect(html).not.toContain('Sign in with Apple')
-    expect(html).toContain('Open another gallery')
-    expect(html).toContain('Photo picker')
-    expect(html).toContain('Keep photos from this device ready to choose in galleries')
+    expect(container.querySelector('main')?.textContent).not.toContain('Open another gallery')
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Photo picker')
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Keep photos from this device ready to choose in galleries')
     expect(html).not.toContain('Open photo picker')
 
     // The account list asked with the stored bearer token.
@@ -527,7 +527,7 @@ describe('signed-in account area', () => {
     expect(cover!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
     expect(cover!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
     expect([...cover!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
-      'native-gallery-thumb is-active',
+      'native-gallery-thumb',
     ])
     // Then title with its count, subtitle and address, each on its own line.
     expect([...(row!.children as unknown as Element[])].map((child) => child.className)).toEqual([
@@ -572,8 +572,10 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('data-account-drawer')
     expect(html).toContain('Mahesh Shantaram')
     expect(html).not.toContain('This is your manoramic world')
-    expect(html).toContain('Privacy Policy')
-    expect(html).toContain('© 2026 Mahesh Shantaram')
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Privacy Policy')
+    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('© 2026 Mahesh Shantaram')
 
     const input = container.querySelector('.admin-owner-slug-input') as HTMLInputElement | null
     expect(input).not.toBeNull()
@@ -620,6 +622,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const html = container.innerHTML
     expect(html).toContain('This device')
     // The web dashboard's "Mac" is the wrong word in an iOS app, and the list
@@ -658,6 +662,9 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    expect(container.querySelector('main .native-load-policy')).toBeNull()
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     // Each preference is its own headed question rather than one undifferentiated
     // list running from the device down to the load policy.
     expect(
@@ -682,13 +689,69 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('Gallery loading')
   })
 
+  test('gallery actions stay outside the card opener and deletion waits for confirmation', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://dropbox.com/scl/fo/example' })] }) })
+    const { container } = mountAccount()
+    await settle()
+    expect(container.querySelector('.native-gallery-row button')).toBeNull()
+    expect(container.querySelector('[aria-label="Copy Kashmir link"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Open Kashmir source"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Refresh Kashmir from source"]')).not.toBeNull()
+    ;(container.querySelector('[aria-label="Delete Kashmir"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.textContent).toContain('This cannot be undone')
+    expect(calls.some((call) => call.init?.method === 'DELETE')).toBe(false)
+    const cancel = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Cancel') as HTMLButtonElement
+    cancel.click()
+    await settle()
+    expect(container.querySelector('.native-gallery-remove-confirm')).toBeNull()
+  })
+
+  test('confirmed gallery delete and refresh use owner-authenticated API routes', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://dropbox.com/scl/fo/example' })] }),
+      fallback: (url) => url.includes('/api/galleries/kashmir') ? json({ ok: true }) : new Response('{}', { status: 404 }) })
+    const { container } = mountAccount()
+    await settle()
+    ;(container.querySelector('[aria-label="Refresh Kashmir from source"]') as HTMLButtonElement).click()
+    await settle()
+    const refresh = calls.find((call) => call.url.endsWith('/api/galleries/kashmir/refresh'))
+    expect(refresh?.init?.method).toBe('POST')
+    expect((refresh?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    ;(container.querySelector('[aria-label="Delete Kashmir"]') as HTMLButtonElement).click()
+    await settle()
+    const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Remove gallery') as HTMLButtonElement
+    confirm.click()
+    await settle()
+    const deletion = calls.find((call) => call.url.endsWith('/api/galleries/kashmir') && call.init?.method === 'DELETE')
+    expect(deletion).toBeDefined()
+    expect((deletion?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+    expect(calls.some((call) => call.url.startsWith('https://dropbox.com'))).toBe(false)
+  })
+
+  test('Free owners can see every retained gallery even above their editing limit', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: Array.from({ length: 5 }, (_, index) => accountSummary({ slug: `album-${index}`, title: `Album ${index}` })) }) })
+    const { container } = mountAccount()
+    await settle()
+    expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
+    expect(container.textContent).toContain('You have 5 retained galleries')
+    expect(container.textContent).toContain('3 editable gallery slots')
+    expect(container.querySelectorAll('.native-gallery-thumb.is-active')).toHaveLength(0)
+    expect(container.querySelector('main .native-account-delete')).toBeNull()
+  })
+
   test('names pipeline galleries without a shortened internal label', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({ retention: 'pipeline' })] }) })
     const { container } = mountAccount()
     await settle()
-    expect(container.querySelector('.native-temporary-galleries h2')?.textContent).toBe('Temporary galleries')
+    expect(container.querySelector('.native-gallery-list')?.textContent).toContain('Temporary gallery')
     expect(container.innerHTML).not.toContain('Temp Galleries')
   })
 
@@ -703,8 +766,10 @@ describe('signed-in account area', () => {
     expect(html).toContain('Your galleries could not be loaded.')
     expect(html).toContain('Try again')
     // The manual path survives a dead list.
-    expect(html).toContain('Open another gallery')
-    expect(container.querySelector('details form')).not.toBeNull()
+    expect(container.querySelector('main')?.textContent).not.toContain('Open another gallery')
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
+    expect(container.querySelector('[data-account-drawer] details form')).not.toBeNull()
 
     const listCalls = () => calls.filter((call) => call.url === 'https://manorama.xyz/api/galleries').length
     expect(listCalls()).toBe(1)
@@ -760,6 +825,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     expect(entry).toBeDefined()
     entry.click()
@@ -792,6 +859,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -817,6 +886,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -842,6 +913,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -869,6 +942,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -897,6 +972,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Delete account') as HTMLButtonElement
     entry.click()
     await settle()
@@ -924,6 +1001,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount()
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const form = container.querySelector('.native-another form') as HTMLFormElement | null
     expect(form).not.toBeNull()
     const inputs = [...form!.querySelectorAll('input')] as HTMLInputElement[]
@@ -994,6 +1073,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ billing: entitlement('free'), client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
     expect(entry).toBeDefined()
     entry.click()
@@ -1015,6 +1096,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ billing: entitlement('free'), client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
     entry.click()
     await settle()
@@ -1037,6 +1120,8 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ billing: entitlement('free'), client })
     await settle()
 
+    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    await settle()
     const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
     entry.click()
     await settle()

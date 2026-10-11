@@ -641,8 +641,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         ref={menuButtonRef}
         onClick={() => setMenuOpen(true)}
       >
-        <span aria-hidden="true">Account</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        <span class="admin-tab-label" aria-hidden="true">Account</span>
+        <svg class="admin-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        <svg class="admin-tab-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
       </button>
       {/* Hidden account controls stay outside the accessibility tree until
           the hydrated dashboard opens them. */}
@@ -742,6 +743,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </div>
       {/* The account actions sit at the pane's foot: labelled, and away from
           the galleries. */}
+        {(() => {
+          const retained = galleries.filter((gallery) => gallery.retention !== 'pipeline').length
+          return <div class="admin-retention-policy">
+            <p class="admin-limit-count" aria-live="polite">{retained} retained {retained === 1 ? 'gallery' : 'galleries'}{tier === 'pro' ? ` · ${Math.max(0, PAID_RETAINED_LIMIT - retained)} available` : ` · ${Math.max(0, FREE_RETAINED_LIMIT - retained)} editable slots available`}</p>
+            {tier === 'free' ? <p>{FREE_RETENTION_DISCLOSURE}</p> : <p>Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>}
+            {tier === 'pro' && retained >= PAID_RETAINED_LIMIT ? <p>{paidGalleryLimitError().message}</p> : null}
+          </div>
+        })()}
+
+        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
       <div class="admin-drawer-actions">
         <button type="button" class="admin-drawer-action" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-pressed={theme === 'light'}>{themeControlLabel(theme)}</button>
         <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-drawer-action">Sign out</button></form>
@@ -760,23 +771,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
         <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. You have used {retainedCount} of your {retainedLimit} gallery limit.</p>
+        <p class="admin-profile-address">manorama.xyz/{owner}</p>
+        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
       </section>
       <section class="gallery-import" aria-labelledby="import-heading">
         <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
-        {(() => {
-          const retained = galleries.filter((gallery) => gallery.retention !== 'pipeline').length
-          return <div class="admin-retention-policy">
-            <p class="admin-limit-count" aria-live="polite">{retained} retained {retained === 1 ? 'gallery' : 'galleries'}{tier === 'pro' ? ` · ${Math.max(0, PAID_RETAINED_LIMIT - retained)} available` : ` · ${Math.max(0, FREE_RETAINED_LIMIT - retained)} editable slots available`}</p>
-            {tier === 'free' ? <p>{FREE_RETENTION_DISCLOSURE}</p> : <p>Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>}
-            {tier === 'pro' && retained >= PAID_RETAINED_LIMIT ? <p>{paidGalleryLimitError().message}</p> : null}
-          </div>
-        })()}
         <form class="gallery-import-form" onSubmit={addGallery}>
           <label class="admin-field"><span>Public Dropbox, Google Drive, iCloud, or MEGA link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, iCloud album, or MEGA link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
           <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
         </form>
-        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
+
       </section>
       </div>
 

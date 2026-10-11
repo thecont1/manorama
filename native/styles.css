@@ -1009,14 +1009,6 @@ body.manorama-native:has(.native-account-shell) {
   object-fit: contain;
 }
 
-/* The first frame is the gallery's face wherever the gallery appears alone, so
-   it carries the same shocking pink the picker gives the photograph in hand. */
-.native-gallery-thumb.is-active {
-  z-index: 1;
-  outline: 3px solid #fc0fc0;
-  outline-offset: -3px;
-}
-
 .native-temporary-galleries {
   margin-top: 22px;
   padding-top: 16px;
@@ -1322,3 +1314,33 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
 }
 
 .native-account-shell[data-admin-segmented] .native-account-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
+
+/* Phone Account affordance; wide and segmented displays keep their edge tab. */
+.native-account-hamburger { display: none; }
+.native-drawer-panel .native-legal { margin-top: 28px; }
+.native-drawer-panel .native-load-policy,
+.native-drawer-panel .native-global-setting,
+.native-drawer-panel .native-house-cards,
+.native-drawer-panel .native-account-delete { margin-top: 24px; }
+.native-drawer-panel select { max-width: 100%; }
+@media (max-width: 819px) {
+  .native-account-edge-tab { top: calc(env(safe-area-inset-top, 0px) + 14px); right: 14px; left: auto; transform: none; width: 44px; height: 44px; border-radius: 50%; }
+  .native-account-edge-tab > .native-account-tab-label { display: none; }
+  .native-account-hamburger { display: block; width: 22px; height: 22px; }
+  .native-account-head { padding-right: 50px; }
+}
+
+/* A phone hamburger opens a full-screen top sheet, not a side drawer. */
+@keyframes account-phone-drop { from { transform: translateY(-100%); } to { transform: none; } }
+@media (max-width: 819px) {
+  .native-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--gallery-canvas); animation: account-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
+  .native-drawer-head { flex: 0 0 auto; }
+  .native-drawer-panel > * { flex-shrink: 0; }
+}
+@media (max-width: 819px) and (prefers-reduced-motion: reduce) { .native-drawer-panel { animation: none; } }
+.native-gallery-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 18px; }
+.native-gallery-actions button { min-width: 44px; min-height: 44px; padding: 8px 12px; font-size: 12px; }
+.native-gallery-remove-confirm { padding-bottom: 18px; }
+
+.native-gallery-list .native-gallery-actions button { display: inline-flex; width: auto; align-items: center; justify-content: center; border: 1px solid rgba(var(--ink), .22); }
+.native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }

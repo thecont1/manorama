@@ -521,8 +521,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         ref={menuButtonRef}
         onClick={() => setMenuOpen(true)}
       >
-        <span aria-hidden="true">Account</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        <span class="admin-tab-label" aria-hidden="true">Account</span>
+        <svg class="admin-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        <svg class="admin-tab-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
       </button>
       {/* Hidden account controls stay outside the accessibility tree until the
           hydrated catalogue opens them. */}
@@ -597,6 +598,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <span class="brand-tld" aria-hidden="true">.xyz</span>
             </span>
             <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+            <p class="admin-profile-address">manorama.xyz/{session?.ownerSlug ?? ''}</p>
             <p class="admin-welcome-note">{helloLine} {planLine}</p>
           </section>
           <section class="gallery-import" aria-labelledby="import-heading">
@@ -646,7 +648,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                             type="button"
                             role="listitem"
                             key={item.id}
-                            class={`admin-gallery-strip-item desktop-strip-item${index === 0 ? ' is-active' : ''}`}
+                            class="admin-gallery-strip-item desktop-strip-item"
                             data-image-id={item.id}
                             disabled={unavailable}
                             aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
