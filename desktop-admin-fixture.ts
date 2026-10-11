@@ -7,20 +7,9 @@
  * commands the catalogue actually calls. Everything asserted on top of it is
  * then the real bundle's own behaviour, not a fixture's.
  *
- * Two catalogues live here. The synthetic one is enough for the shell, the pane
- * and the theme vocabulary. The rail's geometry is measured against the owner's
- * own photographs on disk (`buildCatalogue` + `servePhotos`), because heights
- * and aspect-true widths are only meaningful against real files.
- *
  * Deliberately not named `*.playwright.ts` — Playwright's testMatch would try
  * to collect it as a spec.
  */
-
-import { execFileSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
-
-import type { Page } from '@playwright/test'
 
 /** A 1x1 transparent GIF — the asset protocol's stand-in, so a thumbnail
  *  paints without reaching for a file the browser cannot read. */
@@ -66,23 +55,17 @@ export const catalogue = {
 /** A signed-in session, plan included — the shape the exchange writes. */
 export const session = { token: 'test-session-token', ownerSlug: 'thecontrarian', tier: 'pro' }
 
-type BridgePayload = { catalogue: string; session: string; pixel: string; photos?: boolean }
-
 /** Injected into the page before any script runs. Its payload arrives as an
  *  argument because an init script is serialized, not called: anything it
  *  closes over would be missing in the browser. */
-export const installBridge = (payload: BridgePayload) => {
+export const installBridge = (payload: { catalogue: string; session: string; pixel: string }) => {
   const internals = {
     transformCallback: (callback: unknown) => {
       const id = 1
       ;(window as unknown as Record<string, unknown>)[`_${id}`] = callback
       return id
     },
-    // The synthetic catalogue paints the stand-in pixel; the real-photograph
-    // catalogue points at `/photos/<name>`, which the spec answers from disk.
-    convertFileSrc: (path: string) => (payload.photos
-      ? `/photos/${encodeURIComponent(String(path).split('/').pop() ?? '')}`
-      : payload.pixel),
+    convertFileSrc: () => payload.pixel,
     invoke: async (cmd: string, args?: Record<string, unknown>) => {
       if (cmd === 'read_private_file') {
         const name = String(args?.name ?? '')
@@ -101,7 +84,7 @@ export const installBridge = (payload: BridgePayload) => {
   ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = internals
 }
 
-export const bridgePayload: BridgePayload = {
+export const bridgePayload = {
   catalogue: JSON.stringify(catalogue),
   session: JSON.stringify(session),
   pixel: PIXEL,
@@ -109,96 +92,11 @@ export const bridgePayload: BridgePayload = {
 
 /** The bundle's default API base is production; no spec may reach it. The
  *  catalogue's sync seam is answered locally instead. */
-export const blockProductionApi = async (page: Pick<Page, 'route'>): Promise<{ calls: () => number }> => {
+export const blockProductionApi = async (page: { route: (url: string, handler: (route: { fulfill: (r: unknown) => unknown }) => unknown) => Promise<unknown> }): Promise<{ calls: () => number }> => {
   let calls = 0
   await page.route('https://manorama.xyz/**', (route) => {
     calls += 1
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
   })
   return { calls: () => calls }
-}
-
-// --- the rail's real-photograph catalogue -----------------------------------
-
-export type FixturePhoto = { id: string; name: string; path: string; width: number; height: number }
-
-/** Formats the browsers in this suite decode. HEIC is deliberately absent:
- *  Chromium cannot read it, and a fixture the browser refuses to paint would
- *  look like a layout failure. */
-const PHOTO_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
-
-const readDims = (path: string): { width: number; height: number } | null => {
-  const out = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', path], { encoding: 'utf8' })
-  const width = /pixelWidth:\s*(\d+)/.exec(out)?.[1]
-  const height = /pixelHeight:\s*(\d+)/.exec(out)?.[1]
-  if (!width || !height) return null
-  return { width: Number(width), height: Number(height) }
-}
-
-/**
- * The owner's own photographs, read-only, straight off disk. The albums under
- * Dropbox `CloudStorage` are dataless placeholders on this machine (0 bytes on
- * disk, `sips` reports `<nil>`), so a folder whose pixels are actually present
- * is required — resizing or re-encoding here would invalidate every geometry
- * assertion the rail makes.
- */
-export const photosFrom = (source: string, count: number): FixturePhoto[] =>
-  readdirSync(source)
-    .filter((name) => PHOTO_EXTENSIONS.some((extension) => name.toLowerCase().endsWith(extension)))
-    .sort()
-    .map((name) => ({ name, path: join(source, name), dims: readDims(join(source, name)) }))
-    .filter((photo): photo is { name: string; path: string; dims: { width: number; height: number } } => photo.dims !== null)
-    .slice(0, count)
-    .map((photo, index) => ({ id: `photo-${index + 1}`, name: photo.name, path: photo.path, ...photo.dims }))
-
-/** A catalogue whose first gallery is the real photographs and whose second is
- *  a memory card, so one fixture covers a folder source and a card source. */
-export const buildCatalogue = (photos: FixturePhoto[], source: string) => ({
-  version: 1,
-  deviceId: 'f8e9e5ce-b31a-41a1-b4cd-5261fb3d48f2',
-  deviceLabel: 'This Mac',
-  galleries: [
-    {
-      id: GALLERY_ID,
-      // The title `galleryTitleForRoot` derives from the folder, so the card,
-      // the caption's path and the app's own naming all agree.
-      title: 'Pictures',
-      rootPath: source,
-      sourceKind: 'folder',
-      itemCount: photos.length,
-      items: photos,
-      addedAt: '2026-10-11T05:00:00.000Z',
-      lastSeenAt: '2026-10-11T05:00:00.000Z',
-    },
-    {
-      id: GALLERY_ID_TWO,
-      title: 'Monsoon Card',
-      rootPath: '/Volumes/NO NAME/DCIM',
-      sourceKind: 'card',
-      mountPoint: '/Volumes/NO NAME',
-      itemCount: 1,
-      items: [{ id: `${GALLERY_ID_TWO}-1`, name: 'DSC_0001.jpg', path: '/Volumes/NO NAME/DCIM/DSC_0001.jpg', width: 6000, height: 4000 }],
-      addedAt: '2026-10-10T05:00:00.000Z',
-      lastSeenAt: '2026-10-10T05:00:00.000Z',
-    },
-  ],
-})
-
-/** The bridge for a real-photograph catalogue. */
-export const photoBridgePayload = (built: ReturnType<typeof buildCatalogue>): BridgePayload => ({
-  catalogue: JSON.stringify(built),
-  session: JSON.stringify(session),
-  pixel: PIXEL,
-  photos: true,
-})
-
-/** Answers `/photos/<name>` with the original's own bytes, read from disk and
- *  handed to the browser untouched. */
-export const servePhotos = async (page: Pick<Page, 'route'>, photos: FixturePhoto[]): Promise<void> => {
-  await page.route('**/photos/*', (route) => {
-    const name = decodeURIComponent(new URL(route.request().url()).pathname.replace('/photos/', ''))
-    const photo = photos.find((candidate) => candidate.name === name)
-    if (!photo) return route.fulfill({ status: 404, body: 'not in the fixture' })
-    return route.fulfill({ path: photo.path })
-  })
 }
