@@ -1,4 +1,4 @@
-import type { GalleryManifest } from '../../app/lib/imagesource'
+import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import type { NativeTier } from '../lib/billing'
@@ -111,6 +111,28 @@ const FrameCell = ({
 
 /** The vault-backed index of every frame this device holds. Opt-in, offline,
  *  and honest about what it is: a private contact sheet, never uploaded. */
+/** The grid's frames for a manifest: the manifest's own order, carrying the
+ *  vault entry and mime type of every photograph the cached gallery already
+ *  knows. Dimensions, alt text and index always come from the manifest. */
+const manifestFrames = (
+  images: readonly GalleryMediaItem[],
+  cached?: OfflineGridGallery,
+): OfflineGridFrame[] => {
+  const known = new Map((cached?.frames ?? []).map((frame) => [frame.id, frame]))
+  return images.map((image, index) => {
+    const saved = known.get(image.id)
+    return {
+      id: image.id,
+      entryId: saved?.entryId ?? '',
+      mimeType: saved?.mimeType ?? '',
+      width: image.width,
+      height: image.height,
+      alt: image.alt,
+      index,
+    }
+  })
+}
+
 export default function GlobalView({
   store,
   onlineGallery,
@@ -157,14 +179,26 @@ export default function GlobalView({
           return
         }
         if (onlineGallery) {
-          found = found.filter((gallery) => gallery.owner !== onlineGallery.selection.owner || gallery.slug !== onlineGallery.selection.slug)
-          found.unshift({ galleryId: await offlineGalleryId(onlineGallery.selection), ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: onlineGallery.manifest.images.map((image, index) => ({ id: image.id, entryId: '', mimeType: '', width: image.width, height: image.height, alt: image.alt, index })) })
+          // A cached copy of this same gallery already knows which vault entry
+          // holds each photograph's saved bytes. Merging the online manifest
+          // must not throw that away: a frame rebuilt with an empty entryId
+          // reads as "never downloaded", which strands every saved thumbnail
+          // the moment the network drops. Match by identity, keep what is
+          // known, and let only genuinely new photographs start empty.
+          const cached = found.find((gallery) => gallery.owner === onlineGallery.selection.owner && gallery.slug === onlineGallery.selection.slug)
+          found = found.filter((gallery) => gallery !== cached)
+          found.unshift({
+            galleryId: cached?.galleryId ?? await offlineGalleryId(onlineGallery.selection),
+            ...onlineGallery.selection,
+            title: onlineGallery.manifest.title,
+            frames: manifestFrames(onlineGallery.manifest.images, cached),
+          })
         }
         setGalleries(found)
       } catch {
         if (!active) return
         if (onlineGallery) {
-          setGalleries([{ galleryId: 'online-current', ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: onlineGallery.manifest.images.map((image, index) => ({ id: image.id, entryId: '', mimeType: '', width: image.width, height: image.height, alt: image.alt, index })) }])
+          setGalleries([{ galleryId: 'online-current', ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: manifestFrames(onlineGallery.manifest.images) }])
         } else setLoadError(true)
       }
     }

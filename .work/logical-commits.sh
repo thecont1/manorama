@@ -3,6 +3,13 @@
 set -e
 cd "$(dirname "$0")/.."
 
+# A batch must contain only what this script stages: work that was already
+# staged would be swept into the first commit and mislabelled by it.
+if ! git diff --cached --quiet; then
+  echo "the index already holds staged changes; commit or reset them first" >&2
+  exit 1
+fi
+
 git add native/lib/api.ts native/lib/api.test.ts \
         native/lib/offline-gallery.ts native/lib/offline-gallery.test.ts \
         native/lib/vault-settings.ts native/lib/vault-settings.test.ts \

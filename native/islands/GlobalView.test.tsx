@@ -99,8 +99,12 @@ const objectUrls = (): OfflineObjectUrlProvider & { created: string[] } => {
 
 const makeStore = (grids: OfflineGridGallery[]) => {
   const calls = { gridGallery: [] as string[], listGridGalleries: 0, readThumbnail: 0 }
+  /** Which vault entries a gallery's cells asked for, in order — the read a
+   *  saved thumbnail depends on. */
+  const reads: Array<{ galleryId: string; entryId: string }> = []
   return {
     calls,
+    reads,
     async gridGallery(galleryId: string) {
       calls.gridGallery.push(galleryId)
       return grids.find((g) => g.galleryId === galleryId)
@@ -109,8 +113,9 @@ const makeStore = (grids: OfflineGridGallery[]) => {
       calls.listGridGalleries++
       return grids
     },
-    async readThumbnail() {
+    async readThumbnail(galleryId: string, entryId: string) {
       calls.readThumbnail++
+      reads.push({ galleryId, entryId })
       return new Uint8Array([1, 2, 3])
     },
   }
@@ -303,6 +308,46 @@ describe('GlobalView', () => {
   })
 })
 
+
+test('a saved gallery keeps its vault entry ids when the online manifest is merged', async () => {
+  const current = { owner: 'photographer', slug: 'quiet-light' }
+  const store = makeStore([
+    grid({ galleryId: await offlineGalleryId(current), owner: current.owner, slug: current.slug }),
+  ])
+  const manifest = {
+    slug: current.slug,
+    title: 'Quiet light',
+    caption: '',
+    date: '',
+    // The two the vault already holds, plus one the provider has added since.
+    images: [
+      { id: 'one', filename: 'one.jpg', src: 'https://cdn.example/one.jpg', width: 800, height: 600, alt: 'one alt', c2pa: false, placeholder: '' },
+      { id: 'two', filename: 'two.jpg', src: 'https://cdn.example/two.jpg', width: 800, height: 600, alt: 'two alt', c2pa: false, placeholder: '' },
+      { id: 'three', filename: 'three.jpg', src: 'https://cdn.example/three.jpg', width: 900, height: 700, alt: 'three alt', c2pa: false, placeholder: '' },
+    ],
+  } as unknown as GalleryManifest
+  mount(
+    <GlobalView
+      store={store}
+      tier="free"
+      current={current}
+      onlineGallery={{ selection: current, manifest }}
+      objectUrls={objectUrls()}
+      onOpenFrame={() => {}}
+      onClose={() => {}}
+    />,
+  )
+  await settle()
+
+  // Merging the online manifest must not cost a photograph its saved bytes:
+  // the two the vault holds are still read from it, and only the new one is
+  // left without an entry to read.
+  const entryIds = store.reads.map((read) => read.entryId)
+  expect(entryIds.includes('thumb-one')).toBe(true)
+  expect(entryIds.includes('thumb-two')).toBe(true)
+  expect(entryIds).not.toContain('thumb-three')
+  expect(entryIds).not.toContain('')
+})
 
 test('online current gallery is selectable immediately while the vault is empty', async () => {
   const current = { owner: 'photographer', slug: 'quiet-light' }

@@ -1394,8 +1394,7 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
 .native-gallery-list li > .native-gallery-link { grid-row: 3; }
 .native-gallery-list li > .native-gallery-cover-open { grid-row: 4; }
 .native-gallery-list li > .native-gallery-actions { grid-row: 5; }
-.native-gallery-list li > .native-gallery-remove-confirm { grid-row: 6; }
-.native-gallery-list li > .native-gallery-remove-confirm { grid-column: 1 / -1; grid-row: 5; }
+.native-gallery-list li > .native-gallery-remove-confirm { grid-column: 1 / -1; grid-row: 6; }
 .native-gallery-list li.is-cover-right > .native-gallery-cover-open { grid-column: 2; }
 .native-gallery-list li.is-cover-right > .native-gallery-row,
 .native-gallery-list li.is-cover-right > .native-gallery-actions { grid-column: 1; }

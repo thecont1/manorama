@@ -32,14 +32,13 @@ new = """            <div class="native-drawer-brand native-account-side">
               <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
             </div>"""
 if old not in s:
-    sys.exit('drawer brand anchor missing')
-p.write_text(s.replace(old, new, 1))
-print('ok: drawer brand markup')
+    sys.exit('drawer brand anchor missing — nothing written')
+
 
 # 2 — the stylesheet stops restating the brand's sizes.
-p = Path('native/styles.css')
-s = p.read_text()
-old = """.native-drawer-brand {
+p2 = Path('native/styles.css')
+s2 = p2.read_text()
+styles_old = """.native-drawer-brand {
   display: block;
   min-width: 0;
 }
@@ -53,7 +52,7 @@ old = """.native-drawer-brand {
   max-width: 100%;
   height: auto;
 }"""
-new = """/* The menu's brand carries `.native-account-side`, so the wordmark's cap and
+styles_new = """/* The menu's brand carries `.native-account-side`, so the wordmark's cap and
    the tagline's measure are the account page's own rules rather than numbers
    copied here — the tagline wraps at the same word at every width. Only the
    column is re-anchored: the menu's brand starts at the panel's edge and runs
@@ -64,8 +63,11 @@ new = """/* The menu's brand carries `.native-account-side`, so the wordmark's c
   width: 100%;
   margin-inline: 0;
 }"""
-if old not in s:
-    sys.exit('drawer brand styles anchor missing')
-s = s.replace(old, new, 1)
-p.write_text(s)
+if styles_old not in s2:
+    sys.exit('drawer brand styles anchor missing — nothing written')
+
+# Both anchors hold, so both files change together.
+p.write_text(s.replace(old, new, 1))
+print('ok: drawer brand markup')
+p2.write_text(s2.replace(styles_old, styles_new, 1))
 print('ok: drawer brand styles')

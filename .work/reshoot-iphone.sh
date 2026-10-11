@@ -6,8 +6,8 @@
 # manifest fetch can time out inside one long build-and-shoot run.
 set -uo pipefail
 
-REPO=/Users/home/DEV/tools/manorama
-PORT=4181
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PORT="${CAPTURE_PORT:-4181}"
 UDID="${UDID:-}"
 OUT="$REPO/demo-captures/ios"
 HARNESS_APP=/tmp/capture-harness-build/Build/Products/Debug-iphonesimulator/App.app
@@ -33,13 +33,18 @@ fi
 [[ -n "$UDID" ]] || { echo "no booted iPhone simulator" >&2; exit 1; }
 echo "simulator: $UDID"
 
-lsof -ti :$PORT | xargs -r kill -9 2>/dev/null || true
-sleep 1
-( cd "$REPO" && exec bun .work/capture-server.ts ) >/tmp/reshoot-capture-server.log 2>&1 &
+# Never force-kill whatever happens to hold the port: it may be the owner's
+# own server. Report it, and only ever stop the server this script started.
+if lsof -ti :"$PORT" >/dev/null 2>&1; then
+  echo "port $PORT is already in use; stop that process or set CAPTURE_PORT" >&2
+  exit 1
+fi
+SERVER_LOG="$(mktemp /tmp/reshoot-capture-server.XXXXXX.log)"
+( cd "$REPO" && exec bun .work/capture-server.ts ) >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 60); do
   curl -sf "http://localhost:$PORT/__capture/status" >/dev/null && break
-  kill -0 "$SERVER_PID" 2>/dev/null || { echo "capture server died" >&2; tail -20 /tmp/reshoot-capture-server.log >&2; exit 1; }
+  kill -0 "$SERVER_PID" 2>/dev/null || { echo "capture server died" >&2; tail -20 "$SERVER_LOG" >&2; exit 1; }
   sleep 1
 done
 
@@ -47,17 +52,29 @@ mkdir -p "$OUT"
 
 shoot() { # <name> <settle seconds>
   sleep "$2"
-  xcrun simctl io "$UDID" screenshot "$OUT/$1" >/dev/null 2>&1
+  # A capture that did not happen must report failure: a missing file that the
+  # driver treats as captured is how a matrix silently loses a state.
+  if ! xcrun simctl io "$UDID" screenshot "$OUT/$1" >/dev/null 2>&1; then
+    rm -f "$OUT/$1"
+    printf '  %-30s CAPTURE FAILED\n' "$1" >&2
+    return 1
+  fi
   local dims
   dims="$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
+  if [[ -z "$dims" ]]; then
+    rm -f "$OUT/$1"
+    printf '  %-30s CAPTURE UNREADABLE\n' "$1" >&2
+    return 1
+  fi
   printf '  %-30s %s\n' "$1" "$dims"
+  return 0
 }
 
 drive() { # <state> <name> <settle>
   local state="$1" name="$2" settle="$3" ready=0
   curl -sf "http://localhost:$PORT/state/$state" >/dev/null || { echo "state $state not accepted" >&2; return 1; }
   xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true
-  xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1
+  xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || { echo "state $state could not launch" >&2; return 1; }
   for _ in $(seq 1 60); do
     sleep 2
     if curl -sf "http://localhost:$PORT/__capture/report" 2>/dev/null | grep -q '"ready":true'; then
@@ -73,15 +90,15 @@ drive() { # <state> <name> <settle>
   shoot "$name" "$settle"
 }
 
+failures=""
 log "01 opening screen (shipped bundle)"
 xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true
-xcrun simctl install "$UDID" "$(prep_app "$PLAIN_APP")" >/dev/null 2>&1
-xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1
-shoot 01-opening-screen.png 5
+xcrun simctl install "$UDID" "$(prep_app "$PLAIN_APP")" >/dev/null 2>&1 || { echo "the plain bundle could not be installed" >&2; exit 1; }
+xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || { echo "the plain bundle could not be launched" >&2; exit 1; }
+shoot 01-opening-screen.png 5 || failures="$failures 01"
 
 log "harness states"
-xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1
-failures=""
+xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1 || { echo "the harness bundle could not be installed" >&2; exit 1; }
 drive 0 02-gallery-curtain.png 1 || failures="$failures 02"
 drive 1 03-first-image-hover.png 1 || failures="$failures 03"
 drive 2 04-controls-popover.png 1 || failures="$failures 04"
