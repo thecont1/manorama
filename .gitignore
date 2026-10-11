@@ -68,3 +68,6 @@ submission/*.zip
 
 # MCP result cache written by the local tool bridge.
 .manus/
+
+# macOS capture scratch (screenshots, coverage dumps, throwaway probes).
+/.work/macos-capture/
