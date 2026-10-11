@@ -2,7 +2,11 @@
 
 /* The Tauri shell is a desktop-sized native surface, not the legacy web
    catalogue. It shares the native canvas, type scale, quiet controls and
-   photo-first viewer geometry while retaining local-folder affordances. */
+   photo-first viewer geometry while retaining local-folder affordances.
+   The catalogue itself is the shared admin workbench (app/styles.css):
+   the galleries run the page's full width and the account waits behind
+   the left-edge tab — only the local-source controls and the macOS window
+   chrome are added here. */
 body.manorama-desktop {
   --desktop-safe-top: 28px;
   /* One height for the whole bottom control row — the row, the brand button and
@@ -13,6 +17,8 @@ body.manorama-desktop {
   padding: 0;
 }
 
+/* The window is undecorated (titleBarStyle Overlay): this strip keeps the
+   traffic-light height draggable on every surface. */
 .desktop-titlebar {
   position: fixed;
   inset: 0 0 auto;
@@ -27,23 +33,6 @@ body.manorama-desktop {
   padding: calc(var(--desktop-safe-top) + clamp(28px, 5vw, 64px)) clamp(28px, 6vw, 96px) 48px;
   background: var(--gallery-canvas);
 }
-
-/* The signed-in catalogue IS the web dashboard's admin surface: every
-   `.admin-*` rule lives in app/styles.css and is imported above, so the Mac
-   app only has to place it in a window — clear of the overlay title bar, and
-   on the admin surface rather than the viewer's near-black canvas. The account
-   pane and the edge tab take their colour from `--admin-surface`, which the
-   shared rules already set per theme; only the page behind them needs naming
-   here, because `body.manorama-desktop`'s canvas would otherwise win at equal
-   specificity. */
-body.manorama-desktop:has(.admin-page) {
-  background: #111312;
-  overflow: clip auto;
-}
-body.manorama-desktop .admin-page--selector {
-  padding-top: calc(var(--desktop-safe-top) + clamp(28px, 5vw, 64px));
-}
-html.light body.manorama-desktop:has(.admin-page) { background: #e9e5dc; }
 
 /* Opening surface: same floating mark, quiet copy and icon triangle as iOS. */
 .desktop-welcome {
@@ -111,44 +100,91 @@ html.light body.manorama-desktop:has(.admin-page) { background: #e9e5dc; }
 .desktop-signin-icon:hover svg,
 .desktop-signin-icon:focus-visible svg { transform: translateY(-4px) scale(1.08); filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45)); }
 .desktop-welcome .landing-note { color: rgba(var(--ink), .7); }
+.desktop-account-signin { margin-top: 34px; text-align: left; }
+.desktop-account-signin .desktop-signin-icons { justify-content: flex-start; }
+.desktop-notice { color: rgba(var(--ink), .68); }
 
-/* The catalogue's own quadrant content. Everything structural around it —
-   the workbench, the account pane, the theme — is the shared admin surface. */
-.desktop-import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.desktop-sync-state { display: block; margin: 14px 0 0; color: rgba(var(--ink), .48); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; }
+/* ── The catalogue workbench ──────────────────────────────────────────────
+   Everything below is the desktop's own contribution: the local-source
+   picker in the top-right quadrant, the clickable photographic rail, and
+   the light-mode corrections for the surfaces this shell paints itself. */
 
-/* Rows wear the web dashboard's card typography — brand-face title, quiet
-   count, mono address — over the local-first affordances a Mac owner needs:
-   a thumbnail, an inline photo grid, rescan, publish, remove. */
-.desktop-gallery-actions button,
-.desktop-paste button { border: 1px solid rgba(var(--ink), .22); border-radius: 0; padding: 9px 14px; background: transparent; color: rgba(var(--ink), .82); font: inherit; font-size: 12px; cursor: pointer; }
-.desktop-gallery-actions button:hover,
-.desktop-gallery-actions button:focus-visible { border-color: rgba(var(--ink), .78); color: rgb(var(--ink)); }
-.desktop-gallery-actions button:disabled { opacity: .45; cursor: default; }
-.desktop-galleries { display: grid; gap: 0; border-top: 1px solid rgba(var(--ink), .1); }
-.desktop-gallery { padding: 24px 0 28px; border-bottom: 1px solid rgba(var(--ink), .1); }
-.desktop-gallery-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; width: 100%; min-height: 16dvh; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.desktop-gallery-row-thumb-right { grid-template-columns: auto minmax(0, 1fr); }
-.desktop-gallery-copy { display: grid; grid-row: 1 / span 2; gap: 10px; min-width: 0; padding: 0 20px; }
-.desktop-gallery-row-thumb-left .desktop-gallery-copy { grid-column: 1; }
-.desktop-gallery-row-thumb-right .desktop-gallery-copy { grid-column: 2; }
-.desktop-gallery-heading { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
-.desktop-gallery-heading strong { overflow: hidden; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 32px; font-weight: 500; letter-spacing: -.04em; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-gallery-heading span { flex: 0 0 auto; color: rgba(var(--ink), .62); font-size: 12px; }
-.desktop-gallery-subtitle { color: rgba(var(--ink), .58); font-size: 12px; line-height: 1.6; }
-.desktop-gallery-link { overflow: hidden; color: rgba(var(--ink), .5); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-gallery-thumb { grid-row: 1 / span 2; width: auto; height: 16dvh; max-width: min(42%, 320px); object-fit: contain; background: #080908; display: block; }
-.desktop-gallery-row-thumb-left .desktop-gallery-thumb { grid-column: 2; }
-.desktop-gallery-row-thumb-right .desktop-gallery-thumb { grid-column: 1; }
-.desktop-gallery-row:disabled { opacity: .52; cursor: default; }
-.desktop-gallery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding: 0 20px; }
-.desktop-gallery-actions button { padding: 6px 11px; }
-.desktop-badge-unavailable { color: rgba(240, 188, 92, .82); font-size: 11px; }
-.desktop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; margin-top: 16px; padding: 0 20px; }
-.desktop-thumb { display: grid; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: zoom-in; }
-.desktop-thumb img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #060606; }
-.desktop-thumb-name { overflow: hidden; color: rgba(var(--ink), .5); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-empty { grid-column: 1 / -1; color: rgba(var(--ink), .55); font-size: 13px; }
+.desktop-catalogue { padding-bottom: clamp(40px, 6vw, 88px); }
+
+.desktop-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.desktop-source-actions .admin-button { min-height: 48px; }
+.desktop-source-note {
+  margin: 14px 0 0;
+  color: rgba(var(--ink), .82);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.desktop-catalogue .desktop-sync-state {
+  margin: 8px 0 0;
+  color: rgba(var(--ink), var(--admin-muted, .72));
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+.desktop-device-line {
+  margin: 14px 0 0;
+  /* .72, not .6: the pane's ground is light in light mode and .6 lands at
+     4.3:1 — under AA for text this size. Verified by the browser suite. */
+  color: rgba(var(--ink), .72);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+.desktop-badge-unavailable { margin: 10px 0 0; color: rgba(240, 188, 92, .88); font-size: 12px; }
+.desktop-empty { margin: 0; color: rgba(var(--ink), .7); font-size: 13px; }
+
+/* The rail is a row of buttons, not the web editor's draggable figures: same
+   geometry, but a click opens that photograph in the shared viewer. */
+.desktop-catalogue .admin-gallery-strip-item {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.desktop-catalogue .admin-gallery-strip-item:disabled { cursor: default; opacity: .45; }
+/* The first frame is the gallery's face, so it carries the shocking pink the
+   picker gives the photograph in hand (native/styles.css, same rule). */
+.desktop-catalogue .admin-gallery-strip-item.is-active {
+  z-index: 1;
+  outline: 3px solid #fc0fc0;
+  outline-offset: -3px;
+}
+.desktop-catalogue .admin-gallery-strip-item:focus-visible {
+  z-index: 2;
+  outline: 3px solid rgb(var(--ink));
+  outline-offset: -3px;
+  box-shadow: none;
+}
+
+/* The share sheet is a card-level panel: it spans the card's grid like the
+   rail above it. */
+.desktop-share-host { grid-column: 1 / -1; min-width: 0; }
+.desktop-share { margin-top: 0; padding: 14px; border: 1px solid rgba(var(--ink), .18); background: rgba(0, 0, 0, .16); }
+.desktop-share-header { display: flex; justify-content: space-between; gap: 12px; }
+.desktop-share-header h3 { margin: 0; font-size: 15px; font-weight: 400; }
+.desktop-share-providers, .desktop-share-confirm, .desktop-share-connecting, .desktop-share-progress, .desktop-share-done { display: grid; gap: 10px; }
+.desktop-share-provider { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .52); font-size: 11px; }
+.desktop-share-confirm-actions { display: flex; gap: 8px; }
+
+.desktop-paste { display: grid; gap: 8px; margin-top: 24px; padding: 14px; border: 1px solid rgba(var(--ink), .16); background: rgba(0, 0, 0, .16); }
+.desktop-paste label { display: grid; gap: 6px; color: rgba(var(--ink), .62); font-size: 12px; }
+.desktop-paste input { border: 0; border-bottom: 1px solid rgba(var(--ink), .25); padding: 9px 2px; background: transparent; color: inherit; font: inherit; }
+.desktop-paste button { justify-self: start; border: 1px solid rgba(var(--ink), .22); border-radius: 999px; padding: 9px 14px; background: transparent; color: rgba(var(--ink), .82); font: inherit; font-size: 12px; cursor: pointer; }
+.desktop-paste button:hover, .desktop-paste button:focus-visible { border-color: rgba(var(--ink), .78); color: rgb(var(--ink)); }
+.desktop-paste-hint { margin: 0; color: rgba(var(--ink), .48); font-size: 11px; line-height: 1.4; }
+
+/* ── The viewing stage ─────────────────────────────────────────────────── */
+
+.desktop-back { position: fixed; top: calc(var(--desktop-safe-top) + 10px); left: 18px; z-index: 110; border: 0; border-bottom: 1px solid rgba(var(--ink), .4); padding: 0 0 2px; background: transparent; color: rgba(var(--ink), .72); font: inherit; font-size: 12px; cursor: pointer; }
+.desktop-back:hover, .desktop-back:focus-visible { color: rgb(var(--ink)); border-color: rgb(var(--ink)); }
+.desktop-back:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 
 /* Viewer/curtain geometry matches native. */
 body.manorama-desktop .curtain-content { display: grid; grid-template-rows: 1fr 1fr; align-items: center; width: min(1200px, 100%); height: 100%; text-align: center; transform: none; }
@@ -162,7 +198,7 @@ body.manorama-desktop .curtain-caption { margin: 0 auto; }
   body.manorama-desktop .curtain-logo-wrap { grid-column: 1; grid-row: 1; }
   body.manorama-desktop .curtain-details { grid-column: 2; grid-row: 1; }
 }
-body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: clamp(48px, 7.4svh, 72px); pointer-events: none; }
+body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
 body.manorama-desktop .stage-arrows > button,
 body.manorama-desktop .control-logo { box-sizing: border-box; width: 100%; height: 100%; margin: 0; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: rgba(10, 10, 10, .62); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .9); pointer-events: auto; }
 body.manorama-desktop .stage-arrows .stage-nav-arrow--previous { grid-column: 1; grid-row: 1; }
@@ -170,41 +206,28 @@ body.manorama-desktop .stage-arrows .stage-seq { grid-column: 3; grid-row: 1; mi
 body.manorama-desktop .stage-arrows .stage-nav-arrow--next { grid-column: 4; grid-row: 1; }
 body.manorama-desktop .control-logo { z-index: 22; left: 50%; bottom: 18px; width: calc((100vw - 60px) / 4); display: grid; place-items: center; padding: 0; transform: translateX(-50%); opacity: 1; }
 body.manorama-desktop .control-logo:hover { transform: translateX(-50%); }
-body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: 78%; margin: 0 auto; opacity: .9; transform: none; animation: none; }
-.desktop-back { position: fixed; top: calc(var(--desktop-safe-top) + 10px); left: 18px; z-index: 110; border: 0; border-bottom: 1px solid rgba(var(--ink), .4); padding: 0 0 2px; background: transparent; color: rgba(var(--ink), .72); font: inherit; font-size: 12px; cursor: pointer; }
+/* This button is `position: fixed`, so the `height: 100%` it shares with the
+   row's buttons above would resolve against the viewport, not the row: the
+   wordmark and its pill would paint at viewport scale and float behind the
+   photographs. Pin it to the row height instead. */
+body.manorama-desktop .control-logo { height: var(--desktop-chrome-height); }
+/* A percentage height is no safer here than on the button: the wrap's containing
+   block is a fixed-position element, so 78% resolves against the viewport and
+   the wordmark paints at viewport scale. Derive it instead. */
+body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: calc(var(--desktop-chrome-height) * .78); margin: 0 auto; opacity: .9; transform: none; animation: none; }
 
-.desktop-notice { color: rgba(var(--ink), .68); }
-.desktop-paste { display: grid; gap: 8px; margin-top: 24px; padding: 14px; border: 1px solid rgba(var(--ink), .16); background: rgba(0,0,0,.16); }
-.desktop-paste label { display: grid; gap: 6px; color: rgba(var(--ink), .62); font-size: 12px; }
-.desktop-paste input { border: 0; border-bottom: 1px solid rgba(var(--ink), .25); padding: 9px 2px; background: transparent; color: inherit; font: inherit; }
-.desktop-paste button { justify-self: start; }
-.desktop-paste-hint { margin: 0; color: rgba(var(--ink), .48); font-size: 11px; line-height: 1.4; }
-.desktop-share { margin-top: 14px; padding: 14px; border: 1px solid rgba(var(--ink), .18); background: rgba(0,0,0,.16); }
-.desktop-share-header { display: flex; justify-content: space-between; gap: 12px; }
-.desktop-share-header h3 { margin: 0; font-size: 15px; font-weight: 400; }
-.desktop-share-providers, .desktop-share-confirm, .desktop-share-connecting, .desktop-share-progress, .desktop-share-done { display: grid; gap: 10px; }
-.desktop-share-provider { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
-.desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .52); font-size: 11px; }
-.desktop-share-confirm-actions { display: flex; gap: 8px; }
-
-/* Light mode flips the whole surface through `html.light` in app/styles.css.
-   The two photo mounts follow the web dashboard's rail rather than staying
-   near-black on a light page — the photographs themselves are untouched. */
-html.light .desktop-gallery-thumb,
-html.light .desktop-thumb img { background: #dcd7cb; }
-html.light .desktop-paste,
-html.light .desktop-share { background: rgba(var(--ink), .04); }
+/* ── Light theme ─────────────────────────────────────────────────────────
+   `html.light` (set by the account pane's theme action) flips `--ink` for
+   the whole stylesheet. Any surface this shell paints with its own dark
+   ground has to follow, or light ink lands on a dark box. */
+html.light body.manorama-desktop { background: #e9e5dc; }
+html.light body.manorama-desktop .desktop-welcome,
+html.light body.manorama-desktop .desktop-shell { background: #e9e5dc; color: rgb(var(--ink)); }
+html.light body.manorama-desktop .desktop-paste,
+html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04); }
 
 @media (prefers-reduced-motion: reduce) {
   .desktop-signin-icon svg { transition: none; }
 }
-/* This button is `position: fixed`, so the `height: 100%` it shares with the
-   row's buttons above resolved against the viewport, not the row: the wordmark
-   and its pill painted at viewport scale and floated behind the photographs.
-   Pin it to the row height instead. */
-body.manorama-desktop .control-logo { height: var(--desktop-chrome-height); }
-body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
-/* A percentage height is no safer here than on the button: the wrap's containing
-   block is a fixed-position element, so 78% resolved against the viewport and
-   the wordmark painted at viewport scale. Derive it instead. */
-body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: calc(var(--desktop-chrome-height) * .78); margin: 0 auto; opacity: .9; transform: none; animation: none; }
+.desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .68); font-size: 11px; }
+.desktop-paste-hint { margin: 0; color: rgba(var(--ink), .68); font-size: 11px; line-height: 1.4; }

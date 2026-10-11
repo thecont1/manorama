@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { blockProductionApi, bridgePayload, installBridge } from './desktop-admin-fixture'
@@ -29,6 +29,22 @@ const sizes = [
   { name: 'wide', width: 2560, height: 1440 },
 ]
 
+/**
+ * dev serves the stylesheet out of the module graph, so it can land after the
+ * DOM does. An unstyled page still measures plausible-looking numbers — the
+ * edge tab at the body's 8px margin, the drawer scrim with no size at all — and
+ * WebKit is the engine where that shows first. Both signals come only from the
+ * app's own CSS, so wait for them before measuring anything.
+ */
+const settleStyles = (page: Page) =>
+  expect
+    .poll(() => page.evaluate(() => {
+      const tab = document.querySelector('.admin-edge-tab')
+      const scrim = document.querySelector('.admin-drawer-scrim')
+      return `${tab ? getComputedStyle(tab).position : 'none'}/${scrim ? getComputedStyle(scrim).position : 'none'}`
+    }), { timeout: 15_000 })
+    .toBe('fixed/absolute')
+
 for (const size of sizes) {
   for (const reduced of [false, true]) {
     test(`desktop admin ${size.name}${reduced ? ' without motion' : ''}: quadrants, pane, both themes`, async ({ browser }) => {
@@ -48,6 +64,7 @@ for (const size of sizes) {
         const api = await blockProductionApi(page)
         await page.goto(base, { waitUntil: 'domcontentloaded' })
         await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
+        await settleStyles(page)
 
         // The pane is closed until asked for, and the tab that opens it is a
         // 44px target centred on the left edge.
@@ -92,10 +109,13 @@ for (const size of sizes) {
         expect(api.calls()).toBeGreaterThan(0)
 
         // The local catalogue is on the page, in the web dashboard's type.
-        const rows = page.locator('.desktop-gallery')
-        await expect(rows).toHaveCount(2)
-        await expect(rows.first()).toContainText('Bangkok Rain')
-        await expect(rows.first()).toContainText('(25 photos)')
+        // The galleries are the web dashboard's own cards, each hanging its
+        // rail of originals beneath the card body. The rail's geometry is
+        // measured in desktop-catalogue.playwright.ts.
+        const cards = page.locator('.admin-gallery-card')
+        await expect(cards).toHaveCount(2)
+        await expect(cards.first()).toContainText('Bangkok Rain')
+        await expect(cards.first()).toContainText('(25 photos)')
         await expect(page.getByText('/Volumes/NO NAME/DCIM')).toBeVisible()
 
         for (const theme of ['dark', 'light'] as const) {
@@ -167,6 +187,7 @@ test('the desktop admin surface survives a resize without losing the pane state'
     await blockProductionApi(page)
     await page.goto(base, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
+    await settleStyles(page)
     const tab = page.getByRole('button', { name: 'Account menu', exact: true })
     const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
     await tab.click()
