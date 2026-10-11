@@ -162,3 +162,17 @@ export const applyVaultCap = (
   vault.setCap(cap)
   return cap
 }
+
+/** An opt-out belongs to this gallery on this device, not to the account.
+ * Turning it on cancels future fills; it never deletes an existing vault copy. */
+export const GALLERY_STREAM_ONLY_KEY = 'manorama.vault.stream-only-galleries'
+export const galleryPolicyKey = (owner: string, slug: string) => JSON.stringify([owner, slug])
+export const loadGalleryStreamOnly = async (persistence: VaultCapPersistence = preferencesPersistence): Promise<Record<string, boolean>> => {
+  try {
+    const parsed: unknown = JSON.parse(await persistence.get(GALLERY_STREAM_ONLY_KEY) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true))
+  } catch { return {} }
+}
+export const saveGalleryStreamOnly = async (policies: Record<string, boolean>, persistence: VaultCapPersistence = preferencesPersistence) =>
+  persistence.set(GALLERY_STREAM_ONLY_KEY, JSON.stringify(policies))

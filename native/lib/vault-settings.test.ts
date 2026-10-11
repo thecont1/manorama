@@ -4,6 +4,7 @@ import { defaultGallerySettings } from '../../app/lib/gallery-settings'
 import { EncryptedOfflineGalleryStore } from './offline-gallery'
 import type { NativeTier } from './billing'
 import {
+  galleryPolicyKey, loadGalleryStreamOnly, saveGalleryStreamOnly,
   applyVaultCap,
   assertCapAllowed,
   createVaultSettingsController,
@@ -240,4 +241,16 @@ describe('vault settings controller', () => {
     // write or an explicit eviction decides otherwise.
     expect((await vault.usage()).indexedBytes).toBe(before)
   })
+})
+
+
+test('gallery download opt-out defaults off and stays isolated by owner and gallery', async () => {
+  const persistence = new MemoryPersistence()
+  expect(await loadGalleryStreamOnly(persistence)).toEqual({})
+  const key = galleryPolicyKey('one', 'album')
+  await saveGalleryStreamOnly({ [key]: true }, persistence)
+  const policies = await loadGalleryStreamOnly(persistence)
+  expect(policies[key]).toBe(true)
+  expect(policies[galleryPolicyKey('two', 'album')]).toBeUndefined()
+  expect(policies[galleryPolicyKey('one', 'other')]).toBeUndefined()
 })

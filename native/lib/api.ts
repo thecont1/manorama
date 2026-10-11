@@ -114,7 +114,15 @@ export const fetchAccountGalleries = async (
   const payload = await response.json().catch(() => ({})) as { galleries?: GallerySummary[]; error?: string }
   if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || `Gallery list request failed (${response.status})`)
   if (!Array.isArray(payload.galleries)) throw new Error('Gallery list response was incomplete')
-  return payload.galleries
+  return payload.galleries.map((gallery) => ({
+    ...gallery,
+    ...(gallery.images ? { images: gallery.images.map((image) => ({
+      ...image,
+      src: absoluteUrl(image.src, apiBase),
+      variants: image.variants?.map((variant) => rewriteVariant(variant, apiBase)),
+      ...('type' in image && image.type === 'video' ? { poster: { ...image.poster, src: absoluteUrl(image.poster.src, apiBase) } } : {}),
+    })) } : {}),
+  }))
 }
 
 /** The private device catalogue the Mac publishes: metadata only, no paths

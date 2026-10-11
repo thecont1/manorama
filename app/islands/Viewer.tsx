@@ -32,6 +32,9 @@ type Props = {
   /** Native shells route the existing position pill to their vault-backed
    *  global thumbnail picker. Web and desktop keep the local filmstrip. */
   onOpenGlobalView?: (index: number) => void
+  /** Native-only actions remain in the controls panel, never on the stage. */
+  onReturnToGalleries?: () => void
+  deviceControls?: unknown
   /** Mount-time frame entry — the global grid lands the stage on the tapped
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
@@ -152,7 +155,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, initialIndex = 0, alwaysShowNavigation = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -2286,6 +2289,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               <h2>Display settings</h2>
             </div>
           </div>
+
+          {onReturnToGalleries ? <section class="panel-section"><button type="button" class="panel-action" onClick={onReturnToGalleries}>Back to your galleries</button></section> : null}
+          {deviceControls}
 
           <section class="panel-section" aria-labelledby="view-mode-heading">
             <h3 id="view-mode-heading">View mode</h3>

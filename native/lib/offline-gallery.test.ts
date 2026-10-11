@@ -593,3 +593,12 @@ describe('EncryptedOfflineGalleryStore grid catalog', () => {
     expect(await store.readThumbnail(galleryId, 'no-such-entry')).toBeUndefined()
   })
 })
+
+
+test('cache progress counts only photos written into the encrypted vault', async () => {
+  const { store } = makeHarness()
+  const progress: { completed: number; total: number }[] = []
+  await store.cache(selection, gallery, undefined, (next) => progress.push(next))
+  expect(progress).toEqual([{ completed: 0, total: 2 }, { completed: 1, total: 2 }, { completed: 2, total: 2 }])
+  expect((await store.inspect(selection)).status).toBe('complete')
+})

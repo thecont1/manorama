@@ -188,3 +188,17 @@ describe('fetchDeviceGalleries', () => {
     await expect(fetchDeviceGalleries('https://manorama.xyz')).rejects.toThrow('Device gallery list response was incomplete')
   })
 })
+
+
+test('account thumbnail and video poster URLs resolve against the API, never the bundled app', async () => {
+  installLocalStorage()
+  fetchSpy(() => json({ galleries: [{ slug: 'album', images: [
+    { id: 'a', src: '/api/dropbox/file?a', variants: [{ src: '/api/dropbox/thumb?a', width: 100, format: 'jpeg' }] },
+    { id: 'b', type: 'video', src: '/api/icloud/video', poster: { src: '/api/icloud/poster' } },
+  ] }] }))
+  const [gallery] = await fetchAccountGalleries('https://manorama.xyz')
+  expect(gallery.images[0].src).toBe('https://manorama.xyz/api/dropbox/file?a')
+  expect(gallery.images[0].variants?.[0].src).toBe('https://manorama.xyz/api/dropbox/thumb?a')
+  const video = gallery.images[1]
+  expect('poster' in video && video.poster.src).toBe('https://manorama.xyz/api/icloud/poster')
+})

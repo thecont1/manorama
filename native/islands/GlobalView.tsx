@@ -1,3 +1,5 @@
+import type { GalleryManifest } from '../../app/lib/imagesource'
+import { isVideoItem } from '../../app/lib/imagesource'
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import type { NativeTier } from '../lib/billing'
 import {
@@ -17,6 +19,8 @@ type Store = Pick<OfflineGalleryStore, 'gridGallery' | 'listGridGalleries' | 're
 
 type Props = {
   store: Store
+  onlineGallery?: { selection: GallerySelection; manifest: GalleryManifest }
+  downloadNote?: string
   tier: NativeTier | undefined
   /** The gallery currently open on the stage — the Free tier's whole scope. */
   current: GallerySelection | null
@@ -40,7 +44,7 @@ const defaultObjectUrls: OfflineObjectUrlProvider = {
 const emptyNote = (tier: NativeTier | undefined, current: GallerySelection | null): string => {
   if (tier === 'pro') return 'Nothing on this device yet. Photos from galleries you open will appear here.'
   if (!current) return 'Open a gallery first — photos from it will appear here as they become available.'
-  return 'This gallery is still settling onto this device. Viewed photographs appear here once the vault holds them.'
+  return 'No offline copy is available for this gallery. Open it online to browse its photographs.'
 }
 
 /** One grid cell. The <img> materializes only when the cell nears the
@@ -50,6 +54,7 @@ const FrameCell = ({
   gallery,
   frame,
   loader,
+  remoteSrc,
   observe,
   active,
   onOpen,
@@ -57,6 +62,7 @@ const FrameCell = ({
   gallery: OfflineGridGallery
   frame: OfflineGridFrame
   loader: GridThumbLoader
+  remoteSrc?: string
   observe: ((el: Element, cb: () => void) => () => void) | null
   active: boolean
   onOpen: (selection: GallerySelection, index: number) => void
@@ -65,7 +71,7 @@ const FrameCell = ({
   const cellRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
-    if (url !== null) return
+    if (url !== null || !frame.entryId) return
     let cancelled = false
     const materialize = () => {
       void loader.urlFor(gallery.galleryId, frame).then((next) => {
@@ -96,8 +102,8 @@ const FrameCell = ({
       onClick={() => onOpen({ owner: gallery.owner, slug: gallery.slug }, frame.index)}
       aria-label={`${gallery.title}, photo ${frame.index + 1} of ${gallery.frames.length}`}
     >
-      {url ? (
-        <img src={url} width={frame.width} height={frame.height} alt={frame.alt} draggable={false} />
+      {url || remoteSrc ? (
+        <img src={url ?? remoteSrc} width={frame.width} height={frame.height} alt={frame.alt} draggable={false} />
       ) : null}
     </button>
   )
@@ -107,6 +113,8 @@ const FrameCell = ({
  *  and honest about what it is: a private contact sheet, never uploaded. */
 export default function GlobalView({
   store,
+  onlineGallery,
+  downloadNote,
   tier,
   current,
   active = null,
@@ -144,13 +152,20 @@ export default function GlobalView({
           found = grid ? [grid] : []
         }
         if (!active) return
-        if (found.length === 0 && current && retriesLeft > 0) {
+        if (found.length === 0 && current && !onlineGallery && retriesLeft > 0) {
           timer = setTimeout(() => setRetriesLeft((left) => left - 1), 700)
           return
         }
+        if (onlineGallery) {
+          found = found.filter((gallery) => gallery.owner !== onlineGallery.selection.owner || gallery.slug !== onlineGallery.selection.slug)
+          found.unshift({ galleryId: await offlineGalleryId(onlineGallery.selection), ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: onlineGallery.manifest.images.map((image, index) => ({ id: image.id, entryId: '', mimeType: '', width: image.width, height: image.height, alt: image.alt, index })) })
+        }
         setGalleries(found)
       } catch {
-        if (active) setLoadError(true)
+        if (!active) return
+        if (onlineGallery) {
+          setGalleries([{ galleryId: 'online-current', ...onlineGallery.selection, title: onlineGallery.manifest.title, frames: onlineGallery.manifest.images.map((image, index) => ({ id: image.id, entryId: '', mimeType: '', width: image.width, height: image.height, alt: image.alt, index })) }])
+        } else setLoadError(true)
       }
     }
     void load()
@@ -158,7 +173,7 @@ export default function GlobalView({
       active = false
       if (timer) clearTimeout(timer)
     }
-  }, [galleries, retriesLeft, tier, current, store])
+  }, [galleries, retriesLeft, tier, current, store, onlineGallery])
 
   useEffect(() => () => loader.release(), [loader])
 
@@ -224,6 +239,7 @@ export default function GlobalView({
         </div>
       </header>
 
+      {downloadNote ? <p class="native-global-note" role="status">{downloadNote}</p> : null}
       {loadError ? (
         <p class="native-global-note" role="alert">
           The photos on this device could not be read.
@@ -243,6 +259,10 @@ export default function GlobalView({
                     gallery={gallery}
                     frame={frame}
                     loader={loader}
+                    remoteSrc={gallery.owner === onlineGallery?.selection.owner && gallery.slug === onlineGallery?.selection.slug ? (() => {
+                      const image = onlineGallery.manifest.images[frame.index]
+                      return isVideoItem(image) ? image.poster.src : image.variants?.[0]?.src ?? image.src
+                    })() : undefined}
                     observe={observe}
                     active={active?.selection.owner === gallery.owner && active.selection.slug === gallery.slug && active.index === frame.index}
                     onOpen={onOpenFrame}

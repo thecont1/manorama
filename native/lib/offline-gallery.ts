@@ -18,6 +18,8 @@ export type OfflineCacheResult =
   | { status: 'complete'; images: number }
   | { status: 'skipped-video'; images: 0 }
 
+export type OfflineCacheProgress = { completed: number; total: number }
+
 export type OfflineCacheInspection =
   | { status: 'complete'; images: number }
   | { status: 'missing' | 'incomplete' | 'corrupt'; images: 0 }
@@ -55,7 +57,7 @@ export type OfflineGridGallery = {
 }
 
 export interface OfflineGalleryStore {
-  cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal): Promise<OfflineCacheResult>
+  cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void): Promise<OfflineCacheResult>
   inspect(selection: GallerySelection): Promise<OfflineCacheInspection>
   open(selection: GallerySelection): Promise<OfflineGalleryLease | undefined>
   invalidate(selection: GallerySelection): Promise<void>
@@ -298,7 +300,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     }
   }
 
-  async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal): Promise<OfflineCacheResult> {
+  async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void): Promise<OfflineCacheResult> {
     // Captured synchronously at call time, before the gallery ID resolves: a
     // purge bumps the vault's mutation epoch inside its serialized boundary,
     // and every write below hands back the epoch this fill started under. A
@@ -318,6 +320,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     }
 
     const cachedImages: CachedImage[] = []
+    onProgress?.({ completed: 0, total: stillImages.length })
     for (const image of stillImages) {
       throwIfAborted(signal)
       const selected = offlineSourceFor(image)
@@ -334,6 +337,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         // let a version/image-ID-only feature record survive that replacement.
         await this.vault.remove(galleryId, localComputeEntryId(image.id))
         cachedImages.push({ id: image.id, entryId, mimeType })
+        onProgress?.({ completed: cachedImages.length, total: stillImages.length })
       } finally {
         bytes.fill(0)
       }
@@ -531,13 +535,14 @@ export const openGalleryNetworkFirst = async (options: {
   /** Defaults to the secure on-device vault. Stream mode never starts a new
    * cache fill, but existing complete vault copies remain available offline. */
   cachePolicy?: VaultLoadPolicy
+  onProgress?: (progress: OfflineCacheProgress) => void
   signal?: AbortSignal
 }): Promise<NetworkFirstGallery> => {
   try {
     const gallery = await options.fetchOnline(options.signal)
     const cacheFill = options.cachePolicy === 'stream'
       ? undefined
-      : options.store.cache(options.selection, gallery, options.signal)
+      : options.store.cache(options.selection, gallery, options.signal, options.onProgress)
     return { ...gallery, source: 'online', cacheFill }
   } catch (networkError) {
     throwIfAborted(options.signal)

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
 import { render } from 'hono/jsx/dom'
 import GlobalView from './GlobalView'
+import type { GalleryManifest } from '../../app/lib/imagesource'
 import { offlineGalleryId } from '../lib/offline-gallery'
 import type {
   GallerySelection,
@@ -300,4 +301,20 @@ describe('GlobalView', () => {
     expect(closed).toBe(1)
     container.remove()
   })
+})
+
+
+test('online current gallery is selectable immediately while the vault is empty', async () => {
+  const current = { owner: 'photographer', slug: 'quiet-light' }
+  const manifest: GalleryManifest = { slug: current.slug, title: 'Quiet light', caption: '', date: '', images: [{ id: 'online-one', filename: 'one.jpg', src: 'https://manorama.xyz/api/photo', width: 800, height: 600, alt: 'A photograph', c2pa: false, placeholder: '' }] }
+  const opened: number[] = []
+  const container = mount(<GlobalView store={makeStore([])} tier="free" current={current} onlineGallery={{ selection: current, manifest }} downloadNote="Saving 0 of 1 photos to your encrypted vault…" objectUrls={objectUrls()} onOpenFrame={(_, index) => opened.push(index)} onClose={() => {}} />)
+  await settle()
+  expect(container.querySelectorAll('[data-grid-frame]')).toHaveLength(1)
+  expect(container.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/api/photo')
+  expect(container.textContent).toContain('Saving 0 of 1')
+  click(container.querySelector('[data-grid-frame]'))
+  await settle()
+  expect(opened).toEqual([0])
+  container.remove()
 })
