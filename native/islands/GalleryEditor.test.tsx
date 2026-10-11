@@ -76,8 +76,13 @@ const installLocalStorage = () => {
   return data
 }
 
+/** `id` is deliberately not the order key: the manifest's handle differs from
+ *  the provider key the repository matches an order against, which is exactly
+ *  the confusion that made a save look like it worked when it had not. `b`
+ *  carries no `ref`, so the filename fallback is exercised too. */
 const photo = (id: string, width = 1200, height = 800) => ({
-  id,
+  id: `manifest-${id}`,
+  ...(id === 'b' ? {} : { ref: `ref-${id}` }),
   filename: `${id}.jpg`,
   src: `https://cdn.example/${id}.jpg`,
   width,
@@ -87,16 +92,9 @@ const photo = (id: string, width = 1200, height = 800) => ({
   placeholder: '',
 })
 
-const manifestBody = () => ({
-  manifest: {
-    slug: 'kashmir',
-    title: 'Kashmir',
-    caption: '',
-    date: '',
-    images: [photo('a'), photo('b'), photo('c')],
-  },
-  settings: {},
-})
+const orderKey = (item: { id: string; ref?: string; filename: string }) => item.ref ?? item.filename
+
+const readPhotos = () => [photo('a'), photo('b'), photo('c')]
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -105,14 +103,33 @@ type Call = { url: string; init?: RequestInit }
 let calls: Call[] = []
 const originalFetch = globalThis.fetch
 
-const stubFetch = (orderStatus = 200) => {
+/** A stub that behaves like the gallery: a PATCH of `order` really does
+ *  resequence what the next read returns, so the editor's read-back sees the
+ *  change it made. `ignoreOrder` models the old silent no-op — the route
+ *  answers 200 while the stored order never moves. */
+const stubFetch = (orderStatus = 200, options: { ignoreOrder?: boolean } = {}) => {
+  let storedOrder: string[] | null = null
   calls = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
     calls.push({ url, init })
-    if (url.includes('/api/gallery/')) return json(manifestBody())
+    if (url.includes('/api/gallery/')) {
+      const photos = readPhotos()
+      const images = storedOrder && !options.ignoreOrder
+        ? [
+            ...storedOrder
+              .map((key) => photos.find((item) => orderKey(item) === key))
+              .filter((item): item is (typeof photos)[number] => Boolean(item)),
+            ...photos.filter((item) => !storedOrder!.includes(orderKey(item))),
+          ]
+        : photos
+      return json({ manifest: { slug: 'kashmir', title: 'Kashmir', caption: '', date: '', images }, settings: {} })
+    }
     if (url.includes('/api/galleries/') && init?.method === 'PATCH') {
-      return orderStatus === 200 ? json({ gallery: { slug: 'kashmir' } }) : json({ error: 'That order could not be saved' }, orderStatus)
+      if (orderStatus !== 200) return json({ error: 'That order could not be saved' }, orderStatus)
+      const body = JSON.parse(String(init.body)) as { order?: string[] }
+      if (Array.isArray(body.order)) storedOrder = body.order
+      return json({ gallery: { slug: 'kashmir' } })
     }
     return new Response('{}', { status: 404 })
   }) as typeof fetch
@@ -200,7 +217,7 @@ describe('gallery editor', () => {
     expect((container.querySelector('.native-editor-save') as HTMLButtonElement).disabled).toBe(false)
   })
 
-  test('saves only the order it was given, and discards back to the stored one', async () => {
+  test('saves the provider key the repository reorders by, and discards back to the stored one', async () => {
     installLocalStorage()
     stubFetch()
     const { container } = mountEditor()
@@ -220,7 +237,9 @@ describe('gallery editor', () => {
     ;(container.querySelector('.native-editor-save') as HTMLButtonElement).click()
     await settle()
     const patch = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries/kashmir' && call.init?.method === 'PATCH')
-    expect(JSON.parse(String(patch?.init?.body))).toEqual({ order: ['a', 'c', 'b'] })
+    // `ref` when the provider gives one, the filename otherwise — never the
+    // manifest's own id, which matches nothing server-side.
+    expect(JSON.parse(String(patch?.init?.body))).toEqual({ order: ['ref-a', 'ref-c', 'b.jpg'] })
     expect(container.querySelector('.native-editor-note')?.textContent).toContain('saved')
     // A saved order is the new baseline, so the button goes quiet again.
     expect((container.querySelector('.native-editor-save') as HTMLButtonElement).disabled).toBe(true)
@@ -243,6 +262,32 @@ describe('gallery editor', () => {
       'https://cdn.example/c.jpg',
       'https://cdn.example/b.jpg',
     ])
+  })
+
+  test('an order the gallery did not take is never reported as saved', async () => {
+    installLocalStorage()
+    // The old failure: the route answers 200 and the stored order never moves.
+    stubFetch(200, { ignoreOrder: true })
+    const { container } = mountEditor()
+    await settle()
+
+    const cells = [...container.querySelectorAll('.native-global-cell')] as HTMLButtonElement[]
+    cells[1].click()
+    await settle()
+    cells[2].click()
+    await settle()
+    ;(container.querySelector('.native-editor-save') as HTMLButtonElement).click()
+    await settle()
+
+    expect(container.querySelector('.native-editor-note')?.textContent).toContain('did not take that order')
+    // The shuffle stays on screen and stays saveable, so the owner is not left
+    // believing a change landed when it did not.
+    expect(cellSources(container)).toEqual([
+      'https://cdn.example/a.jpg',
+      'https://cdn.example/c.jpg',
+      'https://cdn.example/b.jpg',
+    ])
+    expect((container.querySelector('.native-editor-save') as HTMLButtonElement).disabled).toBe(false)
   })
 
   test('a failed save keeps the shuffle on screen and says why', async () => {

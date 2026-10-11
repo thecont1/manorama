@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'hono/jsx'
-import type { GalleryManifest } from '../../app/lib/imagesource'
+import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
 import { CloseIcon } from '../../app/components/admin-icons'
 import { fetchGallery, updateGalleryOrder } from '../lib/api'
@@ -25,11 +25,28 @@ type Props = {
   onSaved?: () => void
 }
 
-type EditorPhoto = { id: string; src: string; width: number; height: number; label: string }
+type EditorPhoto = {
+  id: string
+  /** The key an order is matched against. Deliberately not `id`: `id` is the
+   *  manifest's own handle, while the repository reorders by `ref ?? filename`.
+   *  An order sent in ids matches nothing server-side and is dropped without
+   *  complaint, which reaches the owner as a save that did nothing. */
+  orderKey: string
+  src: string
+  width: number
+  height: number
+  label: string
+}
+
+/** Mirrors `imageKey` in `app/lib/gallery-repository.ts`. The two must agree,
+ *  which is why the save below reads the order back before calling it saved. */
+export const orderKeyOf = (image: GalleryMediaItem): string =>
+  image.ref ?? image.filename ?? image.id
 
 const photosFrom = (manifest: GalleryManifest): EditorPhoto[] =>
   manifest.images.map((image, index) => ({
     id: image.id,
+    orderKey: orderKeyOf(image),
     src: isVideoItem(image) ? image.poster.src : image.variants?.[0]?.src ?? image.src,
     width: image.width,
     height: image.height,
@@ -38,7 +55,7 @@ const photosFrom = (manifest: GalleryManifest): EditorPhoto[] =>
 
 export default function GalleryEditor({ owner, slug, title, apiBase, onClose, onSaved }: Props) {
   const [photos, setPhotos] = useState<EditorPhoto[] | null>(null)
-  const [savedIds, setSavedIds] = useState<string[]>([])
+  const [savedKeys, setSavedKeys] = useState<string[]>([])
   const [held, setHeld] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -51,7 +68,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
         if (!active) return
         const loaded = photosFrom(manifest)
         setPhotos(loaded)
-        setSavedIds(loaded.map((photo) => photo.id))
+        setSavedKeys(loaded.map((photo) => photo.orderKey))
         setNote(loaded.length ? null : 'This gallery has no photographs yet.')
       })
       .catch((reason) => {
@@ -62,8 +79,8 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
 
   const dirty = useMemo(() => {
     if (!photos) return false
-    return photos.some((photo, index) => photo.id !== savedIds[index]) || photos.length !== savedIds.length
-  }, [photos, savedIds])
+    return photos.some((photo, index) => photo.orderKey !== savedKeys[index]) || photos.length !== savedKeys.length
+  }, [photos, savedKeys])
 
   const putDown = (targetId: string) => {
     if (!photos || !held) return
@@ -83,9 +100,19 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     if (!photos || !dirty || busy) return
     setBusy(true)
     setNote('Saving the new order…')
+    const intended = photos.map((photo) => photo.orderKey)
     try {
-      await updateGalleryOrder(apiBase, slug, photos.map((photo) => photo.id))
-      setSavedIds(photos.map((photo) => photo.id))
+      await updateGalleryOrder(apiBase, slug, intended)
+      // The route tolerates keys it does not recognise and still answers 200,
+      // so a key that has drifted from the repository's own would read as a
+      // silent no-op — the exact failure this read-back exists to catch.
+      const { manifest } = await fetchGallery(apiBase, owner, slug)
+      const stored = manifest.images.map(orderKeyOf)
+      if (!intended.every((key, index) => stored[index] === key)) {
+        setNote('The gallery did not take that order, so nothing was changed. Try again.')
+        return
+      }
+      setSavedKeys(intended)
       setNote('New order saved.')
       onSaved?.()
     } catch (reason) {
@@ -155,8 +182,8 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
           disabled={!dirty || busy || !photos}
           onClick={() => {
             if (!photos) return
-            const restored = savedIds
-              .map((id) => photos.find((photo) => photo.id === id))
+            const restored = savedKeys
+              .map((key) => photos.find((photo) => photo.orderKey === key))
               .filter((photo): photo is EditorPhoto => Boolean(photo))
             setPhotos(restored)
             setHeld(null)
