@@ -21,7 +21,25 @@ export const DESKTOP_AUTH_PROVIDERS: readonly AuthProvider[] = ['apple', 'google
 
 const SESSION_FILE = 'session.json'
 
-export type DesktopSession = { token: string; ownerSlug: string }
+/** `tier` is the account's plan, answered by the exchange alongside the token.
+ *  It is optional because a session persisted before the field existed is
+ *  still a valid session — the account pane simply omits the plan sentence
+ *  until the next sign-in rather than guessing Free. */
+export type DesktopSession = { token: string; ownerSlug: string; tier?: 'free' | 'pro' }
+
+const parseTier = (value: unknown): 'free' | 'pro' | undefined =>
+  value === 'pro' || value === 'free' ? value : undefined
+
+/** One place decides the session's shape, so the exchange and the stored file
+ *  cannot disagree about which fields exist. */
+const withTier = (
+  token: string,
+  ownerSlug: string,
+  tier: unknown,
+): DesktopSession => {
+  const plan = parseTier(tier)
+  return { token, ownerSlug, ...(plan ? { tier: plan } : {}) }
+}
 
 type PendingSignIn = { verifier: string; provider: AuthProvider; startedAt: number }
 
@@ -77,7 +95,7 @@ export const handoffFromDeepLink = (url: string): string | null => {
   return handoff || null
 }
 
-type ExchangeResponse = { token?: string; ownerSlug?: string; error?: string }
+type ExchangeResponse = { token?: string; ownerSlug?: string; tier?: string; error?: string }
 
 /**
  * POST {apiBase}/api/auth/desktop/exchange — the verifier proves this app
@@ -101,7 +119,11 @@ export const exchangeDesktopHandoff = async (
     if (response.status >= 500) throw new Error('Sign-in is temporarily unavailable. Please try again shortly.')
     throw new Error('Sign-in could not be completed. Please try again.')
   }
-  return { token: payload.token, ownerSlug: typeof payload.ownerSlug === 'string' ? payload.ownerSlug : '' }
+  return withTier(
+    payload.token,
+    typeof payload.ownerSlug === 'string' ? payload.ownerSlug : '',
+    payload.tier,
+  )
 }
 
 // --- Tauri seams (lazy imports: never evaluated by tests) ---
@@ -115,7 +137,7 @@ export const getSession = async (): Promise<DesktopSession | null> => {
     if (!contents) return null
     const parsed = JSON.parse(contents) as Partial<DesktopSession>
     return typeof parsed.token === 'string' && parsed.token.trim()
-      ? { token: parsed.token, ownerSlug: typeof parsed.ownerSlug === 'string' ? parsed.ownerSlug : '' }
+      ? withTier(parsed.token, typeof parsed.ownerSlug === 'string' ? parsed.ownerSlug : '', parsed.tier)
       : null
   } catch {
     return null

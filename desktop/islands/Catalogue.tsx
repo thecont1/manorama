@@ -34,14 +34,20 @@ import {
   getSession,
   installDesktopAuth,
   normalizeApiBase,
-  DESKTOP_AUTH_PROVIDERS,
   type AuthProvider,
   type DesktopSession,
 } from '../lib/session'
+import {
+  applyTheme,
+  oppositeTheme,
+  readStoredTheme,
+  storeTheme,
+  themeControlLabel,
+  type Theme,
+} from '../lib/theme'
 
 const CATALOGUE_FILE = 'catalogue.json'
 const DEVICE_LABEL = 'This Mac'
-const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
 const sourceLabel = (record: LocalGalleryRecord): string =>
   record.sourceKind === 'card' ? 'Memory card' : 'Folder on this device'
 
@@ -111,6 +117,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [pasteUrl, setPasteUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [shareGalleryId, setShareGalleryId] = useState<string | null>(null)
+  // The account waits in a slide-out pane behind one quiet edge tab, exactly
+  // as it does on the web dashboard: the catalogue keeps the page width, and
+  // administration stays a deliberate act. It opens closed on every load and
+  // is never encoded in a URL.
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  // The theme is the web dashboard's theme — read from the same storage key,
+  // applied as the same `html.light` class, so a preference set on either
+  // surface is honoured on both.
+  const [theme, setTheme] = useState<Theme>(() =>
+    readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage),
+  )
   const dimsRef = useRef<DimsMap>(new Map())
   // The deep-link sign-in callback is installed once at launch — a ref is
   // the only way it can sync the catalogue as it is THEN, not as it was.
@@ -118,6 +135,46 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => {
     catalogueRef.current = catalogue
   }, [catalogue])
+
+  const accountTabRef = useRef<HTMLButtonElement | null>(null)
+  const drawerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    applyTheme(theme, document.documentElement)
+    storeTheme(typeof localStorage === 'undefined' ? null : localStorage, theme)
+  }, [theme])
+
+  const closeAccountMenu = useCallback(() => {
+    setAccountMenuOpen(false)
+    accountTabRef.current?.focus()
+  }, [])
+
+  // Focus enters the pane, Tab stays inside it, and Esc hands the caret back
+  // to the tab that opened it. This is the web pane's contract, kept identical
+  // so the same acceptance assertions hold on both surfaces.
+  useEffect(() => {
+    if (!accountMenuOpen) return
+    const panel = drawerRef.current
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    panel?.querySelector<HTMLButtonElement>('button')?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeAccountMenu(); return }
+      if (event.key !== 'Tab' || !panel) return
+      const focusable = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), summary')]
+        .filter((element) => element.getClientRects().length > 0)
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (!first || !last) return
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = overflow
+    }
+  }, [accountMenuOpen, closeAccountMenu])
 
   const persistCatalogue = useCallback(async (next: LocalCatalogue) => {
     setCatalogue(next)
@@ -419,105 +476,148 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       </>
     )
   }
+
+  // The greeting states what this surface can actually verify: the account
+  // name and plan the session carries, and the count of galleries this Mac
+  // holds. The web dashboard counts cloud galleries against a plan limit; a
+  // local-first catalogue has no such limit, so it counts what it has.
+  const planLabel = session?.tier === 'pro' ? 'Pro' : session?.tier === 'free' ? 'Free' : null
+  const localGalleryCount = catalogue.galleries.length
+  const galleryWord = localGalleryCount === 1 ? 'gallery' : 'galleries'
+  const helloLine = `Hello, ${session?.ownerSlug || 'there'}. Welcome to manorama.xyz.`
+  const planLine = `${planLabel ? `You are a ${planLabel} User. ` : ''}${localGalleryCount} ${galleryWord} on this Mac.`
   return (
-    <main class="desktop-shell desktop-account-shell">
+    <>
       <div class="desktop-titlebar" data-tauri-drag-region />
-      <div class="desktop-account-left">
-        <div class="desktop-account-side">
-          <header class="desktop-account-brand">
-            <span class="brand-mark-wrap">
-              <img src="/manorama-merged-logo.png" alt="manorama" class="desktop-account-logo" />
-            </span>
-          </header>
-          <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-          <div class="desktop-account-greeting">
-            <p>Hello {session?.ownerSlug || 'there'}. Welcome to your manorama catalogue.</p>
-            {session ? <button type="button" class="desktop-signout" onClick={signOut}>sign out</button> : null}
-          </div>
-          {!session ? (
-            <div class="desktop-signin desktop-account-signin">
-              <span class="desktop-signin-lead">Continue with</span>
-              <div class="desktop-signin-icons">
-                {DESKTOP_AUTH_PROVIDERS.map((id) => {
-                  const provider = PROVIDER_META.get(id)
-                  if (!provider) return null
-                  const { name, Glyph } = provider
-                  return (
-                    <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${name}`} onClick={() => signIn(id)}>
-                      <Glyph />
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
-          {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
-          {notice ? <p class="landing-note" role="status">{notice}</p> : null}
-          {pasteForm}
-          <footer class="site-footer desktop-account-footer">
-            <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
-            <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
-          </footer>
-        </div>
-      </div>
-      <section class="desktop-list-card" aria-live="polite">
-        <header class="desktop-list-heading">
-          <div>
-            <h1>Your galleries</h1>
-            <p>Folders and cards you have opened on this device.</p>
-          </div>
-          <div class="desktop-toolbar">
-            <button type="button" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : 'Choose a folder or card'}</button>
-            {session ? <button type="button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>Sync now</button> : null}
-          </div>
-        </header>
-        <span class="desktop-sync-state">{syncMessage(syncState, session)}</span>
-        <section class="desktop-galleries" aria-label="Saved galleries">
-          {(catalogue?.galleries ?? []).map((record, rowIndex) => {
-            const state = availability[record.id] ?? 'available'
-            const open = openRecord?.id === record.id
-            return (
-              <article class={`desktop-gallery ${open ? 'is-open' : ''}`} key={record.id}>
-                <button type="button" class={`desktop-gallery-row ${rowIndex % 2 === 0 ? 'desktop-gallery-row-thumb-left' : 'desktop-gallery-row-thumb-right'}`} onClick={() => state !== 'unavailable' && setOpenGalleryId(open ? null : record.id)} disabled={state === 'unavailable'} aria-label={`Open ${record.title}`}>
-                  <span class="desktop-gallery-copy">
-                    <span class="desktop-gallery-heading"><strong>{record.title}</strong><span>({record.itemCount} {record.itemCount === 1 ? 'photo' : 'photos'})</span></span>
-                    <span class="desktop-gallery-subtitle">{sourceLabel(record)}</span>
-                    <span class="desktop-gallery-link">{record.rootPath}</span>
-                  </span>
-                  {record.items[0] ? <img class="desktop-gallery-thumb" src={assetUrl(record.items[0].path)} width={record.items[0].width} height={record.items[0].height} alt="" loading="lazy" draggable={false} /> : null}
-                </button>
-                <div class="desktop-gallery-actions">
-                  <button type="button" disabled={state === 'unavailable'} onClick={() => setOpenGalleryId(open ? null : record.id)}>{open ? 'Hide photos' : 'View photos'}</button>
-                  <button type="button" onClick={() => void rescan(record)}>Rescan</button>
-                  <button type="button" disabled={state === 'unavailable'} onClick={() => setShareGalleryId(shareGalleryId === record.id ? null : record.id)}>Share…</button>
-                  <button type="button" onClick={() => void remove(record)}>Remove</button>
-                  {state === 'unavailable' ? <span class="desktop-badge-unavailable">Unavailable — reconnect the source</span> : null}
-                </div>
-                {shareGalleryId === record.id && catalogue ? (
-                  <ShareFlow record={record} catalogue={catalogue} apiBase={base} session={session} onClose={() => setShareGalleryId(null)} />
-                ) : null}
-                {open ? (
-                  <div class="desktop-grid">
-                    {record.items.map((item, index) => (
-                      <button type="button" key={item.id} class="desktop-thumb" onClick={() => setViewerState({ galleryId: record.id, index })}>
-                        <img src={assetUrl(item.path)} loading="lazy" alt={item.name} draggable={false} onLoad={(event: Event) => {
-                          const img = event.currentTarget as HTMLImageElement
-                          recordDims(item.id, img.naturalWidth, img.naturalHeight)
-                        }} />
-                        <span class="desktop-thumb-name">{item.name}</span>
-                      </button>
-                    ))}
-                    {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
+      {/* The signed-in catalogue wears the web dashboard's admin surface: the
+          same two-quadrant workbench, the same left-edge account pane, the
+          same theme. Only what fills the quadrants differs — a Mac owner
+          imports folders and cards, not cloud links. */}
+      <main class="admin-page admin-page--selector" data-admin-ready="true">
+        <button
+          type="button"
+          class="admin-edge-tab"
+          aria-label="Account menu"
+          aria-expanded={accountMenuOpen ? 'true' : 'false'}
+          aria-controls="desktop-account-drawer"
+          ref={accountTabRef}
+          onClick={() => setAccountMenuOpen(true)}
+        >
+          <span aria-hidden="true">Account</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+        </button>
+        <div class="admin-drawer" id="desktop-account-drawer" data-account-drawer hidden={!accountMenuOpen}>
+          <div class="admin-drawer-scrim" aria-hidden="true" onClick={closeAccountMenu} />
+          <aside class="admin-drawer-panel" role="dialog" aria-modal="true" aria-label="Account" ref={drawerRef}>
+            <button type="button" class="admin-drawer-close" aria-label="Close account menu" onClick={closeAccountMenu}>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+            </button>
+            <div class="admin-left">
+              <header class="admin-header">
+                <div>
+                  <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
+                  <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+                  <div class="admin-greeting">
+                    <p class="admin-greeting-url">manorama.xyz/{session?.ownerSlug ?? ''}</p>
+                    <p>{helloLine}</p>
+                    <p>{planLine}</p>
                   </div>
-                ) : null}
-              </article>
-            )
-          })}
-          {catalogue && catalogue.galleries.length === 0 ? (
-            <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
-          ) : null}
+                </div>
+              </header>
+              <footer class="site-footer">
+                <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
+                <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
+              </footer>
+            </div>
+            {/* The account actions sit at the pane's foot: labelled, and away
+                from the galleries. The theme control is the web dashboard's —
+                one key, one class, one label. */}
+            <div class="admin-drawer-actions">
+              <button type="button" class="admin-drawer-action" aria-pressed={theme === 'light'} onClick={() => setTheme(oppositeTheme(theme))}>{themeControlLabel(theme)}</button>
+              <button type="button" class="admin-drawer-action" onClick={signOut}>Sign out</button>
+            </div>
+          </aside>
+        </div>
+
+        <div class="admin-content">
+        {/* Only the catalogue rows span the full width; the welcome copy and
+            the import action each fit inside one half of the top workbench. */}
+        <div class="admin-overview">
+          <section class="admin-welcome" aria-label="Welcome to manorama">
+            <span class="admin-welcome-brand brand-mark-wrap">
+              <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
+              <span class="brand-tld" aria-hidden="true">.xyz</span>
+            </span>
+            <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+            <p class="admin-welcome-note">{helloLine} {planLine}</p>
+          </section>
+          <section class="gallery-import" aria-labelledby="desktop-import-heading">
+            <div class="gallery-selector-heading"><h2 id="desktop-import-heading">Add a gallery</h2></div>
+            <div class="admin-retention-policy">
+              <p class="admin-limit-count">{localGalleryCount} {galleryWord} on this Mac</p>
+              <p>Folders and cards you have opened on this device. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
+            </div>
+            <div class="desktop-import-actions">
+              <button type="button" class="admin-button admin-button--solid" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : 'Choose a folder or card'}</button>
+              {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>Sync now</button> : null}
+            </div>
+            <p class="admin-privacy-note">Publishing is a separate, explicit step: the originals upload to your own cloud account, byte for byte, and never to Manorama.</p>
+            <span class="desktop-sync-state" role="status">{syncMessage(syncState, session)}</span>
+            {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
+            {notice ? <p class="landing-note" role="status">{notice}</p> : null}
+          </section>
+        </div>
+
+        <section class="gallery-list" aria-live="polite" aria-labelledby="desktop-galleries-heading">
+          <h1 class="admin-galleries-heading" id="desktop-galleries-heading">Your galleries</h1>
+          <section class="desktop-galleries" aria-label="Saved galleries">
+            {(catalogue?.galleries ?? []).map((record, rowIndex) => {
+              const state = availability[record.id] ?? 'available'
+              const open = openRecord?.id === record.id
+              return (
+                <article class={`desktop-gallery ${open ? 'is-open' : ''}`} key={record.id}>
+                  <button type="button" class={`desktop-gallery-row ${rowIndex % 2 === 0 ? 'desktop-gallery-row-thumb-left' : 'desktop-gallery-row-thumb-right'}`} onClick={() => state !== 'unavailable' && setOpenGalleryId(open ? null : record.id)} disabled={state === 'unavailable'} aria-label={`Open ${record.title}`}>
+                    <span class="desktop-gallery-copy">
+                      <span class="desktop-gallery-heading"><strong>{record.title}</strong><span>({record.itemCount} {record.itemCount === 1 ? 'photo' : 'photos'})</span></span>
+                      <span class="desktop-gallery-subtitle">{sourceLabel(record)}</span>
+                      <span class="desktop-gallery-link">{record.rootPath}</span>
+                    </span>
+                    {record.items[0] ? <img class="desktop-gallery-thumb" src={assetUrl(record.items[0].path)} width={record.items[0].width} height={record.items[0].height} alt="" loading="lazy" draggable={false} /> : null}
+                  </button>
+                  <div class="desktop-gallery-actions">
+                    <button type="button" disabled={state === 'unavailable'} onClick={() => setOpenGalleryId(open ? null : record.id)}>{open ? 'Hide photos' : 'View photos'}</button>
+                    <button type="button" onClick={() => void rescan(record)}>Rescan</button>
+                    <button type="button" disabled={state === 'unavailable'} onClick={() => setShareGalleryId(shareGalleryId === record.id ? null : record.id)}>Share…</button>
+                    <button type="button" onClick={() => void remove(record)}>Remove</button>
+                    {state === 'unavailable' ? <span class="desktop-badge-unavailable">Unavailable — reconnect the source</span> : null}
+                  </div>
+                  {shareGalleryId === record.id && catalogue ? (
+                    <ShareFlow record={record} catalogue={catalogue} apiBase={base} session={session} onClose={() => setShareGalleryId(null)} />
+                  ) : null}
+                  {open ? (
+                    <div class="desktop-grid">
+                      {record.items.map((item, index) => (
+                        <button type="button" key={item.id} class="desktop-thumb" onClick={() => setViewerState({ galleryId: record.id, index })}>
+                          <img src={assetUrl(item.path)} loading="lazy" alt={item.name} draggable={false} onLoad={(event: Event) => {
+                            const img = event.currentTarget as HTMLImageElement
+                            recordDims(item.id, img.naturalWidth, img.naturalHeight)
+                          }} />
+                          <span class="desktop-thumb-name">{item.name}</span>
+                        </button>
+                      ))}
+                      {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })}
+            {catalogue && catalogue.galleries.length === 0 ? (
+              <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
+            ) : null}
+          </section>
         </section>
-      </section>
-    </main>
+        </div>
+        </main>
+    </>
   )
 }

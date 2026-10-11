@@ -28,6 +28,23 @@ body.manorama-desktop {
   background: var(--gallery-canvas);
 }
 
+/* The signed-in catalogue IS the web dashboard's admin surface: every
+   `.admin-*` rule lives in app/styles.css and is imported above, so the Mac
+   app only has to place it in a window — clear of the overlay title bar, and
+   on the admin surface rather than the viewer's near-black canvas. The account
+   pane and the edge tab take their colour from `--admin-surface`, which the
+   shared rules already set per theme; only the page behind them needs naming
+   here, because `body.manorama-desktop`'s canvas would otherwise win at equal
+   specificity. */
+body.manorama-desktop:has(.admin-page) {
+  background: #111312;
+  overflow: clip auto;
+}
+body.manorama-desktop .admin-page--selector {
+  padding-top: calc(var(--desktop-safe-top) + clamp(28px, 5vw, 64px));
+}
+html.light body.manorama-desktop:has(.admin-page) { background: #e9e5dc; }
+
 /* Opening surface: same floating mark, quiet copy and icon triangle as iOS. */
 .desktop-welcome {
   display: grid;
@@ -95,58 +112,31 @@ body.manorama-desktop {
 .desktop-signin-icon:focus-visible svg { transform: translateY(-4px) scale(1.08); filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45)); }
 .desktop-welcome .landing-note { color: rgba(var(--ink), .7); }
 
-/* Signed-in/local catalogue: the iOS account split translated to a wide Mac
-   window. The left column is the brand/account rail; the right is the list. */
-.desktop-account-shell {
-  display: grid;
-  grid-template-columns: minmax(280px, .72fr) minmax(520px, 1.28fr);
-  gap: clamp(48px, 8vw, 132px);
-  width: min(1500px, 100%);
-  height: 100svh;
-  overflow: hidden;
-  margin-inline: auto;
-}
-.desktop-account-left,
-.desktop-list-card { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.desktop-account-side { width: min(100%, 500px); }
-.desktop-account-brand { margin-bottom: 24px; }
-.desktop-account-logo { display: block; width: min(100%, 410px); }
-.desktop-account-side .landing-brand-intro { margin: 24px 0 34px; max-width: 30rem; font-size: 16px; line-height: 1.45; }
-.desktop-account-greeting { color: rgba(var(--ink), .76); font-size: 15px; line-height: 1.45; }
-.desktop-account-greeting p { margin: 0 0 12px; }
-.desktop-signout { border: 0; border-bottom: 1px solid rgba(var(--ink), .42); padding: 0 0 2px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.desktop-account-signin { margin-top: 42px; text-align: left; }
-.desktop-account-signin .desktop-signin-icons { margin-inline: 0; }
-.desktop-account-footer { margin-top: clamp(56px, 12vh, 160px); }
+/* The catalogue's own quadrant content. Everything structural around it —
+   the workbench, the account pane, the theme — is the shared admin surface. */
+.desktop-import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.desktop-sync-state { display: block; margin: 14px 0 0; color: rgba(var(--ink), .48); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; }
 
-.desktop-list-card { padding-bottom: 48px; }
-.desktop-list-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 12px; }
-.desktop-list-heading h1 { margin: 0; font-size: clamp(36px, 5vw, 64px); letter-spacing: -.055em; line-height: .95; }
-.desktop-list-heading p { margin: 12px 0 0; color: rgba(var(--ink), .58); font-size: 13px; }
-.desktop-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.desktop-toolbar button,
+/* Rows wear the web dashboard's card typography — brand-face title, quiet
+   count, mono address — over the local-first affordances a Mac owner needs:
+   a thumbnail, an inline photo grid, rescan, publish, remove. */
 .desktop-gallery-actions button,
-.desktop-paste button { border: 1px solid rgba(var(--ink), .22); border-radius: 999px; padding: 9px 14px; background: transparent; color: rgba(var(--ink), .82); font: inherit; font-size: 12px; cursor: pointer; }
-.desktop-toolbar button:hover,
+.desktop-paste button { border: 1px solid rgba(var(--ink), .22); border-radius: 0; padding: 9px 14px; background: transparent; color: rgba(var(--ink), .82); font: inherit; font-size: 12px; cursor: pointer; }
 .desktop-gallery-actions button:hover,
-.desktop-toolbar button:focus-visible,
 .desktop-gallery-actions button:focus-visible { border-color: rgba(var(--ink), .78); color: rgb(var(--ink)); }
-.desktop-toolbar button:disabled,
 .desktop-gallery-actions button:disabled { opacity: .45; cursor: default; }
-.desktop-sync-state { display: block; margin: 0 0 18px; color: rgba(var(--ink), .48); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; }
-.desktop-galleries { display: grid; gap: 0; }
-.desktop-gallery { padding: 16px 0 18px; border-top: 1px solid rgba(var(--ink), .16); }
-.desktop-gallery:last-child { border-bottom: 1px solid rgba(var(--ink), .16); }
+.desktop-galleries { display: grid; gap: 0; border-top: 1px solid rgba(var(--ink), .1); }
+.desktop-gallery { padding: 24px 0 28px; border-bottom: 1px solid rgba(var(--ink), .1); }
 .desktop-gallery-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; width: 100%; min-height: 16dvh; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .desktop-gallery-row-thumb-right { grid-template-columns: auto minmax(0, 1fr); }
-.desktop-gallery-copy { display: grid; grid-row: 1 / span 2; gap: 6px; min-width: 0; padding: 0 20px; }
+.desktop-gallery-copy { display: grid; grid-row: 1 / span 2; gap: 10px; min-width: 0; padding: 0 20px; }
 .desktop-gallery-row-thumb-left .desktop-gallery-copy { grid-column: 1; }
 .desktop-gallery-row-thumb-right .desktop-gallery-copy { grid-column: 2; }
-.desktop-gallery-heading { display: flex; align-items: baseline; gap: 10px; min-width: 0; font-size: 16px; }
-.desktop-gallery-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
-.desktop-gallery-heading span { flex: 0 0 auto; color: rgba(var(--ink), .55); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; }
-.desktop-gallery-subtitle { color: rgba(var(--ink), .68); font-size: 13px; }
-.desktop-gallery-link { overflow: hidden; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-gallery-heading { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.desktop-gallery-heading strong { overflow: hidden; font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 32px; font-weight: 500; letter-spacing: -.04em; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-gallery-heading span { flex: 0 0 auto; color: rgba(var(--ink), .62); font-size: 12px; }
+.desktop-gallery-subtitle { color: rgba(var(--ink), .58); font-size: 12px; line-height: 1.6; }
+.desktop-gallery-link { overflow: hidden; color: rgba(var(--ink), .5); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .desktop-gallery-thumb { grid-row: 1 / span 2; width: auto; height: 16dvh; max-width: min(42%, 320px); object-fit: contain; background: #080908; display: block; }
 .desktop-gallery-row-thumb-left .desktop-gallery-thumb { grid-column: 2; }
 .desktop-gallery-row-thumb-right .desktop-gallery-thumb { grid-column: 1; }
@@ -197,14 +187,14 @@ body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: 78%;
 .desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .52); font-size: 11px; }
 .desktop-share-confirm-actions { display: flex; gap: 8px; }
 
-@media (max-width: 900px) {
-  .desktop-account-shell { display: block; height: auto; overflow: visible; }
-  .desktop-account-left, .desktop-list-card { overflow: visible; }
-  .desktop-account-side { width: min(100%, 620px); margin-inline: auto; }
-  .desktop-list-card { margin-top: 56px; }
-  .desktop-list-heading { display: block; }
-  .desktop-toolbar { justify-content: flex-start; margin-top: 20px; }
-}
+/* Light mode flips the whole surface through `html.light` in app/styles.css.
+   The two photo mounts follow the web dashboard's rail rather than staying
+   near-black on a light page — the photographs themselves are untouched. */
+html.light .desktop-gallery-thumb,
+html.light .desktop-thumb img { background: #dcd7cb; }
+html.light .desktop-paste,
+html.light .desktop-share { background: rgba(var(--ink), .04); }
+
 @media (prefers-reduced-motion: reduce) {
   .desktop-signin-icon svg { transition: none; }
 }

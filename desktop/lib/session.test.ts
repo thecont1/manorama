@@ -104,6 +104,26 @@ describe('exchangeDesktopHandoff', () => {
     const { fetcher: unavailable } = captureFetch(new Response('{}', { status: 503 }))
     await expect(exchangeDesktopHandoff('h', 'v', 'https://manorama.xyz', unavailable)).rejects.toThrow('temporarily unavailable')
   })
+
+  test('carries the account plan when the exchange answers with one', async () => {
+    const { fetcher } = captureFetch(
+      new Response(JSON.stringify({ token: 'session-token', ownerSlug: 'owner', tier: 'pro' }), { status: 200 }),
+    )
+    expect(await exchangeDesktopHandoff('handoff-token', 'verifier-value', 'https://manorama.xyz', fetcher))
+      .toEqual({ token: 'session-token', ownerSlug: 'owner', tier: 'pro' })
+  })
+
+  test('omits an absent or unrecognised plan rather than inventing one', async () => {
+    // A server older than the field, and a value the app does not know, both
+    // leave the account pane without a plan sentence — never with a wrong one.
+    for (const tier of [undefined, 'platinum']) {
+      const { fetcher } = captureFetch(
+        new Response(JSON.stringify({ token: 'session-token', ownerSlug: 'owner', tier }), { status: 200 }),
+      )
+      expect(await exchangeDesktopHandoff('h', 'v', 'https://manorama.xyz', fetcher))
+        .toEqual({ token: 'session-token', ownerSlug: 'owner' })
+    }
+  })
 })
 
 describe('desktop sign-in callback completion', () => {

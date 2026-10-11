@@ -96,8 +96,10 @@ describe('desktop exchange endpoint', () => {
 
   beforeEach(async () => {
     resetUserStore()
-    await seedTestUser()
+    owner = await seedTestUser()
   })
+
+  let owner: Awaited<ReturnType<typeof seedTestUser>>
 
   const exchange = (body: unknown, raw = false) =>
     api.request('/api/auth/desktop/exchange', {
@@ -113,8 +115,11 @@ describe('desktop exchange endpoint', () => {
     const response = await exchange({ handoffToken: handoff, codeVerifier: verifier })
     expect(response.status).toBe(200)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
-    const payload = await response.json() as { token?: string; ownerSlug?: string }
+    const payload = await response.json() as { token?: string; ownerSlug?: string; tier?: string }
     expect(payload.ownerSlug).toBe('test-owner')
+    // The Mac app's account pane states the plan; it comes from the account
+    // record, never from the client.
+    expect(payload.tier).toBe(owner.tier)
     const api2 = createManoramaApi()
     const authed = await api2.request('/api/galleries', {
       headers: { Authorization: `Bearer ${payload.token}` },
