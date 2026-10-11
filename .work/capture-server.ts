@@ -339,7 +339,7 @@ const PREBOOT = async (which: number) => {
     var strip = stills()
     var bounds = input && input.getBoundingClientRect()
     var inputVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
-    var ready = Boolean(account && cards && policy && inputVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
+    var ready = Boolean(account && inputVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
     if (ready || Date.now() - started > 40000) {
       log('state ${which} ready:', ready, JSON.stringify(strip))
       send({
