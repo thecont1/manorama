@@ -689,6 +689,29 @@ describe('signed-in account area', () => {
     expect(html).not.toContain('Gallery loading')
   })
 
+  test('successive gallery cards alternate the cover from edge to edge', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [
+      accountSummary({ slug: 'kashmir', title: 'Kashmir' }),
+      accountSummary({ slug: 'italy', title: 'Italy' }),
+    ] }) })
+    const { container } = mountAccount()
+    await settle()
+    const cards = [...container.querySelectorAll('.native-gallery-list > li')]
+    expect(cards.length).toBe(2)
+    expect(cards[0].classList.contains('is-cover-left')).toBe(true)
+    expect(cards[0].classList.contains('is-cover-right')).toBe(false)
+    expect(cards[1].classList.contains('is-cover-right')).toBe(true)
+    // The opener spans both columns and the actions take the copy column, so
+    // they can only sit beside the cover if the actions leave the opener.
+    for (const card of cards) {
+      expect(card.querySelector('.native-gallery-row button')).toBeNull()
+      expect(card.querySelector('.native-gallery-actions')).not.toBeNull()
+      expect(card.querySelector('.native-gallery-row .native-gallery-actions')).toBeNull()
+    }
+  })
+
   test('gallery actions stay outside the card opener and deletion waits for confirmation', async () => {
     installLocalStorage()
     signInStorage()

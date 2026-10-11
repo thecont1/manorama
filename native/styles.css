@@ -1344,3 +1344,48 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
 
 .native-gallery-list .native-gallery-actions button { display: inline-flex; width: auto; align-items: center; justify-content: center; border: 1px solid rgba(var(--ink), .22); }
 .native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }
+
+/* A tight phone screen cannot afford to stack a cover, its copy and four
+   actions. The cover holds one column across both text rows, the copy and its
+   actions take the other, and successive galleries swap edges so the list
+   zig-zags instead of leaning. */
+.native-gallery-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  align-items: start;
+}
+.native-gallery-list li.is-cover-right { grid-template-columns: minmax(0, 1fr) auto; }
+.native-gallery-list li > .native-gallery-cover-open { grid-column: 1; grid-row: 1 / span 2; }
+.native-gallery-list li > .native-gallery-row { grid-column: 2; grid-row: 1; }
+.native-gallery-list li > .native-gallery-actions { grid-column: 2; grid-row: 2; }
+.native-gallery-list li > .native-gallery-remove-confirm { grid-column: 1 / -1; grid-row: 3; }
+.native-gallery-list li.is-cover-right > .native-gallery-cover-open { grid-column: 2; }
+.native-gallery-list li.is-cover-right > .native-gallery-row,
+.native-gallery-list li.is-cover-right > .native-gallery-actions { grid-column: 1; }
+
+/* The cover button wears no chrome of its own; the photograph is the target. */
+.native-gallery-list li > .native-gallery-cover-open {
+  display: block;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.native-gallery-list li > .native-gallery-cover-open:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.native-gallery-list li > .native-gallery-cover-open .native-gallery-cover-row { margin-bottom: 0; }
+.native-gallery-list li > .native-gallery-actions { padding: 0 0 14px; }
+
+/* Four actions have to share a column that is only as wide as the copy beside
+   a cover, so they are chips rather than full-width rows. The 44px minimum
+   height stays: a chip is still a finger target. */
+.native-gallery-list .native-gallery-actions button {
+  min-width: 0;
+  padding: 6px 9px;
+  font-size: 11px;
+  line-height: 1.2;
+}

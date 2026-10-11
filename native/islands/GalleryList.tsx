@@ -887,30 +887,38 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountGalleryRow = (gallery: GallerySummary) => {
     const cover = gallery.images[0]
     return (
-      <button
-        type="button"
-        class="native-gallery-row native-gallery-row-with-thumb"
-        onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
-        disabled={!ownerSlug}
-        aria-label={`Open ${gallery.title || gallery.slug}`}
-      >
-        {/* The mobile account card presents one cover photograph, not the web
-            dashboard's draggable sequence strip. It gets its own row ahead of
-            the copy, with the same aspect-true size as a picker photograph. */}
+      <>
+        {/* The cover is its own opener so it can hold a column of the card
+          across both text rows; the actions then sit beside the photograph
+          instead of under the whole card on a narrow screen. */}
         {cover ? (
-          <span class="native-gallery-cover-row" aria-hidden="true">
-            <span class="native-gallery-thumb">
-              <img
-                src={imagePreview(cover)}
-                width={cover.width}
-                height={cover.height}
-                alt=""
-                loading="lazy"
-                draggable={false}
-              />
+          <button
+            type="button"
+            class="native-gallery-cover-open"
+            onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
+            disabled={!ownerSlug}
+            aria-label={`Open ${gallery.title || gallery.slug}`}
+          >
+            <span class="native-gallery-cover-row" aria-hidden="true">
+              <span class="native-gallery-thumb">
+                <img
+                  src={imagePreview(cover)}
+                  width={cover.width}
+                  height={cover.height}
+                  alt=""
+                  loading="lazy"
+                  draggable={false}
+                />
+              </span>
             </span>
-          </span>
+          </button>
         ) : null}
+        <button
+          type="button"
+          class="native-gallery-row native-gallery-row-with-thumb"
+          onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
+          disabled={!ownerSlug}
+        >
         <span class="native-gallery-heading">
           <span class="native-gallery-title">{gallery.title || gallery.slug}</span>
           <span class="native-gallery-meta">({gallery.imageCount} {gallery.imageCount === 1 ? 'item' : 'items'})</span>
@@ -918,7 +926,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         {accountGallerySubtitle(gallery) ? <span class="native-gallery-subtitle">{accountGallerySubtitle(gallery)}</span> : null}
         <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
         {gallery.retention === 'pipeline' ? <span class="native-account-note">Temporary gallery{gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}</span> : null}
-      </button>
+        </button>
+      </>
     )
   }
   // Render gate: an unresolved entitlement drops the slot in the same paint
@@ -1109,8 +1118,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             ) : null}
             {visibleAccountGalleries.length > 0 ? (
               <ul class="native-gallery-list">
-                {visibleAccountGalleries.map((gallery) => (
-                  <li key={gallery.slug}>
+                {/* Successive galleries swap the cover from one edge to the
+                    other, so a phone column of cards zig-zags instead of
+                    leaning and every cover stays beside its copy. */}
+                {visibleAccountGalleries.map((gallery, index) => (
+                  <li key={gallery.slug} class={index % 2 === 1 ? 'is-cover-right' : 'is-cover-left'}>
                     {accountGalleryRow(gallery)}
                     <div class="native-gallery-actions" role="group" aria-label={`${gallery.title} actions`}>
                       <button type="button" aria-label={`Copy ${gallery.title} link`} onClick={() => void copyGalleryLink(gallery)}>Copy link</button>
