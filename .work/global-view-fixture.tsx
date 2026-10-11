@@ -70,7 +70,7 @@ const wait = () => {
   })
   const images = [...document.querySelectorAll<HTMLImageElement>('[data-grid-frame] img')]
   const decoded = images.filter((image) => image.complete && image.naturalWidth > 0).length
-  const visibleReady = visible.length >= 8 && visible.every((cell) => {
+  const visibleReady = visible.length > 0 && visible.every((cell) => {
     const image = cell.querySelector('img')
     return image?.complete && image.naturalWidth > 0
   })
@@ -79,7 +79,8 @@ const wait = () => {
     console.log('[capture] global view ready:', ready, 'cells:', cells.length, 'visible:', visible.length, 'decoded:', decoded)
     void fetch('/__capture/report', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ state: 4, ready, frames: cells.length, visible: visible.length, decoded }),
+      body: JSON.stringify({ state: 4, generation: (window as unknown as { __captureGeneration: number }).__captureGeneration,
+        ready, frames: cells.length, visible: visible.length, decoded }),
     })
     return
   }

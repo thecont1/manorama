@@ -50,7 +50,9 @@ render(<NativeApp />, root)
 
 const configureNativeChrome = async () => {
   try {
-    await StatusBar.setOverlaysWebView({ overlay: false })
+    // Overlay, not inset: the page owns the status-bar strip and paints its own
+    // safe-area padding, so no native background band can show above a surface.
+    await StatusBar.setOverlaysWebView({ overlay: true })
     await StatusBar.setStyle({ style: Style.Dark })
   } catch {
     // Capacitor plugins are no-ops in the browser preview.

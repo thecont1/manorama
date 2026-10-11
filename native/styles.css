@@ -126,18 +126,26 @@ body.manorama-native .control-logo:is(:hover, :focus-visible) .brand-mark-wrap {
 body.manorama-native .control-logo .brand-mark-wrap::before { inset: -5px -12px; }
 
 @media (orientation: landscape) {
+  /* One centred group, exactly as in portrait: the mark above the title, then
+     the caption. The two-column spread gave the title a column of its own at
+     the shared 116px size, which wrapped a short title over three lines, and
+     it detached the mark from the words directly beneath it. Landscape keeps
+     the grouping and only scales the mark and title up. */
   body.manorama-native .curtain-content {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr;
-    column-gap: clamp(28px, 6vw, 96px);
+    display: block;
+    width: min(760px, 100%);
+    height: auto;
   }
   body.manorama-native .curtain-logo-wrap {
-    grid-column: 1;
-    grid-row: 1;
+    display: block;
+    margin: 0 auto 36px;
   }
-  body.manorama-native .curtain-details {
-    grid-column: 2;
-    grid-row: 1;
+  body.manorama-native .curtain-logo { width: clamp(236px, 24vw, 360px); }
+  body.manorama-native .curtain-details { align-self: start; }
+  body.manorama-native .curtain h1 {
+    max-width: none;
+    font-size: clamp(40px, 6.4vw, 76px);
+    line-height: 1.05;
   }
 }
 
@@ -726,6 +734,35 @@ body:has(.native-diptych) {
 /* The signed-in phone view should get to the photographs quickly. Keep the
    account copy intact, but reduce its display footprint so the first few
    gallery rows are useful at a glance rather than below the fold. */
+/* The web stage deliberately locks body scrolling; an account is a document,
+   not a stage. Without this reset the phone's preferences and secondary form
+   can be clipped below the viewport with no way to reach them. */
+body.manorama-native:has(.native-account-shell) {
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+.native-gallery-import {
+  margin: 20px 0 28px;
+}
+.native-gallery-import h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 500;
+}
+.native-gallery-import input {
+  font-size: 16px; /* iOS must not zoom the whole account on field focus. */
+  min-height: 44px;
+}
+.native-gallery-import label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.native-gallery-import button:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
 @media (max-width: 819px) {
   .native-list-shell {
     place-items: start center;
@@ -777,8 +814,8 @@ body:has(.native-diptych) {
   }
 
   .native-gallery-title {
-    font-size: 15px;
-    line-height: 1.2;
+    font-size: 22px;
+    line-height: 1.15;
   }
 }
 
@@ -916,25 +953,30 @@ body:has(.native-diptych) {
 
 .native-gallery-title {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* The account rows wear the web dashboard's type: the brand face for the
+     title, a quieter subtitle beneath. Only the public address truncates — a
+     long title wraps rather than losing its words. */
+  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-variation-settings: "wdth" 100, "wght" 500;
+  letter-spacing: -.04em;
+  line-height: 1.15;
 }
+
+.native-gallery-heading { flex-wrap: wrap; }
 
 .native-gallery-heading .native-gallery-meta { flex: none; }
 
-.native-gallery-subtitle,
-.native-gallery-link,
-.native-gallery-heading {
+.native-gallery-link {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .native-gallery-subtitle {
-  color: rgba(var(--ink), .62);
-  font-size: 12px;
-  line-height: 1.25;
+  color: rgba(var(--ink), .58);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .native-gallery-link {
@@ -1029,14 +1071,20 @@ body.manorama-native .controls-panel-topbar .panel-close {
   body.manorama-native .stage-arrows .stage-seq { grid-column: 2; }
   body.manorama-native .stage-arrows .stage-nav-arrow--next { grid-column: 3; }
 
-  /* The pill is anchored to the row's leading edge and spans what is left after
-     the two circles and their gaps. `left` is given as a length rather than 50%
-     so the centring transform has to go with it. */
+  /* The pill is centred rather than anchored to the row's leading edge.
+     Anchored left it read as a pill, a wide void, and then two buttons — three
+     unrelated things in a row.
+     Centring is done with `left: 0; right: 0; margin-inline: auto` and a
+     `fit-content` width, not with `left: 50%` and a transform: the box has to
+     keep hugging the wordmark, because this button paints its own bar and a
+     stretched box turns that bar into a full-width rule across the bottom of
+     the stage. It also leaves `transform` free for the press states. */
   body.manorama-native .control-logo {
-    left: max(12px, var(--native-safe-left));
-    /* The pill hugs the wordmark instead of spanning the free space, so the row
-       reads as a compact pill, a gap, then the two circles. */
-    width: auto;
+    left: 0;
+    right: 0;
+    width: fit-content;
+    margin-inline: auto;
+    /* The pill hugs the wordmark instead of spanning the free space. */
     /* The wordmark's ink frame is drawn by ::before at inset -5px -12px. While
        the pill was wide that frame sat inside it; hugging the wordmark left it
        hanging outside, which reads as a second button tucked behind this one.
@@ -1045,6 +1093,15 @@ body.manorama-native .controls-panel-topbar .panel-close {
     transform: none;
   }
   body.manorama-native .control-logo:hover { transform: none; }
+  /* With no arrows shown the circles leave the stage's centre free, so the pill
+     takes it — the composition the web uses at this width, wordmark centred
+     with the position at the corner. With arrows shown the trailing cluster is
+     twice as wide and a stage-centred pill would run its bar into the position
+     circle, so there the pill centres in the room they leave. Only `right`
+     changes; the auto margins re-centre inside whatever box is left. */
+  body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .control-logo {
+    right: calc((2 * var(--native-chrome-height)) + 8px);
+  }
 }
 /* The landing used to subtract both safe-area insets from its height. That made
    it shorter than the viewport, so the strip it gave back showed the root
@@ -1065,9 +1122,24 @@ body.manorama-native .controls-panel-topbar .panel-close {
 
    A negative `margin-top` is the tempting fix and the wrong one: the container
    centres the *margin* box, so pulling the block up by 148px moves it up by 74.
-   Portrait only — the landscape curtain is a two-column grid and needs no
+   Portrait only — the landscape curtain groups the same way and needs no
    nudge. */
 @media (orientation: portrait) {
+  /* Keep the logo, title and caption together like the web reference. The
+     two equal-height native rows stranded the logo in the upper quarter.
+     Landscape groups identically and only scales the mark and title up. */
+  body.manorama-native .curtain-content {
+    display: block;
+    width: min(640px, 100%);
+    height: auto;
+  }
+  body.manorama-native .curtain-logo-wrap {
+    display: block;
+    margin: 0 auto 36px;
+  }
+  body.manorama-native .curtain-logo {
+    width: min(220px, 64vw);
+  }
   body.manorama-native .curtain-details {
     align-self: start;
     margin-top: 0;
@@ -1092,3 +1164,161 @@ body.manorama-native .controls-panel-topbar .panel-close-mark {
   font-weight: 200;
   line-height: 1;
 }
+/* The WebView paints under the status bar now, and the body reserves the notch
+   as padding — so the strip above a surface is the *body's* own background.
+   That is `#0a0a0a`, the viewer's canvas, which is right while a gallery is on
+   screen and wrong everywhere else: the opening screen and the account screen
+   sit on `#111312`, and the mismatch read as a black bar across the top of
+   them. Paint the body to match whichever surface is mounted. */
+body.manorama-native:has(.native-landing),
+body.manorama-native:has(.native-list-shell) { background: #111312; }
+/* The account introduction: wordmark and menu share one row, and the greeting
+   reads as two short statements instead of one run-on paragraph. */
+.native-account-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.native-account-head .brand-mark-wrap { min-width: 0; }
+
+.native-account-menu {
+  flex: 0 0 auto;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--ink));
+  cursor: pointer;
+}
+
+.native-account-menu:hover { border-color: rgba(var(--ink), .7); }
+
+.native-account-menu:focus-visible {
+  border-color: rgba(var(--ink), .7);
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 2px;
+}
+
+.native-account-menu-bars,
+.native-account-menu-bars::before,
+.native-account-menu-bars::after {
+  display: block;
+  width: 18px;
+  height: 1.5px;
+  background: currentColor;
+  content: '';
+}
+
+.native-account-menu-bars { position: relative; }
+.native-account-menu-bars::before { position: absolute; top: -5.5px; left: 0; }
+.native-account-menu-bars::after { position: absolute; top: 5.5px; left: 0; }
+
+.admin-greeting-hello { margin-top: 14px; }
+.admin-greeting-plan { color: rgba(var(--ink), .72); }
+
+/* The account drawer: a modal surface over the account page. The stage is never
+   involved, the panel owns the caret, and the scrim takes the dismissal. */
+.native-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
+.native-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .66); }
+
+.native-drawer-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(360px, 86vw);
+  height: 100%;
+  box-sizing: border-box;
+  padding: max(20px, var(--native-safe-top)) 20px max(20px, var(--native-safe-bottom));
+  border-left: 1px solid rgba(var(--ink), .14);
+  background: #151817;
+  color: rgb(var(--ink));
+  animation: native-drawer-in 220ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes native-drawer-in {
+  from { transform: translateX(12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .native-drawer-panel { animation: none; }
+}
+
+.native-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.native-drawer-head h2 { margin: 0; font-size: 17px; font-weight: 500; }
+
+.native-drawer-close {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: rgba(var(--ink), .7);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.native-drawer-close:hover { color: #fff; }
+
+.native-drawer-close:focus-visible {
+  color: #fff;
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 2px;
+}
+
+.native-drawer-note {
+  margin: 0;
+  color: rgba(var(--ink), .5);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.native-drawer-action {
+  min-height: 48px;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(var(--ink), .82);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.native-drawer-action:hover { border-color: rgba(var(--ink), .72); color: #fff; }
+
+.native-drawer-action:focus-visible {
+  border-color: rgba(var(--ink), .72);
+  color: #fff;
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 2px;
+}
+
+/* Account overview: only the photographic list spans both top quadrants. */
+.native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: max(24px, var(--native-safe-top)) 24px max(24px, var(--native-safe-bottom)) 56px; }
+.native-account-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; width: 100%; max-width: 1440px; margin-inline: auto; padding-bottom: 28px; }
+.native-account-overview .native-account-left { display: block; overflow: visible; min-width: 0; }
+.native-account-overview .native-account-side { width: 100%; margin: 0; }
+.native-account-overview .native-account-head { display: block; }
+.native-account-overview .brand-mark-wrap { display: block; width: min(300px, 100%); }
+.native-account-overview .landing-brand-mark { display: block; width: 100%; max-width: 100%; height: auto; }
+.native-account-overview .native-legal { display: none; }
+.native-account-overview .native-gallery-import { min-width: 0; margin: 0; }
+.native-account-overview .native-gallery-import form { display: grid; gap: 12px; }
+.native-account-overview .native-gallery-import input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 48px; border: 1px solid rgba(var(--ink), .24); padding: 12px; background: rgba(var(--ink), .04); color: rgb(var(--ink)); font: inherit; font-size: 16px; }
+.native-account-overview .native-gallery-import label { color: rgba(var(--ink), .75); font-size: 12px; }
+.native-account-overview .native-gallery-import button { justify-self: start; border: 1px solid rgba(var(--ink), .25); min-height: 48px; padding: 12px 18px; background: transparent; color: rgb(var(--ink)); font: inherit; }
+.native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
+.native-account-edge-tab { position: fixed; z-index: 40; left: 0; top: 50%; transform: translateY(-50%); border-radius: 0 10px 10px 0; width: 44px; height: 110px; background: var(--gallery-canvas); }
+.native-account-edge-tab > span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
+.native-drawer { justify-content: flex-start; }
+.native-drawer-panel { border-left: 0; border-right: 1px solid rgba(var(--ink), .14); max-width: var(--admin-pane-limit, 100vw); }
+@keyframes native-drawer-in { from { transform: translateX(-100%); opacity: .8; } to { transform: none; opacity: 1; } }
+@media (min-width: 820px) {
+  .native-account-overview { grid-template-columns: minmax(0, calc(50% - 32px)) minmax(0, 1fr); column-gap: 32px; align-items: start; }
+  .native-account-overview .native-gallery-import { padding-left: 12px; }
+}
+@media (max-width: 819px) {
+  .native-account-overview .native-gallery-import button { justify-self: stretch; }
+}
+
+.native-account-shell[data-admin-segmented] .native-account-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }

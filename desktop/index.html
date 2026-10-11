@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#111312" />
     <title>manorama</title>
+    <script>
+      // The account pane's theme action, applied before the first paint. The
+      // catalogue reads the same key the web dashboard writes, so a returning
+      // light-mode owner never sees a flash of the dark workbench. The island
+      // owns the class from then on.
+      try {
+        if (localStorage.getItem('manorama:theme') === 'light') {
+          document.documentElement.classList.add('light')
+        }
+      } catch (error) {
+        // Storage can be unavailable; dark is the default either way.
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

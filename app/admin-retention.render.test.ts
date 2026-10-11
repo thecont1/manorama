@@ -75,13 +75,38 @@ const seedPipelineOwner = async () => {
 describe('the dashboard renders retention state', () => {
   test('the owner grid keeps its theme control and never paints a doodle field', async () => {
     const html = await renderDashboard(async () => {})
-    expect(html).toContain('aria-label="Display preferences"')
+    // The theme action lives with the other account actions in the labelled
+    // account pane now, not in a toggle floating beside the galleries.
+    expect(html).toContain('aria-label="Account"')
+    expect(html).toContain('Switch to light mode')
     // Doodles belong to gallery pages only: the account page must ship no
     // background layer, no has-doodle surface, and no background toggle.
     expect(html).not.toContain('data-doodle-bg')
     expect(html).not.toContain('has-doodle')
     expect(html).not.toContain('Use doodle background')
     expect(html).not.toContain('admin-background-toggle')
+  })
+
+  test('the account opens from an edge tab and editor rails need no repeated heading', async () => {
+    const html = await renderDashboard(seedPipelineOwner)
+    expect(html).toContain('class="admin-edge-tab"')
+    expect(html).toContain('aria-controls="admin-account-drawer"')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('aria-label="Close account menu"')
+    expect(html).not.toContain('admin-menu-bars')
+    expect(html).not.toContain('admin-gallery-editor-label')
+    expect(html).not.toContain('Photo Editor')
+    expect(html).toContain('aria-label="Reorder Locked images"')
+  })
+
+  test('welcome and import share the top level with galleries below both', async () => {
+    const html = await renderDashboard(seedPipelineOwner)
+    expect(html).toContain('class="admin-overview"')
+    expect(html).toContain('aria-label="Welcome to manorama"')
+    expect(html).toContain('You are a Free User. You have used 3 of your 3 gallery limit.')
+    expect(html.indexOf('class="admin-welcome"')).toBeLessThan(html.indexOf('id="import-heading"'))
+    expect(html.indexOf('id="import-heading"')).toBeLessThan(html.indexOf('id="galleries-heading"'))
+    expect(html).toContain('aria-labelledby="galleries-heading"')
   })
 
   test('a pipeline card locks every edit surface and explains the deadline', async () => {

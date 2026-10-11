@@ -23,3 +23,10 @@ export const makeBezier = (x1: number, y1: number, x2: number, y2: number) => (x
  *  single-mode crossfade use — so a JS-driven glide feels identical to
  *  the CSS-animated surfaces. */
 export const glideEase = makeBezier(0.22, 1, 0.36, 1)
+
+/** Preserve the current canvas position when a target shifts mid-glide.
+ * For a fixed target this reproduces the original absolute eased curve. */
+export const advanceEasedPosition = (current: number, destination: number, previousEase: number, ease: number): number => {
+  const fraction = previousEase >= 1 ? 1 : clamp((ease - previousEase) / (1 - previousEase), 0, 1)
+  return current + (destination - current) * fraction
+}

@@ -39,41 +39,20 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT=4181
 DEVICE=iphone
-# SwiftPM compiles and runs every package manifest under `sandbox-exec`, and the
-# macOS sandbox does not nest: inside an already-sandboxed shell xcodebuild dies
-# with "sandbox-exec: sandbox_apply: Operation not permitted" before it can
-# resolve a single dependency. These build settings turn the manifest and plugin
-# sandboxes off for this build only, and are harmless in an ordinary shell.
-XCODE_PACKAGE_FLAGS=(
-  -IDEPackageSupportDisableManifestSandbox=1
-  -IDEPackageSupportDisablePluginExecutionSandbox=1
-  # ...and the Swift flag that stops the compiler wrapping macro plugin servers
-  # in a sandbox of their own. Without it RevenueCat never emits its module.
-  'OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox'
-)
-# Those two settings are not enough on their own. Xcode also spawns the Swift
-# *macro* plugin server under `sandbox-exec`, so RevenueCat — whose RulesEngine
-# uses `@TaskLocal` and `@State` — fails with "external macro implementation
-# type 'SwiftMacros.TaskLocalMacro' could not be found ... produced malformed
-# response". A passthrough `sandbox-exec` ahead of the real one on PATH is the
-# workaround SwiftPM and Homebrew users settled on. Every package here is
-# already resolved and pinned in `Package.resolved`, and the shim exists only
-# for the length of this script.
-SHIM_DIR="$(mktemp -d /tmp/manorama-capture-shims.XXXXXX)"
-printf '%s\n' \
-  '#!/bin/sh' \
-  'while [ $# -gt 0 ]; do case "$1" in -p|-f) shift 2 ;; -*) shift ;; *) break ;; esac; done' \
-  'exec "$@"' > "$SHIM_DIR/sandbox-exec"
-chmod +x "$SHIM_DIR/sandbox-exec"
-export PATH="$SHIM_DIR:$PATH"
+# Run the supported Xcode toolchain unchanged. Cache, build and simulator
+# permissions belong to the caller, never to a shadow sandbox-exec command.
+XCODE_PACKAGE_FLAGS=()
 OUT=""
 SKIP_BUILD=0
 KEEP_CONFIG_BACKUP=""
+SERVER_PID=""
+REQUESTED_UDID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device) DEVICE="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
+    --udid) REQUESTED_UDID="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -84,8 +63,8 @@ done
 # carry suffixes ("iPhone 13 Pro Max r265", "iPhone 13 Pro Max capture"), and
 # anchoring on the paren quietly matched nothing and took the script down.
 case "$DEVICE" in
-  iphone) TYPE_RE='iPhone 13 Pro Max' ; DEFAULT_OUT=/Users/home/DEV/manorama-submission/screens/ios ;;
-  ipad)   TYPE_RE='iPad Pro 13-inch'  ; DEFAULT_OUT=/Users/home/DEV/manorama-submission/screens/ipad ;;
+  iphone) TYPE_RE='iPhone 13 Pro Max' ; DEFAULT_OUT="$REPO/demo-captures/ios" ;;
+  ipad)   TYPE_RE='iPad Pro 13-inch'  ; DEFAULT_OUT="$REPO/demo-captures/ipad" ;;
   *) echo "--device must be iphone or ipad" >&2; exit 2 ;;
 esac
 OUT="${OUT:-$DEFAULT_OUT}"
@@ -102,8 +81,7 @@ cleanup() {
     cp "$KEEP_CONFIG_BACKUP" "$CONFIG"
     log "restored capacitor.config.ts"
   fi
-  pkill -f 'capture-server.ts' 2>/dev/null || true
-  if [[ -n "${SHIM_DIR:-}" ]]; then rm -rf "$SHIM_DIR"; fi
+  if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -119,7 +97,9 @@ existing="$(xcrun simctl list devices available | grep -E "$TYPE_RE" | sed -n '1
 runtime="$(xcrun simctl list runtimes | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]+' | sed -n '$p' || true)"
 type_id="$(xcrun simctl list devicetypes | grep -E "$TYPE_RE" | sed -n '1p' | sed -E 's/.*\((com\.apple[^)]*)\).*/\1/' || true)"
 
-if [[ -n "$existing" ]]; then
+if [[ -n "$REQUESTED_UDID" ]]; then
+  UDID="$REQUESTED_UDID"
+elif [[ -n "$existing" ]]; then
   UDID="$existing"
   log "using simulator $UDID"
 else
@@ -173,8 +153,8 @@ prep_app() {
   # Two statements, not one: under `set -u` bash rejects a `local` that reads a
   # name it is declaring on the same line.
   local src="$1"
-  local dest="/tmp/stage-$(basename "$(dirname "$src")")"
-  mkdir -p "$dest"
+  local dest
+  dest="$(mktemp -d /tmp/manorama-capture-app.XXXXXX)"
   cp -R "$src" "$dest/App.app"
   local plist="$dest/App.app/Info.plist"
   /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist" 2>/dev/null || true
@@ -187,6 +167,8 @@ prep_app() {
   # landscape for the staged bundle makes iOS launch it that way, so the pixels
   # are the real app's pixels in the orientation the evidence calls for.
   if [[ "$DEVICE" == "ipad" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :UIInterfaceOrientation string UIInterfaceOrientationLandscapeLeft" "$plist" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Set :UIInterfaceOrientation UIInterfaceOrientationLandscapeLeft" "$plist"
     /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$plist" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" "$plist"
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:0 string UIInterfaceOrientationLandscapeLeft" "$plist"
@@ -204,8 +186,13 @@ prep_app() {
 # --- the harness --------------------------------------------------------------
 
 ( cd "$REPO" && bun .work/build-global-view-fixture.ts >/tmp/capture-global-build.log )
-( cd "$REPO" && bun .work/capture-server.ts >/tmp/capture-server.log 2>&1 & )
-sleep 3
+( cd "$REPO" && exec bun .work/capture-server.ts ) >/tmp/capture-server.log 2>&1 &
+SERVER_PID=$!
+for _ in $(seq 1 60); do
+  if curl -sf "http://localhost:$PORT/__capture/status" >/dev/null; then break; fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then cat /tmp/capture-server.log >&2; exit 1; fi
+  sleep 1
+done
 curl -sf "http://localhost:$PORT/state/0" >/dev/null || { echo "harness did not start; see /tmp/capture-server.log" >&2; exit 1; }
 
 mkdir -p "$OUT"
@@ -213,18 +200,24 @@ mkdir -p "$OUT"
 shoot() { # <name> <countdown seconds>
   sleep "$2"
   xcrun simctl io "$UDID" screenshot "$OUT/$1" >/dev/null 2>&1
-  printf '  %-30s %s\n' "$1" "$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
+  local dimensions
+  dimensions="$(sips -g pixelWidth -g pixelHeight "$OUT/$1" 2>/dev/null | awk '/pixelWidth/{w=$2}/pixelHeight/{h=$2}END{print w"x"h}')"
+  if [[ "$DEVICE" == "ipad" && "$dimensions" != "2752x2064" ]]; then
+    echo "iPad capture is $dimensions, expected actual landscape 2752x2064; refusing invalid evidence" >&2
+    exit 1
+  fi
+  printf '  %-30s %s\n' "$1" "$dimensions"
 }
 
 log "01 opening screen"
 xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true
 xcrun simctl install "$UDID" "$(prep_app "$PLAIN_APP")" >/dev/null 2>&1
 xcrun simctl launch "$UDID" in.thecontrarian.manorama >/dev/null 2>&1
-shoot 01-opening-screen.png 15
+shoot 01-opening-screen.png 5
 
 log "02 curtain, 03 first image, 04 controls"
 xcrun simctl install "$UDID" "$(prep_app "$HARNESS_APP")" >/dev/null 2>&1
-for pair in "0:02-gallery-curtain.png" "1:03-first-image.png" "2:04-controls-popover.png"; do
+for pair in "0:02-gallery-curtain.png" "1:03-first-image-hover.png" "2:04-controls-popover.png"; do
   state="${pair%%:*}"; name="${pair#*:}"
   curl -sf "http://localhost:$PORT/state/$state" >/dev/null
   xcrun simctl terminate "$UDID" in.thecontrarian.manorama >/dev/null 2>&1 || true

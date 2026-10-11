@@ -21,7 +21,25 @@ export const DESKTOP_AUTH_PROVIDERS: readonly AuthProvider[] = ['apple', 'google
 
 const SESSION_FILE = 'session.json'
 
-export type DesktopSession = { token: string; ownerSlug: string }
+/** `tier` is the account's plan, answered by the exchange alongside the token.
+ *  It is optional because a session persisted before the field existed is
+ *  still a valid session — the account pane simply omits the plan sentence
+ *  until the next sign-in rather than guessing Free. */
+export type DesktopSession = { token: string; ownerSlug: string; tier?: 'free' | 'pro' }
+
+const parseTier = (value: unknown): 'free' | 'pro' | undefined =>
+  value === 'pro' || value === 'free' ? value : undefined
+
+/** One place decides the session's shape, so the exchange and the stored file
+ *  cannot disagree about which fields exist. */
+const withTier = (
+  token: string,
+  ownerSlug: string,
+  tier: unknown,
+): DesktopSession => {
+  const plan = parseTier(tier)
+  return { token, ownerSlug, ...(plan ? { tier: plan } : {}) }
+}
 
 type PendingSignIn = { verifier: string; provider: AuthProvider; startedAt: number }
 
@@ -49,7 +67,11 @@ export const generateCodeVerifier = (): string => randomBase64Url(32)
 export { pkceChallenge }
 
 export const buildDesktopAuthUrl = (provider: AuthProvider, apiBase: string, codeChallenge: string): string => {
-  const url = new URL(`/auth/${provider}`, `${normalizeApiBase(apiBase)}/`)
+  const origin = new URL(normalizeApiBase(apiBase))
+  const local = origin.protocol === 'http:' && origin.port === '5173' && ['localhost', '127.0.0.1'].includes(origin.hostname)
+  // A loopback test build uses an explicit development-account browser door,
+  // not a pretend provider login. Production always uses real system OAuth.
+  const url = new URL(local ? '/.dev-seed/desktop-login' : `/auth/${provider}`, `${normalizeApiBase(apiBase)}/`)
   url.searchParams.set('native', 'desktop')
   url.searchParams.set('code_challenge', codeChallenge)
   return url.toString()
@@ -73,7 +95,7 @@ export const handoffFromDeepLink = (url: string): string | null => {
   return handoff || null
 }
 
-type ExchangeResponse = { token?: string; ownerSlug?: string; error?: string }
+type ExchangeResponse = { token?: string; ownerSlug?: string; tier?: string; error?: string }
 
 /**
  * POST {apiBase}/api/auth/desktop/exchange — the verifier proves this app
@@ -93,9 +115,15 @@ export const exchangeDesktopHandoff = async (
   })
   const payload = (await response.json().catch(() => ({}))) as ExchangeResponse
   if (!response.ok || typeof payload.token !== 'string' || !payload.token) {
+    if (response.status === 401) throw new Error('This sign-in link has expired or does not match this app. Start sign-in again in this window.')
+    if (response.status >= 500) throw new Error('Sign-in is temporarily unavailable. Please try again shortly.')
     throw new Error('Sign-in could not be completed. Please try again.')
   }
-  return { token: payload.token, ownerSlug: typeof payload.ownerSlug === 'string' ? payload.ownerSlug : '' }
+  return withTier(
+    payload.token,
+    typeof payload.ownerSlug === 'string' ? payload.ownerSlug : '',
+    payload.tier,
+  )
 }
 
 // --- Tauri seams (lazy imports: never evaluated by tests) ---
@@ -109,7 +137,7 @@ export const getSession = async (): Promise<DesktopSession | null> => {
     if (!contents) return null
     const parsed = JSON.parse(contents) as Partial<DesktopSession>
     return typeof parsed.token === 'string' && parsed.token.trim()
-      ? { token: parsed.token, ownerSlug: typeof parsed.ownerSlug === 'string' ? parsed.ownerSlug : '' }
+      ? withTier(parsed.token, typeof parsed.ownerSlug === 'string' ? parsed.ownerSlug : '', parsed.tier)
       : null
   } catch {
     return null
@@ -137,19 +165,61 @@ export const beginDesktopSignIn = async (provider: AuthProvider, apiBase: string
   const challenge = await pkceChallenge(verifier)
   pendingSignIn = { verifier, provider, startedAt: Date.now() }
   const { openUrl } = await import('@tauri-apps/plugin-opener')
-  await openUrl(buildDesktopAuthUrl(provider, apiBase, challenge))
+  try {
+    await openUrl(buildDesktopAuthUrl(provider, apiBase, challenge))
+  } catch {
+    pendingSignIn = null
+    throw new Error('The browser could not open. Please try sign-in again from this app.')
+  }
 }
 
-export const completeDesktopSignIn = async (url: string, apiBase: string): Promise<DesktopSession> => {
-  const handoff = handoffFromDeepLink(url)
-  if (!handoff) throw new Error('Sign-in could not be completed. Please try again.')
-  const pending = pendingSignIn
-  if (!pending) throw new Error('Sign-in could not be completed. Please try again.')
-  const session = await exchangeDesktopHandoff(handoff, pending.verifier, apiBase)
-  pendingSignIn = null
-  await storeSession(session)
-  return session
+/** The OS, the deep-link plugin and a pasted callback can deliver the same
+ * URL concurrently. They must share a completion, not race a cleared verifier
+ * and overwrite a successful account with a spurious sign-in error. */
+export const createDesktopSignInCompleter = (dependencies: {
+  pending: () => PendingSignIn | null
+  exchange: typeof exchangeDesktopHandoff
+  store: (session: DesktopSession) => Promise<void>
+  consume: (pending: PendingSignIn) => void
+}) => {
+  const completions = new Map<string, Promise<DesktopSession>>()
+  return (url: string, apiBase: string): Promise<DesktopSession> => {
+    const handoff = handoffFromDeepLink(url)
+    if (!handoff) return Promise.reject(new Error('That is not a manorama sign-in link. Start sign-in from this app.'))
+    const key = `${normalizeApiBase(apiBase)}:${handoff}`
+    const existing = completions.get(key)
+    if (existing) return existing
+    const pending = dependencies.pending()
+    if (!pending) return Promise.reject(new Error('Start sign-in in this app window first, then return to the same window. If the app restarted, start again.'))
+    const completion = (async () => {
+      try {
+        const session = await dependencies.exchange(handoff, pending.verifier, apiBase)
+        // The verifier is retained until persistence succeeds, so a disk
+        // failure does not make a retry indistinguishable from a foreign link.
+        await dependencies.store(session)
+        dependencies.consume(pending)
+        return session
+      } catch (reason) {
+        completions.delete(key)
+        throw reason
+      }
+    })()
+    completions.set(key, completion)
+    // Only a small session-local replay window is needed; never persist the
+    // handoff or verifier. Pending work is not evicted.
+    void completion.then(() => {
+      if (completions.size > 8) completions.delete(completions.keys().next().value!)
+    }, () => {})
+    return completion
+  }
 }
+
+export const completeDesktopSignIn = createDesktopSignInCompleter({
+  pending: () => pendingSignIn,
+  exchange: exchangeDesktopHandoff,
+  store: storeSession,
+  consume: (pending) => { if (pendingSignIn === pending) pendingSignIn = null },
+})
 
 /**
  * Wires deep-link delivery: the plugin's onOpenUrl for the already-running
@@ -166,26 +236,31 @@ export const installDesktopAuth = async (
   onError: (message: string) => void,
   onOtherUrl?: (url: string) => void,
 ): Promise<() => Promise<void>> => {
+  const deliveries = new Set<string>()
   const handle = (url: string) => {
     // Non-handoff URLs on our scheme — provider OAuth redirects under
     // //oauth/* — route to the caller's handler rather than erroring a
     // sign-in that was never theirs to complete.
     if (!handoffFromDeepLink(url)) {
-      if (onOtherUrl) {
-        onOtherUrl(url)
-        return
-      }
+      onOtherUrl?.(url)
+      return
     }
+    if (deliveries.has(url)) return
+    deliveries.add(url)
     void completeDesktopSignIn(url, apiBase).then(onSignedIn).catch((reason: unknown) => {
+      deliveries.delete(url)
       onError(reason instanceof Error && reason.message.trim() ? reason.message : 'Sign-in could not be completed. Please try again.')
     })
   }
-  const { onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+  const { onOpenUrl, getCurrent } = await import('@tauri-apps/plugin-deep-link')
   const unlistenDeepLink = await onOpenUrl((urls) => {
     for (const url of urls) handle(url)
   })
   const { listen } = await import('@tauri-apps/api/event')
   const unlistenColdStart = await listen<string>('manorama://deep-link', (event) => handle(event.payload))
+  // Rust setup can emit before this hydrated listener mounts. Reading the
+  // current URLs after installation closes that race; delivery is deduped.
+  for (const url of await getCurrent().catch(() => null) ?? []) handle(url)
   return async () => {
     unlistenDeepLink()
     unlistenColdStart()

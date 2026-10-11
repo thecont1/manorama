@@ -8,7 +8,7 @@ import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 import { platePositionsFor, type AdFrame } from '../lib/adframe'
-import { clamp, glideEase } from '../lib/sizing'
+import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
 
 // A Tauri or Capacitor webview reports the real backing scale; the open web
@@ -321,6 +321,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const stripMruRef = useRef<number[]>([])
   const positionFrameRef = useRef<number | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
+  const stageMeasurementsRef = useRef({ width: 0, height: 0, dpr: 0 })
   const plateActionFrameRef = useRef<number | null>(null)
   const armedPlatePosRef = useRef<number | null>(null)
   const boundsRef = useRef({ min: 0, max: 0 })
@@ -511,7 +512,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // pushes past the last photograph — subtract its footprint (width
     // plus its trailing margin) while it is unrevealed.
     if (!endcapRevealedRef.current) {
-      const cap = trackRef.current?.querySelector<HTMLElement>('.viewer-endcap')
+      const cap = trackRef.current?.querySelector<HTMLElement>('[data-endcard]')
       if (cap) max = Math.max(0, max - cap.offsetWidth - imageMarginPx)
     }
     boundsRef.current = { min: 0, max }
@@ -667,6 +668,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // travel distance — a full-gallery rewind still glides back
     // deliberately instead of covering tens of thousands of px in a blur.
     const duration = clamp(Math.abs(destination - from) / 10, 650, 2800)
+    let previousEase = 0
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration)
       const eased = glideEase(progress)
@@ -677,7 +679,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // the bound (e.g. End docking a photo narrower than the stage)
       // must never read as the visitor pushing into the endcard.
       const liveDest = clamp(navDestXRef.current ?? destination, -getBounds().max, 0)
-      const next = from + (liveDest - from) * eased
+      // Consume only this tick's share of the remaining ease. Re-evaluating
+      // from + distance*eased jumps by delta*eased when a decoded frame
+      // changes liveDest. This is identical for a fixed target, but a new
+      // target joins the remaining travel instead of teleporting the canvas.
+      const next = advanceEasedPosition(currentXRef.current, liveDest, previousEase, eased)
+      previousEase = eased
       renderX(next, false)
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
@@ -787,7 +794,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
     if (direction === -1 && base <= 1) { goTo(images.length - 1); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
-    let frame = trackRef.current?.querySelector<HTMLElement>(`[data-index="${leftmostFrameIndex(base) + 1}"]`) ?? null
+    // Ads have no photo index, but occupy real strip space. Looking up the
+    // preceding photograph when parked on a plate returns that SAME plate as
+    // nextElementSibling, producing a zero-distance advance forever.
+    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-ad-frame], [data-endcard]') ?? [])]
+    let frame: HTMLElement | null = frames[0] ?? null
+    for (const candidate of frames) {
+      if (candidate.offsetLeft > base + 1) break
+      frame = candidate
+    }
     let advance: number
     if (direction === 1) {
       // Dock the next image: scroll until the following frame's left edge
@@ -911,6 +926,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
     stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
     const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: reportedDpr() }
+    // Observers may repeat the same box after a decoded image commits. That
+    // is not an orientation change and must not cancel an active glide.
+    const previous = stageMeasurementsRef.current
+    if (previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr) return
+    stageMeasurementsRef.current = measured
     setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
     boundsDirtyRef.current = true
     if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
@@ -1924,6 +1944,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               isDesktop,
             }) : null
             const stagedStyle = staged && staged.width > 0 && staged.height > 0 ? { width: `${staged.width}px`, height: `${staged.height}px` } : undefined
+            // A photograph whose own pixels cannot fill the stage is still
+            // shown at its honest size — `imageStageSize` decides that from the
+            // source's dimensions against this screen's format and density, and
+            // nothing here second-guesses it. What the *frame* does with the
+            // room left over is a presentation question, and the answer is not
+            // a shorter frame: the strip is one continuous canvas, so a short
+            // frame punches a hole in the run and the hole reads as a rendering
+            // fault rather than as a print hung on a wall. The frame keeps the
+            // stage's full height, the photograph stays centred inside it at
+            // its honest size, and `.viewer-frame--short` marks the plate so the
+            // canvas around it can read as a mount.
+            const plateShort = staged !== null && mode === 'strip' && stagingHeight > 0 && staged.height > 0 && staged.height < stagingHeight - 1
             // A capped video gets an explicit box. Strip frames are laid
             // out edge-to-edge, so the frame keeps full stage height and
             // only the media inside it shrinks — that is what centres the
@@ -1935,7 +1967,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               ? cappedVideo
                 ? { width: `${cappedVideo.width}px`, height: stagingHeight > 0 ? `${stagingHeight}px` : '100%' }
                 : staged && staged.width > 0 && staged.height > 0
-                  ? { width: `${staged.width}px`, height: `${staged.height}px` }
+                  ? { width: `${staged.width}px`, height: `${plateShort ? stagingHeight : staged.height}px` }
                   : { aspectRatio: `${frameW} / ${frameH}` }
               : mode === 'vertical'
                 ? video
@@ -1950,7 +1982,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             const photoFrame = (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
@@ -2058,8 +2090,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                               trustDeviceDpr: deviceReportedDpr,
                             })
                             if (restaged.width > 0) {
+                              // The frame keeps the stage's height whenever the
+                              // healed source still cannot fill it — see
+                              // `plateShort` above. Without this a heal would
+                              // shrink the plate back and punch the hole again.
+                              const stillShort = stagingHeight > 0 && restaged.height > 0 && restaged.height < stagingHeight - 1
                               frame.style.width = `${restaged.width}px`
-                              frame.style.height = `${restaged.height}px`
+                              frame.style.height = `${stillShort ? stagingHeight : restaged.height}px`
+                              frame.classList.toggle('viewer-frame--short', stillShort)
                             }
                             // A corrected frame changes track geometry —
                             // drop the cached bounds, then once layout
@@ -2136,7 +2174,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               start. `inert` until revealed — it sits past the pan bound
               before then, so its link must not take focus or announce. */}
           {mode === 'strip' ? (
-            <div class="viewer-endcap" inert={!endcapRevealed}>
+            <div class="viewer-endcap" data-endcard inert={!endcapRevealed}>
               <span>The</span>
               <span>End.</span>
               <button class="endcap-reset" onClick={backToStart}>Back to Start</button>

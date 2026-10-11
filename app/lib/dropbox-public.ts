@@ -60,11 +60,30 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
   return response
 }
 
-/** Resolution order: JPEG thumbnail probe → ranged fetch of the original's
- *  head parsed by format → list_folder media_info → 4:3 guess. The head
- *  probe keeps frames correctly shaped even when Dropbox can't render a
- *  thumbnail for an accepted format. */
+/** Resolution order: list_folder's own media_info → a ranged fetch of the
+ *  original's head parsed by format → the preview probe → a 4:3 guess.
+ *
+ *  The original answers the question and the preview cannot. A
+ *  `files/get_thumbnail_v2` at `w256h256` returns a correctly-proportioned
+ *  *256-pixel* render, and this function used to probe that first and store its
+ *  measurements as the photograph's: every Dropbox frame entered the manifest
+ *  as 256×171, the info sheet reported that size to the viewer, and the record
+ *  carried a thumbnail's pixels where it promised a photograph's. The aspect
+ *  was right, which is why it read as plausible for so long.
+ *
+ *  media_info costs nothing — `collectEntries` already asks for it — and it is
+ *  the file's own metadata, so it wins outright. The preview survives as the
+ *  last resort, where its proportions still beat a guess. */
 const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
+  if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
+  try {
+    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetchImpl, { Range: 'bytes=0-131071' })
+    const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
+    if (dimensions) return dimensions
+  } catch {
+    // A provider that refuses a ranged read is not a failed scan — the preview
+    // below still shapes the frame.
+  }
   try {
     const response = await contentRequest('files/get_thumbnail_v2', {
       resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },
@@ -76,14 +95,6 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
     if (dimensions) return dimensions
   } catch {
     // A preview is helpful but not required to validate the folder.
-  }
-  if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
-  try {
-    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetchImpl, { Range: 'bytes=0-131071' })
-    const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
-    if (dimensions) return dimensions
-  } catch {
-    // Fall through to the 4:3 guess.
   }
   return { width: 4, height: 3 }
 }

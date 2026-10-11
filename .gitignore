@@ -19,6 +19,7 @@ playwright-report/
 # Tauri build artifacts and generated capability schemas
 src-tauri/target/
 src-tauri/gen/
+.work/macos-target/
 
 # Simulator derived data written by scripts/capture-screens.sh
 ios/build/
@@ -30,6 +31,27 @@ ios/build/
 .work/shots/
 .work/snap.json
 .work/ax.sh
+
+# Scratch used when $HOME is not writable: bun's package cache and TMPDIR. They
+# are caches, not source, and between them they are thousands of files.
+.work/bun-cache/
+.work/tmp/
+.work/vite-*-cache/
+.work/current-ipad/
+.work/current-iphone/
+.work/probe-*.mjs
+.work/probe-*.ts
+.work/fix-native-css.py
+.work/native-admin-quadrants.py
+.work/redesign-*.py
+.work/redesign-implementation-notes.md
+.work/macos-local-auth-config.json
+outputs/**/*.app/
+outputs/**/*.zip
+
+# Capture output. The harnesses under .work/stocktake are tracked; the
+# screenshots they produce are evidence, not repository content.
+.work/stocktake/**/*.png
 
 # Recorded preview takes and their run logs — outputs, not source
 .work/preview/
@@ -43,3 +65,9 @@ submission/build/
 submission/screens/
 submission/video/
 submission/*.zip
+
+# MCP result cache written by the local tool bridge.
+.manus/
+
+# macOS capture scratch (screenshots, coverage dumps, throwaway probes).
+/.work/macos-capture/
