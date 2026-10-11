@@ -126,18 +126,26 @@ body.manorama-native .control-logo:is(:hover, :focus-visible) .brand-mark-wrap {
 body.manorama-native .control-logo .brand-mark-wrap::before { inset: -5px -12px; }
 
 @media (orientation: landscape) {
+  /* One centred group, exactly as in portrait: the mark above the title, then
+     the caption. The two-column spread gave the title a column of its own at
+     the shared 116px size, which wrapped a short title over three lines, and
+     it detached the mark from the words directly beneath it. Landscape keeps
+     the grouping and only scales the mark and title up. */
   body.manorama-native .curtain-content {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr;
-    column-gap: clamp(28px, 6vw, 96px);
+    display: block;
+    width: min(760px, 100%);
+    height: auto;
   }
   body.manorama-native .curtain-logo-wrap {
-    grid-column: 1;
-    grid-row: 1;
+    display: block;
+    margin: 0 auto 36px;
   }
-  body.manorama-native .curtain-details {
-    grid-column: 2;
-    grid-row: 1;
+  body.manorama-native .curtain-logo { width: clamp(236px, 24vw, 360px); }
+  body.manorama-native .curtain-details { align-self: start; }
+  body.manorama-native .curtain h1 {
+    max-width: none;
+    font-size: clamp(40px, 6.4vw, 76px);
+    line-height: 1.05;
   }
 }
 
@@ -1114,12 +1122,12 @@ body.manorama-native .controls-panel-topbar .panel-close {
 
    A negative `margin-top` is the tempting fix and the wrong one: the container
    centres the *margin* box, so pulling the block up by 148px moves it up by 74.
-   Portrait only — the landscape curtain is a two-column grid and needs no
+   Portrait only — the landscape curtain groups the same way and needs no
    nudge. */
 @media (orientation: portrait) {
   /* Keep the logo, title and caption together like the web reference. The
      two equal-height native rows stranded the logo in the upper quarter.
-     Wider landscape keeps its existing two-column composition. */
+     Landscape groups identically and only scales the mark and title up. */
   body.manorama-native .curtain-content {
     display: block;
     width: min(640px, 100%);
