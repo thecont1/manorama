@@ -2,84 +2,94 @@
 
 ## Status
 
-The requested source fixes are implemented and the development server is running at **http://localhost:5173**. This is **not a release-complete declaration**: actual Mac app→browser→app authentication, the iPad landscape evidence matrix, and the full live-provider viewer acceptance matrix remain open.
+The iPhone and iPad native matrices are now captured from fresh builds and reviewed. The browser admin, fold and local-authentication matrix is fully green. One gate remains: **native macOS application verification**, still blocked by a missing Screen Recording grant for the Computer Use helper.
+
+Localhost is running at **http://localhost:5173**.
 
 ## Changes
 
 ### macOS authentication
 
-- Restored the repository's previously removed Tauri shell from its historical source, retaining its existing plugins and private-store implementation.
-- Corrected the opener capability from an unscoped `opener:allow-open-url` to explicit HTTPS and localhost:5173 / 127.0.0.1:5173 URL permissions. The app uses the system-browser opener, never an embedded provider login.
+- Restored the repository's previously removed Tauri shell from its historical source.
+- Corrected the opener capability from an unscoped `opener:allow-open-url` to explicit HTTPS and localhost:5173 / 127.0.0.1:5173 URL permissions. This is the permission whose denial produced **"The browser could not open."**
 - Deduplicated simultaneous deep-link delivery, read cold-start URLs after listener registration, and preserved retries following persistence failures.
 - Added useful expired-link, wrong-instance and unreachable-server errors.
-- Built and verified an ad-hoc-signed local Mac test bundle with API origin `http://localhost:5173` and a separate development CSP overlay.
-- The explicit loopback build opens a **development-account browser door**, `/.dev-seed/desktop-login`. This creates a verifier-bound handoff and exercises the real PKCE exchange/session endpoint. It does **not** prove Dropbox/Google/Apple OAuth against production.
+- Built an ad-hoc-signed local Mac test bundle with API origin `http://localhost:5173` and a development CSP overlay.
 
-**Native authentication gate:** macOS Accessibility authorization was not available. The actual app→system browser→same app path has not been driven to completion. The rebuilt app is a test artifact, not a notarized distribution build. Open only one copy when testing: callback URLs must return to the instance holding the verifier.
+Static verification of the shipped bundle:
+
+| Check | Result |
+| --- | --- |
+| `CFBundleIdentifier` | `in.thecontrarian.manorama.desktop` |
+| Callback scheme declared in `Info.plist` | `in.thecontrarian.manorama.desktop` |
+| Embedded opener scope in the binary | `https://*`, `http://localhost:5173/*`, `http://127.0.0.1:5173/*` |
+| Embedded CSP | includes the localhost origins |
+| `codesign --verify --deep --strict` | valid (ad-hoc) |
+
+This proves the permission that caused the reported failure is present in the artifact. It is **not** an observed end-to-end login.
 
 ### Admin layout and pane
 
-- Left top quadrant: wordmark, subtitle and welcome/quota note.
-- Right top quadrant: public cloud-link importer.
-- `Your galleries` follows both; phone layouts stack these quadrants.
-- Theme-aware foreground, surface, button and form colors fix the invisible Light-mode elements.
-- Intrinsic logo width and container bounds prevent clipping.
-- Removed repeated `Photo Editor` labels; web editor thumbnails remain one horizontal row. Picker/Global View retain their vertical matrices.
-- The account tab protrudes from the middle of the left edge. The sliding pane traps focus, closes through Esc/backdrop/close, and returns focus to its trigger.
-- Feature-detected physical segment regions constrain copy, import controls and the pane away from a simulated vertical hinge. Photograph rails remain continuous.
-- Fixed WebKit native-pane Esc delivery after viewport resize by handling Escape on the live dialog as well as the document trap.
+- Left top quadrant: wordmark, subtitle, welcome/quota note. Right top quadrant: the public cloud-link importer. `Your galleries` follows both.
+- Theme-aware surfaces fix the invisible Light-mode elements; the logo no longer clips.
+- The account tab sits at the middle of the left edge and slides the pane in from the left. Theme toggle and Sign out live inside it.
+- The web Photo Editor remains one horizontal row per gallery; the native picker and Global View remain vertical matrices.
+- Physical segment regions are honoured where reported; photo rails stay continuous.
 
-**Duo gate:** browser tests simulate fold geometry; no physical Duo or Duo simulator verification was performed. Wide-screen quadrant compatibility is not a substitute for native posture/hardware testing.
+### Ad traversal and navigation continuity
 
-### Ad traversal and slight navigation jerk
+Two separate causes were fixed:
 
-Two separate causes were corrected:
+1. Ads share the endcap class, so the endcap query could mistake an inserted ad for the terminal card and subtract its width from the strip bounds. The terminal card now has a distinct `data-endcard` selector, and navigation walks photograph, ad and terminal frames in DOM order.
+2. A decode that heals geometry mid-glide used to recompute the already-travelled path from its original start. Incremental easing now continues from the actual current position, and resize notifications with unchanged width/height/DPR no longer redock a running strip.
 
-1. Ads share the visual endcap class, so the old endcap query could mistake an inserted ad for the terminal card and subtract its width from strip bounds. The actual terminal card now has a distinct `data-endcard` selector. Navigation walks photograph, ad and terminal frames in DOM sequence.
-2. An image decode can heal geometry while a navigation animation is running. Incremental easing continues from the actual current position instead of recalculating the already-travelled path from its original start. Resize notifications with unchanged width/height/DPR no longer redock a running strip.
-
-Original image bytes and honest-pixel stage sizing were not altered.
-
-### Dev-server and capture reliability
-
-- Web, native and desktop each have their own Vite optimized-dependency cache. Concurrent builds no longer overwrite the same optimized modules.
-- Hono's dev routing lets Vite serve the web optimizer assets.
-- Capture outputs, MCP result files and native toolchain outputs are excluded from the web watcher so they do not restart authentication during testing.
-- Development seeding/login errors and waits are bounded rather than silently hanging.
-- Removed historical Xcode/SwiftPM sandbox-disabling workarounds. Native builds were performed with normal Xcode protections.
-- iPad captures now fail if actual screenshot dimensions differ from **2752×2064**. Invalid portrait/letterboxed shots are not promoted to evidence.
+Original bytes and honest-pixel stage sizing were not altered.
 
 ## Verification performed
 
 | Check | Result |
 | --- | --- |
-| TypeScript | `bunx tsc --noEmit` clean |
-| Full unit suite | **1,066 pass, 0 fail**, 83 files, 20,089 assertions; explicit 15-second per-process test budget |
-| Focused admin/auth/sizing units | **57 pass, 0 fail** |
-| Production web build | Pass; existing large-chunk warning remains |
-| Ad safety and traversal | **14 pass**; includes 375, 1440 and 2560px traversal past ads, terminal photograph, unchanged-resize glide continuity, CTA safety and unchanged manifests |
-| Chromium admin/fold/local-auth matrix | **12 pass**; themes, logo bounds, edge tab, focus, reduced motion, single-row editor, simulated hinge regions and real local PKCE exchange |
-| WebKit admin/fold matrix | 9 initial checks passed; native resize/Esc regression was identified and repaired. Strengthened native WebKit test then **passed** separately |
-| Live-provider viewer subset | **14 pass**, **2 fail**, **1 interrupted**, **1 not run**; not green |
-| iPhone native capture | All six states generated, **1284×2778**, reviewed and promoted |
-| iPad native capture | Build passed. Capture still **2064×2752**, with a landscape app canvas letterboxed in a portrait simulator screen; rejected |
-| macOS native bundle | Built, signature and ZIP integrity verified; native UI/authentication capture blocked by authorization |
+| TypeScript | clean |
+| Full unit suite | **1,066 pass, 0 fail** |
+| Browser admin / fold / local-auth matrix | **12 passed, 0 failed** (phone, tablet, desktop, wide; both themes; normal and reduced motion; simulated hinge; two real PKCE exchanges) |
+| Ad safety and traversal | **14 passed** (375 / 1440 / 2560px traversal past ads, CTA safety, unchanged manifests) |
+| iPhone native matrix | 6 states, **1284×2778**, reviewed |
+| iPad native matrix | 6 states, **2752×2064**, reviewed |
+| Live-provider viewer subset | 14 passed, 2 failed (phone and desktop vertical-mode readiness), 1 interrupted — **not green** |
+| Native macOS application | **not verified** — see below |
 
-The live-provider failures are phone and desktop vertical-mode tests waiting on `Display settings` while the page repeatedly navigates/reloads to `dev-dropbox`. The wide vertical case was interrupted rather than extending the run; the final wide C2PA case did not run. Phone and desktop C2PA checks passed their current panel contract, but that existing test accepts either credentials or the quiet unsigned state; it does **not independently prove cryptographic validation of a signed fixture**.
+## Environment finding: native builds need full access here
+
+The native Xcode build fails inside the command sandbox with:
+
+```
+xcodebuild: error: Could not resolve package dependencies:
+  sandbox-exec: sandbox_apply: Operation not permitted
+```
+
+SwiftPM applies its own sandbox to package manifests, and that cannot nest inside the execution sandbox. No `writable_paths` or `network` grant can express this, so the capture run was executed with escalated access rather than weakening the project's build flags. The historical `-IDEPackageSupportDisableManifestSandbox` workaround was **not** restored.
+
+## Remaining gate: native macOS verification
+
+The Computer Use helper reports `permissions_required`:
+
+- Accessibility: **granted**
+- Screen Recording: **missing**
+- Helper: Manus Computer Use 0.2.5, `im.manus.desktop.computer-use`
+- Path: the version-numbered `manus-computer-use/1.0.25/helper/darwin/Manus Computer Use.app`
+
+A grant to Manus Studio or Manus itself does not satisfy this, and a grant to an earlier versioned helper path does not carry over. Until it is granted, the app → system browser → app login cannot be observed end to end, and no native macOS six-state matrix can be captured.
+
+There is **no headless alternative**: `xcrun simctl ui` supports only appearance and contrast (no orientation verb), and DeviceHub ships no scripting dictionary. The iPad rotation that unblocked the iPad matrix was performed manually by the owner in DeviceHub.
+
+## Observation for owner decision
+
+The landscape curtain uses its two-column composition (logo left, title right). With the large title treatment the gallery title wraps to three lines — "italia," / "amore" / "mio" — where the portrait composition shows it on one line. The portrait grouping fix does not apply to landscape. This is a presentation judgement call, not a defect: it can either stay as an editorial two-column spread or adopt the portrait grouping with a capped title size.
 
 ## Evidence
 
-- `iphone-six-state.zip`: fresh opening, curtain, first photograph, settings, signed-in admin and Global View screenshots.
-- `web-admin-theme-matrix.zip`: browser admin/pane evidence at phone, tablet, desktop and wide dimensions in Dark and Light themes. These are browser captures, not native Mac/iPad screenshots.
-- `../current-macos-local/manorama-local-auth.zip`: local-development Mac test bundle.
-
-No new native macOS six-state matrix is claimed. Previously checked-in iPad/macOS screenshots must not be interpreted as current evidence.
-
-## Remaining work, in order
-
-1. Authorize macOS app control and drive the rebuilt Mac app's sign-in through the system browser. Confirm the same instance receives the handoff and can access its authenticated account.
-2. Rotate the iPad simulator through its supported UI, then capture all six states at actual **2752×2064**. A public scene-geometry experiment did not fix the portrait simulator screen and was removed; no private API or rotated screenshot was retained.
-3. Resolve the live-provider vertical-mode readiness/reload behavior and rerun the complete viewer/input/mode matrix, including touch and an explicitly signed C2PA fixture.
-4. Capture and review the native Mac six-state matrix from the current bundle.
+- `iphone-six-state.zip` — opening, curtain, first photograph, settings, signed-in admin, Global View (1284×2778).
+- `ipad-six-state.zip` — the same six states at genuine **2752×2064** landscape.
+- `../current-macos-local/manorama-local-auth.zip` — local-development Mac test bundle (ad-hoc signed, not notarized).
 
 No production deploy, remote D1 migration, force-push or provider modification was performed.
