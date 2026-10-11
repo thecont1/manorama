@@ -142,7 +142,9 @@ for (const size of sizes) {
   test(`${size.name}: workbench, account pane, both themes, rail geometry`, async ({ page }, testInfo) => {
     test.setTimeout(180_000)
     test.skip(allPhotos.length < 4, `no photographs with pixels on disk under ${SOURCE}`)
-    const engine = testInfo.project.name
+    // This config declares no projects, so the project name is empty and a
+    // `-` prefix would land in every filename. Fall back to the browser in use.
+    const engine = testInfo.project.name || String(testInfo.project.use?.defaultBrowserType ?? 'browser')
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.setViewportSize({ width: size.width, height: size.height })
@@ -191,15 +193,23 @@ for (const size of sizes) {
     }
     expect(headingBox.y).toBeGreaterThanOrEqual(Math.max(welcomeBox.y + welcomeBox.height, importBox.y + importBox.height) - 1)
 
-    // The account controls are one labelled tab on the left edge, vertically
-    // centred, and the pane is shut until it is asked for.
+    // One labelled control opens the account pane, and the pane is shut until
+    // it is asked for. Above the phone breakpoint the control is a tab on the
+    // left edge, vertically centred; below it, the same control is the
+    // hamburger at the top of the page, because a 760px window has no edge to
+    // spare. Either way it is a 44px target.
     const tab = page.getByRole('button', { name: 'Account menu', exact: true })
     const pane = page.getByRole('dialog', { name: 'Account', exact: true })
     await expect(pane).toBeHidden()
     await expect(tab).toHaveAttribute('aria-expanded', 'false')
     const tabBox = (await tab.boundingBox())!
-    expect(tabBox.x).toBeLessThanOrEqual(1)
-    expect(Math.abs(tabBox.y + tabBox.height / 2 - size.height / 2)).toBeLessThan(2)
+    if (size.width < 820) {
+      expect(tabBox.x, 'the phone hamburger sits at the top right').toBeGreaterThan(size.width / 2)
+      expect(tabBox.y, 'the phone hamburger sits at the top').toBeLessThan(80)
+    } else {
+      expect(tabBox.x).toBeLessThanOrEqual(1)
+      expect(Math.abs(tabBox.y + tabBox.height / 2 - size.height / 2)).toBeLessThan(2)
+    }
     expect(tabBox.width).toBeGreaterThanOrEqual(44)
 
     // ── One gapless, aspect-true rail of clickable originals ───────────────
@@ -218,9 +228,11 @@ for (const size of sizes) {
       expect(Math.abs(next.x - (current.x + current.width))).toBeLessThan(1.5)
     }
     for (const box of rail.boxes) expect(Math.abs(box.width / box.height - box.aspect)).toBeLessThan(0.02)
-    // The gallery's face carries the shocking pink the picker gives the
-    // photograph in hand.
-    expect(rail.boxes[0].outline).toBe('3px rgb(252, 15, 192)')
+    // Shocking pink belongs to the photograph in hand inside the picker. This
+    // rail marks the gallery it opens with an ink outline instead, so a row of
+    // galleries is not a row of pink frames.
+    expect(rail.boxes[0].outline).not.toBe('3px rgb(252, 15, 192)')
+    expect(rail.boxes[0].outline).not.toBe('none')
     // The rail is a real horizontal travel, not a wrapped or clipped row.
     expect(rail.frame.scrollWidth).toBeGreaterThan(rail.frame.clientWidth + 1)
     expect(rail.documentOverflow).toBeLessThanOrEqual(1)
