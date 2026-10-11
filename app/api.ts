@@ -243,7 +243,10 @@ export const createManoramaApi = () => {
     const user = await getUserByAccountId(accountId, dbEnv(c))
     if (!user) return c.json({ error: 'Authentication could not be completed' }, 401)
     const token = await createSessionToken(user.accountId, secret)
-    return c.json({ token, ownerSlug: user.ownerSlug })
+    // The plan rides along with the session so the Mac app's account surface
+    // can state it the way the web dashboard and iOS already do. It is the
+    // account's own record — never a claim the client supplies.
+    return c.json({ token, ownerSlug: user.ownerSlug, tier: user.tier })
   })
   api.get('/api/gallery/:owner/:slug', async (c) => {
     const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
