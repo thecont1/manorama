@@ -342,7 +342,9 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 .policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
 .policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
-.policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; }
+/* The wrapped-link example is one unbreakable token — without
+   overflow-wrap it pushes the document ~27px past a 320px viewport. */
+.policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; overflow-wrap: anywhere; }
 .policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
 .policy-document a:hover { text-decoration-color: rgba(243,240,232,.7); }
 .policy-document a:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 3px; text-decoration-color: rgba(243,240,232,.7); }
