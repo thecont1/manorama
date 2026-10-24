@@ -1343,7 +1343,13 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
   .native-account-overview .native-gallery-import button { justify-self: stretch; }
 }
 
-.native-account-shell[data-admin-segmented] .native-account-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
+/* The --admin-* vars are viewport coordinates (the fold regions' rects), but
+   this grid begins inside the shell's 24px padding and, past 1440px, inside
+   its centring margin. Measuring both edges back from the hinge by that
+   inset keeps the left column's end at left_end-56 and the right column's
+   start at right_start in viewport terms — before this, the padding alone
+   pushed the import pane 32px into the hinge band. */
+.native-account-shell[data-admin-segmented] .native-account-overview { --admin-overview-inset: calc(24px + max(0px, (100vw - 1440px) / 2)); grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px - var(--admin-overview-inset))) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end) + 56px); }
 
 /* Phone Account affordance; wide and segmented displays keep their edge tab. */
 .native-account-hamburger { display: none; }
