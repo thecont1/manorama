@@ -124,7 +124,7 @@ async function openInfoDialog(page: import("@playwright/test").Page) {
 async function ensureNavArrows(page: import("@playwright/test").Page) {
   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
     await page
-      .getByRole("button", { name: "Display settings", exact: true })
+      .getByRole("button", { name: "Gallery controls", exact: true })
       .click();
     await page
       .getByRole("button", { name: /show navigation arrows/i })
@@ -278,12 +278,12 @@ for (const vp of viewports) {
       const frame = page.locator(".viewer-filmstrip-frame")
       const frameBox = await frame.boundingBox()
       expect(frameBox).not.toBeNull()
-      const initial = await frame.evaluate((node) => node.scrollLeft)
-      await page.mouse.move(frameBox!.x + frameBox!.width * .7, frameBox!.y + frameBox!.height / 2)
+      const initial = await frame.evaluate((node) => node.scrollTop)
+      await page.mouse.move(frameBox!.x + frameBox!.width / 2, frameBox!.y + frameBox!.height * .7)
       await page.mouse.down()
-      await page.mouse.move(frameBox!.x + frameBox!.width * .2, frameBox!.y + frameBox!.height / 2, { steps: 5 })
+      await page.mouse.move(frameBox!.x + frameBox!.width / 2, frameBox!.y + frameBox!.height * .2, { steps: 5 })
       await page.mouse.up()
-      await expect.poll(() => frame.evaluate((node) => node.scrollLeft)).not.toBe(initial)
+      await expect.poll(() => frame.evaluate((node) => node.scrollTop)).not.toBe(initial)
       await expect(frame).toBeVisible()
       await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", before!)
       await page.keyboard.press("Escape")
@@ -367,7 +367,7 @@ for (const vp of viewports) {
       });
       await dismissCurtain(page);
       const geometry = await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .evaluate((button) => {
           // The button is the static in-viewport hit area; the painted
           // card inside it does the peeking below the fold.
@@ -400,7 +400,7 @@ for (const vp of viewports) {
       // The pill is nearly invisible at rest: low wrap opacity, no chrome
       // painted by the button itself (the ::before pill carries it).
       const rest = await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .evaluate((button) => {
           const wrap = button.querySelector(".brand-mark-wrap")!;
           const wrapCss = getComputedStyle(wrap);
@@ -439,7 +439,7 @@ for (const vp of viewports) {
       // The centred logo opens display settings; the info sheet answers
       // plain `I` (⇧I fetches the external C2PA viewer instead).
       await page.mouse.move(200, 200);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await expect(
         page.getByRole("dialog", { name: /display settings/i }),
       ).toBeVisible();
@@ -450,7 +450,7 @@ for (const vp of viewports) {
         .click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       const docked = await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .evaluate((button) => {
           const hit = button.getBoundingClientRect();
           const stage = document
@@ -679,7 +679,7 @@ for (const vp of viewports) {
       // regression where an invisible ::before hit-extender on the
       // button ate pointerdown and opened settings on plain clicks.
       const button = page.getByRole("button", {
-        name: "Display settings",
+        name: "Gallery controls",
         exact: true,
       });
       const box = (await button.boundingBox())!;
@@ -725,7 +725,7 @@ for (const vp of viewports) {
     test("vertical scroll answers a mouse drag", async ({ page }) => {
       await dismissCurtain(page);
       await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -950,7 +950,7 @@ for (const vp of viewports) {
     }) => {
       await dismissCurtain(page);
       const settingsButton = page.getByRole("button", {
-        name: "Display settings",
+        name: "Gallery controls",
         exact: true,
       });
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
@@ -995,7 +995,7 @@ for (const vp of viewports) {
         ),
       );
       // Fullscreen lives in the display-settings panel.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await expect(
         page.getByRole("button", { name: /enter fullscreen/i }),
       ).toHaveCount(supported ? 1 : 0);
@@ -1009,25 +1009,25 @@ for (const vp of viewports) {
       // toggle in display settings brings them back.
       await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /hide navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /show navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       // Vertical keeps the toggle but defaults arrows off — the feed
       // scrolls natively, so they appear only on request.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
         .click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /show navigation arrows/i })
         .click();
@@ -1081,13 +1081,13 @@ for (const vp of viewports) {
         })
         .toBeLessThan(24);
       // Hiding again restores the quiet default.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /hide navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       // Single mode brings them back, stepping one image at a time.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /one at a time/i })
         .click();
@@ -1214,7 +1214,7 @@ for (const vp of viewports) {
       }
 
       await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .click();
       await page
         .getByRole("button", { name: /hide navigation arrows/i })
@@ -1275,7 +1275,7 @@ for (const vp of viewports) {
       await expect(page.locator('[data-portrait-pair="true"]')).toHaveCount(0);
       // The radios are visually hidden inside their labels — drive the
       // label, the element a pointer actually hits.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
         .click();
@@ -1506,7 +1506,7 @@ for (const vp of viewports) {
 
       // The card belongs to the strip alone.
       await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -1611,7 +1611,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   const total = await imageCount(page);
   // Mode radios live in the display-settings panel and are visually
   // hidden — drive their labels. Position reports through the info dialog.
-  await page.getByRole("button", { name: "Display settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
   await page
     .locator(".mode-options label", { hasText: /vertical scroll/i })
     .click();
@@ -1619,7 +1619,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   await openInfoDialog(page);
   await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Display settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
   await page
     .locator(".mode-options label", { hasText: /one at a time/i })
     .click();
@@ -1830,13 +1830,13 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
   // distraction — and the button's own box stays put so the control is
   // always click-stable.
   const buttonBox = await page
-    .getByRole("button", { name: "Display settings", exact: true })
+    .getByRole("button", { name: "Gallery controls", exact: true })
     .boundingBox();
   const before = await card.boundingBox();
   await page.waitForTimeout(900);
   const after = await card.boundingBox();
   const buttonBox2 = await page
-    .getByRole("button", { name: "Display settings", exact: true })
+    .getByRole("button", { name: "Gallery controls", exact: true })
     .boundingBox();
   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(14);
   expect(buttonBox2?.y).toBe(buttonBox?.y);
@@ -2517,7 +2517,7 @@ test.describe("M magnifier (desktop only)", () => {
     const page = await context.newPage();
     await dismissCurtain(page);
     await page
-      .getByRole("button", { name: "Display settings", exact: true })
+      .getByRole("button", { name: "Gallery controls", exact: true })
       .click();
     await page
       .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -2574,7 +2574,7 @@ test.describe("M magnifier (desktop only)", () => {
     await page.mouse.move(700, 450);
     await page.keyboard.press("m");
     await expect(page.locator(".magnifier-lens")).toBeVisible();
-    await page.getByRole("button", { name: "Display settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
     await expect(page.locator(".magnifier-lens")).toBeHidden();
   });
 
@@ -2594,7 +2594,7 @@ test.describe("M magnifier (desktop only)", () => {
 
   test("the shortcut row appears only where the key works", async ({ page }) => {
     await dismissCurtain(page);
-    await page.getByRole("button", { name: "Display settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
     await expect(page.locator(".shortcuts", { hasText: "magnify" })).toBeVisible();
   });
 });
@@ -2616,7 +2616,7 @@ test.describe("video slides", () => {
     await dismissCurtain(page, videoGallery());
     await expect(videos).toHaveCount(1);
 
-    await page.getByRole("button", { name: "Display settings" }).click();
+    await page.getByRole("button", { name: "Gallery controls" }).click();
     await expect(page.getByRole("dialog", { name: "Display settings" })).toBeVisible();
     await expect(videos).toHaveCount(0);
   });
