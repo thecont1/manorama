@@ -182,7 +182,11 @@ export const createManoramaApi = () => {
   api.use('/api/*', async (c, next) => {
     const origin = c.req.header('Origin')
     let allowed = false
-    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost') allowed = true
+    // https://localhost is the Android WebView origin under Capacitor's default
+    // androidScheme; it is the same trust class as the capacitor:// and tauri://
+    // shell origins — API calls authenticate with an explicit bearer token, so
+    // allowing it grants nothing an ambient-cookie origin could exploit.
+    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost' || origin === 'https://localhost') allowed = true
     if (origin) {
       try {
         const url = new URL(origin)

@@ -406,6 +406,8 @@ describe('device catalogue CORS', () => {
     expect(tauri.headers.get('Vary')).toBe('Origin')
     const capacitor = await preflight('capacitor://localhost')
     expect(capacitor.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
+    const android = await preflight('https://localhost')
+    expect(android.headers.get('Access-Control-Allow-Origin')).toBe('https://localhost')
     const dev = await preflight('http://localhost:5173')
     expect(dev.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173')
   })
@@ -417,7 +419,7 @@ describe('device catalogue CORS', () => {
       'https://tauri.localhost',
       'http://tauri.localhost',
       'null',
-      'https://localhost',
+      'https://localhost.evil',
     ]) {
       const response = await preflight(origin)
       expect(response.status).toBe(204)

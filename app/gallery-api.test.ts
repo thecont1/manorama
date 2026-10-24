@@ -115,8 +115,12 @@ describe('native gallery API', () => {
     expect(capacitor.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
     expect(capacitor.headers.get('Access-Control-Allow-Headers')).toContain('Authorization')
 
+    const android = await preflight('https://localhost')
+    expect(android.status).toBe(204)
+    expect(android.headers.get('Access-Control-Allow-Origin')).toBe('https://localhost')
+    expect(android.headers.get('Access-Control-Allow-Headers')).toContain('Authorization')
+
     for (const origin of [
-      'https://localhost',
       'http://localhost.localdomain',
       'http://example.com',
       'not-an-origin',
