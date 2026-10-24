@@ -203,6 +203,16 @@ export const createManoramaApi = () => {
     c.header('Vary', 'Origin')
     if (c.req.method === 'OPTIONS') return c.body(null, 204)
     await next()
+    // The context headers above only reach responses composed through
+    // c.json()/c.body(). Routes that return a raw Response — the streaming
+    // media proxies — would otherwise answer a native-shell fetch() with no
+    // allow-origin at all, which the WebView reports as a plain "Load failed".
+    if (allowed && origin) {
+      c.res.headers.set('Access-Control-Allow-Origin', origin)
+      c.res.headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+      c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+      c.res.headers.set('Vary', 'Origin')
+    }
   })
   api.route('/', createDeviceGalleryApi())
   /** Exchanges the one-minute deep-link handoff for the normal seven-day
