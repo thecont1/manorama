@@ -17,6 +17,7 @@ export type GallerySelection = { owner: string; slug: string }
 export type OfflineCacheResult =
   | { status: 'complete'; images: number }
   | { status: 'skipped-video'; images: 0 }
+  | { status: 'over-cap'; images: number }
 
 export type OfflineCacheProgress = { completed: number; total: number }
 
@@ -187,17 +188,11 @@ const isMetadataRecord = (value: unknown): value is OfflineMetadata => {
 const isMetadata = (value: unknown, selection: GallerySelection): value is OfflineMetadata =>
   isMetadataRecord(value) && value.owner === selection.owner && value.slug === selection.slug
 
-const remoteVariant = (variant: ImageVariant): boolean =>
-  Number.isFinite(variant.width) && variant.width > 0 && /^https?:\/\//i.test(variant.src)
-
-/** Provider variants are already-encoded assets. Selecting one changes no bytes or metadata. */
-export const offlineSourceFor = (image: GalleryImage): { src: string; format?: string } => {
-  const variant = image.variants
-    ?.filter(remoteVariant)
-    .reduce<ImageVariant | undefined>((smallest, candidate) =>
-      !smallest || candidate.width < smallest.width ? candidate : smallest, undefined)
-  return variant ? { src: variant.src, format: variant.format } : { src: image.src }
-}
+/** The vault stores the original bytes, never a rendition — the offline copy
+ *  is the offline viewing experience, and a photography product does not
+ *  promise thumbnail-quality frames. Variants exist for thumbs and rails;
+ *  they are not what gets vaulted. */
+export const offlineSourceFor = (image: GalleryImage): { src: string; format?: string } => ({ src: image.src })
 
 const mimeFromFormat = (format?: string): string | undefined => {
   const normalized = format?.toLowerCase().replace(/^image\//, '')
@@ -344,6 +339,22 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     }
 
     throwIfAborted(signal)
+    // Every write above runs the vault's LRU eviction when the cap is exceeded,
+    // and the newest entries are written last — so a fill larger than the cap
+    // evicts its own earlier entries. Verify every entry survived before the
+    // metadata commit below advertises a complete gallery.
+    let lost = false
+    for (const image of cachedImages) {
+      const bytes = await this.vault.read(galleryId, image.entryId, { touch: false })
+      if (!bytes) { lost = true; break }
+      bytes.fill(0)
+    }
+    if (lost) {
+      // Purge the partial fill: orphaned ciphertext still counts against the
+      // cap and would be unreachable without a commit record anyway.
+      await this.vault.clearGallery(galleryId)
+      return { status: 'over-cap', images: 0 }
+    }
     const metadata: OfflineMetadata = {
       version: METADATA_VERSION,
       owner: selection.owner,

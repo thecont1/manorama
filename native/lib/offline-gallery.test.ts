@@ -109,15 +109,19 @@ const gallery: NativeGalleryResponse = {
   },
 }
 
-const makeHarness = (responses = new Map<string, { bytes: Uint8Array; type: string }>([
-  ['https://provider.test/one-320.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
-  ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
-])) => {
+const makeHarness = (
+  responses = new Map<string, { bytes: Uint8Array; type: string }>([
+    ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
+    ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
+  ]),
+  maxBytes?: number,
+) => {
   const storage = new MemoryStorage()
   const keys = new MemoryKeys()
   const vault = new EncryptedVault({
     storage,
     keys,
+    maxBytes,
     crypto: {
       ...webCryptoProvider,
       randomBytes(length) { return new Uint8Array(length).fill(7) },
@@ -164,10 +168,9 @@ describe('EncryptedOfflineGalleryStore', () => {
     })
   })
 
-  test('chooses the smallest existing provider variant and falls back byte-for-byte to the original', async () => {
+  test('stores the original bytes even when smaller provider renditions exist', async () => {
     expect(offlineSourceFor(manifest.images[0] as GalleryImage)).toEqual({
-      src: 'https://provider.test/one-320.jpg',
-      format: 'jpeg',
+      src: 'https://provider.test/original-one.jpg',
     })
     expect(offlineSourceFor(manifest.images[1] as GalleryImage)).toEqual({
       src: 'https://provider.test/original-two.png',
@@ -176,7 +179,7 @@ describe('EncryptedOfflineGalleryStore', () => {
     const { store, requested } = makeHarness()
     await store.cache(selection, gallery)
     expect(requested).toEqual([
-      'https://provider.test/one-320.jpg',
+      'https://provider.test/original-one.jpg',
       'https://provider.test/original-two.png',
     ])
   })
@@ -202,7 +205,7 @@ describe('EncryptedOfflineGalleryStore', () => {
 
   test('invalidates a stale local feature when offline caching replaces its thumbnail', async () => {
     const refreshed = new Map([
-      ['https://provider.test/one-320.jpg', { bytes: new TextEncoder().encode('refreshed bytes one'), type: 'image/jpeg' }],
+      ['https://provider.test/original-one.jpg', { bytes: new TextEncoder().encode('refreshed bytes one'), type: 'image/jpeg' }],
       ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
     ])
     const { store, vault } = makeHarness(refreshed)
@@ -214,6 +217,21 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await vault.read(galleryId, thumbnailEntryId('stable-one'))).toEqual(new TextEncoder().encode('refreshed bytes one'))
     expect(await vault.read(galleryId, localComputeEntryId('stable-one'))).toBeUndefined()
     expect(await vault.read(galleryId, localComputeEntryId('stable-two'))).toBeUndefined()
+  })
+
+  test('reports over-cap and leaves no commit record when a fill evicts its own entries', async () => {
+    // ~60 bytes covers exactly one encrypted record (~19 bytes plaintext +
+    // ~40 bytes envelope). The second image's write evicts the first.
+    const { store, vault } = makeHarness(undefined, 60)
+    const galleryId = await offlineGalleryId(selection)
+
+    const result = await store.cache(selection, gallery)
+
+    expect(result).toEqual({ status: 'over-cap', images: 0 })
+    expect(await vault.read(galleryId, __private__.METADATA_ENTRY_ID)).toBeUndefined()
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-one'))).toBeUndefined()
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-two'))).toBeUndefined()
+    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
 
   test('detects complete caches and refuses a missing image entry', async () => {
