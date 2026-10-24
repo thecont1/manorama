@@ -533,7 +533,7 @@ describe('signed-in account area', () => {
     expect([...coverButton!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
       'native-gallery-thumb',
     ])
-    expect(coverButton!.getAttribute('aria-label')).toBe('Edit the running order of Kashmir')
+    expect(coverButton!.getAttribute('aria-label')).toBe('Open Kashmir')
     // Name with its count, then the caption line, then the address, then the
     // photograph, then the actions: the order the owner asked for, in one
     // column.
@@ -549,8 +549,8 @@ describe('signed-in account area', () => {
     expect(card.querySelector('.native-gallery-caption')?.textContent).toBe('A winter album')
     expect(card.querySelector('.native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
 
-    // The cover opens the editor for this gallery, not the gallery itself.
-    coverButton!.click()
+    // The running-order action is what opens the editor for this gallery.
+    ;(container.querySelector('[aria-label="Edit the running order of Kashmir"]') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
@@ -558,8 +558,11 @@ describe('signed-in account area', () => {
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).toBeNull()
 
-    // The title row is what opens the gallery on the stage.
-    ;(container.querySelector('.native-gallery-row-with-thumb') as HTMLButtonElement).click()
+    // The cover opens the gallery on the stage — the card's most obvious
+    // affordance has to lead to the viewer. The title row shares the same
+    // handler; it cannot be exercised afterwards because the stage replaces
+    // the list.
+    coverButton!.click()
     await settle()
     expect(galleryCalls().filter((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir').length)
       .toBeGreaterThanOrEqual(2)
@@ -1221,7 +1224,7 @@ describe('signed-in account area', () => {
     expect(container.querySelector('.native-gallery-caption-edit')).toBeNull()
   })
 
-  test('the card offers the web actions as four square icons', async () => {
+  test('the card offers the web actions plus the running-order editor as square icons', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://www.dropbox.com/sh/example' })] }) })
@@ -1231,12 +1234,14 @@ describe('signed-in account area', () => {
     const actions = container.querySelector('.native-gallery-actions') as HTMLElement
     const buttons = [...actions.querySelectorAll('button')] as HTMLButtonElement[]
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Edit the running order of Kashmir',
       'Copy Kashmir link',
       'Open Kashmir source',
       'Refresh Kashmir from source',
       'Delete Kashmir',
     ])
-    // Drawings, not words — the same four controls the web dashboard renders.
+    // Drawings, not words — the web dashboard's four controls plus the
+    // editor that only exists native-side.
     expect(buttons.every((button) => button.querySelector('svg') !== null)).toBe(true)
     expect(actions.textContent).toBe('')
   })

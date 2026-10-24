@@ -154,6 +154,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
                   role="listitem"
                   key={photo.id}
                   data-photo={photo.id}
+                  data-order-key={photo.orderKey}
                   aria-label={`${photo.label}, position ${index + 1} of ${photos.length}`}
                   aria-pressed={held === photo.id ? 'true' : 'false'}
                   disabled={busy}

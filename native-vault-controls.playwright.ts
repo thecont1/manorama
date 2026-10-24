@@ -52,8 +52,8 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       .evaluate((node) => getComputedStyle(node).paddingLeft)
     if (viewport.width < 820) expect(shellPadding).toBe('24px')
 
-    // The card reads title, caption, address — and the same four square actions
-    // the web dashboard renders. Drawings, not words.
+    // The card reads title, caption, address — and the web's square actions
+    // plus the native-only running-order editor. Drawings, not words.
     const firstCard = cards.first()
     const firstActions = firstCard.locator('.native-gallery-actions')
     const actionLabels = await firstActions.locator('button')
@@ -74,9 +74,11 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       await page.keyboard.press('Escape')
     }
 
-    // The cover opens this gallery's editor: the picker's matrix, in order.
-    // One photograph is picked up and put down, and only that order is saved.
-    await firstCard.locator('.native-gallery-cover-open').click()
+    // The running-order action opens this gallery's editor: the picker's
+    // matrix, in order. One photograph is picked up and put down, and only
+    // that order is saved. (The cover itself opens the gallery — exercised
+    // below as the viewer-entry path.)
+    await firstCard.getByRole('button', { name: /Edit the running order/ }).click()
     const editor = page.locator('[data-gallery-editor]')
     await expect(editor).toBeVisible()
     const cells = editor.locator('.native-global-grid .native-global-cell')
@@ -85,13 +87,16 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     expect(cellCount).toBeGreaterThan(1)
     const heights = await cells.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)))
     expect(new Set(heights).size).toBe(1)
-    const orderBefore = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-photo')))
+    // Order assertions read data-order-key, not data-photo: the save writes
+    // orderKeys (ref ?? filename ?? id), which is what the recorded PATCH
+    // must match.
+    const orderBefore = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-editor.png`, fullPage: false })
     await cells.nth(cellCount - 1).click()
     await expect(cells.nth(cellCount - 1)).toHaveClass(/is-active/)
     await expect(editor.locator('.native-editor-note')).toContainText('in hand')
     await cells.first().click()
-    const orderAfter = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-photo')))
+    const orderAfter = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
     expect(orderAfter[0]).toBe(orderBefore[cellCount - 1])
     await editor.locator('.native-editor-save').click()
     await expect(editor.locator('.native-editor-note')).toContainText('saved')
@@ -142,7 +147,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect.poll(async () => (await account.boundingBox())?.x ?? -999).toBeGreaterThanOrEqual(0)
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
     await page.getByRole('button', { name: 'Close account menu', exact: true }).click()
-    await page.locator('.native-gallery-row-with-thumb').first().click()
+    // The cover is the card's most obvious affordance, so it opens the
+    // gallery — the editor lives on the action row, exercised above.
+    await page.locator('.native-gallery-cover-open').first().click()
     const curtain = page.locator('[data-curtain]')
     await expect(curtain).toBeVisible()
     await expect.poll(async () => {

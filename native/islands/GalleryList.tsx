@@ -6,7 +6,7 @@ import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import GalleryEditor from './GalleryEditor'
-import { CloseIcon, CopyIcon, OpenIcon, RefreshIcon, TrashIcon } from '../../app/components/admin-icons'
+import { CloseIcon, CopyIcon, OpenIcon, RefreshIcon, ReorderIcon, TrashIcon } from '../../app/components/admin-icons'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
 import { createGalleryFromQuickAdd, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, updateGalleryCaption } from '../lib/api'
@@ -1010,16 +1010,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         )}
         <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
         {/* The photograph comes after the words, the way the card reads, and
-          spans the card at its own proportions. It opens the editor, not the
-          gallery: the card is a management surface, and the title row is what
-          opens the gallery. */}
+          spans the card at its own proportions. It opens the gallery — the
+          cover is the card's most obvious affordance, so it must lead to the
+          viewer; the running-order editor moved to the action row below. */}
         {cover ? (
           <button
             type="button"
             class="native-gallery-cover-open"
-            onClick={() => ownerSlug && setEditorGallery({ owner: ownerSlug, slug: gallery.slug, title })}
+            onClick={() => ownerSlug && openSelection(ownerSlug, gallery.slug)}
             disabled={!ownerSlug}
-            aria-label={`Edit the running order of ${title}`}
+            aria-label={`Open ${title}`}
           >
             <span class="native-gallery-cover-row" aria-hidden="true">
               <span class="native-gallery-thumb">
@@ -1234,9 +1234,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 {visibleAccountGalleries.map((gallery) => (
                   <li key={gallery.slug}>
                     {accountGalleryRow(gallery)}
-                    {/* The same four square icon actions the web dashboard offers, so
-                        one gallery is managed the same way on either surface. */}
+                    {/* The four square actions the web dashboard offers, plus the
+                        running-order editor that only exists native-side. */}
                     <div class="native-gallery-actions" role="group" aria-label={`${galleryName(gallery)} actions`}>
+                      <button type="button" title="Edit the running order" aria-label={`Edit the running order of ${galleryName(gallery)}`} disabled={!ownerSlug} onClick={() => ownerSlug && setEditorGallery({ owner: ownerSlug, slug: gallery.slug, title: galleryName(gallery) })}><ReorderIcon /></button>
                       <button type="button" title="Copy gallery link" aria-label={`Copy ${galleryName(gallery)} link`} onClick={() => void copyGalleryLink(gallery)}><CopyIcon /></button>
                       {gallery.sourceUrl ? <button type="button" title="Open the source folder" aria-label={`Open ${galleryName(gallery)} source`} onClick={() => openExternal(gallery.sourceUrl!)}><OpenIcon /></button> : null}
                       {gallery.sourceUrl ? <button type="button" title={gallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : 'Refresh from source'} aria-label={`Refresh ${galleryName(gallery)} from source`} disabled={galleryActionBusy !== null || gallery.retention === 'pipeline'} onClick={() => void mutateGallery(gallery, 'refresh')}><RefreshIcon /></button> : null}

@@ -357,7 +357,20 @@ const PREBOOT = async (which: number) => {
       // never reach the owner's real galleries.
       if (init && init.method === 'PATCH') {
         window.__capturePatch = window.__capturePatch || []
-        window.__capturePatch.push({ url: url, body: JSON.parse(init.body) })
+        var patch = JSON.parse(init.body)
+        window.__capturePatch.push({ url: url, body: patch })
+        // The editor reads the order back after saving, so the write has to
+        // land in the manifest this stub serves — keyed the way the
+        // repository reorders: ref, then filename, then id. local is an
+        // object literal here, so the reorder mutates it in place.
+        var order = patch && patch.order
+        if (order && order.length && local && local.manifest) {
+          var keyOf = function (image) { return image.ref || image.filename || image.id }
+          var byKey = {}
+          local.manifest.images.forEach(function (image) { byKey[keyOf(image)] = image })
+          var next = order.map(function (key) { return byKey[key] }).filter(function (image) { return image })
+          if (next.length === local.manifest.images.length) local.manifest.images = next
+        }
         return Promise.resolve(json({ gallery: seeded.galleries.galleries[0] }))
       }
       return Promise.resolve(json(seeded.galleries))

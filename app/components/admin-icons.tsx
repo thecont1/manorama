@@ -44,6 +44,13 @@ export const SourceIcon = () => (
   </svg>
 )
 
+export const ReorderIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 8h13M14 4.5 17.5 8 14 11.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M20 16H7M10 12.5 6.5 16l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+)
+
 export const CloseIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
