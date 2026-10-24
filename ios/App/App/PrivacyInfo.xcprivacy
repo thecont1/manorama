@@ -91,11 +91,32 @@
 		</dict>
 	</array>
 	<!--
-		No app-owned required-reason API is declared here until the native
-		vault and its filesystem access land. Third-party SDK manifests remain
-		owned by their respective SDK bundles.
+		@capacitor/filesystem (via its IONFilesystemLib dependency) calls
+		attributesOfItem and returns creation/modification timestamps for the
+		vault's Library-directory contents; @capacitor/preferences stores
+		vault/display settings in NSUserDefaults. Both plugins compile into the
+		app binary via CapApp-SPM and ship no manifest of their own, so the
+		declarations belong here. Framework SDKs (Capacitor, GoogleMobileAds,
+		UMP, RevenueCat bundles) carry their own manifests.
 	-->
 	<key>NSPrivacyAccessedAPITypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
