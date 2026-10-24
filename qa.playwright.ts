@@ -1408,16 +1408,39 @@ for (const vp of viewports) {
       const viewportWidth = await page
         .locator("[data-stage]")
         .evaluate((stage) => stage.clientWidth);
+      // The advance docks the NEXT FRAME's left edge at the stage edge,
+      // capped at one viewport — on a phone a portrait frame is ~256px,
+      // far under any fraction of the viewport, so the contract is the
+      // docking distance itself, not a minimum travel.
+      const docking = await page.locator("[data-stage]").evaluate((stage) => {
+        const track = stage.querySelector<HTMLElement>("[data-track]")!;
+        const base = -new DOMMatrixReadOnly(
+          getComputedStyle(track).transform,
+        ).e;
+        const frames = [
+          ...track.querySelectorAll<HTMLElement>(
+            "[data-index], [data-ad-frame], [data-endcard]",
+          ),
+        ];
+        let frame = frames[0] ?? null;
+        for (const candidate of frames) {
+          if (candidate.offsetLeft > base + 1) break;
+          frame = candidate;
+        }
+        const next = frame?.nextElementSibling as HTMLElement | null;
+        return { base, nextOffsetLeft: next?.offsetLeft ?? null };
+      });
+      const expected = Math.min(
+        viewportWidth,
+        Math.max(0, (docking.nextOffsetLeft ?? docking.base + viewportWidth) - docking.base),
+      );
       await page.getByRole("button", { name: /next photograph/i }).click();
       await waitForTrackSettled(page);
       const after = await page
         .locator("[data-track]")
         .evaluate((track) => track.getBoundingClientRect().left);
       const advance = Math.abs(after - before);
-      // The advance docks the next frame at the stage edge, capped at one
-      // viewport — a frame wider than the stage pages through in
-      // full-viewport chunks, so the bound is <=, never a teleport.
-      expect(advance).toBeGreaterThan(viewportWidth * 0.7);
+      expect(Math.abs(advance - expected)).toBeLessThanOrEqual(2);
       expect(advance).toBeLessThanOrEqual(viewportWidth + 1);
     });
 
