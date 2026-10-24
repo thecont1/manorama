@@ -77,6 +77,9 @@ localization**, or it will not return in sandbox even with the agreement active
 - [ ] Ad unit: banner for the plate (300×250 medium rectangle) — #19
 - [ ] Ad unit: banner for the account slot — #21
 - [ ] App ID added to `Info.plist`; SKAdNetwork identifiers added — #36
+- [ ] Android app created separately in the AdMob console and its id passed to Gradle via
+      `ADMOB_ANDROID_APP_ID` (`gradle.properties` or `-PADMOB_ANDROID_APP_ID=…`); the build
+      falls back to Google's test id without it
 
 > ### Expect near-zero fill until after launch
 >
