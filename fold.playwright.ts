@@ -74,7 +74,7 @@ const openFoldFixture = async (
   await expect(page.locator('[data-diptych-stage]')).toBeVisible()
 }
 
-const seqLabel = (photo: number) => `Photograph ${photo} of 6 — open selector`
+const seqLabel = (photo: number) => `Photograph ${photo} of 6 — open Fold fixture`
 
 const describeIfConfigured = nativeUrl ? test.describe : test.describe.skip
 

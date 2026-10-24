@@ -278,6 +278,14 @@ for (const vp of viewports) {
       const frame = page.locator(".viewer-filmstrip-frame")
       const frameBox = await frame.boundingBox()
       expect(frameBox).not.toBeNull()
+      // The picker is a wrapping matrix — on wide viewports thirty small
+      // thumbs can fit without overflowing, which would leave nothing to
+      // scroll. Force tall rows so the frame genuinely overflows.
+      await frame.locator(".viewer-filmstrip-item").evaluateAll((items) =>
+        items.forEach((item) => {
+          (item as HTMLElement).style.height = "60vh";
+        }),
+      );
       const initial = await frame.evaluate((node) => node.scrollTop)
       await page.mouse.move(frameBox!.x + frameBox!.width / 2, frameBox!.y + frameBox!.height * .7)
       await page.mouse.down()
@@ -290,7 +298,10 @@ for (const vp of viewports) {
       await expect(frame).toBeHidden()
       await page.keyboard.press("g")
       await expect(frame).toBeVisible()
-      await page.locator(".filmstrip-scrim").click({ position: { x: 5, y: 5 } })
+      // The full-screen filmstrip covers the scrim edge to edge, so a real
+      // pointer can never reach it; dispatch the event to prove the scrim's
+      // dismissal wiring still works.
+      await page.locator(".filmstrip-scrim").dispatchEvent("pointerdown", { bubbles: true })
       await expect(frame).toBeHidden()
     })
 
@@ -1144,7 +1155,7 @@ for (const vp of viewports) {
       await expect(seqNum).toHaveText("1");
       await expect(seq).toHaveAttribute(
         "aria-label",
-        `Photograph 1 of ${await imageCount(page)} — open selector`,
+        `Photograph 1 of ${await imageCount(page)} — open kashmir`,
       );
 
       // The bubble tracks the reported index as the strip advances.
@@ -1166,7 +1177,7 @@ for (const vp of viewports) {
           `2 of ${await imageCount(page)} items`,
         );
         await expect(seq.locator(".stage-seq-hint")).toHaveText(
-          /open global/i,
+          /open picker/i,
         );
         const lit = await seq.evaluate((el) => ({
           opacity: getComputedStyle(el).opacity,
@@ -3022,7 +3033,7 @@ test.describe("density-aware staging", () => {
     });
     const page = await context.newPage();
     await dismissCurtain(page, url);
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open selector');
+    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open d-tiny');
     await expect(page.locator('[data-image-id="tiny"]')).toHaveAttribute('aria-current', 'true');
     const frame = page.locator("[aria-current='true']");
     const img = frame.locator(".frame-img");

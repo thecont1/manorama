@@ -73,8 +73,15 @@ for (const size of sizes) {
         await expect(dialog).toBeHidden()
         await expect(tab).toHaveAttribute('aria-expanded', 'false')
         const tabBox = (await tab.boundingBox())!
-        expect(tabBox.x).toBeLessThanOrEqual(1)
-        expect(Math.abs(tabBox.y + tabBox.height / 2 - size.height / 2)).toBeLessThan(2)
+        if (size.width >= 820) {
+          expect(tabBox.x).toBeLessThanOrEqual(1)
+          expect(Math.abs(tabBox.y + tabBox.height / 2 - size.height / 2)).toBeLessThan(2)
+        } else {
+          // Below the 820px breakpoint the tab collapses to a circular
+          // hamburger parked top-right (native/styles.css, a562416).
+          expect(Math.abs(tabBox.x + tabBox.width - (size.width - 14))).toBeLessThan(2)
+          expect(Math.abs(tabBox.y - 14)).toBeLessThan(2)
+        }
         expect(tabBox.width).toBeGreaterThanOrEqual(44)
 
         // Two quadrants and the gallery list below both of them.
