@@ -110,7 +110,7 @@ const gallery: NativeGalleryResponse = {
 }
 
 const makeHarness = (responses = new Map<string, { bytes: Uint8Array; type: string }>([
-  ['https://provider.test/one-320.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
+  ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
   ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
 ])) => {
   const storage = new MemoryStorage()
@@ -164,10 +164,9 @@ describe('EncryptedOfflineGalleryStore', () => {
     })
   })
 
-  test('chooses the smallest existing provider variant and falls back byte-for-byte to the original', async () => {
+  test('stores the original bytes even when smaller provider renditions exist', async () => {
     expect(offlineSourceFor(manifest.images[0] as GalleryImage)).toEqual({
-      src: 'https://provider.test/one-320.jpg',
-      format: 'jpeg',
+      src: 'https://provider.test/original-one.jpg',
     })
     expect(offlineSourceFor(manifest.images[1] as GalleryImage)).toEqual({
       src: 'https://provider.test/original-two.png',
@@ -176,7 +175,7 @@ describe('EncryptedOfflineGalleryStore', () => {
     const { store, requested } = makeHarness()
     await store.cache(selection, gallery)
     expect(requested).toEqual([
-      'https://provider.test/one-320.jpg',
+      'https://provider.test/original-one.jpg',
       'https://provider.test/original-two.png',
     ])
   })
@@ -202,7 +201,7 @@ describe('EncryptedOfflineGalleryStore', () => {
 
   test('invalidates a stale local feature when offline caching replaces its thumbnail', async () => {
     const refreshed = new Map([
-      ['https://provider.test/one-320.jpg', { bytes: new TextEncoder().encode('refreshed bytes one'), type: 'image/jpeg' }],
+      ['https://provider.test/original-one.jpg', { bytes: new TextEncoder().encode('refreshed bytes one'), type: 'image/jpeg' }],
       ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
     ])
     const { store, vault } = makeHarness(refreshed)

@@ -187,17 +187,11 @@ const isMetadataRecord = (value: unknown): value is OfflineMetadata => {
 const isMetadata = (value: unknown, selection: GallerySelection): value is OfflineMetadata =>
   isMetadataRecord(value) && value.owner === selection.owner && value.slug === selection.slug
 
-const remoteVariant = (variant: ImageVariant): boolean =>
-  Number.isFinite(variant.width) && variant.width > 0 && /^https?:\/\//i.test(variant.src)
-
-/** Provider variants are already-encoded assets. Selecting one changes no bytes or metadata. */
-export const offlineSourceFor = (image: GalleryImage): { src: string; format?: string } => {
-  const variant = image.variants
-    ?.filter(remoteVariant)
-    .reduce<ImageVariant | undefined>((smallest, candidate) =>
-      !smallest || candidate.width < smallest.width ? candidate : smallest, undefined)
-  return variant ? { src: variant.src, format: variant.format } : { src: image.src }
-}
+/** The vault stores the original bytes, never a rendition — the offline copy
+ *  is the offline viewing experience, and a photography product does not
+ *  promise thumbnail-quality frames. Variants exist for thumbs and rails;
+ *  they are not what gets vaulted. */
+export const offlineSourceFor = (image: GalleryImage): { src: string; format?: string } => ({ src: image.src })
 
 const mimeFromFormat = (format?: string): string | undefined => {
   const normalized = format?.toLowerCase().replace(/^image\//, '')
