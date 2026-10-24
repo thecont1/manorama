@@ -3062,10 +3062,16 @@ test.describe("density-aware staging", () => {
     const frameBox = await frame.boundingBox();
     expect(Math.abs(box!.width - 120)).toBeLessThan(2);
     expect(Math.abs(box!.height - 80)).toBeLessThan(2);
-    // The frame hugs the staged image — undersized sources keep honest
-    // pixels AND the strip stays continuous, so neighbours still abut.
+    // Plate-on-mount (ec00cfd): an undersized source keeps honest pixels
+    // centred inside a frame that keeps the stage's full height, marked
+    // with the mount class — the frame hugs the image in WIDTH only, so
+    // neighbours still abut.
     expect(Math.abs(frameBox!.width - box!.width)).toBeLessThan(2);
-    expect(Math.abs(frameBox!.height - box!.height)).toBeLessThan(2);
+    const stageHeight = (await page
+      .locator("[data-stage]")
+      .boundingBox())!.height;
+    expect(Math.abs(frameBox!.height - stageHeight)).toBeLessThan(2);
+    await expect(frame).toHaveClass(/viewer-frame--short/);
     const stageBox = await page.locator("[data-stage]").boundingBox();
     expect(Math.abs(box!.x + box!.width / 2 - (frameBox!.x + frameBox!.width / 2))).toBeLessThan(2);
     expect(Math.abs(box!.y + box!.height / 2 - (stageBox!.y + stageBox!.height / 2))).toBeLessThan(2);
