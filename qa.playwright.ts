@@ -846,7 +846,30 @@ for (const vp of viewports) {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
       await dismissCurtain(page);
       const client = await page.context().newCDPSession(page);
-      const positions: number[] = [];
+      // The product promise is the canvas under the finger being
+      // continuous — but [data-track].left is not that contract. When a
+      // live original finishes decoding, the heal path (Viewer.tsx
+      // ~2110–2126) widens its frame and rewrites the transform by the
+      // same delta so viewed pixels stay put: raw track coordinates can
+      // teleport hundreds of px while nothing on screen moved. Measure
+      // the frame under the finger instead — it must track move-by-move,
+      // and only an abutting neighbour may take over under the point.
+      const sample = (x: number) =>
+        page.evaluate((fx) => {
+          const registry = ((window as any).__touchProbe ??= new Map());
+          const nextKey = ((window as any).__touchProbeKey ??= { value: 0 });
+          const el = document
+            .elementFromPoint(fx, 400)
+            ?.closest<HTMLElement>("[data-index], [data-ad-frame], [data-endcard]");
+          if (!el) return null;
+          if (!registry.has(el)) registry.set(el, nextKey.value++);
+          return {
+            key: registry.get(el) as number,
+            left: el.getBoundingClientRect().left,
+            width: el.offsetWidth,
+          };
+        }, x);
+      const positions: ({ key: number; left: number; width: number; gesture: number } | null)[] = [];
       for (let gesture = 0; gesture < 5; gesture += 1) {
         await client.send("Input.dispatchTouchEvent", {
           type: "touchStart",
@@ -861,24 +884,56 @@ for (const vp of viewports) {
             touchPoints: [{ x, y: 400, id: 1 }],
           });
           await page.waitForTimeout(8);
-          positions.push(
-            await page
-              .locator("[data-track]")
-              .evaluate((track) => track.getBoundingClientRect().left),
-          );
+          const sampled = await sample(x);
+          positions.push(sampled ? { ...sampled, gesture } : null);
         }
         await client.send("Input.dispatchTouchEvent", {
           type: "touchEnd",
           touchPoints: [],
         });
+        // Release continuity is the same contract — sample once more
+        // under the resting finger after touchEnd lands. The next
+        // gesture's finger lands elsewhere, so comparisons restart there.
+        await page.waitForTimeout(16);
+        const released = await sample(20);
+        positions.push(released ? { ...released, gesture } : null);
       }
-      const deltas = positions
-        .slice(1)
-        .map((position, index) => position - positions[index]);
-      expect(
-        Math.max(...deltas.map((delta) => Math.abs(delta))),
-      ).toBeLessThanOrEqual(100);
-      expect(positions.at(-1)).toBeLessThan(-1500);
+      const failures: string[] = [];
+      for (let i = 1; i < positions.length; i += 1) {
+        const prev = positions[i - 1];
+        const curr = positions[i];
+        if (!curr) {
+          failures.push(`sample ${i}: no frame under the finger`);
+          continue;
+        }
+        if (!prev || prev.gesture !== curr.gesture) continue;
+        if (curr.key === prev.key) {
+          if (Math.abs(curr.left - prev.left) > 100) {
+            failures.push(
+              `sample ${i}: the frame under the finger jumped ${(curr.left - prev.left).toFixed(0)}px`,
+            );
+          }
+          continue;
+        }
+        // A new element under the finger is only legitimate as an
+        // abutting handoff: its left edge must sit within the previous
+        // frame's own extent, not a teleport away.
+        if (
+          curr.left < prev.left - curr.width - 100 ||
+          curr.left > prev.left + prev.width + 100
+        ) {
+          failures.push(
+            `sample ${i}: the finger teleported ${(curr.left - prev.left).toFixed(0)}px to a different frame`,
+          );
+        }
+      }
+      expect(failures).toEqual([]);
+      // Total travel still uses the track: heal corrections only ever
+      // pull it further left, so the one-sided bound stays honest.
+      const travelled = await page
+        .locator("[data-track]")
+        .evaluate((track) => track.getBoundingClientRect().left);
+      expect(travelled).toBeLessThan(-1500);
     });
 
     test("repeated wheel input stays responsive and keeps the decoded image window bounded", async ({
