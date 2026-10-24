@@ -35,6 +35,35 @@ The full browser matrix was run locally because the isolated public-network Play
 
 `bunx tsc --noEmit`, `bun run gallery`, and `bun run build` all passed. The client manifest keeps both `@contentauth/c2pa-web` and `c2pa-wc` in dynamic imports; the initial hydration entry remains separate from the 8 MB Wasm asset and the provenance component chunk. Generated gallery assets and the integrity report are committed, while `dist/`, `node_modules/`, `.wrangler/`, and test artifacts remain ignored.
 
+## Android build and emulator
+
+Gradle needs a JDK, and the system Java on this machine is too old for the
+Android Gradle Plugin — point `JAVA_HOME` at the JDK bundled with Android
+Studio (the JBR) before invoking the wrapper:
+
+```sh
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+cd android && ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+The checked-in AVD is `manorama_api36` (API 36 Google Play image); boot it
+with `emulator -avd manorama_api36`. Two things to know when reading the
+result:
+
+- **The WebView's origin is `https://localhost`, not `capacitor://localhost`.**
+  Capacitor 8's default `androidScheme` is `https`, so every fetch to
+  `manorama.xyz` carries `Origin: https://localhost`. The Worker allowlists
+  it (PR #119); a production API call that fails CORS on Android but works
+  on iOS means the Worker in production predates that deploy.
+- **`com.google.android.gms.ads.APPLICATION_ID` must resolve at launch.** It
+  is a manifest placeholder wired to `ADMOB_ANDROID_APP_ID` with Google's
+  public test ID as the default; an empty value crashes the Mobile Ads SDK
+  before first paint. PR #120.
+
+System Back from the landing screen exits the app (`canGoBack: false` →
+`App.exitApp`); that is correct behaviour, not a hang.
+
 ## References
 
 [1]: https://github.com/thecont1/thecontrarian-in-website "Reference carousel implementation"
