@@ -80,7 +80,7 @@ async function dismissCurtain(
   page: import("@playwright/test").Page,
   url = GALLERY,
 ) {
-  await page.goto(url);
+  await page.goto(url, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await expect(curtain).toBeVisible();
   await curtain.click();
@@ -178,7 +178,7 @@ async function waitForTrackSettled(page: import("@playwright/test").Page) {
 test("curtain uses larger brand type without entry labels", async ({
   page,
 }) => {
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   await expect(page.locator("[data-curtain-title]")).toBeVisible();
   // Real albums may carry no caption — the element renders empty and
   // zero-height, so the contract is presence + typeface, not visibility.
@@ -204,7 +204,7 @@ test("curtain lifts upward before it hides", async ({ page }) => {
   // motion emulation the transition is ~0ms and is-lifting only exists
   // for a frame, so run it with motion on.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
   await expect(curtain).toHaveClass(/is-lifting/);
@@ -218,7 +218,7 @@ test("curtain reveal remains visible through a calmer lift before it hides", asy
 }) => {
   // Lift duration is asserted — motion required (see the spec above).
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
   await page.waitForTimeout(650);
@@ -232,7 +232,7 @@ test("curtain accepts an upward swipe before it lifts away", async ({
 }) => {
   // Lift class asserted — motion required.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await page.mouse.move(300, 520);
   await page.mouse.down();
@@ -622,7 +622,7 @@ for (const vp of viewports) {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
       // Lift class asserted — motion required.
       await page.emulateMedia({ reducedMotion: "no-preference" });
-      await page.goto(GALLERY);
+      await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
       const client = await page.context().newCDPSession(page);
       const curtain = page.locator("[data-curtain]");
       await client.send("Input.dispatchTouchEvent", {
@@ -794,7 +794,7 @@ for (const vp of viewports) {
       // across this spec's per-measure reloads.
       await page.emulateMedia({ reducedMotion: "no-preference" });
       const measure = async (pause: number) => {
-        await page.goto(GALLERY);
+        await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
         await page.locator("[data-curtain]").click();
         await expect(page.locator("[data-curtain]")).toBeHidden();
         const client = await page.context().newCDPSession(page);
@@ -1916,7 +1916,7 @@ test("public root is a minimal Manorama landing page", async ({
   // Every HTML response has carried the noindex posture since v1 — the
   // landing page included.
   expect(root.headers()["x-robots-tag"] || "").toContain("noindex");
-  await page.goto(BASE + "/");
+  await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".landing-page")).toBeVisible();
   await expect(page.locator(".landing-brand")).toBeVisible();
   await expect(page.locator(".landing-brand-mark")).toHaveAttribute(
@@ -2230,7 +2230,7 @@ test.describe("privacy policy page", () => {
   test("renders three persona cards and the shared sections semantically", async ({
     page,
   }) => {
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("heading", { level: 1, name: /privacy policy/i }),
     ).toBeVisible();
@@ -2266,7 +2266,7 @@ test.describe("privacy policy page", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     const columns = await page
       .locator(".policy-personas")
       .evaluate(
@@ -2279,7 +2279,7 @@ test.describe("privacy policy page", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     const columns = await page
       .locator(".policy-personas")
       .evaluate(
@@ -2302,7 +2302,7 @@ test.describe("privacy policy page", () => {
   test("print emulation yields a legible black-on-white single column", async ({
     page,
   }) => {
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     await page.emulateMedia({ media: "print" });
     const body = await page
       .locator("body")
@@ -2326,7 +2326,7 @@ test.describe("privacy policy page", () => {
   });
 
   test("axe finds no violations on the policy page", async ({ page }) => {
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 });
@@ -2384,7 +2384,7 @@ test.describe("quick-add interstitial", () => {
     // A fresh context: no Access header, no session.
     const context = await browser.newContext();
     const page = await context.newPage();
-    await page.goto(`${BASE}/https://mega.nz/folder/AbCdEf12#a2V5`);
+    await page.goto(`${BASE}/https://mega.nz/folder/AbCdEf12#a2V5`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-mode", "signin");
     await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-provider", "mega");
     const signin = page.locator("[data-quickadd-signin]");
@@ -2404,7 +2404,7 @@ test.describe("quick-add interstitial", () => {
   });
 
   test("normal routes are not swallowed by the catch-all", async ({ page }) => {
-    await page.goto(GALLERY);
+    await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-quickadd]")).toHaveCount(0);
     await expect(page.locator("[data-curtain]")).toBeVisible();
   });
@@ -2420,7 +2420,7 @@ test.describe("quick-add interstitial", () => {
         body: JSON.stringify({ galleryUrl: `/${OWNER}/${SLUG}`, gallery: { slug: SLUG } }),
       });
     });
-    await page.goto(`${BASE}/https://mega.nz/folder/ZeroClick#key`);
+    await page.goto(`${BASE}/https://mega.nz/folder/ZeroClick#key`, { waitUntil: "domcontentloaded" });
     // The gallery page keeps loading media after the client-side
     // redirect, so networkidle never settles — assert the navigation and
     // the POST directly instead.
@@ -2608,7 +2608,7 @@ test.describe("video slides", () => {
     // The gating that SSR and source-text tests cannot prove: a video-first
     // gallery stays fully inert behind the curtain, and opening a panel
     // releases the media element rather than leaving it playing underneath.
-    await page.goto(videoGallery());
+    await page.goto(videoGallery(), { waitUntil: "domcontentloaded" });
     const videos = page.locator("video.frame-video");
     await expect(page.locator("[data-curtain]")).toBeVisible();
     await expect(videos).toHaveCount(0);
@@ -2701,7 +2701,7 @@ test.describe("video slides", () => {
 
 test.describe("per-gallery social cards", () => {
   test("the gallery page advertises its own OG image", async ({ page }) => {
-    await page.goto(GALLERY);
+    await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
     const ogImage = await page.locator('meta[property="og:image"]').getAttribute("content");
     expect(ogImage).toContain(`/api/og/${OWNER}/${SLUG}`);
     expect(await page.locator('meta[property="og:image:type"]').getAttribute("content")).toBe("image/jpeg");
@@ -2924,7 +2924,7 @@ test.describe("retention policy", () => {
       extraHTTPHeaders: { Cookie: await sessionCookie(RETENTION_ACCOUNT) },
     });
     const page = await context.newPage();
-    await page.goto(`${BASE}/${RETENTION_OWNER}`);
+    await page.goto(`${BASE}/${RETENTION_OWNER}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
     const card = page.locator('[data-gallery-card="ui-d"]');
     await expect(card).toContainText("Temporary ·");

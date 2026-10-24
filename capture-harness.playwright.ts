@@ -12,7 +12,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       await page.setViewportSize(viewport)
       const picked = await request.get(`${base}/state/${state}`)
       const { generation } = await picked.json()
-      await page.goto(`${base}/?owner=thecontrarian&slug=italy`)
+      await page.goto(`${base}/?owner=thecontrarian&slug=italy`, { waitUntil: 'domcontentloaded' })
       await expect.poll(async () => (await (await request.get(`${base}/__capture/report`)).json())?.ready, { timeout: 75000 }).toBe(true)
       const report = await (await request.get(`${base}/__capture/report`)).json()
       expect(report.state).toBe(state)

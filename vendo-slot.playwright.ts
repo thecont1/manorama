@@ -36,7 +36,7 @@ const sessionCookie = async (accountId = "dbid:AAATESTowner1"): Promise<string> 
     .sign(new TextEncoder().encode(sessionSecret))}`;
 
 test("public pages carry no gallery-inventory slot markup", async ({ page }) => {
-  await page.goto(`${BASE}/`);
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
   await page.locator(".landing-brand").waitFor({ state: "visible" });
   expect(await page.locator("#vendo-slot-gallery-inventory").count()).toBe(0);
 });

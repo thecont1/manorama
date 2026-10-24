@@ -68,7 +68,7 @@ const openFoldFixture = async (
     contentType: 'application/json',
     body: JSON.stringify({ ...manifest, manifest: { ...manifest.manifest, images } }),
   }))
-  await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+  await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('[data-curtain]')).toBeVisible()
   await page.locator('[data-curtain]').click()
   await expect(page.locator('[data-diptych-stage]')).toBeVisible()
@@ -90,7 +90,7 @@ describeIfConfigured('native fold runtime', () => {
   })
 
   test('keeps the ordinary strip on a one-segment viewport', async ({ page }) => {
-    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()
     await expect(page.locator('[data-curtain]')).toBeHidden()
@@ -130,7 +130,7 @@ describeIfConfigured('native fold runtime', () => {
         document.head.appendChild(style)
       })
     })
-    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()
     await expect(page.locator('[data-diptych-stage]')).toBeVisible()
@@ -166,7 +166,7 @@ describeIfConfigured('native fold runtime', () => {
         document.head.appendChild(style)
       })
     })
-    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()
     await expect(page.locator('[data-diptych-stage]')).toBeVisible()
@@ -312,7 +312,7 @@ describeIfConfigured('native fold runtime', () => {
         settings: { ...manifest.settings, defaultMode: 'single' },
       }),
     }))
-    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`)
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()
     const seq = page.locator('.stage-seq')

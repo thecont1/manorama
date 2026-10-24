@@ -112,7 +112,7 @@ const openApp = async (page: Page, photoCount = 36): Promise<Opened> => {
   // The house CTA's destination is intercepted too — an activated popup
   // must never reach real network in a test.
   await page.route('**/manorama.xyz*', (route) => route.fulfill({ status: 200, body: 'ok' }))
-  await page.goto(`${nativeUrl}/?owner=fixture&slug=ads-fixture`)
+  await page.goto(`${nativeUrl}/?owner=fixture&slug=ads-fixture`, { waitUntil: 'domcontentloaded' })
   await enterGallery(page)
   return { page, popups }
 }
@@ -130,7 +130,7 @@ const openFixture = async (page: Page, options: { photoCount?: number; tier: 'fr
   await page.route(apiPattern, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body }))
   await page.route('**/manorama.xyz*', (route) => route.fulfill({ status: 200, body: 'ok' }))
-  await page.goto(`${nativeUrl}/ads-fixture.html`)
+  await page.goto(`${nativeUrl}/ads-fixture.html`, { waitUntil: 'domcontentloaded' })
   await enterGallery(page)
   return { body, page, popups }
 }
@@ -361,7 +361,7 @@ test.describe('native ad plate rules', () => {
     await page.route('**/api/ads/visibility', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ show: false, day: '2026-10-01', region: 'IN', suppressedBy: 'region' }) }))
     await page.route('**/manorama.xyz*', (route) => route.fulfill({ status: 200, body: 'ok' }))
-    await page.goto(`${nativeUrl}/?owner=fixture&slug=ads-fixture`)
+    await page.goto(`${nativeUrl}/?owner=fixture&slug=ads-fixture`, { waitUntil: 'domcontentloaded' })
     await enterGallery(page)
 
     await expect(page.locator('[data-ad-frame]')).toHaveCount(0)

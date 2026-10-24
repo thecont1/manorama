@@ -53,7 +53,7 @@ const openFixture = async (
     contentType: 'application/json',
     body: JSON.stringify(manifest(images)),
   }))
-  await page.goto(`${nativeUrl}/?owner=fixture&slug=global-fixture`)
+  await page.goto(`${nativeUrl}/?owner=fixture&slug=global-fixture`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Enter gallery' }).click()
 }
 

@@ -40,7 +40,7 @@ test.setTimeout(90_000)
  *  the navigation until the viewer island is actually served. */
 const gotoGallery = async (page: Page, url: string) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    await page.goto(url)
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
     if (await page.locator('.control-logo').count()) return
     await page.waitForTimeout(1000)
   }
@@ -83,7 +83,7 @@ const sessionCookie = async () => {
 
 const openDashboard = async (page: Page) => {
   await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() })
-  await page.goto(`${BASE}/thecontrarian`)
+  await page.goto(`${BASE}/thecontrarian`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.admin-page')).toBeVisible()
   // `.admin-page` is server-rendered, so its presence proves nothing about
   // the island being live. The background toggle used to be our hydration
@@ -252,7 +252,8 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
   const first = await layerSignature(page)
 
   // The preference persists, so the field must return identically.
-  await page.reload()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('.control-logo').waitFor({ state: 'attached', timeout: 60000 })
   await page.waitForTimeout(1200)
   const second = await layerSignature(page)
 
@@ -411,7 +412,7 @@ test('the dashboard never paints a doodle field, even when the gallery preferenc
   // Doodles are gallery-only. Turn the shared preference ON, then prove the
   // account page still renders no layer and offers no background control,
   // while a public album with the same flag does paint one.
-  await page.goto(BASE)
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.evaluate(() => localStorage.setItem('manorama:background', 'light'))
   await openDashboard(page)
 
