@@ -857,12 +857,17 @@ for (const vp of viewports) {
       const sample = (x: number) =>
         page.evaluate((fx) => {
           const registry = ((window as any).__touchProbe ??= new Map());
+          const els = ((window as any).__touchProbeEls ??= []);
           const nextKey = ((window as any).__touchProbeKey ??= { value: 0 });
           const el = document
             .elementFromPoint(fx, 400)
             ?.closest<HTMLElement>("[data-index], [data-ad-frame], [data-endcard]");
           if (!el) return null;
-          if (!registry.has(el)) registry.set(el, nextKey.value++);
+          if (!registry.has(el)) {
+            registry.set(el, nextKey.value);
+            els[nextKey.value] = el;
+            nextKey.value += 1;
+          }
           return {
             key: registry.get(el) as number,
             left: el.getBoundingClientRect().left,
@@ -916,12 +921,30 @@ for (const vp of viewports) {
           continue;
         }
         // A new element under the finger is only legitimate as an
-        // abutting handoff: its left edge must sit within the previous
-        // frame's own extent, not a teleport away.
-        if (
-          curr.left < prev.left - curr.width - 100 ||
-          curr.left > prev.left + prev.width + 100
-        ) {
+        // abutting handoff: frames hang edge-to-edge, so the adjacent
+        // edges of the old and new frames must meet within tolerance.
+        // A heal relayout can land between the two samples and leave
+        // prev's rect stale, so a miss is re-measured atomically before
+        // it counts.
+        const adjacentGap = (a: { left: number; width: number }, b: { left: number; width: number }) =>
+          b.left < a.left
+            ? a.left - (b.left + b.width)
+            : b.left - (a.left + a.width);
+        let gap = adjacentGap(prev, curr);
+        if (Math.abs(gap) > 100) {
+          gap = await page.evaluate(([pk, ck]) => {
+            const els = (window as any).__touchProbeEls as HTMLElement[] | undefined;
+            const p = els?.[pk];
+            const c = els?.[ck];
+            if (!p || !c || !p.isConnected || !c.isConnected) return 0;
+            const pr = p.getBoundingClientRect();
+            const cr = c.getBoundingClientRect();
+            return cr.left < pr.left
+              ? pr.left - (cr.left + cr.width)
+              : cr.left - (pr.left + pr.width);
+          }, [prev.key, curr.key]);
+        }
+        if (Math.abs(gap) > 100) {
           failures.push(
             `sample ${i}: the finger teleported ${(curr.left - prev.left).toFixed(0)}px to a different frame`,
           );
