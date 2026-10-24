@@ -80,7 +80,7 @@ async function dismissCurtain(
   page: import("@playwright/test").Page,
   url = GALLERY,
 ) {
-  await page.goto(url);
+  await page.goto(url, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await expect(curtain).toBeVisible();
   await curtain.click();
@@ -124,7 +124,7 @@ async function openInfoDialog(page: import("@playwright/test").Page) {
 async function ensureNavArrows(page: import("@playwright/test").Page) {
   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
     await page
-      .getByRole("button", { name: "Display settings", exact: true })
+      .getByRole("button", { name: "Gallery controls", exact: true })
       .click();
     await page
       .getByRole("button", { name: /show navigation arrows/i })
@@ -178,7 +178,7 @@ async function waitForTrackSettled(page: import("@playwright/test").Page) {
 test("curtain uses larger brand type without entry labels", async ({
   page,
 }) => {
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   await expect(page.locator("[data-curtain-title]")).toBeVisible();
   // Real albums may carry no caption — the element renders empty and
   // zero-height, so the contract is presence + typeface, not visibility.
@@ -204,7 +204,7 @@ test("curtain lifts upward before it hides", async ({ page }) => {
   // motion emulation the transition is ~0ms and is-lifting only exists
   // for a frame, so run it with motion on.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
   await expect(curtain).toHaveClass(/is-lifting/);
@@ -218,7 +218,7 @@ test("curtain reveal remains visible through a calmer lift before it hides", asy
 }) => {
   // Lift duration is asserted — motion required (see the spec above).
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
   await page.waitForTimeout(650);
@@ -232,7 +232,7 @@ test("curtain accepts an upward swipe before it lifts away", async ({
 }) => {
   // Lift class asserted — motion required.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto(GALLERY);
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await page.mouse.move(300, 520);
   await page.mouse.down();
@@ -278,19 +278,30 @@ for (const vp of viewports) {
       const frame = page.locator(".viewer-filmstrip-frame")
       const frameBox = await frame.boundingBox()
       expect(frameBox).not.toBeNull()
-      const initial = await frame.evaluate((node) => node.scrollLeft)
-      await page.mouse.move(frameBox!.x + frameBox!.width * .7, frameBox!.y + frameBox!.height / 2)
+      // The picker is a wrapping matrix — on wide viewports thirty small
+      // thumbs can fit without overflowing, which would leave nothing to
+      // scroll. Force tall rows so the frame genuinely overflows.
+      await frame.locator(".viewer-filmstrip-item").evaluateAll((items) =>
+        items.forEach((item) => {
+          (item as HTMLElement).style.height = "60vh";
+        }),
+      );
+      const initial = await frame.evaluate((node) => node.scrollTop)
+      await page.mouse.move(frameBox!.x + frameBox!.width / 2, frameBox!.y + frameBox!.height * .7)
       await page.mouse.down()
-      await page.mouse.move(frameBox!.x + frameBox!.width * .2, frameBox!.y + frameBox!.height / 2, { steps: 5 })
+      await page.mouse.move(frameBox!.x + frameBox!.width / 2, frameBox!.y + frameBox!.height * .2, { steps: 5 })
       await page.mouse.up()
-      await expect.poll(() => frame.evaluate((node) => node.scrollLeft)).not.toBe(initial)
+      await expect.poll(() => frame.evaluate((node) => node.scrollTop)).not.toBe(initial)
       await expect(frame).toBeVisible()
       await expect(page.locator("[data-track] [aria-current='true']")).toHaveAttribute("data-index", before!)
       await page.keyboard.press("Escape")
       await expect(frame).toBeHidden()
       await page.keyboard.press("g")
       await expect(frame).toBeVisible()
-      await page.locator(".filmstrip-scrim").click({ position: { x: 5, y: 5 } })
+      // The full-screen filmstrip covers the scrim edge to edge, so a real
+      // pointer can never reach it; dispatch the event to prove the scrim's
+      // dismissal wiring still works.
+      await page.locator(".filmstrip-scrim").dispatchEvent("pointerdown", { bubbles: true })
       await expect(frame).toBeHidden()
     })
 
@@ -367,7 +378,7 @@ for (const vp of viewports) {
       });
       await dismissCurtain(page);
       const geometry = await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .evaluate((button) => {
           // The button is the static in-viewport hit area; the painted
           // card inside it does the peeking below the fold.
@@ -400,7 +411,7 @@ for (const vp of viewports) {
       // The pill is nearly invisible at rest: low wrap opacity, no chrome
       // painted by the button itself (the ::before pill carries it).
       const rest = await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .evaluate((button) => {
           const wrap = button.querySelector(".brand-mark-wrap")!;
           const wrapCss = getComputedStyle(wrap);
@@ -439,7 +450,7 @@ for (const vp of viewports) {
       // The centred logo opens display settings; the info sheet answers
       // plain `I` (⇧I fetches the external C2PA viewer instead).
       await page.mouse.move(200, 200);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await expect(
         page.getByRole("dialog", { name: /display settings/i }),
       ).toBeVisible();
@@ -450,7 +461,7 @@ for (const vp of viewports) {
         .click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       const docked = await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .evaluate((button) => {
           const hit = button.getBoundingClientRect();
           const stage = document
@@ -622,7 +633,7 @@ for (const vp of viewports) {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
       // Lift class asserted — motion required.
       await page.emulateMedia({ reducedMotion: "no-preference" });
-      await page.goto(GALLERY);
+      await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
       const client = await page.context().newCDPSession(page);
       const curtain = page.locator("[data-curtain]");
       await client.send("Input.dispatchTouchEvent", {
@@ -679,7 +690,7 @@ for (const vp of viewports) {
       // regression where an invisible ::before hit-extender on the
       // button ate pointerdown and opened settings on plain clicks.
       const button = page.getByRole("button", {
-        name: "Display settings",
+        name: "Gallery controls",
         exact: true,
       });
       const box = (await button.boundingBox())!;
@@ -725,7 +736,7 @@ for (const vp of viewports) {
     test("vertical scroll answers a mouse drag", async ({ page }) => {
       await dismissCurtain(page);
       await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -794,7 +805,7 @@ for (const vp of viewports) {
       // across this spec's per-measure reloads.
       await page.emulateMedia({ reducedMotion: "no-preference" });
       const measure = async (pause: number) => {
-        await page.goto(GALLERY);
+        await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
         await page.locator("[data-curtain]").click();
         await expect(page.locator("[data-curtain]")).toBeHidden();
         const client = await page.context().newCDPSession(page);
@@ -835,7 +846,35 @@ for (const vp of viewports) {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
       await dismissCurtain(page);
       const client = await page.context().newCDPSession(page);
-      const positions: number[] = [];
+      // The product promise is the canvas under the finger being
+      // continuous — but [data-track].left is not that contract. When a
+      // live original finishes decoding, the heal path (Viewer.tsx
+      // ~2110–2126) widens its frame and rewrites the transform by the
+      // same delta so viewed pixels stay put: raw track coordinates can
+      // teleport hundreds of px while nothing on screen moved. Measure
+      // the frame under the finger instead — it must track move-by-move,
+      // and only an abutting neighbour may take over under the point.
+      const sample = (x: number) =>
+        page.evaluate((fx) => {
+          const registry = ((window as any).__touchProbe ??= new Map());
+          const els = ((window as any).__touchProbeEls ??= []);
+          const nextKey = ((window as any).__touchProbeKey ??= { value: 0 });
+          const el = document
+            .elementFromPoint(fx, 400)
+            ?.closest<HTMLElement>("[data-index], [data-ad-frame], [data-endcard]");
+          if (!el) return null;
+          if (!registry.has(el)) {
+            registry.set(el, nextKey.value);
+            els[nextKey.value] = el;
+            nextKey.value += 1;
+          }
+          return {
+            key: registry.get(el) as number,
+            left: el.getBoundingClientRect().left,
+            width: el.offsetWidth,
+          };
+        }, x);
+      const positions: ({ key: number; left: number; width: number; gesture: number } | null)[] = [];
       for (let gesture = 0; gesture < 5; gesture += 1) {
         await client.send("Input.dispatchTouchEvent", {
           type: "touchStart",
@@ -850,24 +889,74 @@ for (const vp of viewports) {
             touchPoints: [{ x, y: 400, id: 1 }],
           });
           await page.waitForTimeout(8);
-          positions.push(
-            await page
-              .locator("[data-track]")
-              .evaluate((track) => track.getBoundingClientRect().left),
-          );
+          const sampled = await sample(x);
+          positions.push(sampled ? { ...sampled, gesture } : null);
         }
         await client.send("Input.dispatchTouchEvent", {
           type: "touchEnd",
           touchPoints: [],
         });
+        // Release continuity is the same contract — sample once more
+        // under the resting finger after touchEnd lands. The next
+        // gesture's finger lands elsewhere, so comparisons restart there.
+        await page.waitForTimeout(16);
+        const released = await sample(20);
+        positions.push(released ? { ...released, gesture } : null);
       }
-      const deltas = positions
-        .slice(1)
-        .map((position, index) => position - positions[index]);
-      expect(
-        Math.max(...deltas.map((delta) => Math.abs(delta))),
-      ).toBeLessThanOrEqual(100);
-      expect(positions.at(-1)).toBeLessThan(-1500);
+      const failures: string[] = [];
+      for (let i = 1; i < positions.length; i += 1) {
+        const prev = positions[i - 1];
+        const curr = positions[i];
+        if (!curr) {
+          failures.push(`sample ${i}: no frame under the finger`);
+          continue;
+        }
+        if (!prev || prev.gesture !== curr.gesture) continue;
+        if (curr.key === prev.key) {
+          if (Math.abs(curr.left - prev.left) > 100) {
+            failures.push(
+              `sample ${i}: the frame under the finger jumped ${(curr.left - prev.left).toFixed(0)}px`,
+            );
+          }
+          continue;
+        }
+        // A new element under the finger is only legitimate as an
+        // abutting handoff: frames hang edge-to-edge, so the adjacent
+        // edges of the old and new frames must meet within tolerance.
+        // A heal relayout can land between the two samples and leave
+        // prev's rect stale, so a miss is re-measured atomically before
+        // it counts.
+        const adjacentGap = (a: { left: number; width: number }, b: { left: number; width: number }) =>
+          b.left < a.left
+            ? a.left - (b.left + b.width)
+            : b.left - (a.left + a.width);
+        let gap = adjacentGap(prev, curr);
+        if (Math.abs(gap) > 100) {
+          gap = await page.evaluate(([pk, ck]) => {
+            const els = (window as any).__touchProbeEls as HTMLElement[] | undefined;
+            const p = els?.[pk];
+            const c = els?.[ck];
+            if (!p || !c || !p.isConnected || !c.isConnected) return 0;
+            const pr = p.getBoundingClientRect();
+            const cr = c.getBoundingClientRect();
+            return cr.left < pr.left
+              ? pr.left - (cr.left + cr.width)
+              : cr.left - (pr.left + pr.width);
+          }, [prev.key, curr.key]);
+        }
+        if (Math.abs(gap) > 100) {
+          failures.push(
+            `sample ${i}: the finger teleported ${(curr.left - prev.left).toFixed(0)}px to a different frame`,
+          );
+        }
+      }
+      expect(failures).toEqual([]);
+      // Total travel still uses the track: heal corrections only ever
+      // pull it further left, so the one-sided bound stays honest.
+      const travelled = await page
+        .locator("[data-track]")
+        .evaluate((track) => track.getBoundingClientRect().left);
+      expect(travelled).toBeLessThan(-1500);
     });
 
     test("repeated wheel input stays responsive and keeps the decoded image window bounded", async ({
@@ -950,7 +1039,7 @@ for (const vp of viewports) {
     }) => {
       await dismissCurtain(page);
       const settingsButton = page.getByRole("button", {
-        name: "Display settings",
+        name: "Gallery controls",
         exact: true,
       });
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
@@ -995,7 +1084,7 @@ for (const vp of viewports) {
         ),
       );
       // Fullscreen lives in the display-settings panel.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await expect(
         page.getByRole("button", { name: /enter fullscreen/i }),
       ).toHaveCount(supported ? 1 : 0);
@@ -1009,25 +1098,25 @@ for (const vp of viewports) {
       // toggle in display settings brings them back.
       await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /hide navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /show navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       // Vertical keeps the toggle but defaults arrows off — the feed
       // scrolls natively, so they appear only on request.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
         .click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /show navigation arrows/i })
         .click();
@@ -1081,13 +1170,13 @@ for (const vp of viewports) {
         })
         .toBeLessThan(24);
       // Hiding again restores the quiet default.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .getByRole("button", { name: /hide navigation arrows/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       // Single mode brings them back, stepping one image at a time.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /one at a time/i })
         .click();
@@ -1144,7 +1233,7 @@ for (const vp of viewports) {
       await expect(seqNum).toHaveText("1");
       await expect(seq).toHaveAttribute(
         "aria-label",
-        `Photograph 1 of ${await imageCount(page)} — open selector`,
+        `Photograph 1 of ${await imageCount(page)} — open kashmir`,
       );
 
       // The bubble tracks the reported index as the strip advances.
@@ -1166,7 +1255,7 @@ for (const vp of viewports) {
           `2 of ${await imageCount(page)} items`,
         );
         await expect(seq.locator(".stage-seq-hint")).toHaveText(
-          /open global/i,
+          /open picker/i,
         );
         const lit = await seq.evaluate((el) => ({
           opacity: getComputedStyle(el).opacity,
@@ -1214,7 +1303,7 @@ for (const vp of viewports) {
       }
 
       await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .click();
       await page
         .getByRole("button", { name: /hide navigation arrows/i })
@@ -1275,7 +1364,7 @@ for (const vp of viewports) {
       await expect(page.locator('[data-portrait-pair="true"]')).toHaveCount(0);
       // The radios are visually hidden inside their labels — drive the
       // label, the element a pointer actually hits.
-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
+      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
         .click();
@@ -1397,16 +1486,39 @@ for (const vp of viewports) {
       const viewportWidth = await page
         .locator("[data-stage]")
         .evaluate((stage) => stage.clientWidth);
+      // The advance docks the NEXT FRAME's left edge at the stage edge,
+      // capped at one viewport — on a phone a portrait frame is ~256px,
+      // far under any fraction of the viewport, so the contract is the
+      // docking distance itself, not a minimum travel.
+      const docking = await page.locator("[data-stage]").evaluate((stage) => {
+        const track = stage.querySelector<HTMLElement>("[data-track]")!;
+        const base = -new DOMMatrixReadOnly(
+          getComputedStyle(track).transform,
+        ).e;
+        const frames = [
+          ...track.querySelectorAll<HTMLElement>(
+            "[data-index], [data-ad-frame], [data-endcard]",
+          ),
+        ];
+        let frame = frames[0] ?? null;
+        for (const candidate of frames) {
+          if (candidate.offsetLeft > base + 1) break;
+          frame = candidate;
+        }
+        const next = frame?.nextElementSibling as HTMLElement | null;
+        return { base, nextOffsetLeft: next?.offsetLeft ?? null };
+      });
+      const expected = Math.min(
+        viewportWidth,
+        Math.max(0, (docking.nextOffsetLeft ?? docking.base + viewportWidth) - docking.base),
+      );
       await page.getByRole("button", { name: /next photograph/i }).click();
       await waitForTrackSettled(page);
       const after = await page
         .locator("[data-track]")
         .evaluate((track) => track.getBoundingClientRect().left);
       const advance = Math.abs(after - before);
-      // The advance docks the next frame at the stage edge, capped at one
-      // viewport — a frame wider than the stage pages through in
-      // full-viewport chunks, so the bound is <=, never a teleport.
-      expect(advance).toBeGreaterThan(viewportWidth * 0.7);
+      expect(Math.abs(advance - expected)).toBeLessThanOrEqual(2);
       expect(advance).toBeLessThanOrEqual(viewportWidth + 1);
     });
 
@@ -1506,7 +1618,7 @@ for (const vp of viewports) {
 
       // The card belongs to the strip alone.
       await page
-        .getByRole("button", { name: "Display settings", exact: true })
+        .getByRole("button", { name: "Gallery controls", exact: true })
         .click();
       await page
         .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -1611,7 +1723,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   const total = await imageCount(page);
   // Mode radios live in the display-settings panel and are visually
   // hidden — drive their labels. Position reports through the info dialog.
-  await page.getByRole("button", { name: "Display settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
   await page
     .locator(".mode-options label", { hasText: /vertical scroll/i })
     .click();
@@ -1619,7 +1731,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
   await openInfoDialog(page);
   await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Display settings", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
   await page
     .locator(".mode-options label", { hasText: /one at a time/i })
     .click();
@@ -1830,13 +1942,13 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
   // distraction — and the button's own box stays put so the control is
   // always click-stable.
   const buttonBox = await page
-    .getByRole("button", { name: "Display settings", exact: true })
+    .getByRole("button", { name: "Gallery controls", exact: true })
     .boundingBox();
   const before = await card.boundingBox();
   await page.waitForTimeout(900);
   const after = await card.boundingBox();
   const buttonBox2 = await page
-    .getByRole("button", { name: "Display settings", exact: true })
+    .getByRole("button", { name: "Gallery controls", exact: true })
     .boundingBox();
   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(14);
   expect(buttonBox2?.y).toBe(buttonBox?.y);
@@ -1916,7 +2028,7 @@ test("public root is a minimal Manorama landing page", async ({
   // Every HTML response has carried the noindex posture since v1 — the
   // landing page included.
   expect(root.headers()["x-robots-tag"] || "").toContain("noindex");
-  await page.goto(BASE + "/");
+  await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".landing-page")).toBeVisible();
   await expect(page.locator(".landing-brand")).toBeVisible();
   await expect(page.locator(".landing-brand-mark")).toHaveAttribute(
@@ -1939,7 +2051,9 @@ test("owner admin lists galleries without a selector and remains noindex", async
   // so the load event legitimately outlasts a 30s goto. Every assertion
   // below polls a locator — none needs the load event itself.
   await page.goto(BASE + "/" + OWNER, { waitUntil: "domcontentloaded" });
-  await expect(page.locator("h1.admin-brand-title")).toBeVisible();
+  // The account chrome moved into the slide-out drawer (5e8495a); the
+  // page's own h1 is now the galleries heading.
+  await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Manorama-fy it!" }),
   ).toBeVisible();
@@ -1984,10 +2098,19 @@ test("owner admin lists galleries without a selector and remains noindex", async
     firstCard.getByRole("link", { name: /open .* in a new tab/i }),
   ).toHaveAttribute("target", "_blank");
   await expect(firstCard.locator(".admin-gallery-strip-frame")).toBeVisible();
-  await expect(firstCard.locator(".admin-gallery-strip-frame")).toHaveCSS(
-    "height",
-    "150px",
-  );
+  // The Photo Editor is one horizontal row (owner-approved 2026-10-10):
+  // the frame hugs the thumb row — clamp(96px,16dvh,208px) items plus
+  // the frame's hairline borders — rather than a fixed pixel height.
+  const stripFrameBox = (await firstCard
+    .locator(".admin-gallery-strip-frame")
+    .boundingBox())!;
+  const stripItemBox = (await firstCard
+    .locator(".admin-gallery-strip-item")
+    .first()
+    .boundingBox())!;
+  expect(
+    Math.abs(stripFrameBox.height - stripItemBox.height),
+  ).toBeLessThanOrEqual(3);
   await expect(
     firstCard.getByRole("button", { name: /edit gallery slug/i }),
   ).toBeVisible();
@@ -2200,7 +2323,7 @@ test.describe("admin responsive layout", () => {
     page,
   }) => {
     await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("h1.admin-brand-title")).toBeVisible();
+    await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
     const geometry = await page.evaluate(() => ({
       scrollable: document.documentElement.scrollHeight > window.innerHeight,
       overflowX: document.documentElement.scrollWidth - window.innerWidth,
@@ -2210,10 +2333,17 @@ test.describe("admin responsive layout", () => {
     await expect(page.getByRole("combobox")).toHaveCount(0);
     await expect(page.locator(".admin-section-index")).toHaveCount(0);
     await expect(page.locator(".admin-gallery-card").first()).toBeVisible();
-    await expect(page.locator(".admin-gallery-strip-frame").first()).toHaveCSS(
-      "height",
-      "150px",
-    );
+    const stripFrameBox = (await page
+      .locator(".admin-gallery-strip-frame")
+      .first()
+      .boundingBox())!;
+    const stripItemBox = (await page
+      .locator(".admin-gallery-strip-item")
+      .first()
+      .boundingBox())!;
+    expect(
+      Math.abs(stripFrameBox.height - stripItemBox.height),
+    ).toBeLessThanOrEqual(3);
   });
 });
 
@@ -2230,11 +2360,11 @@ test.describe("privacy policy page", () => {
   test("renders three persona cards and the shared sections semantically", async ({
     page,
   }) => {
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("heading", { level: 1, name: /privacy policy/i }),
     ).toBeVisible();
-    await expect(page.getByText(/last updated: 27 september 2026/i)).toBeVisible();
+    await expect(page.getByText(/last updated: 1 october 2026/i)).toBeVisible();
     await expect(
       page.locator(".policy-personas > section.policy-card"),
     ).toHaveCount(3);
@@ -2255,7 +2385,7 @@ test.describe("privacy policy page", () => {
       ).toBeVisible();
     }
     const doc = page.locator(".policy-document");
-    await expect(doc).toContainText(/encrypted storage on your device/i);
+    await expect(doc).toContainText(/encrypted, app-private storage on your device/i);
     await expect(doc).toContainText(/secure device storage/i);
     await expect(doc).toContainText(/house placements/i);
     await expect(doc).toContainText(/non-personalized third-party website ads/i);
@@ -2266,7 +2396,7 @@ test.describe("privacy policy page", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     const columns = await page
       .locator(".policy-personas")
       .evaluate(
@@ -2279,7 +2409,7 @@ test.describe("privacy policy page", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     const columns = await page
       .locator(".policy-personas")
       .evaluate(
@@ -2302,7 +2432,7 @@ test.describe("privacy policy page", () => {
   test("print emulation yields a legible black-on-white single column", async ({
     page,
   }) => {
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     await page.emulateMedia({ media: "print" });
     const body = await page
       .locator("body")
@@ -2326,7 +2456,7 @@ test.describe("privacy policy page", () => {
   });
 
   test("axe finds no violations on the policy page", async ({ page }) => {
-    await page.goto(`${BASE}/privacy`);
+    await page.goto(`${BASE}/privacy`, { waitUntil: "domcontentloaded" });
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   });
 });
@@ -2384,10 +2514,10 @@ test.describe("quick-add interstitial", () => {
     // A fresh context: no Access header, no session.
     const context = await browser.newContext();
     const page = await context.newPage();
-    await page.goto(`${BASE}/https://mega.nz/folder/AbCdEf12#a2V5`);
+    await page.goto(`${BASE}/https://mega.nz/folder/AbCdEf12#a2V5`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-mode", "signin");
     await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-provider", "mega");
-    const signin = page.locator("[data-quickadd-signin]");
+    const signin = page.locator('[data-quickadd-signin][href*="/auth/dropbox"]');
     await expect(signin).toBeVisible();
     // The sign-in href must carry the WHOLE current URL, fragment included:
     // the MEGA key lives there and the server never sees it.
@@ -2404,7 +2534,7 @@ test.describe("quick-add interstitial", () => {
   });
 
   test("normal routes are not swallowed by the catch-all", async ({ page }) => {
-    await page.goto(GALLERY);
+    await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-quickadd]")).toHaveCount(0);
     await expect(page.locator("[data-curtain]")).toBeVisible();
   });
@@ -2420,7 +2550,7 @@ test.describe("quick-add interstitial", () => {
         body: JSON.stringify({ galleryUrl: `/${OWNER}/${SLUG}`, gallery: { slug: SLUG } }),
       });
     });
-    await page.goto(`${BASE}/https://mega.nz/folder/ZeroClick#key`);
+    await page.goto(`${BASE}/https://mega.nz/folder/ZeroClick#key`, { waitUntil: "domcontentloaded" });
     // The gallery page keeps loading media after the client-side
     // redirect, so networkidle never settles — assert the navigation and
     // the POST directly instead.
@@ -2517,7 +2647,7 @@ test.describe("M magnifier (desktop only)", () => {
     const page = await context.newPage();
     await dismissCurtain(page);
     await page
-      .getByRole("button", { name: "Display settings", exact: true })
+      .getByRole("button", { name: "Gallery controls", exact: true })
       .click();
     await page
       .locator(".mode-options label", { hasText: /vertical scroll/i })
@@ -2574,7 +2704,7 @@ test.describe("M magnifier (desktop only)", () => {
     await page.mouse.move(700, 450);
     await page.keyboard.press("m");
     await expect(page.locator(".magnifier-lens")).toBeVisible();
-    await page.getByRole("button", { name: "Display settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
     await expect(page.locator(".magnifier-lens")).toBeHidden();
   });
 
@@ -2594,7 +2724,7 @@ test.describe("M magnifier (desktop only)", () => {
 
   test("the shortcut row appears only where the key works", async ({ page }) => {
     await dismissCurtain(page);
-    await page.getByRole("button", { name: "Display settings", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
     await expect(page.locator(".shortcuts", { hasText: "magnify" })).toBeVisible();
   });
 });
@@ -2608,7 +2738,7 @@ test.describe("video slides", () => {
     // The gating that SSR and source-text tests cannot prove: a video-first
     // gallery stays fully inert behind the curtain, and opening a panel
     // releases the media element rather than leaving it playing underneath.
-    await page.goto(videoGallery());
+    await page.goto(videoGallery(), { waitUntil: "domcontentloaded" });
     const videos = page.locator("video.frame-video");
     await expect(page.locator("[data-curtain]")).toBeVisible();
     await expect(videos).toHaveCount(0);
@@ -2616,7 +2746,7 @@ test.describe("video slides", () => {
     await dismissCurtain(page, videoGallery());
     await expect(videos).toHaveCount(1);
 
-    await page.getByRole("button", { name: "Display settings" }).click();
+    await page.getByRole("button", { name: "Gallery controls" }).click();
     await expect(page.getByRole("dialog", { name: "Display settings" })).toBeVisible();
     await expect(videos).toHaveCount(0);
   });
@@ -2701,7 +2831,7 @@ test.describe("video slides", () => {
 
 test.describe("per-gallery social cards", () => {
   test("the gallery page advertises its own OG image", async ({ page }) => {
-    await page.goto(GALLERY);
+    await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
     const ogImage = await page.locator('meta[property="og:image"]').getAttribute("content");
     expect(ogImage).toContain(`/api/og/${OWNER}/${SLUG}`);
     expect(await page.locator('meta[property="og:image:type"]').getAttribute("content")).toBe("image/jpeg");
@@ -2924,7 +3054,9 @@ test.describe("retention policy", () => {
       extraHTTPHeaders: { Cookie: await sessionCookie(RETENTION_ACCOUNT) },
     });
     const page = await context.newPage();
-    await page.goto(`${BASE}/${RETENTION_OWNER}`);
+    await page.goto(`${BASE}/${RETENTION_OWNER}`, { waitUntil: "domcontentloaded" });
+    // The retention disclosure lives in the account drawer now (5e8495a).
+    await page.getByRole("button", { name: "Account menu", exact: true }).click();
     await expect(page.getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
     const card = page.locator('[data-gallery-card="ui-d"]');
     await expect(card).toContainText("Temporary ·");
@@ -3022,7 +3154,7 @@ test.describe("density-aware staging", () => {
     });
     const page = await context.newPage();
     await dismissCurtain(page, url);
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open selector');
+    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open d-tiny');
     await expect(page.locator('[data-image-id="tiny"]')).toHaveAttribute('aria-current', 'true');
     const frame = page.locator("[aria-current='true']");
     const img = frame.locator(".frame-img");
@@ -3031,10 +3163,16 @@ test.describe("density-aware staging", () => {
     const frameBox = await frame.boundingBox();
     expect(Math.abs(box!.width - 120)).toBeLessThan(2);
     expect(Math.abs(box!.height - 80)).toBeLessThan(2);
-    // The frame hugs the staged image — undersized sources keep honest
-    // pixels AND the strip stays continuous, so neighbours still abut.
+    // Plate-on-mount (ec00cfd): an undersized source keeps honest pixels
+    // centred inside a frame that keeps the stage's full height, marked
+    // with the mount class — the frame hugs the image in WIDTH only, so
+    // neighbours still abut.
     expect(Math.abs(frameBox!.width - box!.width)).toBeLessThan(2);
-    expect(Math.abs(frameBox!.height - box!.height)).toBeLessThan(2);
+    const stageHeight = (await page
+      .locator("[data-stage]")
+      .boundingBox())!.height;
+    expect(Math.abs(frameBox!.height - stageHeight)).toBeLessThan(2);
+    await expect(frame).toHaveClass(/viewer-frame--short/);
     const stageBox = await page.locator("[data-stage]").boundingBox();
     expect(Math.abs(box!.x + box!.width / 2 - (frameBox!.x + frameBox!.width / 2))).toBeLessThan(2);
     expect(Math.abs(box!.y + box!.height / 2 - (stageBox!.y + stageBox!.height / 2))).toBeLessThan(2);

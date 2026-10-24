@@ -6,7 +6,7 @@ import { seedFromUrl } from './app/lib/doodle-background'
 /**
  * End-to-end proof for the seeded doodle background, against the real
  * dev server. Covers each acceptance criterion: None is the default
- * (photographs abut, no field), Light/Dark wake the field behind 10px
+ * (photographs abut, no field), Dark and Light wake the field behind 10px
  * margins, one URL always reproduces one pattern, a different
  * album produces a different one, and the layer never intercepts a tap.
  *
@@ -40,7 +40,7 @@ test.setTimeout(90_000)
  *  the navigation until the viewer island is actually served. */
 const gotoGallery = async (page: Page, url: string) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    await page.goto(url)
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
     if (await page.locator('.control-logo').count()) return
     await page.waitForTimeout(1000)
   }
@@ -83,14 +83,15 @@ const sessionCookie = async () => {
 
 const openDashboard = async (page: Page) => {
   await page.context().setExtraHTTPHeaders({ Cookie: await sessionCookie() })
-  await page.goto(`${BASE}/thecontrarian`)
+  await page.goto(`${BASE}/thecontrarian`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.admin-page')).toBeVisible()
   // `.admin-page` is server-rendered, so its presence proves nothing about
   // the island being live. The background toggle used to be our hydration
-  // beacon; it is gone now, so wait on the theme control instead.
+  // beacon; it is gone now, and 5e8495a moved the theme control inside the
+  // account drawer, so wait on the island-rendered account tab instead.
   // Deliberately no `networkidle` here — the dashboard polls on an interval,
   // so it never goes idle and the wait would eat the whole test budget.
-  await page.locator('.admin-theme-toggle').waitFor({ state: 'visible', timeout: 30000 })
+  await page.locator('.admin-edge-tab').waitFor({ state: 'visible', timeout: 30000 })
 }
 
 /** Clicks an island control that may still be hydrating: a click landing on
@@ -137,7 +138,7 @@ const layerSignature = async (page: Page) => {
   }
 }
 
-test('Background offers Light/Dark/None — None is default and photographs abut', async ({ page }) => {
+test('Background offers None/Dark/Light — None is default and photographs abut', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
 
   // None by default: the field is away and the canvas stays dark.
@@ -156,11 +157,11 @@ test('Background offers Light/Dark/None — None is default and photographs abut
   await openSettings(page)
   const radios = page.locator('input[name="background-mode"]')
   await expect(radios).toHaveCount(3)
-  // Order is Light, Dark, None — and None is the checked default.
-  await expect(radios.nth(0)).toHaveAttribute('value', 'light')
+  // Order is None, Dark, Light — and None is the checked default.
+  await expect(radios.nth(0)).toHaveAttribute('value', 'none')
   await expect(radios.nth(1)).toHaveAttribute('value', 'dark')
-  await expect(radios.nth(2)).toHaveAttribute('value', 'none')
-  await expect(radios.nth(2)).toBeChecked()
+  await expect(radios.nth(2)).toHaveAttribute('value', 'light')
+  await expect(radios.nth(0)).toBeChecked()
   // The doodle on/off toggle is gone for good.
   await expect(page.locator('[data-doodle-toggle]')).toHaveCount(0)
 
@@ -252,7 +253,8 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
   const first = await layerSignature(page)
 
   // The preference persists, so the field must return identically.
-  await page.reload()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('.control-logo').waitFor({ state: 'attached', timeout: 60000 })
   await page.waitForTimeout(1200)
   const second = await layerSignature(page)
 
@@ -411,7 +413,7 @@ test('the dashboard never paints a doodle field, even when the gallery preferenc
   // Doodles are gallery-only. Turn the shared preference ON, then prove the
   // account page still renders no layer and offers no background control,
   // while a public album with the same flag does paint one.
-  await page.goto(BASE)
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.evaluate(() => localStorage.setItem('manorama:background', 'light'))
   await openDashboard(page)
 

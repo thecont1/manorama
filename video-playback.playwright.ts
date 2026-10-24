@@ -23,7 +23,7 @@ test.setTimeout(120_000)
  *  suite that starts too early gets "There is no gallery here". */
 const gotoGallery = async (page: Page, url: string) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    await page.goto(url)
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
     if (await page.locator('.control-logo').count()) return
     await page.waitForTimeout(1000)
   }

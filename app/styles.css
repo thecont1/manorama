@@ -298,7 +298,11 @@ button { color: inherit; }
 .credential-success { color: rgba(215, 236, 218, .82); }
 .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; margin: 0; }
 .info-grid div { min-width: 0; }
-.info-grid dt { margin-bottom: 5px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
+/* AA on both canvases: at .42 the labels landed ~3.7:1 against the info
+   panel's composited surface; .62 — the quiet-copy step this dialog already
+   uses — reaches ~6.5:1 over the default canvas and ~5.2:1 when the panel
+   sits over a light #e9e5dc gallery. */
+.info-grid dt { margin-bottom: 5px; color: rgba(var(--ink), .62); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 .info-grid dd { margin: 0; overflow-wrap: anywhere; color: rgba(var(--ink), .82); font-size: 12px; }
 .shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; }
 .shortcuts h3 { grid-column: 1 / -1; }
@@ -338,7 +342,9 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 .policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
 .policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolate Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
-.policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; }
+/* The wrapped-link example is one unbreakable token — without
+   overflow-wrap it pushes the document ~27px past a 320px viewport. */
+.policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; overflow-wrap: anywhere; }
 .policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
 .policy-document a:hover { text-decoration-color: rgba(243,240,232,.7); }
 .policy-document a:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 3px; text-decoration-color: rgba(243,240,232,.7); }

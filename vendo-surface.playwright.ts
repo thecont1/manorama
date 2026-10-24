@@ -50,7 +50,7 @@ test("public gallery page mounts no Vendo surface and never polls the wire", asy
   page.on("request", (request) => {
     if (request.url().includes("/api/vendo")) vendoRequests.push(request.url());
   });
-  await page.goto(`${BASE}/${OWNER}/${SLUG}`);
+  await page.goto(`${BASE}/${OWNER}/${SLUG}`, { waitUntil: "domcontentloaded" });
   await page.locator("[data-curtain]").waitFor({ state: "visible" });
   // Give any hypothetical poller time to fire before asserting absence.
   await page.waitForTimeout(1500);
@@ -60,7 +60,7 @@ test("public gallery page mounts no Vendo surface and never polls the wire", asy
 });
 
 test("public landing page mounts no Vendo surface", async ({ page }) => {
-  await page.goto(`${BASE}/`);
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
   await page.locator(".landing-brand").waitFor({ state: "visible" });
   expect(await page.locator("#vendo-root").count()).toBe(0);
   expect(await page.locator("[data-vendo-launcher]").count()).toBe(0);

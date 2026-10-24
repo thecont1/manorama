@@ -53,14 +53,14 @@ const openFixture = async (
     contentType: 'application/json',
     body: JSON.stringify(manifest(images)),
   }))
-  await page.goto(`${nativeUrl}/?owner=fixture&slug=global-fixture`)
+  await page.goto(`${nativeUrl}/?owner=fixture&slug=global-fixture`, { waitUntil: 'domcontentloaded' })
   await page.getByRole('button', { name: 'Enter gallery' }).click()
 }
 
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
 const enableGlobalView = async (page: Page) => {
-  await page.getByRole('button', { name: /open photo picker/i }).click()
+  await page.getByRole('button', { name: /open global fixture/i }).click()
 }
 
 test.beforeEach(() => {
@@ -110,10 +110,16 @@ test('lands the stage on the last of two rapid frame taps', async ({ page }) => 
   await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
 })
 
-test('stays in the local selector until enabled from admin', async ({ page }) => {
+test('the disabled preference still scopes Global View to the open gallery', async ({ page }) => {
+  // 25e3a6a moved the Global View control to the account page: the seq
+  // button now opens the view unconditionally, and the preference only
+  // decides whether the billing tier reaches it — off forces 'free',
+  // which scopes the grid to the currently open gallery's offline copy.
+  // In this fixture billing never configures, so free scope is all there
+  // is to observe: the view opens and shows the open gallery's frames.
   await openFixture(page, undefined, false)
-  await page.getByRole('button', { name: /open .*picker/i }).click()
+  await page.getByRole('button', { name: /open global fixture/i }).click()
 
-  await expect(page.locator('[data-global-view]')).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'Global fixture photographs' })).toBeVisible()
+  await expect(page.locator('[data-global-view]')).toHaveCount(1)
+  await expect(page.locator('[data-grid-frame]')).toHaveCount(12, { timeout: 15000 })
 })

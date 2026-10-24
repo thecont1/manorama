@@ -17,7 +17,7 @@ test.setTimeout(180_000)
 
 const enter = async (page: Page) => {
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    await page.goto(ALBUM)
+    await page.goto(ALBUM, { waitUntil: 'domcontentloaded' })
     if (await page.locator('.control-logo').count()) break
     await page.waitForTimeout(1000)
   }
