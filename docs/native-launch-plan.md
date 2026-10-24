@@ -199,9 +199,9 @@ Three adapters, in order of arrival — the viewer only ever knows `AdFrame`:
 
 | ID | Task | Owns | Done when |
 | --- | --- | --- | --- |
-| B1 | `npm install @revenuecat/purchases-capacitor && npx cap sync`; configure API keys; wire the existing `tier` column to entitlement `pro` ([RevenueCat docs](https://www.revenuecat.com/docs/getting-started/installation/capacitor)) | `native/lib/billing.ts` | `customerInfo.entitlements.active.pro` gates vault size and ads |
+| B1 | `npm install @revenuecat/purchases-capacitor && npx cap sync`; configure API keys; wire the existing `tier` column to entitlement `will_pay` ([RevenueCat docs](https://www.revenuecat.com/docs/getting-started/installation/capacitor)) | `native/lib/billing.ts` | `customerInfo.entitlements.active.will_pay` gates vault size and ads |
 | B2 | App Store Connect annual subscription `in.thecontrarian.manorama.visionary.annual`; RevenueCat product attached to the current `$rc_annual` offering package | dashboard only | Product fetches on device |
-| B3 | Paywall: **Free** (3 galleries, small vault, house + network plates on the cadence, account slot), **Pro** (99 galleries, unlimited vault, house plates only — no third-party ad network — P2P host later), **Forever** (one-time). Copy plain and unhurried; no countdown timers, no dark patterns | `native/islands/Paywall.tsx` | Purchase → entitlement → Pro creative is the house frame, verified end to end in sandbox |
+| B3 | Paywall: **Free** (3 galleries, small vault, house + network plates on the cadence, account slot), **Pro** (99 galleries, unlimited vault, house plates only — no third-party ad network — P2P host later). Pro is the annual `in.thecontrarian.manorama.visionary.annual` subscription only; the monthly and one-time **Forever** tiers were cut and exist nowhere in code or dashboards. Copy plain and unhurried; no countdown timers, no dark patterns | `native/islands/Paywall.tsx` | Purchase → entitlement → Pro creative is the house frame, verified end to end in sandbox |
 | B4 | `AdFrame` interface + `admob-banner` adapter + the seeded cadence composer. Implements rules 1–10 above | `packages/core/adframe.ts`, `native/lib/ads.ts` | Plates land on the seeded ~25-image cadence (deterministic per gallery-day), absent below ~22 items, house-only for pro |
 | B5 | **Server seam.** RevenueCat webhook → Worker endpoint → `setUserTier` (the existing trusted seam that also promotes unexpired pipeline galleries). Never write the D1 `tier` column directly | `app/routes/api/revenuecat-webhook.ts` | Sandbox purchase promotes pipeline galleries in one idempotent batch |
 | B6 | Account page slot, native dashboard header top-right | `native/islands/GalleryList.tsx` | Renders for every resolved tier (house creative for pro), hidden while entitlement is unresolved |
@@ -341,10 +341,11 @@ not proof of an accepted build.
    metadata-only. Any change that puts pixels in D1, R2, or KV is wrong by definition.
 2. **Never upscale, recompress, crop, or re-encode a source image.** The honest-size rule and
    ICC/C2PA passthrough are load-bearing product values, not implementation details.
-3. **Ads obey the plate rules (B, rules 1–10) and are enforced by tests, not convention.** One
-   per gallery, midpoint, never first or last, never in `imagesJson`, never counted in the
-   position readout, never stretched or cropped, never tappable while the strip is moving,
-   never present for pro.
+3. **Ads obey the plate rules (B, rules 1–10) and are enforced by tests, not convention.** House
+   plates on a seeded ~25-image cadence re-rolled per gallery per UTC day, never first or last
+   or adjacent, suppressed in short galleries, never in `imagesJson`, never counted in the
+   position readout, never stretched or cropped, each CTA tappable only while its own plate is
+   centred and the strip is at rest, house-only for pro.
 4. **No private Apple APIs.** Any frame-rate or WebView trick that touches `_features` is
    forbidden — it is an automatic Mac App Store rejection.
 5. **Tier changes go through `setUserTier`.** Never a bare `tier` UPDATE.
