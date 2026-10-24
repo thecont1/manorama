@@ -158,7 +158,7 @@ The opening surface (`native/islands/GalleryList.tsx`) shows the same icon-orb s
 
 ### On-device curation
 
-`native/lib/local-compute.ts` runs curation entirely on the phone: 32×32 dHash near-duplicate detection (default Hamming distance 6), sequence-improvement scoring, bounded at two concurrent workers. No image bytes or features leave the device — this is the "your photos never leave your phone" story that powers smart ordering without a server round-trip. `thumbs.ts` generates bounded-concurrency thumbnails and records ICC/C2PA presence per item.
+`native/lib/local-compute.ts` runs curation entirely on the phone: a 64-bit DCT perceptual hash computed on a 32×32 luma grid for near-duplicate grouping (default Hamming distance 6), sequence-improvement scoring, bounded at two concurrent workers. No image bytes or features leave the device — this is the "your photos never leave your phone" story that powers smart ordering without a server round-trip. `thumbs.ts` generates bounded-concurrency thumbnails and records ICC/C2PA presence per item.
 
 ### Billing
 

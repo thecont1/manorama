@@ -2,7 +2,7 @@
 
 Last updated: 1 October 2026
 
-Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS, Windows, and Linux. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
+Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
 
 ## Who this is for
 

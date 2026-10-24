@@ -341,10 +341,11 @@ not proof of an accepted build.
    metadata-only. Any change that puts pixels in D1, R2, or KV is wrong by definition.
 2. **Never upscale, recompress, crop, or re-encode a source image.** The honest-size rule and
    ICC/C2PA passthrough are load-bearing product values, not implementation details.
-3. **Ads obey the plate rules (B, rules 1–10) and are enforced by tests, not convention.** One
-   per gallery, midpoint, never first or last, never in `imagesJson`, never counted in the
-   position readout, never stretched or cropped, never tappable while the strip is moving,
-   never present for pro.
+3. **Ads obey the plate rules (B, rules 1–10) and are enforced by tests, not convention.** House
+   plates on a seeded ~25-image cadence re-rolled per gallery per UTC day, never first or last
+   or adjacent, suppressed in short galleries, never in `imagesJson`, never counted in the
+   position readout, never stretched or cropped, each CTA tappable only while its own plate is
+   centred and the strip is at rest, house-only for pro.
 4. **No private Apple APIs.** Any frame-rate or WebView trick that touches `_features` is
    forbidden — it is an automatic Mac App Store rejection.
 5. **Tier changes go through `setUserTier`.** Never a bare `tier` UPDATE.
