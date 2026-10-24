@@ -109,15 +109,19 @@ const gallery: NativeGalleryResponse = {
   },
 }
 
-const makeHarness = (responses = new Map<string, { bytes: Uint8Array; type: string }>([
-  ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
-  ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
-])) => {
+const makeHarness = (
+  responses = new Map<string, { bytes: Uint8Array; type: string }>([
+    ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
+    ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
+  ]),
+  maxBytes?: number,
+) => {
   const storage = new MemoryStorage()
   const keys = new MemoryKeys()
   const vault = new EncryptedVault({
     storage,
     keys,
+    maxBytes,
     crypto: {
       ...webCryptoProvider,
       randomBytes(length) { return new Uint8Array(length).fill(7) },
@@ -213,6 +217,21 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await vault.read(galleryId, thumbnailEntryId('stable-one'))).toEqual(new TextEncoder().encode('refreshed bytes one'))
     expect(await vault.read(galleryId, localComputeEntryId('stable-one'))).toBeUndefined()
     expect(await vault.read(galleryId, localComputeEntryId('stable-two'))).toBeUndefined()
+  })
+
+  test('reports over-cap and leaves no commit record when a fill evicts its own entries', async () => {
+    // ~60 bytes covers exactly one encrypted record (~19 bytes plaintext +
+    // ~40 bytes envelope). The second image's write evicts the first.
+    const { store, vault } = makeHarness(undefined, 60)
+    const galleryId = await offlineGalleryId(selection)
+
+    const result = await store.cache(selection, gallery)
+
+    expect(result).toEqual({ status: 'over-cap', images: 0 })
+    expect(await vault.read(galleryId, __private__.METADATA_ENTRY_ID)).toBeUndefined()
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-one'))).toBeUndefined()
+    expect(await vault.read(galleryId, thumbnailEntryId('stable-two'))).toBeUndefined()
+    expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
 
   test('detects complete caches and refuses a missing image entry', async () => {

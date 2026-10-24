@@ -310,6 +310,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             setVaultNote('This gallery includes video. Offline saving is not supported for mixed galleries yet; the picker is available online.')
             return
           }
+          if (result?.status === 'over-cap') {
+            setVaultNote('This gallery is larger than your encrypted vault can hold. You can keep viewing online.')
+            return
+          }
           setVaultNote(gallery.source === 'offline' ? 'Opened from your encrypted vault.' : 'Offline copy saved in your encrypted vault.')
           const stillImages = gallery.manifest.images.filter((image) => !isVideoItem(image))
           if (stillImages.length === 0) return
