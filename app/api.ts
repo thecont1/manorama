@@ -207,11 +207,16 @@ export const createManoramaApi = () => {
     // c.json()/c.body(). Routes that return a raw Response — the streaming
     // media proxies — would otherwise answer a native-shell fetch() with no
     // allow-origin at all, which the WebView reports as a plain "Load failed".
+    // Vary applies to every response: a cacheable media 200 must vary on
+    // Origin whether or not this particular Origin was allowed.
     if (allowed && origin) {
       c.res.headers.set('Access-Control-Allow-Origin', origin)
       c.res.headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
       c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-      c.res.headers.set('Vary', 'Origin')
+    }
+    const vary = c.res.headers.get('Vary') ?? ''
+    if (!vary.split(',').some((value) => value.trim().toLowerCase() === 'origin')) {
+      c.res.headers.append('Vary', 'Origin')
     }
   })
   api.route('/', createDeviceGalleryApi())

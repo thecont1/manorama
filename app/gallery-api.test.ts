@@ -145,9 +145,32 @@ describe('native gallery API', () => {
       const native = await api.request(url, { headers: { Origin: 'capacitor://localhost' } }, fileEnv)
       expect(native.status).toBe(200)
       expect(native.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
+      expect(native.headers.get('Vary')?.toLowerCase()).toContain('origin')
       const foreign = await api.request(url, { headers: { Origin: 'http://example.com' } }, fileEnv)
       expect(foreign.status).toBe(200)
       expect(foreign.headers.get('Access-Control-Allow-Origin')).toBeNull()
+      // A cacheable media response must still vary on Origin for callers that
+      // were not granted it.
+      expect(foreign.headers.get('Vary')?.toLowerCase()).toContain('origin')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  test('the cacheable thumbnail proxy carries Vary and CORS too', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 4, 5]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/octet-stream' },
+      })) as typeof fetch
+    try {
+      const fileEnv = { ...env, DROPBOX_APP_KEY: 'test-key', DROPBOX_APP_SECRET: 'test-secret' }
+      const url = `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent('https://www.dropbox.com/scl/fo/abc123/AAAA?dl=0')}&filename=test.jpg`
+      const native = await api.request(url, { headers: { Origin: 'capacitor://localhost' } }, fileEnv)
+      expect(native.status).toBe(200)
+      expect(native.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
+      expect(native.headers.get('Vary')?.toLowerCase()).toContain('origin')
     } finally {
       globalThis.fetch = realFetch
     }
