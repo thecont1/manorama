@@ -6,7 +6,7 @@ import { seedFromUrl } from './app/lib/doodle-background'
 /**
  * End-to-end proof for the seeded doodle background, against the real
  * dev server. Covers each acceptance criterion: None is the default
- * (photographs abut, no field), Light/Dark wake the field behind 10px
+ * (photographs abut, no field), Dark and Light wake the field behind 10px
  * margins, one URL always reproduces one pattern, a different
  * album produces a different one, and the layer never intercepts a tap.
  *
@@ -137,7 +137,7 @@ const layerSignature = async (page: Page) => {
   }
 }
 
-test('Background offers Light/Dark/None — None is default and photographs abut', async ({ page }) => {
+test('Background offers None/Dark/Light — None is default and photographs abut', async ({ page }) => {
   await gotoGallery(page, ALBUM_A)
 
   // None by default: the field is away and the canvas stays dark.
@@ -156,11 +156,11 @@ test('Background offers Light/Dark/None — None is default and photographs abut
   await openSettings(page)
   const radios = page.locator('input[name="background-mode"]')
   await expect(radios).toHaveCount(3)
-  // Order is Light, Dark, None — and None is the checked default.
-  await expect(radios.nth(0)).toHaveAttribute('value', 'light')
+  // Order is None, Dark, Light — and None is the checked default.
+  await expect(radios.nth(0)).toHaveAttribute('value', 'none')
   await expect(radios.nth(1)).toHaveAttribute('value', 'dark')
-  await expect(radios.nth(2)).toHaveAttribute('value', 'none')
-  await expect(radios.nth(2)).toBeChecked()
+  await expect(radios.nth(2)).toHaveAttribute('value', 'light')
+  await expect(radios.nth(0)).toBeChecked()
   // The doodle on/off toggle is gone for good.
   await expect(page.locator('[data-doodle-toggle]')).toHaveCount(0)
 
