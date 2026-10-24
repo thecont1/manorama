@@ -1950,7 +1950,9 @@ test("owner admin lists galleries without a selector and remains noindex", async
   // so the load event legitimately outlasts a 30s goto. Every assertion
   // below polls a locator — none needs the load event itself.
   await page.goto(BASE + "/" + OWNER, { waitUntil: "domcontentloaded" });
-  await expect(page.locator("h1.admin-brand-title")).toBeVisible();
+  // The account chrome moved into the slide-out drawer (5e8495a); the
+  // page's own h1 is now the galleries heading.
+  await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Manorama-fy it!" }),
   ).toBeVisible();
@@ -1995,10 +1997,19 @@ test("owner admin lists galleries without a selector and remains noindex", async
     firstCard.getByRole("link", { name: /open .* in a new tab/i }),
   ).toHaveAttribute("target", "_blank");
   await expect(firstCard.locator(".admin-gallery-strip-frame")).toBeVisible();
-  await expect(firstCard.locator(".admin-gallery-strip-frame")).toHaveCSS(
-    "height",
-    "150px",
-  );
+  // The Photo Editor is one horizontal row (owner-approved 2026-10-10):
+  // the frame hugs the thumb row — clamp(96px,16dvh,208px) items plus
+  // the frame's hairline borders — rather than a fixed pixel height.
+  const stripFrameBox = (await firstCard
+    .locator(".admin-gallery-strip-frame")
+    .boundingBox())!;
+  const stripItemBox = (await firstCard
+    .locator(".admin-gallery-strip-item")
+    .first()
+    .boundingBox())!;
+  expect(
+    Math.abs(stripFrameBox.height - stripItemBox.height),
+  ).toBeLessThanOrEqual(3);
   await expect(
     firstCard.getByRole("button", { name: /edit gallery slug/i }),
   ).toBeVisible();
@@ -2211,7 +2222,7 @@ test.describe("admin responsive layout", () => {
     page,
   }) => {
     await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("h1.admin-brand-title")).toBeVisible();
+    await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
     const geometry = await page.evaluate(() => ({
       scrollable: document.documentElement.scrollHeight > window.innerHeight,
       overflowX: document.documentElement.scrollWidth - window.innerWidth,
@@ -2221,10 +2232,17 @@ test.describe("admin responsive layout", () => {
     await expect(page.getByRole("combobox")).toHaveCount(0);
     await expect(page.locator(".admin-section-index")).toHaveCount(0);
     await expect(page.locator(".admin-gallery-card").first()).toBeVisible();
-    await expect(page.locator(".admin-gallery-strip-frame").first()).toHaveCSS(
-      "height",
-      "150px",
-    );
+    const stripFrameBox = (await page
+      .locator(".admin-gallery-strip-frame")
+      .first()
+      .boundingBox())!;
+    const stripItemBox = (await page
+      .locator(".admin-gallery-strip-item")
+      .first()
+      .boundingBox())!;
+    expect(
+      Math.abs(stripFrameBox.height - stripItemBox.height),
+    ).toBeLessThanOrEqual(3);
   });
 });
 
@@ -2245,7 +2263,7 @@ test.describe("privacy policy page", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: /privacy policy/i }),
     ).toBeVisible();
-    await expect(page.getByText(/last updated: 27 september 2026/i)).toBeVisible();
+    await expect(page.getByText(/last updated: 1 october 2026/i)).toBeVisible();
     await expect(
       page.locator(".policy-personas > section.policy-card"),
     ).toHaveCount(3);
@@ -2266,7 +2284,7 @@ test.describe("privacy policy page", () => {
       ).toBeVisible();
     }
     const doc = page.locator(".policy-document");
-    await expect(doc).toContainText(/encrypted storage on your device/i);
+    await expect(doc).toContainText(/encrypted, app-private storage on your device/i);
     await expect(doc).toContainText(/secure device storage/i);
     await expect(doc).toContainText(/house placements/i);
     await expect(doc).toContainText(/non-personalized third-party website ads/i);
@@ -2398,7 +2416,7 @@ test.describe("quick-add interstitial", () => {
     await page.goto(`${BASE}/https://mega.nz/folder/AbCdEf12#a2V5`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-mode", "signin");
     await expect(page.locator("[data-quickadd]")).toHaveAttribute("data-provider", "mega");
-    const signin = page.locator("[data-quickadd-signin]");
+    const signin = page.locator('[data-quickadd-signin][href*="/auth/dropbox"]');
     await expect(signin).toBeVisible();
     // The sign-in href must carry the WHOLE current URL, fragment included:
     // the MEGA key lives there and the server never sees it.
@@ -2936,6 +2954,8 @@ test.describe("retention policy", () => {
     });
     const page = await context.newPage();
     await page.goto(`${BASE}/${RETENTION_OWNER}`, { waitUntil: "domcontentloaded" });
+    // The retention disclosure lives in the account drawer now (5e8495a).
+    await page.getByRole("button", { name: "Account menu", exact: true }).click();
     await expect(page.getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
     const card = page.locator('[data-gallery-card="ui-d"]');
     await expect(card).toContainText("Temporary ·");
