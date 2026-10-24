@@ -14,7 +14,7 @@ Open a public gallery link without an account. We do not keep a history of galle
 
 Sign in with Apple, Google, or Dropbox. We keep your account ID, name, email (which may be an Apple private-relay address), public address, plan, and the details needed to show your galleries. You can link more than one sign-in method to the same account. We never see your sign-in password or keep the provider's sign-in token. Photos stay at the source; deleting a gallery here never deletes the originals.
 
-### Pro or Forever
+### Pro
 
 Paid plans use the same account data. On mobile, RevenueCat and your app store handle purchases; on the web, Stripe does. Manorama receives plan status, not card details. You can keep more galleries and a larger device vault. You may still see Manorama’s own labeled placements, but not third-party ad-network placements.
 

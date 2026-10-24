@@ -14,7 +14,7 @@ A gallery moves through these states:
 
 4. **Deleted** — deletion removes the gallery record and its metadata. Original source files are never touched. Deletion is irreversible from the operator side; recovery requires recreating the gallery from the source link.
 
-Free-tier owners are limited to 3 galleries; creates beyond the limit fail with a 403 ("Remove one to add another — or write to us about keeping more"). Pro is unlimited. A second gallery from the same source link is rejected with a 409.
+Free-tier owners keep at most 3 `retained` galleries; creates beyond that insert as temporary `pipeline` rows — read-only, hidden from lists once their 30-day `expires_at` passes, and swept by the daily cron. Paid accounts cap at 99 retained galleries; a create beyond that is a typed `GALLERY_LIMIT` 403. A second gallery from the same source link is rejected with a 409.
 
 ## Source link expectations
 
@@ -77,7 +77,7 @@ sets.
 
 - A failed refresh leaves the stored gallery untouched; the manifest is rewritten only after a successful rescan.
 
-- Duplicate source link → 409 "A gallery from that link already exists". Free-tier limit → 403.
+- Duplicate source link → 409 "A gallery from that link already exists". Free-tier overflow → temporary `pipeline` row; paid 99-gallery limit → 403 `GALLERY_LIMIT`.
 
 - Slug conflicts on create retry automatically with the next numeric suffix. A rename colliding with an existing slug returns "That gallery URL is already in use".
 
