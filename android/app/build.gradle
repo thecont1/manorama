@@ -10,6 +10,12 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // The Android AdMob app id is a separate id from the iOS one and only
+        // exists once the owner creates the Android app in the AdMob console;
+        // without any value the Mobile Ads init provider throws on launch.
+        // The default is Google's published test id, which never serves real
+        // ads — override with -PADMOB_ANDROID_APP_ID=… or gradle.properties.
+        manifestPlaceholders = [admobAppId: project.findProperty('ADMOB_ANDROID_APP_ID') ?: 'ca-app-pub-3940256099942544~3347511713']
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
