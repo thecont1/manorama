@@ -1,0 +1,22 @@
+ M .work/capture-server.ts
+ M app/islands/Admin.tsx
+ M app/lib/dropbox-public.test.ts
+ M app/lib/dropbox-public.ts
+ M app/styles.css
+ M bun.lock
+ M desktop-admin-fixture.ts
+ M native/islands/GalleryList.tsx
+ M native/styles.css
+ M outputs/admin-redesign-spec-2026-10-10.md
+ M outputs/current-verification/verification-and-open-gates-2026-10-11.md
+ M outputs/desktop-admin-parity/desktop-admin-coverage-2026-10-11.md
+ M outputs/desktop-catalogue-parity/PR-BODY.md
+ M outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md
+ M package.json
+ M qa.playwright.ts
+ M tsconfig.scripts.json
+?? .work/CONVERGENCE.md
+?? .work/NOTES.md
+?? .work/PR-115-STATE.md
+?? .work/playwright.desktop.config.ts
+?? .work/playwright.qa.config.ts

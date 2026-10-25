@@ -1,0 +1,689 @@
+diff --git a/.work/capture-server.ts b/.work/capture-server.ts
+index c487f23..d1cf1c4 100644
+--- a/.work/capture-server.ts
++++ b/.work/capture-server.ts
+@@ -1,3 +1,4 @@
++/// <reference types="bun-types" />
+ /**
+  * State-driven capture harness for the native screenshot matrix.
+  *
+@@ -187,7 +188,7 @@ const buildFixture = async () => {
+ 
+ /** Never re-encode or persist bytes. A File Provider placeholder's stat is not
+  * proof of a readable original; reject incomplete reads and use the proxy. */
+-async function originalBytes(image: Json): Promise<Uint8Array> {
++async function originalBytes(image: Json): Promise<Uint8Array<ArrayBuffer>> {
+   const file = Bun.file(`${PHOTO_DIR}/${image.filename as string}`)
+   try {
+     const bytes = new Uint8Array(await file.arrayBuffer())
+@@ -473,7 +474,8 @@ const CHOREO = (which: number) => {
+   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+   const frame = () => new Promise((r) => requestAnimationFrame(r))
+   const post = (body) => fetch('/__capture/report', {
+-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
++    method: 'POST', headers: { 'content-type': 'application/json' },
++    body: JSON.stringify({ state: ${which}, generation: ${generation}, ...body })
+   })
+ 
+   // setPointerCapture rejects a pointerId the browser never issued, and a
+@@ -706,7 +708,7 @@ const CHOREO = (which: number) => {
+ `
+ }
+ 
+-await buildFixture()
++fixture = await buildFixture()
+ 
+ const server = Bun.serve({
+   port: PORT,
+diff --git a/app/islands/Admin.tsx b/app/islands/Admin.tsx
+index 23138f2..0f89cc6 100644
+--- a/app/islands/Admin.tsx
++++ b/app/islands/Admin.tsx
+@@ -793,7 +793,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
+             <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
+           </div> : null}
+           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
+-          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
++          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; const canAdvance = delta > 0 ? frame.scrollLeft + frame.clientWidth < frame.scrollWidth : delta < 0 && frame.scrollLeft > 0; if (!canAdvance) return; frame.scrollLeft += delta; event.preventDefault() }}>
+             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
+               {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery)} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
+                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+diff --git a/app/lib/dropbox-public.test.ts b/app/lib/dropbox-public.test.ts
+index 9a36c9c..af8d59e 100644
+--- a/app/lib/dropbox-public.test.ts
++++ b/app/lib/dropbox-public.test.ts
+@@ -11,14 +11,14 @@ const listing = (entries: unknown[]) => json({ entries, cursor: 'cursor-1', has_
+ 
+ /** The smallest JPEG that `parseJpegDimensions` will read: SOI, then an SOF0
+  *  whose frame header carries the two numbers we are testing for. */
+-const jpeg = (width: number, height: number) => {
++const jpeg = (width: number, height: number, status = 200) => {
+   const bytes = new Uint8Array(20)
+   bytes.set([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08])
+   bytes[7] = height >> 8
+   bytes[8] = height & 0xff
+   bytes[9] = width >> 8
+   bytes[10] = width & 0xff
+-  return new Response(bytes, { status: 200 })
++  return new Response(bytes, { status })
+ }
+ 
+ const entry = (overrides: Record<string, unknown> = {}) => ({
+@@ -38,7 +38,7 @@ describe('scanDropboxFolder dimensions', () => {
+       const url = String(input)
+       if (url.includes('files/list_folder')) return listing([entry()])
+       if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+-      if (url.includes('sharing/get_shared_link_file')) return jpeg(2560, 1707)
++      if (url.includes('sharing/get_shared_link_file')) return jpeg(2560, 1707, 206)
+       if (url.includes('files/get_thumbnail_v2')) return jpeg(256, 171)
+       return json({}, 404)
+     }
+diff --git a/app/lib/dropbox-public.ts b/app/lib/dropbox-public.ts
+index 079df29..2c24152 100644
+--- a/app/lib/dropbox-public.ts
++++ b/app/lib/dropbox-public.ts
+@@ -78,8 +78,14 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
+   if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
+   try {
+     const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetchImpl, { Range: 'bytes=0-131071' })
+-    const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
+-    if (dimensions) return dimensions
++    // Only a 206 is the ranged read asked for. A 200 means the Range header was
++    // refused and the body is the whole original — never buffered here.
++    if (response.status === 206) {
++      const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
++      if (dimensions) return dimensions
++    } else {
++      await response.body?.cancel()
++    }
+   } catch {
+     // A provider that refuses a ranged read is not a failed scan — the preview
+     // below still shapes the frame.
+diff --git a/app/styles.css b/app/styles.css
+index 2224363..ee50b64 100644
+--- a/app/styles.css
++++ b/app/styles.css
+@@ -1944,7 +1944,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
+   overflow-x: auto;
+   overflow-y: hidden;
+   overscroll-behavior-x: contain;
+-  touch-action: pan-x;
++  touch-action: pan-x pan-y;
+   backdrop-filter: none;
+   -webkit-backdrop-filter: none;
+   background: rgba(var(--ink), .035);
+diff --git a/bun.lock b/bun.lock
+index d1ce163..56e2927 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -44,6 +44,7 @@
+         "@tauri-apps/cli": "^2.12.0",
+         "@types/node": "^22.20.2",
+         "@types/react-dom": "^19.2.7",
++        "bun-types": "^1.4.3",
+         "happy-dom": "^20.14.5",
+         "sharp": "^0.34.5",
+         "typescript": "^5.9.2",
+@@ -757,6 +758,8 @@
+ 
+     "buffer-image-size": ["buffer-image-size@0.6.4", "", { "dependencies": { "@types/node": "*" } }, "sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ=="],
+ 
++    "bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
++
+     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
+ 
+     "c2pa": ["c2pa@0.30.17", "", { "dependencies": { "@contentauth/detector": "0.3.7", "@contentauth/toolkit": "0.13.14", "debug": "~4.3.4", "lodash": "^4.17.21", "make-error": "^1.3.6", "p-props": "^5.0.0", "traverse": "~0.6.7" } }, "sha512-AsrKp3YXiJsSAOWRPR+jO87ONhZ6iV3p809ChCe4zNjgMHAeghEq7FPu45bhlc4JdD682sCOsVHqqbQiaK3cng=="],
+@@ -2079,6 +2082,10 @@
+ 
+     "buffer-image-size/@types/node": ["@types/node@26.3.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw=="],
+ 
++    "bun-types/@types/node": ["@types/node@26.3.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-L3fgrnchriRC2ExBflb8j4uZZURHZfQsmQeyVzhjcHW4kkwVyo8/0h1B2MVzMTrYUJYu6G7EWs14hW/L9putqw=="],
++
++    "bun-types/undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
++
+     "c2pa/debug": ["debug@4.3.7", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-Er2nc/H7RrMXZBFCEim6TCmMk02Z8vLC2Rbi1KEBggpo0fS6l0S1nnapwmIi3yW/+GOJap1Krg4w0Hg80oCqgQ=="],
+ 
+     "c2pa-wc/debug": ["debug@4.3.7", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-Er2nc/H7RrMXZBFCEim6TCmMk02Z8vLC2Rbi1KEBggpo0fS6l0S1nnapwmIi3yW/+GOJap1Krg4w0Hg80oCqgQ=="],
+diff --git a/desktop-admin-fixture.ts b/desktop-admin-fixture.ts
+index 99db78e..599c271 100644
+--- a/desktop-admin-fixture.ts
++++ b/desktop-admin-fixture.ts
+@@ -1,3 +1,4 @@
++/// <reference types="node" />
+ /**
+  * The fixture the desktop acceptance specs share.
+  *
+@@ -128,7 +129,12 @@ export type FixturePhoto = { id: string; name: string; path: string; width: numb
+ const PHOTO_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
+ 
+ const readDims = (path: string): { width: number; height: number } | null => {
+-  const out = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', path], { encoding: 'utf8' })
++  let out: string
++  try {
++    out = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', path], { encoding: 'utf8' })
++  } catch {
++    return null
++  }
+   const width = /pixelWidth:\s*(\d+)/.exec(out)?.[1]
+   const height = /pixelHeight:\s*(\d+)/.exec(out)?.[1]
+   if (!width || !height) return null
+diff --git a/native/islands/GalleryList.tsx b/native/islands/GalleryList.tsx
+index 259754c..c49ca91 100644
+--- a/native/islands/GalleryList.tsx
++++ b/native/islands/GalleryList.tsx
+@@ -900,7 +900,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
+ 
+   return (
+     <>
+-    <main class="native-list-shell native-account-shell" style={accountFoldStyle} data-admin-segmented={accountFoldStyle ? 'true' : undefined}>
++    <main class="native-list-shell native-account-shell" style={accountFoldStyle} data-admin-segmented={accountFoldStyle ? 'true' : undefined} inert={accountMenuOpen}>
+           <button
+             type="button"
+             class="native-account-menu native-account-edge-tab"
+diff --git a/native/styles.css b/native/styles.css
+index b68c1fc..de1d617 100644
+--- a/native/styles.css
++++ b/native/styles.css
+@@ -1042,6 +1042,14 @@ body.manorama-native .controls-panel-topbar .panel-close {
+   box-sizing: border-box;
+   height: var(--native-chrome-height);
+ }
++
++/* The shared viewer modals are fixed to the viewport, and the status bar
++   overlays the WebView rather than insetting it — without the safe-top floor
++   their headroom slides under the clock on a notched phone. */
++body.manorama-native .controls-modal { padding-top: max(clamp(22px, 5vw, 72px), var(--native-safe-top)); }
++@media (max-width: 640px) {
++  body.manorama-native .controls-modal { padding-top: max(56px, var(--native-safe-top)); }
++}
+ /* Four controls do not fit across a phone: the previous arrow was encroaching on
+    the sequence readout, and three equal pills wasted the fact that the index is
+    always a circle. On narrow viewports the row carries three controls — the
+@@ -1294,7 +1302,7 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
+ }
+ 
+ /* Account overview: only the photographic list spans both top quadrants. */
+-.native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: max(24px, var(--native-safe-top)) 24px max(24px, var(--native-safe-bottom)) 56px; }
++.native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: max(24px, var(--native-safe-top)) 24px max(24px, var(--native-safe-bottom)) calc(56px + var(--native-safe-left)); }
+ .native-account-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; width: 100%; max-width: 1440px; margin-inline: auto; padding-bottom: 28px; }
+ .native-account-overview .native-account-left { display: block; overflow: visible; min-width: 0; }
+ .native-account-overview .native-account-side { width: 100%; margin: 0; }
+@@ -1308,7 +1316,7 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
+ .native-account-overview .native-gallery-import label { color: rgba(var(--ink), .75); font-size: 12px; }
+ .native-account-overview .native-gallery-import button { justify-self: start; border: 1px solid rgba(var(--ink), .25); min-height: 48px; padding: 12px 18px; background: transparent; color: rgb(var(--ink)); font: inherit; }
+ .native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
+-.native-account-edge-tab { position: fixed; z-index: 40; left: 0; top: 50%; transform: translateY(-50%); border-radius: 0 10px 10px 0; width: 44px; height: 110px; background: var(--gallery-canvas); }
++.native-account-edge-tab { position: fixed; z-index: 40; left: var(--native-safe-left); top: 50%; transform: translateY(-50%); border-radius: 0 10px 10px 0; width: 44px; height: 110px; background: var(--gallery-canvas); }
+ .native-account-edge-tab > span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
+ .native-drawer { justify-content: flex-start; }
+ .native-drawer-panel { border-left: 0; border-right: 1px solid rgba(var(--ink), .14); max-width: var(--admin-pane-limit, 100vw); }
+diff --git a/outputs/admin-redesign-spec-2026-10-10.md b/outputs/admin-redesign-spec-2026-10-10.md
+index 7e0fb9a..347003d 100644
+--- a/outputs/admin-redesign-spec-2026-10-10.md
++++ b/outputs/admin-redesign-spec-2026-10-10.md
+@@ -84,6 +84,6 @@ Web editor behavior:
+ 
+ Likely scope: `app/islands/Admin.tsx`, `native/islands/GalleryList.tsx`, shared account-menu component/hook in `app/components`, `app/styles.css`, `native/styles.css`, native account tests, web admin acceptance tests and the documented web-editor exception in `AGENTS.md`. Inspect nested instructions and issue ownership before edits.
+ 
+-Validate exact dynamic greeting, title/subtitle hierarchy, long names/titles/URLs, empty/loading accounts, drawer focus/close behavior, dark/light contrast, unchanged import flow, and all editor input methods. Run typecheck, the full mirrored unit suite, web acceptance at 375×812 / 1440×900 / 2560×1440, and fresh iPhone/iPad evidence from Xcode bundles. Do not treat old captures or the earlier 1,057 passing unit tests as validation of this redesign.
++Validate exact dynamic greeting, title/subtitle hierarchy, long names/titles/URLs, empty/loading accounts, drawer focus/close behavior, dark/light contrast, unchanged import flow, and all editor input methods. Run typecheck, the full mirrored unit suite, web acceptance at 375×812 / 1440×900 / 2560×1440, and fresh iPhone, iPad and macOS evidence — the current six-state capture set for each platform, taken from freshly built bundles. The gate stays open until all three sets exist. Do not treat old captures or the earlier 1,057 passing unit tests as validation of this redesign.
+ 
+ The attached reference screenshot could not be read because its temporary-folder access was denied twice. Reattach it from a readable folder before claiming an exact screenshot match. Existing web component and stylesheet readings establish the typography reference, but not the unseen attachment's specific composition.
+diff --git a/outputs/current-verification/verification-and-open-gates-2026-10-11.md b/outputs/current-verification/verification-and-open-gates-2026-10-11.md
+index 783387b..2294f5a 100644
+--- a/outputs/current-verification/verification-and-open-gates-2026-10-11.md
++++ b/outputs/current-verification/verification-and-open-gates-2026-10-11.md
+@@ -2,7 +2,7 @@
+ 
+ ## Status
+ 
+-The iPhone and iPad native matrices are now captured from fresh builds and reviewed. The browser admin, fold and local-authentication matrix is fully green. One gate remains: **native macOS application verification**, still blocked by a missing Screen Recording grant for the Computer Use helper.
++The iPhone and iPad native matrices are now captured from fresh builds and reviewed. The browser admin, fold and local-authentication matrix is fully green. Native macOS application verification **completed on 11 October 2026** — the Screen Recording grant was provided and sign-in ran end to end through the system browser (detailed below). One gate remains: **the live-provider viewer matrix** — the recorded vertical-mode failures are diagnosed (a stale `Display settings` button locator, now `Gallery controls`) and fixed in the spec, with the affected checks rerun green; the full-matrix rerun that was interrupted is still outstanding, so viewer acceptance stays open until it passes.
+ 
+ Localhost is running at **http://localhost:5173**.
+ 
+@@ -55,7 +55,7 @@ Original bytes and honest-pixel stage sizing were not altered.
+ | Ad safety and traversal | **14 passed** (375 / 1440 / 2560px traversal past ads, CTA safety, unchanged manifests) |
+ | iPhone native matrix | 6 states, **1284×2778**, reviewed |
+ | iPad native matrix | 6 states, **2752×2064**, reviewed |
+-| Live-provider viewer subset | 14 passed, 2 failed (phone and desktop vertical-mode readiness), 1 interrupted — **not green** |
++| Live-provider viewer subset | first run: 14 passed, 2 failed (phone and desktop vertical-mode readiness), 1 interrupted. Diagnosed and rerun 11 Oct: the failures were a stale selector — the spec asked for a `Display settings` **button**, but `ab7fd8f` renamed the control pill `Gallery controls`, so every such `locator.click` waited out the test timeout. Button locators in `qa.playwright.ts` updated (the `Display settings` dialog name is unchanged and stays); the affected vertical-mode checks rerun green — **11/11 pass** (phone, desktop, wide). The interrupted full-matrix rerun is still outstanding — viewer acceptance stays open until it passes. |
+ | Native macOS application | **verified** — signed in end to end via the system browser; see below |
+ 
+ ## Environment finding: native builds need full access here
+diff --git a/outputs/desktop-admin-parity/desktop-admin-coverage-2026-10-11.md b/outputs/desktop-admin-parity/desktop-admin-coverage-2026-10-11.md
+index 003e2fe..900cc18 100644
+--- a/outputs/desktop-admin-parity/desktop-admin-coverage-2026-10-11.md
++++ b/outputs/desktop-admin-parity/desktop-admin-coverage-2026-10-11.md
+@@ -44,8 +44,12 @@ report does not present them.
+ | Reduced motion honoured | The full matrix runs twice, `reduce` and `no-preference` |
+ | The shared surface was not broken | The web spec `admin-appearance.playwright.ts` still passes against the same markup |
+ 
+-Run: **13 passed** — 9 in `desktop-admin.playwright.ts` (4 viewports × 2 motion
+-preferences, plus the resize test), 4 in `theme-persistence.playwright.ts`.
++Run: **26 passed** — 18 in `desktop-admin.playwright.ts` (4 viewports × 2 motion
++preferences, plus the resize test — 9 cases on each of WebKit and Chromium), 8 in
++`theme-persistence.playwright.ts` (4 cases on both engines). The admin spec was
++adapted rather than dropped: it asserts the current `.admin-gallery-card` markup.
++`desktop-catalogue.playwright.ts` is the separate spec that measures the gallery
++rail's geometry.
+ 
+ ## 2. Surface coverage
+ 
+diff --git a/outputs/desktop-catalogue-parity/PR-BODY.md b/outputs/desktop-catalogue-parity/PR-BODY.md
+index 397d4de..83ce3b8 100644
+--- a/outputs/desktop-catalogue-parity/PR-BODY.md
++++ b/outputs/desktop-catalogue-parity/PR-BODY.md
+@@ -1,42 +1,36 @@
+ # PR draft — macOS Catalogue parity
+ 
+-**Branch:** `feat/desktop-catalogue-parity` · **Commit:** one commit,
+-`feat(desktop): rebuild the macOS catalogue on the shared admin workbench`
++**Branch:** `feat/desktop-catalogue-parity` · **Commits:** the base merged in
++(`c7c3d28`) and this take layered on top (`fc2a820`) — two commits, no force-push
+ 
+-**Title:** `feat(desktop): rebuild the macOS catalogue on the shared admin workbench`
++**Title:** `feat(desktop): hang the catalogue's galleries on the shared photographic rail`
+ 
+ ---
+ 
+-## Base — stacked, and currently conflicting
+-
+-**Base branch:** `fix/native-capture-admin-parity`, which has since been **committed and
+-pushed** (tip `974934c`; six commits: the shell's theme, the catalogue parity, the
+-admin-surface spec, refreshed captures, docs). Those commits carry a *parallel*
+-implementation of this same surface — their catalogue still expands a gallery in place
+-(`openGalleryId`, `.desktop-gallery` rows, an inline square grid), and their pane carries
+-the slug URL editor (`.admin-greeting-url`).
+-
+-That is why GitHub reports this PR as **CONFLICTING** (`mergeStateStatus: DIRTY`): the two
+-branches rewrite the same files — `desktop/islands/Catalogue.tsx`, `desktop/styles.css`,
+-`desktop/lib/theme.ts` and its test, `desktop-admin-fixture.ts`, `desktop/index.html`.
+-Nothing here is broken; the branch simply has to be reconciled before it can merge, and a
+-force-push is not available to us, so the reconciliation lands as a merge commit.
+-
+-Two coherent resolutions, in order of preference:
+-
+-1. **Layer (preferred).** Re-express this branch as a *delta* on the base's catalogue: keep
+-   their island and pane — including the slug URL editor this branch lacks — and add only
+-   what this take contributes: the rail of clickable originals opening the shared viewer,
+-   the AA contrast fixes on the muted small text, and the single stage-arrows block. Least
+-   destructive: their spec and captures stay valid with small edits, and the stack reads
+-   as base → improvements.
+-2. **Supersede.** Merge the base in and keep this branch's catalogue wholesale, then adapt
+-   `desktop-admin.playwright.ts` to the rail and regenerate `demo-captures/desktop-admin/`
+-   from this UI. Faster, but it replaces their evidence rather than extending it.
+-
+-Either way `desktop/lib/theme.ts` resolves to the base's module (the mirror of this
+-branch's argument order) and this branch drops its duplicate, and the earlier comparison
+-of the two takes stands: `outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md`.
++## Base — stacked, and now reconciled
++
++**Base branch:** `fix/native-capture-admin-parity`, committed and pushed while this PR was
++open (tip `974934c`; six commits — the shell's theme, the catalogue parity, the
++admin-surface spec, refreshed captures, docs). Those commits carry a parallel
++implementation of this same surface, so the PR read as **CONFLICTING** until it was
++reconciled. **Resolved by layering, as agreed:**
++
++- `c7c3d28` merges the base in, with every conflict resolved to the base's implementation,
++  so this branch starts from their work rather than competing with it.
++- `fc2a820` re-applies this take as a delta on top: the rail of clickable originals opening
++  the shared viewer, the AA contrast fixes, and the single stage-arrows block.
++
++File by file, what that means:
++
++| | |
++|---|---|
++| Kept from the base | the pane, including the address line (`.admin-greeting-url`) this branch lacked; `desktop/lib/theme.ts` and its drift-guard test (this branch's duplicate is gone); `[data-admin-ready]`; the fixture's synthetic catalogue |
++| Superseded | the inline-expanding gallery list (`.desktop-gallery` rows plus `.desktop-grid`) and the CSS behind it — the rail replaces both, which is the point of the change |
++| Adapted | `desktop-admin.playwright.ts` now waits for the app's stylesheet before measuring (WebKit lands it after the DOM and measured the edge tab at the body's 8px margin) and locates galleries by the shared card; its `demo-captures/desktop-admin/` are regenerated from this UI |
++| Extended | `desktop-admin-fixture.ts` gains a real-photograph catalogue, so the rail's geometry is measured against the owner's own files |
++
++The earlier comparison of the two takes stands in
++`outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md`.
+ 
+ ---
+ 
+@@ -68,31 +62,33 @@ unreadable. The choice returns on the way back.
+ |---|---|
+ | Island | `desktop/islands/Catalogue.tsx`, `desktop/islands/Catalogue.workbench.test.tsx` |
+ | Styles | `desktop/styles.css` |
+-| Theme | `desktop/lib/theme.ts`, `desktop/lib/theme.test.ts`, `desktop/index.html` |
++| Theme | `desktop/index.html` (pre-paint boot); `desktop/lib/theme.ts` and its test are the base's, unchanged |
+ | Session | `desktop/lib/session.ts`, `desktop/lib/session.test.ts`, `app/api.ts`, `app/lib/desktop-auth.test.ts` |
+-| Acceptance | `desktop-catalogue.playwright.ts`, `theme-persistence.playwright.ts`, `desktop-admin-fixture.ts` |
+-| Evidence | `outputs/desktop-catalogue-parity/` (18 captures + README) |
++| Acceptance | `desktop-catalogue.playwright.ts`, `desktop-admin.playwright.ts` (adapted), `theme-persistence.playwright.ts`, `desktop-admin-fixture.ts` |
++| Evidence | `outputs/desktop-catalogue-parity/` (18 captures + README), regenerated `demo-captures/desktop-admin/` (16) |
+ 
+ ## Test plan
+ 
+ ```sh
+ bunx tsc --noEmit                                    # clean
+-bun run test:unit                                    # 1081 pass / 0 fail
++bun run test:unit                                    # 1080 pass / 0 fail
+ bun run build:desktop                                # green
+ 
+ bunx vite --config vite.config.desktop.ts --port 5176 --strictPort --host 127.0.0.1
+ DESKTOP_URL=http://127.0.0.1:5176 bunx playwright test desktop-catalogue.playwright.ts
+ # 6/6 — WebKit and Chromium at 1280x840, 1440x900, 760x620, both themes
++DESKTOP_URL=http://127.0.0.1:5176 bunx playwright test desktop-admin.playwright.ts
++# 18/18 — the base's spec, both engines: four window sizes, each with and without motion
+ 
+ bun run dev                                          # 5173, needs .env.local
+ GALLERY_URL=http://127.0.0.1:5173 DESKTOP_URL=http://127.0.0.1:5176 \
+   bunx playwright test theme-persistence.playwright.ts
+-# 4/4 — both engines, against the live web dashboard
++# 8/8 — both engines, against the live web dashboard
+ ```
+ 
+ New tests: the mounted-island workbench test (layout, pane lifecycle, focus loop, theme,
+-rail structure), the theme unit test (with a drift guard that reads `Admin.tsx`), the
+-session `tier` cases, and the cross-bundle theme spec.
++rail structure) and the rail spec; the base's admin spec, theme unit test and session
++`tier` cases arrive with the merge.
+ 
+ ## Notes for review
+ 
+@@ -101,7 +97,12 @@ session `tier` cases, and the cross-bundle theme spec.
+ - `theme-persistence.playwright.ts` needs the web dev server as well as the desktop shell;
+   the README in `outputs/desktop-catalogue-parity/` says so.
+ - The captures in `outputs/` are **browser** captures at the app's window sizes, not native
+-  screenshots, and are kept out of `demo-captures/macos/` for that reason. The native
+-  six-state matrix still needs a freshly built bundle.
++  screenshots, and are kept out of `demo-captures/macos/` for that reason. The
++  native-evidence gate stays open until all six current states are captured from a
++  freshly built macOS bundle — neither these browser captures nor any earlier capture set
++  closes it.
++- The base spec's captures drive the fixture's synthetic catalogue, so its rail shows the
++  fixture's 1×1 stand-in rather than photographs. The rail geometry is measured against the
++  owner's real files in `desktop-catalogue.playwright.ts`.
+ - No image bytes are persisted server-side; the fixture serves the owner's originals
+   read-only through a route interception, untouched.
+diff --git a/outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md b/outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md
+index 612f1a8..726f71a 100644
+--- a/outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md
++++ b/outputs/desktop-catalogue-parity/branch-comparison-2026-10-11.md
+@@ -97,17 +97,20 @@ theme coverage and no shared fixture.
+    the day the storage key or the `light` class diverges between the two bundles.
+ 7. **`data-admin-ready="true"`** on the shell, the readiness signal both suites wait on.
+ 
+-Not carried over: the sibling's `desktop-admin.playwright.ts` (it asserts its own row
+-markup, which this implementation does not have — its non-markup assertions were folded
+-into `desktop-catalogue.playwright.ts` instead); its `demo-captures/` (they show the other
++Not carried over: the sibling's `demo-captures/` (they show the other
+ UI, and the native macOS capture cannot be regenerated here without a freshly built
+ bundle); its `theme.ts` and `theme.test.ts` (the same module under different argument
+ order — this branch keeps its own, with the sibling's extra cases and drift guard merged
+-in).
++in). The sibling's `desktop-admin.playwright.ts` **was** carried over in adapted form:
++it waits for the app's stylesheet before measuring and locates galleries by the shared
++`.admin-gallery-card` markup this implementation renders, so its assertions now cover the
++pane, themes and account copy against the real surface — while
++`desktop-catalogue.playwright.ts` separately measures the rail's geometry (equal heights,
++aspect-true widths, zero gaps, travel).
+ 
+ ## Verification of the converged branch
+ 
+ `bunx tsc --noEmit` clean · `bun run test:unit` **1081 pass / 0 fail** · `bun run
+ build:desktop` green · `desktop-catalogue.playwright.ts` **6/6 on WebKit and Chromium** at
+-1280×840, 1440×900 and 760×620 in both themes · `theme-persistence.playwright.ts` **4/4 on
++1280×840, 1440×900 and 760×620 in both themes · `theme-persistence.playwright.ts` **8/8 on
+ both engines** against the live web dashboard.
+\ No newline at end of file
+diff --git a/package.json b/package.json
+index 869aa84..61b6d10 100644
+--- a/package.json
++++ b/package.json
+@@ -62,10 +62,11 @@
+     "@tauri-apps/cli": "^2.12.0",
+     "@types/node": "^22.20.2",
+     "@types/react-dom": "^19.2.7",
++    "bun-types": "^1.4.3",
+     "happy-dom": "^20.14.5",
+     "sharp": "^0.34.5",
+     "typescript": "^5.9.2",
+     "vite": "^8.2.2",
+-"wrangler": "^4.144.0"
++    "wrangler": "^4.144.0"
+   }
+ }
+diff --git a/qa.playwright.ts b/qa.playwright.ts
+index 5003c65..ebd3351 100644
+--- a/qa.playwright.ts
++++ b/qa.playwright.ts
+@@ -124,7 +124,7 @@ async function openInfoDialog(page: import("@playwright/test").Page) {
+ async function ensureNavArrows(page: import("@playwright/test").Page) {
+   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
+     await page
+-      .getByRole("button", { name: "Display settings", exact: true })
++      .getByRole("button", { name: "Gallery controls", exact: true })
+       .click();
+     await page
+       .getByRole("button", { name: /show navigation arrows/i })
+@@ -367,7 +367,7 @@ for (const vp of viewports) {
+       });
+       await dismissCurtain(page);
+       const geometry = await page
+-        .getByRole("button", { name: "Display settings", exact: true })
++        .getByRole("button", { name: "Gallery controls", exact: true })
+         .evaluate((button) => {
+           // The button is the static in-viewport hit area; the painted
+           // card inside it does the peeking below the fold.
+@@ -400,7 +400,7 @@ for (const vp of viewports) {
+       // The pill is nearly invisible at rest: low wrap opacity, no chrome
+       // painted by the button itself (the ::before pill carries it).
+       const rest = await page
+-        .getByRole("button", { name: "Display settings", exact: true })
++        .getByRole("button", { name: "Gallery controls", exact: true })
+         .evaluate((button) => {
+           const wrap = button.querySelector(".brand-mark-wrap")!;
+           const wrapCss = getComputedStyle(wrap);
+@@ -439,7 +439,7 @@ for (const vp of viewports) {
+       // The centred logo opens display settings; the info sheet answers
+       // plain `I` (⇧I fetches the external C2PA viewer instead).
+       await page.mouse.move(200, 200);
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await expect(
+         page.getByRole("dialog", { name: /display settings/i }),
+       ).toBeVisible();
+@@ -450,7 +450,7 @@ for (const vp of viewports) {
+         .click();
+       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+       const docked = await page
+-        .getByRole("button", { name: "Display settings", exact: true })
++        .getByRole("button", { name: "Gallery controls", exact: true })
+         .evaluate((button) => {
+           const hit = button.getBoundingClientRect();
+           const stage = document
+@@ -679,7 +679,7 @@ for (const vp of viewports) {
+       // regression where an invisible ::before hit-extender on the
+       // button ate pointerdown and opened settings on plain clicks.
+       const button = page.getByRole("button", {
+-        name: "Display settings",
++        name: "Gallery controls",
+         exact: true,
+       });
+       const box = (await button.boundingBox())!;
+@@ -725,7 +725,7 @@ for (const vp of viewports) {
+     test("vertical scroll answers a mouse drag", async ({ page }) => {
+       await dismissCurtain(page);
+       await page
+-        .getByRole("button", { name: "Display settings", exact: true })
++        .getByRole("button", { name: "Gallery controls", exact: true })
+         .click();
+       await page
+         .locator(".mode-options label", { hasText: /vertical scroll/i })
+@@ -950,7 +950,7 @@ for (const vp of viewports) {
+     }) => {
+       await dismissCurtain(page);
+       const settingsButton = page.getByRole("button", {
+-        name: "Display settings",
++        name: "Gallery controls",
+         exact: true,
+       });
+       // Buttons deliberately skip mouse focus (preventButtonFocus), so
+@@ -995,7 +995,7 @@ for (const vp of viewports) {
+         ),
+       );
+       // Fullscreen lives in the display-settings panel.
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await expect(
+         page.getByRole("button", { name: /enter fullscreen/i }),
+       ).toHaveCount(supported ? 1 : 0);
+@@ -1009,25 +1009,25 @@ for (const vp of viewports) {
+       // toggle in display settings brings them back.
+       await ensureNavArrows(page);
+       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .getByRole("button", { name: /hide navigation arrows/i })
+         .click();
+       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .getByRole("button", { name: /show navigation arrows/i })
+         .click();
+       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+       // Vertical keeps the toggle but defaults arrows off — the feed
+       // scrolls natively, so they appear only on request.
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .locator(".mode-options label", { hasText: /vertical scroll/i })
+         .click();
+       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .getByRole("button", { name: /show navigation arrows/i })
+         .click();
+@@ -1081,13 +1081,13 @@ for (const vp of viewports) {
+         })
+         .toBeLessThan(24);
+       // Hiding again restores the quiet default.
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .getByRole("button", { name: /hide navigation arrows/i })
+         .click();
+       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+       // Single mode brings them back, stepping one image at a time.
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .locator(".mode-options label", { hasText: /one at a time/i })
+         .click();
+@@ -1214,7 +1214,7 @@ for (const vp of viewports) {
+       }
+ 
+       await page
+-        .getByRole("button", { name: "Display settings", exact: true })
++        .getByRole("button", { name: "Gallery controls", exact: true })
+         .click();
+       await page
+         .getByRole("button", { name: /hide navigation arrows/i })
+@@ -1275,7 +1275,7 @@ for (const vp of viewports) {
+       await expect(page.locator('[data-portrait-pair="true"]')).toHaveCount(0);
+       // The radios are visually hidden inside their labels — drive the
+       // label, the element a pointer actually hits.
+-      await page.getByRole("button", { name: "Display settings", exact: true }).click();
++      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+       await page
+         .locator(".mode-options label", { hasText: /vertical scroll/i })
+         .click();
+@@ -1506,7 +1506,7 @@ for (const vp of viewports) {
+ 
+       // The card belongs to the strip alone.
+       await page
+-        .getByRole("button", { name: "Display settings", exact: true })
++        .getByRole("button", { name: "Gallery controls", exact: true })
+         .click();
+       await page
+         .locator(".mode-options label", { hasText: /vertical scroll/i })
+@@ -1611,7 +1611,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
+   const total = await imageCount(page);
+   // Mode radios live in the display-settings panel and are visually
+   // hidden — drive their labels. Position reports through the info dialog.
+-  await page.getByRole("button", { name: "Display settings", exact: true }).click();
++  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+   await page
+     .locator(".mode-options label", { hasText: /vertical scroll/i })
+     .click();
+@@ -1619,7 +1619,7 @@ test("alternate modes switch instantly and preserve the current image", async ({
+   await openInfoDialog(page);
+   await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
+   await page.keyboard.press("Escape");
+-  await page.getByRole("button", { name: "Display settings", exact: true }).click();
++  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+   await page
+     .locator(".mode-options label", { hasText: /one at a time/i })
+     .click();
+@@ -1830,13 +1830,13 @@ test("the logo tab bobs subtly at rest (no-preference motion)", async ({
+   // distraction — and the button's own box stays put so the control is
+   // always click-stable.
+   const buttonBox = await page
+-    .getByRole("button", { name: "Display settings", exact: true })
++    .getByRole("button", { name: "Gallery controls", exact: true })
+     .boundingBox();
+   const before = await card.boundingBox();
+   await page.waitForTimeout(900);
+   const after = await card.boundingBox();
+   const buttonBox2 = await page
+-    .getByRole("button", { name: "Display settings", exact: true })
++    .getByRole("button", { name: "Gallery controls", exact: true })
+     .boundingBox();
+   expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(14);
+   expect(buttonBox2?.y).toBe(buttonBox?.y);
+@@ -2517,7 +2517,7 @@ test.describe("M magnifier (desktop only)", () => {
+     const page = await context.newPage();
+     await dismissCurtain(page);
+     await page
+-      .getByRole("button", { name: "Display settings", exact: true })
++      .getByRole("button", { name: "Gallery controls", exact: true })
+       .click();
+     await page
+       .locator(".mode-options label", { hasText: /vertical scroll/i })
+@@ -2574,7 +2574,7 @@ test.describe("M magnifier (desktop only)", () => {
+     await page.mouse.move(700, 450);
+     await page.keyboard.press("m");
+     await expect(page.locator(".magnifier-lens")).toBeVisible();
+-    await page.getByRole("button", { name: "Display settings", exact: true }).click();
++    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+     await expect(page.locator(".magnifier-lens")).toBeHidden();
+   });
+ 
+@@ -2594,7 +2594,7 @@ test.describe("M magnifier (desktop only)", () => {
+ 
+   test("the shortcut row appears only where the key works", async ({ page }) => {
+     await dismissCurtain(page);
+-    await page.getByRole("button", { name: "Display settings", exact: true }).click();
++    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+     await expect(page.locator(".shortcuts", { hasText: "magnify" })).toBeVisible();
+   });
+ });
+@@ -2616,7 +2616,7 @@ test.describe("video slides", () => {
+     await dismissCurtain(page, videoGallery());
+     await expect(videos).toHaveCount(1);
+ 
+-    await page.getByRole("button", { name: "Display settings" }).click();
++    await page.getByRole("button", { name: "Gallery controls" }).click();
+     await expect(page.getByRole("dialog", { name: "Display settings" })).toBeVisible();
+     await expect(videos).toHaveCount(0);
+   });
+diff --git a/tsconfig.scripts.json b/tsconfig.scripts.json
+index c07f059..334bf2d 100644
+--- a/tsconfig.scripts.json
++++ b/tsconfig.scripts.json
+@@ -3,5 +3,5 @@
+   "compilerOptions": {
+     "types": ["@types/node"]
+   },
+-  "include": ["scripts", "*.playwright.ts"]
++  "include": ["scripts", "*.playwright.ts", "desktop-admin-fixture.ts"]
+ }
