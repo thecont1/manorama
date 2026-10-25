@@ -1,8 +1,13 @@
 import { jsxRenderer } from 'hono/jsx-renderer'
 import { HasIslands } from 'honox/server'
 import { Link, Script } from 'honox/server'
+import { pageSecurityHeaders } from '../lib/security-headers'
 
 export default jsxRenderer(({ children, title, description, ogImage }, c) => {
+  // import.meta.env is undefined under bun test, which then exercises the
+  // production policy — the strict one is what ships.
+  const dev = import.meta.env?.DEV === true
+  for (const [name, value] of Object.entries(pageSecurityHeaders({ dev }))) c.header(name, value)
   const origin = `https://${c.env.PUBLIC_HOST ?? 'manorama.xyz'}`
   const image = ogImage ?? '/og-image.png'
   const absoluteImage = image.startsWith('http') ? image : `${origin}${image}`

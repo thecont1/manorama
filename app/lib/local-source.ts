@@ -315,7 +315,7 @@ export const serveLocalMedia = async (url: URL, rangeHeader: string | null): Pro
     const start = range[1] ? Number(range[1]) : Math.max(0, stat.size - Number(range[2]))
     const end = Math.min(range[1] && range[2] ? Number(range[2]) : stat.size - 1, stat.size - 1)
     const unsatisfiable = () =>
-      new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } })
+      new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}`, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' } })
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start || start >= stat.size) {
       return unsatisfiable()
     }

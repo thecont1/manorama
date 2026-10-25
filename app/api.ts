@@ -201,8 +201,13 @@ export const createManoramaApi = () => {
       c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     }
     c.header('Vary', 'Origin')
-    if (c.req.method === 'OPTIONS') return c.body(null, 204)
+    if (c.req.method === 'OPTIONS') {
+      if (allowed) c.header('Access-Control-Max-Age', '3600')
+      return c.body(null, 204)
+    }
     await next()
+    // Every API response — JSON errors included — goes out nosniffed.
+    c.res.headers.set('X-Content-Type-Options', 'nosniff')
     // The context headers above only reach responses composed through
     // c.json()/c.body(). Routes that return a raw Response — the streaming
     // media proxies — would otherwise answer a native-shell fetch() with no
