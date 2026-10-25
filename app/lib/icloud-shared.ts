@@ -261,6 +261,20 @@ const validateProxyReference = (kind: 'image' | 'video', token: string, photoGui
  *  this only if a real album misses. */
 const APPLE_ASSET_HOST = /(^|\.)(icloud\.com|icloud-content\.com|apple\.com|cdn-apple\.com|mzstatic\.com)$/i
 
+/** A complete DNS hostname: dot-separated labels of valid characters only.
+ *  The suffix allowlist alone cannot reject a host that is not parseable
+ *  DNS at all. */
+const DNS_HOSTNAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i
+
+/** The single gate for asset-map locations: https only, a well-formed
+ *  hostname, and inside the Apple CDN set. Everything else is refused
+ *  before a URL is ever built. */
+const assetLocationUrl = (location: { scheme?: string; hosts?: string[] } | undefined, path: string) => {
+  const host = location?.hosts?.[0]
+  if (location?.scheme !== 'https' || !host || !DNS_HOSTNAME.test(host) || !APPLE_ASSET_HOST.test(host)) return null
+  return `https://${host}${path}`
+}
+
 /** Resolves a derivative's real CDN content type. Used only to break a
  *  tie the album metadata left ambiguous. The asset map is fetched once
  *  for all candidates; the url_path's own filename (.mp4 vs .JPG) answers
@@ -274,8 +288,9 @@ const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typ
       const map = new Map<string, string>()
       for (const [checksum, item] of Object.entries(assets.items ?? {})) {
         const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
-        if (item?.url_path && location?.scheme && location.hosts?.length && APPLE_ASSET_HOST.test(location.hosts[0]!)) {
-          map.set(checksum, `${location.scheme}://${location.hosts[0]}${item.url_path}`)
+        if (item?.url_path) {
+          const url = assetLocationUrl(location, item.url_path)
+          if (url) map.set(checksum, url)
         }
       }
       return map
@@ -381,10 +396,8 @@ const resolveAssetUrl = async (token: string, photoGuid: string, checksum: strin
   const assets = await postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
   const item = assets.items?.[checksum]
   const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
-  if (!item?.url_path || !location?.scheme || !location.hosts?.length) return null
-  const host = location.hosts[0]!
-  if (!APPLE_ASSET_HOST.test(host)) return null
-  return `${location.scheme}://${host}${item.url_path}`
+  if (!item?.url_path) return null
+  return assetLocationUrl(location, item.url_path)
 }
 
 /** Resolves a fresh CDN URL for one derivative and streams it. Asset URLs

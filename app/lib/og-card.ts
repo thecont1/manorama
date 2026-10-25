@@ -74,6 +74,41 @@ export const ogBaseImageUrl = (item: GalleryMediaItem | undefined): string | nul
 export const absoluteSourceUrl = (source: string, requestUrl: string) =>
   source.startsWith('http') ? source : new URL(source, requestUrl).toString()
 
+/** Content-Length is a hint, not a bound — the source proxy can omit it
+ *  or under-report it, so the source cap is enforced on bytes as they
+ *  arrive and the read is abandoned once the limit is crossed. */
+const readBoundedBody = async (response: Response, limit: number) => {
+  const body = response.body
+  if (!body) {
+    const buffer = await response.arrayBuffer().catch(() => null)
+    return buffer && buffer.byteLength <= limit ? buffer : null
+  }
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > limit) {
+        await reader.cancel().catch(() => {})
+        return null
+      }
+      chunks.push(value)
+    }
+  } catch {
+    return null
+  }
+  const buffer = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return buffer.buffer
+}
+
 type CfImageDraw = { url: string; left?: number; top?: number; width?: number; height?: number; opacity?: number }
 type CfImageOptions = {
   cf?: {
@@ -122,7 +157,7 @@ export const renderOgCard = async (
   // `cf-resized` is only present when the transform actually ran. Without
   // it these are the untransformed original bytes — composite locally.
   if (response.headers.get('cf-resized')) return response
-  const original = await response.arrayBuffer().catch(() => null)
+  const original = await readBoundedBody(response, MAX_OG_SOURCE_BYTES)
   if (!original) return null
   return compositeWithJimp(original, pillUrl, fetchImpl)
 }

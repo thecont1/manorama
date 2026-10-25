@@ -852,6 +852,18 @@ export const createManoramaApi = () => {
       const first = gallery?.images?.[0] as GalleryMediaItem | undefined
       const pipeline = gallery?.retention === 'pipeline'
       if (!first) return noStore(fallback())
+      // `?i=` only keys the edge cache — the card never depends on it.
+      // Any supplied value that is not the item's own key is normalised
+      // to the canonical URL, so arbitrary i's collapse to one cache
+      // entry instead of multiplying compositor work.
+      const canonical = ogItemKey(first)
+      const supplied = c.req.query('i')
+      if (supplied !== undefined && supplied !== canonical) {
+        const url = new URL(c.req.path, baseUrl)
+        url.searchParams.set('i', canonical)
+        const redirect = c.redirect(url.toString(), 302)
+        return pipeline ? noStore(redirect) : redirect
+      }
       const response = await ogCardResponse(first, baseUrl)
       if (!pipeline) return response
       return noStore(response)

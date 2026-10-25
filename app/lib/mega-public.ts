@@ -210,16 +210,27 @@ const sniffContentType = (bytes: Uint8Array) =>
  *  time; keeping the bytes turns the admin rail's preview requests into
  *  memory reads instead of ~70 serial multi-second decryptions (which
  *  starve the dev server's event loop badly enough to stall page loads).
- *  Bounded: MAX_PREVIEW_BYTES per entry, so 200 entries cap at 800 MB
- *  worst case and ~60 MB at the typical ~300 KB. */
+ *  Bounded twice: MAX_PREVIEW_BYTES per entry and PREVIEW_CACHE_MAX_BYTES
+ *  across the map — the count cap alone lets 200 attacker-sized 4 MB
+ *  previews pin ~800 MB in a long-lived isolate. 64 MB holds the typical
+ *  ~300 KB working set. */
 const PREVIEW_CACHE_MAX = 200
+const PREVIEW_CACHE_MAX_BYTES = 64 * 1024 * 1024
 const previewCache = new Map<string, Uint8Array>()
+let previewCacheBytes = 0
 const previewCacheKey = (fah: string, nodeKey: Uint8Array) => `${fah}|${b64uEncode(nodeKey)}`
 const cachePreview = (fah: string, nodeKey: Uint8Array, bytes: Uint8Array) => {
   const key = previewCacheKey(fah, nodeKey)
+  const replaced = previewCache.get(key)
+  if (replaced) previewCacheBytes -= replaced.byteLength
   previewCache.delete(key)
   previewCache.set(key, bytes)
-  if (previewCache.size > PREVIEW_CACHE_MAX) previewCache.delete(previewCache.keys().next().value!)
+  previewCacheBytes += bytes.byteLength
+  while (previewCache.size > PREVIEW_CACHE_MAX || previewCacheBytes > PREVIEW_CACHE_MAX_BYTES) {
+    const oldest = previewCache.keys().next().value!
+    previewCacheBytes -= previewCache.get(oldest)!.byteLength
+    previewCache.delete(oldest)
+  }
 }
 
 /** Fetches + decrypts one file attribute (thumbnail/preview): ufa

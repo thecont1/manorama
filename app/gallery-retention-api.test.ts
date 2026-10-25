@@ -226,7 +226,7 @@ describe('pipeline OG cards are never cached', () => {
     await seedGalleries()
     const restore = await jpegPngStubs()
     try {
-      const response = await api.request(`/api/og/${ownerSlug}/locked?i=img-locked`, {}, env)
+      const response = await api.request(`/api/og/${ownerSlug}/locked?i=img-locked.jpg`, {}, env)
       expect(response.status).toBe(200)
       expect(response.headers.get('Cache-Control')).toBe('no-store')
     } finally {
@@ -238,7 +238,7 @@ describe('pipeline OG cards are never cached', () => {
     await seedGalleries()
     const restore = await jpegPngStubs()
     try {
-      const retained = await api.request(`/api/og/${ownerSlug}/kept-0?i=k-0`, {}, env)
+      const retained = await api.request(`/api/og/${ownerSlug}/kept-0?i=k-0.jpg`, {}, env)
       expect(retained.status).toBe(200)
       expect(retained.headers.get('Cache-Control')).toBe('public, max-age=86400, s-maxage=86400')
       const missing = await api.request(`/api/og/${ownerSlug}/does-not-exist`, {}, env)

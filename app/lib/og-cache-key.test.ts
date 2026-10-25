@@ -78,15 +78,19 @@ describe('og card cache key', () => {
     })
   })
 
-  test('an unrecognised i still produces the same card', async () => {
+  test('an unrecognised i is normalised to the canonical card', async () => {
     let recognised = new Uint8Array()
-    let unrecognised = new Uint8Array()
+    let normalised = new Uint8Array()
     await withFetch(async () => {
       recognised = new Uint8Array(await (await api.request(`${path}?i=${FIRST_KEY}`, {}, {})).arrayBuffer())
-      unrecognised = new Uint8Array(await (await api.request(`${path}?i=zzz-unvalidated-nonce`, {}, {})).arrayBuffer())
+      const redirect = await api.request(`${path}?i=zzz-unvalidated-nonce`, { redirect: 'manual' } as RequestInit, {})
+      expect(redirect.status).toBe(302)
+      const location = new URL(redirect.headers.get('Location')!)
+      expect(location.searchParams.get('i')).toBe(FIRST_KEY)
+      normalised = new Uint8Array(await (await api.request(`${location.pathname}${location.search}`, {}, {})).arrayBuffer())
     })
-    expect(unrecognised.byteLength).toBe(recognised.byteLength)
-    expect(Buffer.from(unrecognised).equals(Buffer.from(recognised))).toBe(true)
+    expect(normalised.byteLength).toBe(recognised.byteLength)
+    expect(Buffer.from(normalised).equals(Buffer.from(recognised))).toBe(true)
   })
 
   test('a missing i still renders a card', async () => {
