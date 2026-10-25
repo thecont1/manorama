@@ -20,6 +20,7 @@ import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppress
 import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
+import { PROXY_RESPONSE_CSP } from './lib/security-headers'
 
 type RequestBody = { url?: string; order?: string[]; quick?: boolean }
 
@@ -110,19 +111,35 @@ const sniffImageType = (bytes: Uint8Array) => {
   return null
 }
 
+/** The media types a proxy route may serve. Anything else upstream claims
+ *  — text/html, image/svg+xml — is untrusted: same-origin scriptable
+ *  documents would ride the session cookie. */
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/heic', 'image/heif', 'image/gif'])
+const MEDIA_TYPES = new Set([...IMAGE_TYPES, 'video/mp4', 'video/quicktime'])
+
+/** Pins the outgoing Content-Type: the sniffed image type wins, else the
+ *  upstream media type when allowlisted, else octet-stream. */
+const proxyContentType = (sniffed: string | null, upstream: string | null, allowed: Set<string>) => {
+  if (sniffed) return sniffed
+  const mediaType = upstream?.split(';', 1)[0]?.trim().toLowerCase()
+  return mediaType && allowed.has(mediaType) ? mediaType : 'application/octet-stream'
+}
+
 const streamResponse = async (response: Response, cacheControl: string) => {
   const headers = new Headers()
   let body: ReadableStream | null = response.body
-  let contentType = response.headers.get('Content-Type')
+  let sniffed: string | null = null
   // Provider content endpoints label image bytes application/octet-stream
   // (Dropbox shared-link files always do, decrypted MEGA originals carry
-  // none). Sniff the first chunk so consumers that dispatch on the type —
-  // the in-browser C2PA reader, save-as — see the real format. The chunk is
+  // none), and a labelled type is not proof either — Drive reports a shared
+  // .html as text/html. Sniff the first chunk so consumers that dispatch on
+  // the type — the in-browser C2PA reader, save-as — see the real format,
+  // and the allowlist below refuses scriptable types. The chunk is
   // re-emitted ahead of the remaining stream; no tee, so no copy buffers.
-  if ((!contentType || contentType === 'application/octet-stream') && body) {
+  if (body) {
     const reader = body.getReader()
     const { value: first, done } = await reader.read()
-    contentType = (first && sniffImageType(first)) ?? 'application/octet-stream'
+    sniffed = (first && sniffImageType(first)) ?? null
     body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
@@ -144,9 +161,12 @@ const streamResponse = async (response: Response, cacheControl: string) => {
       },
     })
   }
-  headers.set('Content-Type', contentType || 'application/octet-stream')
+  headers.set('Content-Type', proxyContentType(sniffed, response.headers.get('Content-Type'), IMAGE_TYPES))
   headers.set('Cache-Control', cacheControl)
   headers.set('X-Content-Type-Options', 'nosniff')
+  // <img> loads ignore CSP; a direct navigation to a proxy URL gets an
+  // opaque origin — belt and braces for anything the allowlist misses.
+  headers.set('Content-Security-Policy', PROXY_RESPONSE_CSP)
   return new Response(body, { status: 200, headers })
 }
 
@@ -157,9 +177,10 @@ const streamResponse = async (response: Response, cacheControl: string) => {
  *  always-200 path above. */
 const streamRangeResponse = (response: Response, cacheControl: string) => {
   const headers = new Headers()
-  headers.set('Content-Type', response.headers.get('Content-Type') || 'application/octet-stream')
+  headers.set('Content-Type', proxyContentType(null, response.headers.get('Content-Type'), MEDIA_TYPES))
   headers.set('Cache-Control', cacheControl)
   headers.set('X-Content-Type-Options', 'nosniff')
+  headers.set('Content-Security-Policy', PROXY_RESPONSE_CSP)
   headers.set('Accept-Ranges', response.headers.get('Accept-Ranges') || 'bytes')
   const contentRange = response.headers.get('Content-Range')
   if (contentRange) headers.set('Content-Range', contentRange)

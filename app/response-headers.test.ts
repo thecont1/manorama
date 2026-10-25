@@ -196,7 +196,7 @@ describe('range response headers', () => {
 })
 
 describe('scriptable image types', () => {
-  test('an SVG from Drive is served as image/svg+xml, which executes on navigation', async () => {
+  test('an SVG from Drive is not served as a scriptable type', async () => {
     const realFetch = globalThis.fetch
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.domain)</script></svg>'
     globalThis.fetch = (async () => new Response(new TextEncoder().encode(svg), {
@@ -205,8 +205,9 @@ describe('scriptable image types', () => {
     })) as typeof fetch
     try {
       const response = await createManoramaApi().request('/api/drive/file?id=SYNTH', {}, { GOOGLE_DRIVE_API_KEY: 'k' })
-      // Same origin, scriptable document: the second half of the MIME finding.
-      expect(response.headers.get('Content-Type')).toBe('image/svg+xml')
+      // The bytes pass through, but as opaque data — never a same-origin
+      // scriptable document.
+      expect(response.headers.get('Content-Type')).toBe('application/octet-stream')
       expect(await response.text()).toContain('<script>')
     } finally {
       globalThis.fetch = realFetch
