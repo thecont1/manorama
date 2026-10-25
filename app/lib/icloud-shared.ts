@@ -60,6 +60,10 @@ type AssetUrls = {
 
 export type ICloudScan = { sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number }
 
+/** The token alphabet: newer Apple tokens use URL-safe base64 —
+ *  underscores and hyphens appear in real shared-album links. */
+export const isAlbumToken = (s: string) => /^[A-Za-z0-9_-]+$/.test(s)
+
 /** The album token from either public link spelling:
  *  icloud.com/sharedalbum/#{token} and share.icloud.com/photos/{token}. */
 export const extractAlbumToken = (input: string) => {
@@ -73,9 +77,7 @@ export const extractAlbumToken = (input: string) => {
   let token: string | null = null
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) token = url.hash.replace(/^#/, '') || null
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) token = url.pathname.slice('/photos/'.length).split('/')[0] || null
-  // Newer Apple tokens use URL-safe base64 — underscores and hyphens
-  // appear in real shared-album links.
-  return token && /^[A-Za-z0-9_-]+$/.test(token) ? token : null
+  return token && isAlbumToken(token) ? token : null
 }
 
 export const canonicalICloudUrl = (token: string) => `https://www.icloud.com/sharedalbum/#${token}`
@@ -245,6 +247,20 @@ const splitVideoDerivatives = async (
 const placeholderFor = (width: number, height: number) =>
   `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`
 
+/** The scan path validates references via extractAlbumToken; a hand-built
+ *  /api/icloud/* URL reaches the proxies unvetted — a '/' or '?' in the
+ *  token escapes the sharedstreams URL structure. */
+const validateProxyReference = (kind: 'image' | 'video', token: string, photoGuid: string, checksum: string) => {
+  if (!isAlbumToken(token) || !/^[A-Za-z0-9-]+$/.test(photoGuid) || !/^[A-Za-z0-9_-]+$/.test(checksum)) {
+    throw new SourceFetchError(`That iCloud ${kind} reference is invalid`, 400)
+  }
+}
+
+/** Apple's known CDN host set for shared-album assets. A resolved host
+ *  outside it — a spoofed asset map, a wrong partition — is refused; widen
+ *  this only if a real album misses. */
+const APPLE_ASSET_HOST = /(^|\.)(icloud\.com|icloud-content\.com|apple\.com|cdn-apple\.com|mzstatic\.com)$/i
+
 /** Resolves a derivative's real CDN content type. Used only to break a
  *  tie the album metadata left ambiguous. The asset map is fetched once
  *  for all candidates; the url_path's own filename (.mp4 vs .JPG) answers
@@ -258,7 +274,7 @@ const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typ
       const map = new Map<string, string>()
       for (const [checksum, item] of Object.entries(assets.items ?? {})) {
         const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
-        if (item?.url_path && location?.scheme && location.hosts?.length) {
+        if (item?.url_path && location?.scheme && location.hosts?.length && APPLE_ASSET_HOST.test(location.hosts[0]!)) {
           map.set(checksum, `${location.scheme}://${location.hosts[0]}${item.url_path}`)
         }
       }
@@ -366,12 +382,15 @@ const resolveAssetUrl = async (token: string, photoGuid: string, checksum: strin
   const item = assets.items?.[checksum]
   const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
   if (!item?.url_path || !location?.scheme || !location.hosts?.length) return null
-  return `${location.scheme}://${location.hosts[0]}${item.url_path}`
+  const host = location.hosts[0]!
+  if (!APPLE_ASSET_HOST.test(host)) return null
+  return `${location.scheme}://${host}${item.url_path}`
 }
 
 /** Resolves a fresh CDN URL for one derivative and streams it. Asset URLs
  *  carry an expiry, so they are resolved per view and never persisted. */
 export const fetchICloudImage = async (token: string, photoGuid: string, checksum: string, fetchImpl: typeof fetch = fetch) => {
+  validateProxyReference('image', token, photoGuid, checksum)
   const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
   if (!url) throw new SourceFetchError('That iCloud image is unavailable', 404)
   const response = await fetchImpl(url)
@@ -392,6 +411,7 @@ export const fetchICloudVideo = async (
   range?: string | null,
   fetchImpl: typeof fetch = fetch,
 ) => {
+  validateProxyReference('video', token, photoGuid, checksum)
   const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
   if (!url) throw new SourceFetchError('That iCloud video is unavailable', 404)
   const response = await fetchImpl(url, range ? { headers: { Range: range } } : undefined)

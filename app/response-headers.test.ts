@@ -170,7 +170,7 @@ describe('range response headers', () => {
       if (url.includes('/sharedstreams/')) {
         return new Response(JSON.stringify({
           items: { SYNTH: { url_location: 'L1', url_path: '/a.mp4' } },
-          locations: { L1: { scheme: 'https', hosts: ['cdn.example'] } },
+          locations: { L1: { scheme: 'https', hosts: ['cvws.icloud-content.com'] } },
         }), { status: 200 })
       }
       return new Response(new Uint8Array(10), {

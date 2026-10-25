@@ -23,6 +23,12 @@ const validateFolderUrl = (input: string) => {
   return url.toString()
 }
 
+/** The `filename` query param is spliced into the Dropbox API path —
+ *  normalise it so a crafted reference cannot escape the shared link's
+ *  root with dot segments or a leading slash. */
+const dropboxPath = (filename: string) =>
+  '/' + filename.split('/').filter((s) => s && s !== '.' && s !== '..').join('/')
+
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 const originalProxy = (sourceUrl: string, filename: string) => `/api/dropbox/file?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
 const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
@@ -77,7 +83,7 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
 const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
   try {
-    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetchImpl, { Range: 'bytes=0-131071' })
+    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' })
     const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
   } catch {
@@ -86,7 +92,7 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
   }
   try {
     const response = await contentRequest('files/get_thumbnail_v2', {
-      resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },
+      resource: { '.tag': 'link', url: sourceUrl, path: dropboxPath(filename) },
       format: { '.tag': 'jpeg' },
       size: 'w256h256',
       mode: 'strict',
@@ -155,13 +161,13 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
 
 export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv, range?: string | null) => {
   const sourceUrl = validateFolderUrl(sourceUrlInput)
-  return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetch, range ? { Range: range } : undefined)
+  return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetch, range ? { Range: range } : undefined)
 }
 
 export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w1024h768' | 'w2048h2048' = 'w256h256') => {
   const sourceUrl = validateFolderUrl(sourceUrlInput)
   return contentRequest('files/get_thumbnail_v2', {
-    resource: { '.tag': 'link', url: sourceUrl, path: `/${filename}` },
+    resource: { '.tag': 'link', url: sourceUrl, path: dropboxPath(filename) },
     format: { '.tag': 'jpeg' },
     size,
     mode: 'strict',

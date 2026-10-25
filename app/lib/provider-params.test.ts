@@ -30,7 +30,7 @@ describe('iCloud proxy references', () => {
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
       seen.push(url)
-      return url.includes('/sharedstreams/') ? assetMap('cdn.example') : new Response(JPEG, { status: 200 })
+      return url.includes('/sharedstreams/') ? assetMap('cvws.icloud-content.com') : new Response(JPEG, { status: 200 })
     }) as typeof fetch
 
     await fetchICloudImage('AbCdEf012345', 'abcdef0123456789', 'SYNTH', fetchImpl)
@@ -39,36 +39,33 @@ describe('iCloud proxy references', () => {
     expect(seen[0]).toBe('https://p37-sharedstreams.icloud.com/AbCdEf012345/sharedstreams/webasseturls')
   })
 
-  test('a path-shaped album does not escape the URL structure', async () => {
+  test('a path-shaped album is refused before any fetch', async () => {
     const seen: string[] = []
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
       seen.push(url)
-      return url.includes('/sharedstreams/') ? assetMap('cdn.example') : new Response(JPEG, { status: 200 })
+      return url.includes('/sharedstreams/') ? assetMap('cvws.icloud-content.com') : new Response(JPEG, { status: 200 })
     }) as typeof fetch
 
-    await fetchICloudImage('SYNTH/inner', 'abcdef0123456789', 'SYNTH', fetchImpl)
-
-    // Today this is `.../SYNTH/inner/sharedstreams/webasseturls` only because
-    // nothing in the album ends the path — the segment is not validated.
-    expect(seen[0]).toContain('/SYNTH/inner/sharedstreams/webasseturls')
+    await expect(fetchICloudImage('SYNTH/inner', 'abcdef0123456789', 'SYNTH', fetchImpl))
+      .rejects.toMatchObject({ status: 400 })
+    expect(seen).toEqual([])
   })
 
-  test('a `?` inside the album must not truncate the endpoint', async () => {
+  test('a `?` inside the album is refused before any fetch', async () => {
     const seen: string[] = []
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
       seen.push(url)
-      return url.includes('/sharedstreams/') ? assetMap('cdn.example') : new Response(JPEG, { status: 200 })
+      return url.includes('/sharedstreams/') ? assetMap('cvws.icloud-content.com') : new Response(JPEG, { status: 200 })
     }) as typeof fetch
 
-    await fetchICloudImage('SYNTH?probe=1', 'abcdef0123456789', 'SYNTH', fetchImpl)
-
-    const first = new URL(seen[0]!)
-    expect(first.pathname).toBe('/SYNTH/sharedstreams/webasseturls')
+    await expect(fetchICloudImage('SYNTH?probe=1', 'abcdef0123456789', 'SYNTH', fetchImpl))
+      .rejects.toMatchObject({ status: 400 })
+    expect(seen).toEqual([])
   })
 
-  test('the asset host comes from the response, unvalidated', async () => {
+  test('a foreign asset host is refused', async () => {
     const seen: string[] = []
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
@@ -76,9 +73,21 @@ describe('iCloud proxy references', () => {
       return url.includes('/sharedstreams/') ? assetMap('foreign-host.example') : new Response(JPEG, { status: 200 })
     }) as typeof fetch
 
+    await expect(fetchICloudImage('AbCdEf012345', 'abcdef0123456789', 'SYNTH', fetchImpl))
+      .rejects.toMatchObject({ status: 404 })
+  })
+
+  test('an Apple CDN asset host is accepted', async () => {
+    const seen: string[] = []
+    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      seen.push(url)
+      return url.includes('/sharedstreams/') ? assetMap('cvws.icloud-content.com') : new Response(JPEG, { status: 200 })
+    }) as typeof fetch
+
     await fetchICloudImage('AbCdEf012345', 'abcdef0123456789', 'SYNTH', fetchImpl)
 
-    expect(seen.at(-1)).toBe('https://foreign-host.example/synthetic/asset.jpg')
+    expect(seen.at(-1)!.startsWith('https://cvws.icloud-content.com/')).toBe(true)
   })
 })
 
@@ -94,9 +103,20 @@ describe('MEGA proxy references', () => {
     await expect(fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', 'AAAA', megaFetch())).rejects.toThrow()
   })
 
-  test('a 16-byte key is accepted', async () => {
-    const response = await fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', 'AAAAAAAAAAAAAAAAAAAAAA', megaFetch())
+  test('a 32-byte key is accepted', async () => {
+    // 'A'.repeat(43) is a 32-byte key in base64url — the file-key layout.
+    const response = await fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', 'A'.repeat(43), megaFetch())
     expect(response.status).toBe(200)
+  })
+
+  test('a 16-byte key is accepted for previews', async () => {
+    // Previews are CBC attribute records — foldKey only, no nonce, so the
+    // 16-byte element key is legitimate. The stubbed ufa response misses,
+    // which proves the run reached the network rather than a 400.
+    const fah = btoa(String.fromCharCode(...new Uint8Array(8))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    await expect(
+      fetchMegaPreview('SYNTH', undefined, fah, 'AAAAAAAAAAAAAAAAAAAAAA', megaFetch()),
+    ).rejects.toMatchObject({ status: 404 })
   })
 
   test('a preview with a malformed file-attribute handle answers 404, not 500', async () => {

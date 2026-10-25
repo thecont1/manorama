@@ -4,8 +4,9 @@ import { deleteCookie } from 'hono/cookie'
 import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
-import { fetchICloudImage, fetchICloudVideo } from './lib/icloud-shared'
+import { fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
+import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
@@ -50,6 +51,16 @@ const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
  *  the moment a create succeeds (or is found to already exist). */
 const galleryUrlFor = (ownerSlug: string, slug: string) => `/${ownerSlug}/${slug}`
 const dbEnv = (c: { env: unknown }) => c.env as GalleryEnv
+
+/** Decodes a MEGA proxy key; malformed base64url decodes to null. */
+const megaKeyBytes = (key: string | undefined) => {
+  if (!key) return null
+  try {
+    return b64uDecode(key)
+  } catch {
+    return null
+  }
+}
 
 const slugify = (value: string) => value
   .normalize('NFKD')
@@ -709,9 +720,11 @@ export const createManoramaApi = () => {
     const set = c.req.query('set')
     const node = c.req.query('node')
     const key = c.req.query('k')
-    if ((!folder && !set) || !node || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    // A file key is 16 key ∥ 8 nonce ∥ 8 mac bytes — fetchMegaFile refuses
+    // anything else; refusing here too saves the provider round-trip.
+    if ((!folder && !set) || !node || megaKeyBytes(key)?.length !== 32) return c.json({ error: 'Missing MEGA image reference' }, 400)
     try {
-      return streamMediaResponse(await fetchMegaFile(folder, set, node, key, fetch, c.req.header('Range')), 'private, max-age=300')
+      return streamMediaResponse(await fetchMegaFile(folder, set, node, key!, fetch, c.req.header('Range')), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'MEGA image', `${node} in ${folder ?? set}`, error)
     }
@@ -722,9 +735,12 @@ export const createManoramaApi = () => {
     const set = c.req.query('set')
     const fah = c.req.query('h')
     const key = c.req.query('k')
-    if ((!folder && !set) || !fah || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
+    const keyBytes = megaKeyBytes(key)
+    if ((!folder && !set) || !fah || (keyBytes?.length !== 16 && keyBytes?.length !== 32)) {
+      return c.json({ error: 'Missing MEGA image reference' }, 400)
+    }
     try {
-      return streamMediaResponse(await fetchMegaPreview(folder, set, fah, key), 'private, max-age=300')
+      return streamMediaResponse(await fetchMegaPreview(folder, set, fah, key!), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'MEGA preview', `${fah} in ${folder ?? set}`, error)
     }
@@ -734,7 +750,11 @@ export const createManoramaApi = () => {
     const album = c.req.query('album')
     const photo = c.req.query('photo')
     const checksum = c.req.query('c')
-    if (!album || !photo || !checksum) return c.json({ error: 'Missing iCloud image reference' }, 400)
+    // The lib checks below are the authority; failing fast here saves the
+    // sharedstreams round-trip a malformed token would cost.
+    if (!album || !photo || !checksum || !isAlbumToken(album) || !/^[A-Za-z0-9-]+$/.test(photo) || !/^[A-Za-z0-9_-]+$/.test(checksum)) {
+      return c.json({ error: 'Missing iCloud image reference' }, 400)
+    }
     try {
       return streamMediaResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
     } catch (error) {
@@ -750,7 +770,9 @@ export const createManoramaApi = () => {
     const album = c.req.query('album')
     const photo = c.req.query('photo')
     const checksum = c.req.query('c')
-    if (!album || !photo || !checksum) return c.json({ error: 'Missing iCloud video reference' }, 400)
+    if (!album || !photo || !checksum || !isAlbumToken(album) || !/^[A-Za-z0-9-]+$/.test(photo) || !/^[A-Za-z0-9_-]+$/.test(checksum)) {
+      return c.json({ error: 'Missing iCloud video reference' }, 400)
+    }
     try {
       const range = c.req.header('Range')
       return streamMediaResponse(await fetchICloudVideo(album, photo, checksum, range), 'private, no-store')

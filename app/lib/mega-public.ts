@@ -443,6 +443,9 @@ const parseByteRange = (header: string | null | undefined, size: number): { star
 
 export const fetchMegaFile = async (folder: string | undefined, set: string | undefined, node: string, keyB64: string, fetchImpl: typeof fetch = fetch, range?: string | null) => {
   const nodeKey = b64uDecode(keyB64)
+  // A file key is 16 key ∥ 8 nonce ∥ 8 mac bytes; a shorter key decrypts
+  // with an empty nonce and answers 200 with garbage instead of a 400.
+  if (nodeKey.length !== 32) throw new SourceFetchError('That MEGA image reference is invalid', 400)
   const info = await downloadInfo(megaAuthFromParams(folder, set), node, fetchImpl)
   if (!info.g) throw new SourceFetchError('That MEGA image is unavailable', 404)
   const size = info.s ?? 0
@@ -475,6 +478,9 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
  *  browsers can't render (HEIC, HEIF). */
 export const fetchMegaPreview = async (folder: string | undefined, set: string | undefined, fah: string, keyB64: string, fetchImpl: typeof fetch = fetch) => {
   const nodeKey = b64uDecode(keyB64)
+  // Previews are CBC attribute records keyed by foldKey alone, so both the
+  // 16-byte element key and the 32-byte file key are legitimate.
+  if (nodeKey.length !== 16 && nodeKey.length !== 32) throw new SourceFetchError('That MEGA image reference is invalid', 400)
   // Cache reads are gated on the real fetch so specs that inject a mocked
   // fetchImpl still exercise the network path end to end.
   const cached = fetchImpl === fetch ? previewCache.get(previewCacheKey(fah, nodeKey)) : undefined

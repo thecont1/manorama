@@ -65,7 +65,9 @@ describe('range forwarding', () => {
   test('the MEGA original proxy forwards the caller Range', async () => {
     const seen = await capture(megaStub, async () => {
       const response = await api.request(
-        '/api/mega/file?folder=SYNTH&node=SYNTHNODE&k=AAAAAAAAAAAAAAAAAAAAAA',
+        // 43 base64url chars = a 32-byte key — the file-key layout the
+        // proxy now requires.
+        `/api/mega/file?folder=SYNTH&node=SYNTHNODE&k=${'A'.repeat(43)}`,
         { headers: { Range: 'bytes=0-1023' } },
         {},
       )
