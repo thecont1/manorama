@@ -113,15 +113,15 @@ const smartQuotes = (text: string) =>
     .replace(/(^|[\s([{<])"/g, '$1\u201C')
     .replace(/"/g, '\u201D')
 
-/** Maps a provider fetch failure to a proxy response: 404 only for a
- *  confirmed missing asset, 503 for missing configuration and retryable
- *  or upstream 5xx failures, otherwise the upstream status is retained. */
 /** The share URL is the only secret these galleries have, and the failure
  *  log samples at 100% — mask the capability-bearing query values before a
  *  reference reaches it. */
 const redactReference = (reference: string) =>
   reference.replace(/(rlkey|k|resourcekey)=[^&\s]+/g, '$1=…')
 
+/** Maps a provider fetch failure to a proxy response: 404 only for a
+ *  confirmed missing asset, 503 for missing configuration and retryable
+ *  or upstream 5xx failures, otherwise the upstream status is retained. */
 const proxyFailure = (c: Context, provider: string, reference: string, error: unknown) => {
   const status = error instanceof SourceFetchError ? error.status : undefined
   console.error('image proxy failure', { provider, reference: redactReference(reference), status: status ?? null, error })

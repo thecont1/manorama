@@ -124,9 +124,9 @@ export const processStripeWebhook = async (
     return { status: 200 as const, code: 'IGNORED_UNKNOWN_ACCOUNT' as const, eventId: event.id }
   }
   // An undated event cannot be ordered against the watermark — applying
-  // it unconditionally would let a replayed stale delivery demote nobody
-  // checks. A 200 keeps Stripe from retry-storming on a payload it will
-  // never fix.
+  // it unconditionally would let a replayed stale delivery move the tier
+  // past every later, correct one. A 200 keeps Stripe from retry-storming
+  // on a payload it will never fix.
   if (!Number.isSafeInteger(event.created)) {
     return { status: 200 as const, code: 'IGNORED_UNDATED' as const, eventId: event.id }
   }
