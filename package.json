@@ -62,7 +62,7 @@
     "@tauri-apps/cli": "^2.12.0",
     "@types/node": "^22.20.2",
     "@types/react-dom": "^19.2.7",
-    "happy-dom": "^20.14.5",
+    "happy-dom": "^21.0.4",
     "sharp": "^0.35.5",
     "typescript": "^5.9.2",
     "vite": "^8.3.5",
