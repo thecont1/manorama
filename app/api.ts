@@ -125,18 +125,26 @@ const proxyContentType = (sniffed: string | null, upstream: string | null, allow
   return mediaType && allowed.has(mediaType) ? mediaType : 'application/octet-stream'
 }
 
-const streamResponse = async (response: Response, cacheControl: string) => {
+/** Streams a provider media response through the proxy. A 206 keeps its
+ *  status, Content-Range and Content-Length so the browser's media stack
+ *  can seek; Accept-Ranges is echoed only when the provider advertised it
+ *  (a 206 is itself that advertisement). Provider content endpoints label
+ *  image bytes application/octet-stream (Dropbox shared-link files always
+ *  do, decrypted MEGA originals carry none), and a labelled type is not
+ *  proof either — Drive reports a shared .html as text/html — so the first
+ *  chunk is sniffed whenever the body starts at byte 0 and the outgoing
+ *  Content-Type is pinned by the allowlist. The chunk is re-emitted ahead
+ *  of the remaining stream; no tee, so no copy buffers. */
+const streamMediaResponse = async (response: Response, cacheControl: string) => {
   const headers = new Headers()
   let body: ReadableStream | null = response.body
+  const status = response.status === 206 ? 206 : 200
+  const contentRange = response.headers.get('Content-Range')
+  // Magic bytes only exist at the start of the file — a 206 window that
+  // begins later has nothing to sniff.
+  const sniffs = status === 200 || !contentRange || /^bytes 0-/.test(contentRange)
   let sniffed: string | null = null
-  // Provider content endpoints label image bytes application/octet-stream
-  // (Dropbox shared-link files always do, decrypted MEGA originals carry
-  // none), and a labelled type is not proof either — Drive reports a shared
-  // .html as text/html. Sniff the first chunk so consumers that dispatch on
-  // the type — the in-browser C2PA reader, save-as — see the real format,
-  // and the allowlist below refuses scriptable types. The chunk is
-  // re-emitted ahead of the remaining stream; no tee, so no copy buffers.
-  if (body) {
+  if (body && sniffs) {
     const reader = body.getReader()
     const { value: first, done } = await reader.read()
     sniffed = (first && sniffImageType(first)) ?? null
@@ -161,33 +169,18 @@ const streamResponse = async (response: Response, cacheControl: string) => {
       },
     })
   }
-  headers.set('Content-Type', proxyContentType(sniffed, response.headers.get('Content-Type'), IMAGE_TYPES))
+  headers.set('Content-Type', proxyContentType(sniffed, response.headers.get('Content-Type'), MEDIA_TYPES))
   headers.set('Cache-Control', cacheControl)
   headers.set('X-Content-Type-Options', 'nosniff')
   // <img> loads ignore CSP; a direct navigation to a proxy URL gets an
   // opaque origin — belt and braces for anything the allowlist misses.
   headers.set('Content-Security-Policy', PROXY_RESPONSE_CSP)
-  return new Response(body, { status: 200, headers })
-}
-
-/** Streams a media response preserving range semantics: a 206 keeps its
- *  status, Content-Range and Content-Length so the browser's media stack
- *  can seek, and Accept-Ranges advertises the capability on full
- *  responses too. Used by the video proxy; images stay on the simpler
- *  always-200 path above. */
-const streamRangeResponse = (response: Response, cacheControl: string) => {
-  const headers = new Headers()
-  headers.set('Content-Type', proxyContentType(null, response.headers.get('Content-Type'), MEDIA_TYPES))
-  headers.set('Cache-Control', cacheControl)
-  headers.set('X-Content-Type-Options', 'nosniff')
-  headers.set('Content-Security-Policy', PROXY_RESPONSE_CSP)
-  headers.set('Accept-Ranges', response.headers.get('Accept-Ranges') || 'bytes')
-  const contentRange = response.headers.get('Content-Range')
+  const acceptRanges = response.headers.get('Accept-Ranges')
+  if (acceptRanges || status === 206) headers.set('Accept-Ranges', acceptRanges ?? 'bytes')
   if (contentRange) headers.set('Content-Range', contentRange)
   const contentLength = response.headers.get('Content-Length')
   if (contentLength) headers.set('Content-Length', contentLength)
-  const status = response.status === 206 ? 206 : 200
-  return new Response(response.body, { status, headers })
+  return new Response(body, { status, headers })
 }
 
 /**
@@ -671,7 +664,7 @@ export const createManoramaApi = () => {
     const effectiveSize = filename && /\.hei[cf]$/i.test(filename) && size === 'w2048h2048' ? 'w1024h768' as const : size
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
-      return streamResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300')
+      return streamMediaResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'Dropbox thumbnail', `${filename} in ${sourceUrl}`, error)
     }
@@ -682,7 +675,7 @@ export const createManoramaApi = () => {
     const filename = c.req.query('filename')
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
-      return streamResponse(await fetchDropboxFile(sourceUrl, filename, envOf(c)), 'private, no-store')
+      return streamMediaResponse(await fetchDropboxFile(sourceUrl, filename, envOf(c), c.req.header('Range')), 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'Dropbox image', `${filename} in ${sourceUrl}`, error)
     }
@@ -694,7 +687,7 @@ export const createManoramaApi = () => {
     const size = c.req.query('size') === 'w2048' ? 'w2048' as const : 'w256' as const
     if (!id) return c.json({ error: 'Missing Google Drive image reference' }, 400)
     try {
-      return streamResponse(await fetchDriveThumbnail(id, envOf(c), size, fetch, resourceKey), 'private, max-age=300')
+      return streamMediaResponse(await fetchDriveThumbnail(id, envOf(c), size, fetch, resourceKey), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'Google Drive thumbnail', id, error)
     }
@@ -705,7 +698,7 @@ export const createManoramaApi = () => {
     const resourceKey = c.req.query('rk')
     if (!id) return c.json({ error: 'Missing Google Drive image reference' }, 400)
     try {
-      return streamResponse(await fetchDriveFile(id, envOf(c), fetch, resourceKey), 'private, no-store')
+      return streamMediaResponse(await fetchDriveFile(id, envOf(c), fetch, resourceKey, c.req.header('Range')), 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'Google Drive image', id, error)
     }
@@ -718,7 +711,7 @@ export const createManoramaApi = () => {
     const key = c.req.query('k')
     if ((!folder && !set) || !node || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
     try {
-      return streamResponse(await fetchMegaFile(folder, set, node, key), 'private, max-age=300')
+      return streamMediaResponse(await fetchMegaFile(folder, set, node, key, fetch, c.req.header('Range')), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'MEGA image', `${node} in ${folder ?? set}`, error)
     }
@@ -731,7 +724,7 @@ export const createManoramaApi = () => {
     const key = c.req.query('k')
     if ((!folder && !set) || !fah || !key) return c.json({ error: 'Missing MEGA image reference' }, 400)
     try {
-      return streamResponse(await fetchMegaPreview(folder, set, fah, key), 'private, max-age=300')
+      return streamMediaResponse(await fetchMegaPreview(folder, set, fah, key), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'MEGA preview', `${fah} in ${folder ?? set}`, error)
     }
@@ -743,7 +736,7 @@ export const createManoramaApi = () => {
     const checksum = c.req.query('c')
     if (!album || !photo || !checksum) return c.json({ error: 'Missing iCloud image reference' }, 400)
     try {
-      return streamResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
+      return streamMediaResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
     } catch (error) {
       return proxyFailure(c, 'iCloud image', `${photo} in ${album}`, error)
     }
@@ -760,7 +753,7 @@ export const createManoramaApi = () => {
     if (!album || !photo || !checksum) return c.json({ error: 'Missing iCloud video reference' }, 400)
     try {
       const range = c.req.header('Range')
-      return streamRangeResponse(await fetchICloudVideo(album, photo, checksum, range), 'private, no-store')
+      return streamMediaResponse(await fetchICloudVideo(album, photo, checksum, range), 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'iCloud video', `${photo} in ${album}`, error)
     }

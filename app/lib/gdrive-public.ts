@@ -125,9 +125,9 @@ export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: 
   return { sourceUrl: canonicalDriveUrl(folder.id, folder.resourceKey), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
 }
 
-export const fetchDriveFile = async (fileId: string, env: GDriveEnv, fetchImpl: typeof fetch = fetch, resourceKey?: string) => {
+export const fetchDriveFile = async (fileId: string, env: GDriveEnv, fetchImpl: typeof fetch = fetch, resourceKey?: string, range?: string | null) => {
   const response = await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true&key=${apiKey(env)}`, {
-    headers: resourceKeyHeaders([[fileId, resourceKey]]),
+    headers: { ...resourceKeyHeaders([[fileId, resourceKey]]), ...(range ? { Range: range } : {}) },
   })
   if (!response.ok) throw new SourceFetchError(`Google Drive file fetch failed (${response.status})`, response.status)
   return response

@@ -153,9 +153,9 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
   return { sourceUrl, title, images, ...(found.length > entries.length ? { truncated: found.length } : {}) }
 }
 
-export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv) => {
+export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv, range?: string | null) => {
   const sourceUrl = validateFolderUrl(sourceUrlInput)
-  return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env)
+  return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: `/${filename}` }, env, fetch, range ? { Range: range } : undefined)
 }
 
 export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w1024h768' | 'w2048h2048' = 'w256h256') => {

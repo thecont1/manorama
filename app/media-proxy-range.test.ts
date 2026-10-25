@@ -69,7 +69,7 @@ describe('range forwarding', () => {
         { headers: { Range: 'bytes=0-1023' } },
         {},
       )
-      expect(response.status).toBe(200)
+      expect(response.status).toBe(206)
     })
     // The MEGA CDN URL takes the window as a path suffix, not a header.
     expect(seen.some((entry) => entry.url.endsWith('/0-1023'))).toBe(true)

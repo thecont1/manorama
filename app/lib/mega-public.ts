@@ -188,8 +188,8 @@ const fetchRange = async (g: string, start: number, end: number, fetchImpl: type
   return new Uint8Array(await response.arrayBuffer())
 }
 
-const decryptContent = (bytes: Uint8Array, nodeKey: Uint8Array) =>
-  ctrCrypt(foldKey(nodeKey), nodeKey.subarray(16, 24), bytes)
+const decryptContent = (bytes: Uint8Array, nodeKey: Uint8Array, offset = 0) =>
+  ctrCrypt(foldKey(nodeKey), nodeKey.subarray(16, 24), bytes, offset)
 
 /** WebP RIFF dims: VP8X (1+LE24 fields), lossy VP8 (14-bit LE after
  *  the 9d 012a start code), VP8L (packed 14-bit fields). */
@@ -418,16 +418,57 @@ export const scanMegaSource = (input: string, fetchImpl: typeof fetch = fetch) =
 const megaAuthFromParams = (folder: string | undefined, set: string | undefined): MegaAuth =>
   set ? { s: set } : { n: folder }
 
-export const fetchMegaFile = async (folder: string | undefined, set: string | undefined, node: string, keyB64: string, fetchImpl: typeof fetch = fetch) => {
+/** A single `bytes=` range resolved against the file size. Multi-range and
+ *  unparsable headers return null (ignored — the whole file is served);
+ *  'unsatisfiable' marks a well-formed range outside the file. */
+const parseByteRange = (header: string | null | undefined, size: number): { start: number; end: number } | 'unsatisfiable' | null => {
+  if (!header) return null
+  const match = header.match(/^bytes=(\d*)-(\d*)$/)
+  if (!match || (!match[1] && !match[2])) return null
+  let start: number
+  let end: number
+  if (!match[1]) {
+    // Suffix form: the last N bytes.
+    const length = Number(match[2])
+    if (!Number.isSafeInteger(length) || length <= 0) return null
+    start = Math.max(0, size - length)
+    end = size - 1
+  } else {
+    start = Number(match[1])
+    end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1
+  }
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) return 'unsatisfiable'
+  return { start, end }
+}
+
+export const fetchMegaFile = async (folder: string | undefined, set: string | undefined, node: string, keyB64: string, fetchImpl: typeof fetch = fetch, range?: string | null) => {
   const nodeKey = b64uDecode(keyB64)
   const info = await downloadInfo(megaAuthFromParams(folder, set), node, fetchImpl)
   if (!info.g) throw new SourceFetchError('That MEGA image is unavailable', 404)
   const size = info.s ?? 0
   if (size === 0) throw new SourceFetchError('That MEGA image is unavailable', 404)
   if (size > MAX_FILE_BYTES) throw new SourceFetchError('That MEGA image is too large to proxy', 413)
+  const wanted = parseByteRange(range, size)
+  if (wanted === 'unsatisfiable') throw new SourceFetchError('That range is unsatisfiable', 416)
+  if (wanted) {
+    // CTR keystream is block-indexed: the fetch window must start on a
+    // 16-byte boundary so the counter stays aligned, then the lead bytes
+    // the caller did not ask for are sliced off.
+    const alignedStart = wanted.start - (wanted.start % 16)
+    const bytes = await fetchRange(info.g, alignedStart, wanted.end, fetchImpl)
+    const plain = decryptContent(bytes, nodeKey, alignedStart).subarray(wanted.start - alignedStart)
+    return new Response(plain, {
+      status: 206,
+      headers: {
+        'Content-Range': `bytes ${wanted.start}-${wanted.end}/${size}`,
+        'Content-Length': String(wanted.end - wanted.start + 1),
+        'Accept-Ranges': 'bytes',
+      },
+    })
+  }
   const bytes = await fetchRange(info.g, 0, size - 1, fetchImpl)
   const plain = decryptContent(bytes, nodeKey)
-  return new Response(plain, { status: 200 })
+  return new Response(plain, { status: 200, headers: { 'Accept-Ranges': 'bytes', 'Content-Length': String(plain.length) } })
 }
 
 /** Serves a decrypted JPEG preview/thumbnail for files whose originals
