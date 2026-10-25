@@ -1,5 +1,6 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { parseJpegDimensions, probeImageDimensions } from './image-dims'
+import { createScanBudget, mapWithConcurrency, PROBE_CONCURRENCY, ScanBudgetExhausted } from './scan-budget'
 
 export { parseJpegDimensions }
 
@@ -86,7 +87,10 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
     const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' })
     const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
-  } catch {
+  } catch (error) {
+    // The budget stopping a probe is not a provider failure — let it
+    // escape so the scan can drop the tail instead of guessing dims.
+    if (error instanceof ScanBudgetExhausted) throw error
     // A provider that refuses a ranged read is not a failed scan — the preview
     // below still shapes the frame.
   }
@@ -99,7 +103,8 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
     }, env, fetchImpl)
     const dimensions = parseJpegDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
-  } catch {
+  } catch (error) {
+    if (error instanceof ScanBudgetExhausted) throw error
     // A preview is helpful but not required to validate the folder.
   }
   return { width: 4, height: 3 }
@@ -107,12 +112,19 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
 
 const collectEntries = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
   // Top-level of the shared folder only; subfolders are intentionally
-  // not descended into.
+  // not descended into. Paging stops once the album provably exceeds the
+  // gallery cap — `seen` then reports a lower bound on its size, not the
+  // exact count.
   const entries: DropboxEntry[] = []
+  let seen = 0
   let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true }, env, fetchImpl)
-  entries.push(...response.entries)
-  while (response.has_more) response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env, fetchImpl), entries.push(...response.entries)
-  return entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name))
+  for (;;) {
+    seen += response.entries.length
+    entries.push(...response.entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name)))
+    if (!response.has_more || entries.length > MAX_GALLERY_ITEMS) break
+    response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env, fetchImpl)
+  }
+  return { entries, seen }
 }
 
 const sharedLinkName = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
@@ -135,28 +147,44 @@ const titleFromEntries = (entries: DropboxEntry[]) => {
 
 export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImpl: typeof fetch = fetch): Promise<DropboxScan> => {
   const sourceUrl = validateFolderUrl(input)
-  const found = await collectEntries(sourceUrl, env, fetchImpl)
+  // Listing, title and per-item probes all spend from one per-scan
+  // subrequest budget — the Workers ceiling sits under an uncapped album.
+  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  const { entries: found, seen } = await collectEntries(sourceUrl, env, budgetFetch)
   if (!found.length) throw new Error('No image files were found in that public Dropbox folder')
   // Cap before the per-item dimension probes — each entry costs one or
   // two Dropbox requests, so an uncapped folder multiplies into minutes.
   const entries = found.slice(0, MAX_GALLERY_ITEMS)
-  const folderName = await sharedLinkName(sourceUrl, env, fetchImpl)
+  const folderName = await sharedLinkName(sourceUrl, env, budgetFetch)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
-  const images = await Promise.all(entries.map(async (entry, index) => {
-    const dimensions = await imageDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, fetchImpl)
-    return {
-      id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
-      filename: entry.name,
-      src: originalProxy(sourceUrl, entry.name),
-      width: dimensions.width,
-      height: dimensions.height,
-      alt: filenameLabel(entry.name),
-      c2pa: true,
-      placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${dimensions.width} ${dimensions.height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
-      variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
-    } satisfies GalleryImage
-  }))
-  return { sourceUrl, title, images, ...(found.length > entries.length ? { truncated: found.length } : {}) }
+  let dropped = false
+  const images = (await mapWithConcurrency(entries, PROBE_CONCURRENCY, async (entry, index): Promise<GalleryImage | null> => {
+    try {
+      const dimensions = await imageDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, budgetFetch)
+      return {
+        id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
+        filename: entry.name,
+        src: originalProxy(sourceUrl, entry.name),
+        width: dimensions.width,
+        height: dimensions.height,
+        alt: filenameLabel(entry.name),
+        c2pa: true,
+        placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${dimensions.width} ${dimensions.height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
+        variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
+      }
+    } catch (error) {
+      // Budget exhaustion drops the un-probed tail — an invented 4:3
+      // geometry would violate invariant 2, so truncating honestly is the
+      // only correct behaviour.
+      if (error instanceof ScanBudgetExhausted) {
+        dropped = true
+        return null
+      }
+      throw error
+    }
+  })).filter((image): image is GalleryImage => image !== null)
+  const truncated = found.length > MAX_GALLERY_ITEMS || dropped ? seen : undefined
+  return { sourceUrl, title, images, ...(truncated ? { truncated } : {}) }
 }
 
 export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv, range?: string | null) => {

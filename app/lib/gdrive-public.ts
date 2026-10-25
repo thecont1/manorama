@@ -82,16 +82,18 @@ const thumbnailProxy = (fileId: string, size: 'w256' | 'w2048', resourceKey?: st
   `/api/drive/thumbnail?id=${encodeURIComponent(fileId)}&size=${size}${resourceKey ? `&rk=${encodeURIComponent(resourceKey)}` : ''}`
 
 const collectFiles = async (folderId: string, folderKey: string | undefined, env: GDriveEnv, fetchImpl: typeof fetch) => {
+  // Paging stops once the album provably exceeds the gallery cap — a huge
+  // folder must not be fully enumerated to keep a thousand images.
   const files: DriveFile[] = []
   let pageToken = ''
   do {
     const query = encodeURIComponent(`'${folderId}' in parents and trashed=false`)
     const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,resourceKey,imageMediaMetadata)')
     const page = await driveGet<DriveList>(`files?q=${query}&fields=${fields}&pageSize=1000&includeItemsFromAllDrives=true${pageToken ? `&pageToken=${pageToken}` : ''}`, env, fetchImpl, [[folderId, folderKey]])
-    files.push(...(page.files ?? []))
+    files.push(...(page.files ?? []).filter((file) => file.mimeType && SUPPORTED_MIME.has(file.mimeType.toLowerCase())))
     pageToken = page.nextPageToken ?? ''
-  } while (pageToken)
-  return files.filter((file) => file.mimeType && SUPPORTED_MIME.has(file.mimeType.toLowerCase()))
+  } while (pageToken && files.length <= MAX_GALLERY_ITEMS)
+  return files
 }
 
 export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: typeof fetch = fetch): Promise<DriveScan> => {

@@ -1,6 +1,7 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { parseJpegDimensions, parseWebpDimensions, probeImageDimensions } from './image-dims'
 import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
+import { createScanBudget, ScanBudgetExhausted } from './scan-budget'
 
 /**
  * MEGA public shared-folder scanning. No credentials at all — the share
@@ -248,7 +249,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
  *  head fetch of the original; anything else gets a 4:3 placeholder.
  *  Reported dims are the rendition's — aspect is what matters for
  *  layout, matching the Dropbox thumbnail-dims precedent. */
-const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch): Promise<{ width: number; height: number; previewFormat?: string }> => {
+const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch, cachePreviews: boolean): Promise<{ width: number; height: number; previewFormat?: string }> => {
   // MEGA throttles bursty ufa/range traffic; one retry after a beat
   // recovers most probes, anything still failing falls back to 4:3.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -258,7 +259,7 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
         const preview = await fetchFileAttribute(auth, fah, nodeKey, fetchImpl)
         if (preview) {
           // Same fah makeImage emits as the variant — the route reuses it.
-          if (fetchImpl === fetch) cachePreview(fah, nodeKey, preview)
+          if (cachePreviews) cachePreview(fah, nodeKey, preview)
           const dimensions = parsePreviewDimensions(preview)
           if (dimensions) return { ...dimensions, previewFormat: sniffContentType(preview) }
         }
@@ -269,7 +270,10 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
       const head = await fetchRange(info.g, 0, DIMS_PROBE_BYTES - 1, fetchImpl)
       const dimensions = probeImageDimensions(decryptContent(head, nodeKey))
       if (dimensions) return dimensions
-    } catch {
+    } catch (error) {
+      // The budget stopping a probe is not a transient failure — let it
+      // escape so the scan drops the tail instead of retrying it.
+      if (error instanceof ScanBudgetExhausted) throw error
       // Dimensions are a nicety — never fail a scan over them.
     }
     if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 400))
@@ -278,19 +282,32 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
 }
 
 /** Probes run in small batches — firing every preview/head fetch at once
- *  trips MEGA rate limits and lands whole galleries on 4:3 guesses. */
+ *  trips MEGA rate limits and lands whole galleries on 4:3 guesses. A
+ *  budget-exhausted probe drops the file; the un-probed tail is reported
+ *  via `truncated` rather than given an invented 4:3 geometry. */
 const PROBE_BATCH = 6
-const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetch, build: (file: F, index: number) => { node: { h: string; fa?: string }; nodeKey: Uint8Array; name: string }) => {
+const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetch, cachePreviews: boolean, build: (file: F, index: number) => { node: { h: string; fa?: string }; nodeKey: Uint8Array; name: string }) => {
   const images: GalleryImage[] = []
-  for (let i = 0; i < files.length; i += PROBE_BATCH) {
+  let exhausted = false
+  for (let i = 0; i < files.length && !exhausted; i += PROBE_BATCH) {
     const batch = await Promise.all(files.slice(i, i + PROBE_BATCH).map(async (file, j) => {
       const { node, nodeKey, name } = build(file, i + j)
-      const dims = await probeDimensions(auth, node, nodeKey, name, fetchImpl)
-      return makeImage(auth, i + j, node, nodeKey, name, dims.width, dims.height, dims.previewFormat)
+      try {
+        const dims = await probeDimensions(auth, node, nodeKey, name, fetchImpl, cachePreviews)
+        return makeImage(auth, i + j, node, nodeKey, name, dims.width, dims.height, dims.previewFormat)
+      } catch (error) {
+        if (error instanceof ScanBudgetExhausted) {
+          exhausted = true
+          return null
+        }
+        throw error
+      }
     }))
     images.push(...batch.filter((image): image is GalleryImage => image !== null))
   }
-  return images
+  // Deliberate drops (HEIC without a preview) are not truncation — only
+  // budget exhaustion is.
+  return { images, truncatedTail: exhausted }
 }
 
 const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number, previewFormat?: string): GalleryImage | null => {
@@ -350,9 +367,10 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
   const rootKey = root ? decryptNodeKey(root.k, shareKey) ?? shareKey : shareKey
   const title = (root ? decryptAttributes(root.a, rootKey)?.n?.trim() : '') || 'Untitled gallery'
 
-  const images = await probeImages(auth, files, fetchImpl, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
+  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, fetchImpl === fetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
   if (!images.length) throw new Error('No image files were found in that public MEGA folder')
-  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
+  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
 }
 
 /** Public collections ("Sets") use a different API surface than
@@ -400,13 +418,14 @@ export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch 
 
   found.sort((a, b) => (a.element.o ?? 0) - (b.element.o ?? 0))
   const files = found.slice(0, MAX_GALLERY_ITEMS)
-  const images = await probeImages(auth, files, fetchImpl, ({ element, elementKey, meta, name }) => ({
+  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, fetchImpl === fetch, ({ element, elementKey, meta, name }) => ({
     node: { h: element.h!, fa: meta?.fa },
     nodeKey: elementKey,
     name,
   }))
   if (!images.length) throw new Error('No image files were found in that public MEGA collection')
-  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length ? { truncated: found.length } : {}) }
+  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
 }
 
 export const scanMegaSource = (input: string, fetchImpl: typeof fetch = fetch) => {

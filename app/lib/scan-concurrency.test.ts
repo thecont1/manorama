@@ -66,10 +66,13 @@ describe('dropbox scan fan-out', () => {
 describe('listing pagination ceiling', () => {
   test('a listing larger than the gallery cap does not page without bound', async () => {
     // 40 pages of 200 entries = 8000 files against a 1000-item cap.
+    // media_info dims ride along like a real Dropbox payload, so the scan
+    // spends zero probe subrequests.
     const page = Array.from({ length: 200 }, (_, index) => ({
       '.tag': 'file',
       name: `IMG_${String(index).padStart(4, '0')}.jpg`,
       id: `id:abc${index}`,
+      media_info: { metadata: { dimensions: { width: 4000, height: 3000 } } },
     }))
     let pages = 0
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
@@ -86,7 +89,9 @@ describe('listing pagination ceiling', () => {
     const scan = await scanDropboxFolder(FOLDER, env, fetchImpl)
 
     expect(scan.images).toHaveLength(1000)
-    expect(scan.truncated).toBe(8000)
+    // Paging stops at the cap, so the reported total is a lower bound on
+    // the album size, not the exact count.
+    expect(scan.truncated).toBeGreaterThan(1000)
     // The cap is reached around page five; a dozen pages is a generous ceiling
     // that still fails the current unbounded `while (has_more)`.
     expect(pages).toBeLessThanOrEqual(12)

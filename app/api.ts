@@ -493,8 +493,9 @@ export const createManoramaApi = () => {
           gallery: toSummary(result.gallery),
           galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug),
           // Set when the source album held more than the gallery cap —
-          // quick-add shows the note before redirecting so truncation is
-          // never silent.
+          // the total is a lower bound ("at least N"), since listing
+          // stops at the cap. Quick-add shows the note before redirecting
+          // so truncation is never silent.
           ...(scan.truncated ? { truncated: { kept: orderedImages.length, total: scan.truncated } } : {}),
         }, 201)
         if (result.reason === 'limit') {
