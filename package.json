@@ -73,7 +73,9 @@
     "proxy-addr": "^2.0.8",
     "ip-address": "^10.7.4",
     "smol-toml": "^1.9.1",
-    "@modelcontextprotocol/sdk": "^1.32.0",
+    "@modelcontextprotocol/sdk": {
+      "zod": "^4.6.6"
+    },
     "source-map-js": "^1.2.2",
     "brace-expansion@^2.0.1": "2.1.7",
     "brace-expansion@^2.0.2": "2.1.7",
