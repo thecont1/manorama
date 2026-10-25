@@ -31,6 +31,9 @@ const DIMS_PROBE_BYTES = 65536
 // Whole-file proxy ceiling — the encrypted fetch buffer and the decrypted
 // buffer coexist, so the cap must stay well under half the 128MB isolate limit.
 const MAX_FILE_BYTES = 48 * 1024 * 1024
+// File-attribute (preview/thumbnail) ceiling — these are decrypted into
+// memory and cached, so an unbounded one would balloon the isolate.
+const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
 
 type MegaNode = {
   h: string
@@ -207,7 +210,8 @@ const sniffContentType = (bytes: Uint8Array) =>
  *  time; keeping the bytes turns the admin rail's preview requests into
  *  memory reads instead of ~70 serial multi-second decryptions (which
  *  starve the dev server's event loop badly enough to stall page loads).
- *  Bounded: previews run ~300KB, so 200 entries cap near 60MB. */
+ *  Bounded: MAX_PREVIEW_BYTES per entry, so 200 entries cap at 800 MB
+ *  worst case and ~60 MB at the typical ~300 KB. */
 const PREVIEW_CACHE_MAX = 200
 const previewCache = new Map<string, Uint8Array>()
 const previewCacheKey = (fah: string, nodeKey: Uint8Array) => `${fah}|${b64uEncode(nodeKey)}`
@@ -228,12 +232,17 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
   if (!resolved.p) return null
   const response = await fetchImpl(resolved.p, { method: 'POST', body: handleBytes })
   if (!response.ok) throw new SourceFetchError(`MEGA preview failed (${response.status})`, response.status)
+  const declared = Number(response.headers.get('Content-Length'))
+  if (Number.isFinite(declared) && declared > MAX_PREVIEW_BYTES + 12) {
+    throw new SourceFetchError('That MEGA preview is too large to proxy', 413)
+  }
   const buf = new Uint8Array(await response.arrayBuffer())
   let offset = 0
   while (offset + 12 <= buf.length) {
     const record = buf.subarray(offset, offset + 8)
     const length = new DataView(buf.buffer, buf.byteOffset + offset + 8, 4).getUint32(0, true)
     offset += 12
+    if (length > MAX_PREVIEW_BYTES) throw new SourceFetchError('That MEGA preview is too large to proxy', 413)
     if (offset + length > buf.length) return null
     if (b64uEncode(record) === fah) {
       if (length % 16) return null

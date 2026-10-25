@@ -52,6 +52,21 @@ const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
 const galleryUrlFor = (ownerSlug: string, slug: string) => `/${ownerSlug}/${slug}`
 const dbEnv = (c: { env: unknown }) => c.env as GalleryEnv
 
+/** Identical in-flight requests for the same thumbnail share one upstream
+ *  call — every caller gets `clone()` of the settled response, so nobody
+ *  consumes the stored one. Thumbnail-sized routes only: clone() buffers
+ *  the body for the slowest reader, so originals and video never use it.
+ *  Cache-Control stays `private` — invariant 1 keeps provider bytes out of
+ *  any shared cache; this dedupe lives inside the isolate instead. */
+const inFlight = new Map<string, Promise<Response>>()
+const coalesce = (key: string, run: () => Promise<Response>): Promise<Response> => {
+  const pending = inFlight.get(key)
+  if (pending) return pending.then((response) => response.clone())
+  const promise = run().finally(() => inFlight.delete(key))
+  inFlight.set(key, promise)
+  return promise.then((response) => response.clone())
+}
+
 /** Decodes a MEGA proxy key; malformed base64url decodes to null. */
 const megaKeyBytes = (key: string | undefined) => {
   if (!key) return null
@@ -685,7 +700,7 @@ export const createManoramaApi = () => {
     const effectiveSize = filename && /\.hei[cf]$/i.test(filename) && size === 'w2048h2048' ? 'w1024h768' as const : size
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
-      return streamMediaResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300')
+      return await coalesce(c.req.url, async () => streamMediaResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300'))
     } catch (error) {
       return proxyFailure(c, 'Dropbox thumbnail', `${filename} in ${sourceUrl}`, error)
     }
@@ -708,7 +723,7 @@ export const createManoramaApi = () => {
     const size = c.req.query('size') === 'w2048' ? 'w2048' as const : 'w256' as const
     if (!id) return c.json({ error: 'Missing Google Drive image reference' }, 400)
     try {
-      return streamMediaResponse(await fetchDriveThumbnail(id, envOf(c), size, fetch, resourceKey), 'private, max-age=300')
+      return await coalesce(c.req.url, async () => streamMediaResponse(await fetchDriveThumbnail(id, envOf(c), size, fetch, resourceKey), 'private, max-age=300'))
     } catch (error) {
       return proxyFailure(c, 'Google Drive thumbnail', id, error)
     }
@@ -750,7 +765,7 @@ export const createManoramaApi = () => {
       return c.json({ error: 'Missing MEGA image reference' }, 400)
     }
     try {
-      return streamMediaResponse(await fetchMegaPreview(folder, set, fah, key!), 'private, max-age=300')
+      return await coalesce(c.req.url, async () => streamMediaResponse(await fetchMegaPreview(folder, set, fah, key!), 'private, max-age=300'))
     } catch (error) {
       return proxyFailure(c, 'MEGA preview', `${fah} in ${folder ?? set}`, error)
     }

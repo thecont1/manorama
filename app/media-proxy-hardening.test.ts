@@ -68,30 +68,13 @@ describe('proxy response types', () => {
   })
 })
 
-describe('proxy cacheability', () => {
+describe('proxy coalescing', () => {
   /**
-   * `private, max-age=300` forbids every shared cache, and nothing in the
-   * app calls caches.default, so a 256px thumbnail requested by ten thousand
-   * viewers is fetched ten thousand times from Dropbox on the app's own
-   * credentials. The bytes are public by definition — the owner published
-   * them — so the proxies should survive a shared cache.
+   * Shared caching was considered and declined: invariant 1 keeps provider
+   * bytes out of any shared cache, so `private, max-age=300` stays. The
+   * bound instead is in-isolate coalescing — identical in-flight requests
+   * for the same rendition share one upstream call.
    */
-  test('thumbnail responses are cacheable by a shared cache', async () => {
-    await withFetch(
-      () => new Response(JPEG_PREFIX, { status: 200, headers: { 'Content-Type': 'image/jpeg' } }),
-      async () => {
-        const response = await api.request(
-          '/api/dropbox/thumbnail?sourceUrl=https%3A%2F%2Fwww.dropbox.com%2Fscl%2Ffo%2Fabc&filename=IMG_0001.jpg',
-          {},
-          { DROPBOX_APP_KEY: 'k', DROPBOX_APP_SECRET: 's' },
-        )
-        const cacheControl = response.headers.get('Cache-Control') ?? ''
-        expect(cacheControl).not.toContain('private')
-        expect(cacheControl).toMatch(/s-maxage=\d+/)
-      },
-    )
-  })
-
   test('identical concurrent requests are coalesced into one upstream call', async () => {
     const realFetch = globalThis.fetch
     let upstream = 0
