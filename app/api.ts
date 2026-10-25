@@ -10,7 +10,7 @@ import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
-import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, paidGalleryLimitError } from './lib/gallery-policy'
+import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
 import { createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
@@ -434,15 +434,25 @@ export const createManoramaApi = () => {
       // the provider. Without this a revisit pays a full album scan just
       // to be told 409 — and a provider hiccup would turn a known-good
       // link into a 422 instead of a redirect.
-      const existingBefore = (await listGalleries(session.accountId, dbEnv(c)))
+      const galleries = await listGalleries(session.accountId, dbEnv(c))
+      const existingBefore = galleries
         .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, payload.url!))
       if (existingBefore) return c.json({
         error: 'A gallery from that link already exists',
         gallery: toSummary(existingBefore),
         galleryUrl: galleryUrlFor(session.ownerSlug, existingBefore.slug),
       }, 409)
+      // A pro account already at its retained-gallery ceiling is refused
+      // before the provider scan — the listing, title and per-item probes
+      // would all be spend on a request that can only fail. Free accounts
+      // fall back to pipeline galleries, so the limit never applies to
+      // them. The atomic check in createGalleryWithinLimit below remains
+      // the real guard against concurrent creates.
+      if (session.tier === 'pro' && galleries.filter((item) => item.retention === 'retained').length >= PAID_RETAINED_LIMIT) {
+        const error = paidGalleryLimitError()
+        return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
+      }
       const scan = await scanSource(payload.url, envOf(c))
-      const galleries = await listGalleries(session.accountId, dbEnv(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       // A revisit to /<share-url> must reopen the gallery that link already
       // produced, so the 409 carries the existing gallery and its address.
@@ -474,10 +484,9 @@ export const createManoramaApi = () => {
         slug = `${baseSlug}-${suffix}`
         suffix += 1
       }
-      // Best-effort fast reject at the limit; the atomic check below is
-      // the real guard against concurrent requests.
-      // Atomic limit check + insert: concurrent requests cannot both
-      // pass the count and exceed the limit. Retry on slug conflict
+      // The pro-at-limit fast reject happened before the scan above;
+      // this atomic insert is the real guard — concurrent requests cannot
+      // both pass the count and exceed the limit. Retry on slug conflict
       // (a concurrent create may have grabbed the same slug).
       for (let attempt = 0; ; attempt++) {
         const result = await createGalleryWithinLimit(session.accountId, {
