@@ -11,10 +11,9 @@ import { resetGalleryStore } from './lib/gallery-repository'
  * privilege, and they gate that on two very different things.
  *
  * Stripe requires an HMAC signing secret and fails closed without one.
- * RevenueCat treats its signing secret as optional: when
- * `REVENUECAT_WEBHOOK_SIGNING_SECRET` is unset the endpoint silently degrades
- * to a single static `Authorization` string, and any caller holding it can
- * mint Pro (and, through an undated event, mint Free).
+ * RevenueCat used to treat its signing secret as optional — unset meant a
+ * silent degrade to a single static `Authorization` string. Both endpoints
+ * now fail closed: no secret configured, every delivery refused.
  *
  * Observations that are guard tests rather than bugs: promotion follows
  * `client_reference_id`, which a buyer controls on a Payment Link, so paying
@@ -52,6 +51,7 @@ const rcBody = (extra: Record<string, unknown> = {}) => JSON.stringify({
     type: 'INITIAL_PURCHASE',
     app_user_id: VICTIM,
     entitlement_ids: ['will_pay'],
+    event_timestamp_ms: Date.now(),
     ...extra,
   },
 })
@@ -106,17 +106,9 @@ describe('revenuecat authentication', () => {
     expect((await getUserByAccountId(VICTIM))?.tier).toBe('pro')
   })
 
-  test('an unsigned body is accepted when no signing secret is configured', async () => {
-    // Today's behaviour: the bearer alone is the whole gate.
-    await seed()
-    const response = await rcPost(rcBody(), { REVENUECAT_WEBHOOK_AUTH: RC_AUTH }, { Authorization: RC_AUTH })
-    expect(response.status).toBe(200)
-    expect((await getUserByAccountId(VICTIM))?.tier).toBe('pro')
-  })
-
   test('the signing secret should be required, as it already is for Stripe', async () => {
-    // Recommended contract: unset signing secret means refuse, so a deployment
-    // cannot quietly lose signature verification. Currently 200.
+    // Unset signing secret means refuse: a deployment cannot quietly lose
+    // signature verification.
     await seed()
     const response = await rcPost(rcBody(), { REVENUECAT_WEBHOOK_AUTH: RC_AUTH }, { Authorization: RC_AUTH })
     expect(response.status).toBe(401)
@@ -124,40 +116,38 @@ describe('revenuecat authentication', () => {
 })
 
 describe('revenuecat event ordering', () => {
+  const rcEnv = { REVENUECAT_WEBHOOK_AUTH: RC_AUTH, REVENUECAT_WEBHOOK_SIGNING_SECRET: RC_SECRET }
+
   test('an undated event cannot leave an account downgraded against a newer watermark', async () => {
-    // An event with no event_timestamp_ms is applied unconditionally, because
-    // `order` is undefined and the monotonic guard in setUserTier never runs.
-    // It also leaves the stored watermark untouched, so a genuinely later
-    // event is then judged stale. End state here must be Pro either way:
-    // the fix may be to reject undated events or to stamp them with now().
+    // An event with no event_timestamp_ms cannot be ordered against the
+    // watermark, so it is acknowledged and dropped rather than applied.
     await seed()
-    const env = { REVENUECAT_WEBHOOK_AUTH: RC_AUTH }
 
     const fresh = rcBody({ id: 'evt_fresh', event_timestamp_ms: 9_999_999_999_999, expiration_at_ms: 9_999_999_999_999 })
-    expect((await rcPost(fresh, env, { Authorization: RC_AUTH })).status).toBe(200)
+    expect((await rcSigned(fresh, rcEnv)).status).toBe(200)
 
     const replay = rcBody({ id: 'evt_replayed', type: 'EXPIRATION', event_timestamp_ms: undefined })
-    await rcPost(replay, env, { Authorization: RC_AUTH })
+    const replayResponse = await rcSigned(replay, rcEnv)
+    expect((await jsonOf(replayResponse)).code).toBe('IGNORED_UNDATED')
 
     const newer = rcBody({ id: 'evt_later', event_timestamp_ms: 5_000 })
-    await rcPost(newer, env, { Authorization: RC_AUTH })
+    await rcSigned(newer, rcEnv)
 
     expect((await getUserByAccountId(VICTIM))?.tier).toBe('pro')
   })
 
   test('a duplicate delivery at the same instant is ignored', async () => {
     await seed()
-    const env = { REVENUECAT_WEBHOOK_AUTH: RC_AUTH }
     const body = rcBody({ id: 'evt_same', event_timestamp_ms: 1_000 })
-    expect((await rcPost(body, env, { Authorization: RC_AUTH })).status).toBe(200)
-    const again = await rcPost(body, env, { Authorization: RC_AUTH })
+    expect((await rcSigned(body, rcEnv)).status).toBe(200)
+    const again = await rcSigned(body, rcEnv)
     expect((await jsonOf(again)).code).toBe('IGNORED_STALE')
   })
 
   test('an event that is not about the paid entitlement is ignored', async () => {
     await seed()
     const body = rcBody({ entitlement_ids: ['some_other_entitlement'] })
-    const response = await rcPost(body, { REVENUECAT_WEBHOOK_AUTH: RC_AUTH }, { Authorization: RC_AUTH })
+    const response = await rcSigned(body, rcEnv)
     expect((await jsonOf(response)).code).toBe('IGNORED_ENTITLEMENT')
   })
 })
@@ -175,10 +165,10 @@ describe('webhook body limits', () => {
   })
 
   test('revenuecat refuses an oversized body before buffering it whole', async () => {
-    // The device-gallery PUT is capped at 8192 bytes; the webhooks are unbounded,
-    // and the body is read before authentication is even considered.
+    // The body limit runs before the handler — the signature over the
+    // 8 MB body keeps the request well-formed regardless.
     await seed()
-    const response = await rcPost(oversizedRc(), { REVENUECAT_WEBHOOK_AUTH: RC_AUTH }, { Authorization: RC_AUTH })
+    const response = await rcSigned(oversizedRc(), { REVENUECAT_WEBHOOK_AUTH: RC_AUTH, REVENUECAT_WEBHOOK_SIGNING_SECRET: RC_SECRET })
     expect(response.status).toBe(413)
   })
 

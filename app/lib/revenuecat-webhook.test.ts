@@ -19,6 +19,7 @@ const payloadFor = (event: Record<string, unknown>) => JSON.stringify({
     type: 'INITIAL_PURCHASE',
     app_user_id: TEST_OWNER.accountId,
     entitlement_ids: ['will_pay'],
+    event_timestamp_ms: Date.now(),
     ...event,
   },
 })
@@ -174,14 +175,16 @@ describe('RevenueCat webhook tier sync', () => {
     const newer = await signedRequest(payloadFor({
       id: 'event-newer',
       type: 'INITIAL_PURCHASE',
-      event_timestamp_ms: 2_000,
+      // Earlier tests leave a now()-scale watermark — the newer/older pair
+      // has to live on the same scale to exercise ordering.
+      event_timestamp_ms: Date.now() + 60_000,
     }))
     const older = await signedRequest(payloadFor({
       id: 'event-older',
       type: 'EXPIRATION',
       entitlement_ids: ['will_pay'],
       expiration_at_ms: Date.now() - 1,
-      event_timestamp_ms: 1_000,
+      event_timestamp_ms: Date.now() - 60_000,
     }))
 
     expect(await processRevenueCatWebhook(newer, env)).toMatchObject({ code: 'APPLIED', tier: 'pro' })

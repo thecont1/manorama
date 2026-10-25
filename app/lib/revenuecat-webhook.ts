@@ -116,13 +116,17 @@ export const processRevenueCatWebhook = async (
   env: RevenueCatWebhookEnv,
   nowSeconds = Math.floor(Date.now() / 1000),
 ) => {
-  const rawBody = await request.text()
+  // Stripe already fails closed without its secret; a deployment must not
+  // be able to lose signature verification silently — both secrets are
+  // required before the body is even buffered.
   const authorization = env.REVENUECAT_WEBHOOK_AUTH?.trim()
   const signingSecret = env.REVENUECAT_WEBHOOK_SIGNING_SECRET?.trim()
-  if (!authorization || !verifyRevenueCatAuthorization(request, authorization)) {
+  if (!authorization || !signingSecret) return { status: 401 as const, code: 'UNAUTHORIZED' as const }
+  const rawBody = await request.text()
+  if (!verifyRevenueCatAuthorization(request, authorization)) {
     return { status: 401 as const, code: 'UNAUTHORIZED' as const }
   }
-  if (signingSecret && !(await verifyRevenueCatSignature(rawBody, request.headers.get('X-RevenueCat-Webhook-Signature'), signingSecret, nowSeconds))) {
+  if (!(await verifyRevenueCatSignature(rawBody, request.headers.get('X-RevenueCat-Webhook-Signature'), signingSecret, nowSeconds))) {
     return { status: 401 as const, code: 'INVALID_SIGNATURE' as const }
   }
 
@@ -140,9 +144,14 @@ export const processRevenueCatWebhook = async (
   if (!establishesProState(event)) {
     return { status: 200 as const, code: 'IGNORED_ENTITLEMENT' as const, eventId: event.id }
   }
-  const order: BillingEventOrder | undefined = Number.isSafeInteger(event.event_timestamp_ms)
-    ? { timestampMs: event.event_timestamp_ms!, eventId: event.id }
-    : undefined
+  // An event without a timestamp cannot be ordered against the watermark;
+  // applying it unconditionally let a replayed stale delivery strand an
+  // account. A 200 keeps the provider from retry-storming on a payload it
+  // will never fix.
+  if (!Number.isSafeInteger(event.event_timestamp_ms)) {
+    return { status: 200 as const, code: 'IGNORED_UNDATED' as const, eventId: event.id }
+  }
+  const order: BillingEventOrder = { timestampMs: event.event_timestamp_ms!, eventId: event.id }
   let knownAccount = false
   let applied = 0
   for (const accountId of accountIds) {

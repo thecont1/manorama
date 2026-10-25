@@ -20,6 +20,7 @@ const body = JSON.stringify({
     type: 'INITIAL_PURCHASE',
     app_user_id: TEST_OWNER.accountId,
     entitlement_ids: ['will_pay'],
+    event_timestamp_ms: Date.now(),
   },
 })
 
@@ -36,7 +37,7 @@ const signedHeaders = (rawBody: string) => {
 }
 
 const app = new Hono<{ Bindings: typeof env }>()
-app.post('/api/revenuecat-webhook', POST[0] as never)
+app.post('/api/revenuecat-webhook', ...(POST as unknown as []))
 
 beforeEach(async () => {
   resetUserStore()

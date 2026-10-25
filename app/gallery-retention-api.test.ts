@@ -240,7 +240,7 @@ describe('pipeline OG cards are never cached', () => {
     try {
       const retained = await api.request(`/api/og/${ownerSlug}/kept-0?i=k-0`, {}, env)
       expect(retained.status).toBe(200)
-      expect(retained.headers.get('Cache-Control')).toBe('public, max-age=86400')
+      expect(retained.headers.get('Cache-Control')).toBe('public, max-age=86400, s-maxage=86400')
       const missing = await api.request(`/api/og/${ownerSlug}/does-not-exist`, {}, env)
       expect(missing.status).toBe(302)
       expect(missing.headers.get('Cache-Control')).toBe('no-store')
