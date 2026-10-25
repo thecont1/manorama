@@ -41,6 +41,7 @@ export type RuntimeEnv = {
   HOST_API_JWT_SECRET?: string
   MASTER_DROPBOX_SUBJECT?: string
   MASTER_ACCOUNT_ID?: string
+  PUBLIC_HOST?: string
   REVENUECAT_WEBHOOK_AUTH?: string
   REVENUECAT_WEBHOOK_SIGNING_SECRET?: string
 }
@@ -828,7 +829,10 @@ export const createManoramaApi = () => {
    * never handed an error page where an image belongs.
    */
   api.get('/api/og/:owner/:slug', async (c) => {
-    const fallback = () => c.redirect(new URL('/og-image.png', c.req.url).toString(), 302)
+    // The compositor's input bytes must be selected by the pinned public
+    // host, not by whatever Host header reached the Worker.
+    const baseUrl = envOf(c).PUBLIC_HOST ? `https://${envOf(c).PUBLIC_HOST}/` : c.req.url
+    const fallback = () => c.redirect(new URL('/og-image.png', baseUrl).toString(), 302)
     const noStore = (response: Response) => {
       const res = new Response(response.body, response)
       res.headers.set('Cache-Control', 'no-store')
@@ -841,7 +845,7 @@ export const createManoramaApi = () => {
       const first = gallery?.images?.[0] as GalleryMediaItem | undefined
       const pipeline = gallery?.retention === 'pipeline'
       if (!first) return noStore(fallback())
-      const response = await ogCardResponse(first, c.req.url)
+      const response = await ogCardResponse(first, baseUrl)
       if (!pipeline) return response
       return noStore(response)
     } catch (error) {

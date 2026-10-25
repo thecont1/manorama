@@ -39,6 +39,10 @@ const PILL_OPACITY = 0.6
  *  thumbnail in chat-app link previews, which downscale aggressively. */
 const PHOTO_BRIGHTNESS = 1.2
 
+/** Mirrors the MEGA proxy ceiling — a source larger than this is refused
+ *  before jimp decodes it. */
+const MAX_OG_SOURCE_BYTES = 48 * 1024 * 1024
+
 /**
  * Cache key for the card: the first item's stable key. Reordering a
  * gallery changes it, which busts the edge cache without a purge — the
@@ -114,6 +118,7 @@ export const renderOgCard = async (
     return null
   }
   if (!response.ok) return null
+  if (Number(response.headers.get('Content-Length')) > MAX_OG_SOURCE_BYTES) return null
   // `cf-resized` is only present when the transform actually ran. Without
   // it these are the untransformed original bytes — composite locally.
   if (response.headers.get('cf-resized')) return response
@@ -190,7 +195,9 @@ export const ogCardResponse = async (
     status: 200,
     headers: {
       'Content-Type': 'image/jpeg',
-      'Cache-Control': 'public, max-age=86400',
+      // The card is a composited derivative already served public — not
+      // provider bytes — so a shared edge cache may hold it for the day.
+      'Cache-Control': 'public, max-age=86400, s-maxage=86400',
       'X-Content-Type-Options': 'nosniff',
     },
   })

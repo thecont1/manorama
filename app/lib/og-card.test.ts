@@ -133,7 +133,7 @@ describe('ogCardResponse', () => {
     )
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('image/jpeg')
-    expect(response.headers.get('Cache-Control')).toBe('public, max-age=86400')
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=86400, s-maxage=86400')
   })
 
   test('resolves the proxy-relative src against the request origin', async () => {

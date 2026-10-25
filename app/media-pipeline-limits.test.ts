@@ -227,7 +227,7 @@ describe('mega preview cap', () => {
 })
 
 describe('og compositor host', () => {
-  test('the card is built from the request host, whatever it says', async () => {
+  test('the card is built from the pinned public host, not the request host', async () => {
     const owner = await upsertUser({ accountId: 'dbid:AAAoghost', displayName: 'Og Host' })
     await createGallery(owner.accountId, gallery('host-test'))
     let fetched = ''
@@ -237,10 +237,10 @@ describe('og compositor host', () => {
       return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), { status: 200, headers: { 'Content-Type': 'image/jpeg' } })
     }) as typeof fetch
     try {
-      await api.request(`https://attacker.example/api/og/${owner.ownerSlug}/host-test`, {}, {})
-      // Low risk while the custom domain is the only route, but it means the
-      // compositor sub-requests the inbound host rather than a pinned one.
-      expect(fetched.startsWith('https://attacker.example/')).toBe(true)
+      await api.request(`https://attacker.example/api/og/${owner.ownerSlug}/host-test`, {}, { PUBLIC_HOST: 'manorama.xyz' })
+      // Whatever Host reached the Worker, the compositor sub-requests the
+      // pinned public host.
+      expect(fetched.startsWith('https://manorama.xyz/')).toBe(true)
     } finally {
       globalThis.fetch = realFetch
     }
