@@ -46,7 +46,7 @@
     "@vendoai/vendo": "^0.54.2",
     "c2pa-wc": "^0.14.17",
     "heic2any": "^0.0.4",
-    "hono": "^4.9.7",
+    "hono": "^4.13.13",
     "honox": "^0.1.61",
     "jimp": "^1.6.1",
     "jose": "^6.2.10"
@@ -63,9 +63,20 @@
     "@types/node": "^22.20.2",
     "@types/react-dom": "^19.2.7",
     "happy-dom": "^21.0.4",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "typescript": "^5.9.2",
-    "vite": "^8.2.2",
-"wrangler": "^4.144.0"
+    "vite": "^8.3.5",
+    "wrangler": "^4.144.0"
+  },
+  "overrides": {
+    "undici": "^7.30.1",
+    "proxy-addr": "^2.0.8",
+    "ip-address": "^10.7.4",
+    "smol-toml": "^1.9.1",
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "source-map-js": "^1.2.2",
+    "brace-expansion@^2.0.1": "2.1.7",
+    "brace-expansion@^2.0.2": "2.1.7",
+    "brace-expansion@^5.0.8": "5.0.12"
   }
 }
