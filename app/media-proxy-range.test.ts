@@ -79,7 +79,7 @@ describe('range forwarding', () => {
 })
 
 describe('proxy failure logging', () => {
-  test('the logged reference carries the source URL so a failure is diagnosable', async () => {
+  test('the logged reference keeps the filename but not the share key', async () => {
     const realError = console.error
     const lines: string[] = []
     console.error = (...args: unknown[]) => { lines.push(JSON.stringify(args)) }
@@ -98,7 +98,8 @@ describe('proxy failure logging', () => {
     } finally {
       console.error = realError
     }
-    expect(lines.join('\n')).toContain('SYNCKEY')
+    expect(lines.join('\n')).not.toContain('SYNCKEY')
+    expect(lines.join('\n')).toContain('IMG_0001.jpg')
   })
 
   test('the client-facing error body does not repeat the source URL', async () => {

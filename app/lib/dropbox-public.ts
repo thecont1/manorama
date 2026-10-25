@@ -113,18 +113,16 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
 const collectEntries = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
   // Top-level of the shared folder only; subfolders are intentionally
   // not descended into. Paging stops once the album provably exceeds the
-  // gallery cap — `seen` then reports a lower bound on its size, not the
-  // exact count.
+  // gallery cap, so the filtered count then reads as a lower bound on the
+  // album size, not the exact count.
   const entries: DropboxEntry[] = []
-  let seen = 0
   let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true }, env, fetchImpl)
   for (;;) {
-    seen += response.entries.length
     entries.push(...response.entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name)))
     if (!response.has_more || entries.length > MAX_GALLERY_ITEMS) break
     response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env, fetchImpl)
   }
-  return { entries, seen }
+  return entries
 }
 
 const sharedLinkName = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typeof fetch) => {
@@ -150,7 +148,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
   // Listing, title and per-item probes all spend from one per-scan
   // subrequest budget — the Workers ceiling sits under an uncapped album.
   const budgetFetch = createScanBudget().fetch(fetchImpl)
-  const { entries: found, seen } = await collectEntries(sourceUrl, env, budgetFetch)
+  const found = await collectEntries(sourceUrl, env, budgetFetch)
   if (!found.length) throw new Error('No image files were found in that public Dropbox folder')
   // Cap before the per-item dimension probes — each entry costs one or
   // two Dropbox requests, so an uncapped folder multiplies into minutes.
@@ -183,7 +181,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
       throw error
     }
   })).filter((image): image is GalleryImage => image !== null)
-  const truncated = found.length > MAX_GALLERY_ITEMS || dropped ? seen : undefined
+  const truncated = found.length > MAX_GALLERY_ITEMS || dropped ? found.length : undefined
   return { sourceUrl, title, images, ...(truncated ? { truncated } : {}) }
 }
 

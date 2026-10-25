@@ -116,9 +116,15 @@ const smartQuotes = (text: string) =>
 /** Maps a provider fetch failure to a proxy response: 404 only for a
  *  confirmed missing asset, 503 for missing configuration and retryable
  *  or upstream 5xx failures, otherwise the upstream status is retained. */
+/** The share URL is the only secret these galleries have, and the failure
+ *  log samples at 100% — mask the capability-bearing query values before a
+ *  reference reaches it. */
+const redactReference = (reference: string) =>
+  reference.replace(/(rlkey|k|resourcekey)=[^&\s]+/g, '$1=…')
+
 const proxyFailure = (c: Context, provider: string, reference: string, error: unknown) => {
   const status = error instanceof SourceFetchError ? error.status : undefined
-  console.error('image proxy failure', { provider, reference, status: status ?? null, error })
+  console.error('image proxy failure', { provider, reference: redactReference(reference), status: status ?? null, error })
   if (status === 404) return c.json({ error: `That ${provider} is unavailable` }, 404)
   if (status === undefined || status === 429 || status >= 500) return c.json({ error: `That ${provider} is temporarily unavailable` }, 503)
   return c.json({ error: `That ${provider} is unavailable` }, status as 400)
@@ -784,7 +790,8 @@ export const createManoramaApi = () => {
     try {
       return streamMediaResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
     } catch (error) {
-      return proxyFailure(c, 'iCloud image', `${photo} in ${album}`, error)
+      // The album token is the share link's only credential — log a prefix.
+      return proxyFailure(c, 'iCloud image', `${photo} in ${album.slice(0, 6)}…`, error)
     }
   })
 
@@ -803,7 +810,7 @@ export const createManoramaApi = () => {
       const range = c.req.header('Range')
       return streamMediaResponse(await fetchICloudVideo(album, photo, checksum, range), 'private, no-store')
     } catch (error) {
-      return proxyFailure(c, 'iCloud video', `${photo} in ${album}`, error)
+      return proxyFailure(c, 'iCloud video', `${photo} in ${album.slice(0, 6)}…`, error)
     }
   })
 
