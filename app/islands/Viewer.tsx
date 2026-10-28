@@ -205,6 +205,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // canvas card — no transparency ever lands on the background field.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
   const sweepTimerRef = useRef<number | null>(null)
+  const singleFadeSeqRef = useRef(0)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
   // style.cssText on every render — an imperative aspectRatio write gets
@@ -844,24 +845,23 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     singleEndcapRef.current = false
     setSingleEndcap(false)
     if (mode === 'single' && next !== index && !instant) {
-      const beginFade = () => {
-        if (unmountedRef.current) return
-        // Read the live index, not the call-time closure — a rapid
-        // retarget during the decode wait must mark whichever frame is
-        // actually on stage as the one leaving.
-        setLeavingIndex(indexRef.current)
-        setIndex(next)
-        if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
-        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 450)
-      }
-      // The fade is decode-guarded: the incoming frame pre-mounts its
-      // neighbours, so its pixels are usually ready. A longer jump waits
-      // for the decode — never a blank — with a cap so a stalled fetch
-      // can freeze stepping only briefly, not forever.
+      // Two beats, never a wipe: the current photograph fades out in
+      // 90ms, then the next fades in over 160ms once it has decoded —
+      // decode is awaited in parallel with the out-fade, capped so a
+      // stalled fetch cannot freeze stepping. Rapid presses collapse
+      // onto the latest destination via the sequence guard.
       const targetImg = trackRef.current?.querySelector<HTMLImageElement>(`[data-index="${next + 1}"] img`)
       const decoded = targetImg?.decode ? targetImg.decode().catch(() => {}) : Promise.resolve()
       const cap = new Promise<void>((resolve) => window.setTimeout(resolve, 800))
-      Promise.race([decoded, cap]).then(beginFade)
+      const ready = Promise.all([Promise.race([decoded, cap]), new Promise<void>((resolve) => window.setTimeout(resolve, 90))])
+      const seq = ++singleFadeSeqRef.current
+      setLeavingIndex(indexRef.current)
+      ready.then(() => {
+        if (seq !== singleFadeSeqRef.current || unmountedRef.current) return
+        setIndex(next)
+        if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
+        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 170)
+      })
     } else {
       setIndex(next)
     }

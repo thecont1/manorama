@@ -1403,12 +1403,13 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
       await page.keyboard.press("ArrowRight");
-      // Mid-fade the outgoing frame is still mounted and fully painted
-      // while the incoming one dissolves in — a guarded fade, never a
-      // directional wipe (clip-path stays 'none' the whole way).
-      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
+      // Two beats: the outgoing frame fades out in 90ms, then the
+      // incoming one fades in over 160ms once decoded — a guarded fade,
+      // never a directional wipe (clip-path stays 'none' the whole way).
+      // Assert the leaver first: it unmounts ~170ms after the incoming
+      // frame commits.
       await expect(page.locator(".viewer-frame--leaving")).toHaveCount(1);
-      await expect(page.locator(".viewer-frame--leaving")).toHaveCSS("opacity", "1");
+      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
       const entering = page.locator(".viewer-frame--entering");
       expect(await entering.evaluate((el) => getComputedStyle(el).clipPath)).toBe("none");
       // Settles back into one clean frame on the new index.
