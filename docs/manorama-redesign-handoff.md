@@ -4,6 +4,8 @@ Audience: the engineer or coding agent who will port the approved redesign into 
 
 Status: design approved by the product owner. Nothing has been implemented in the repository.
 
+> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; where this document disagrees with it, the megaplan wins. Settled then: every surface in scope (not native-first — one coordinated release); both dark and light owner themes; temporary viewer chrome overlays allowed (arrows still reserve a 64px bar); Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs); the confirmed code map is megaplan §4, replacing the "likely home" guesses in §8 below. The open questions in §9 are answered. Inline corrections are marked "(28 Oct 2026)".
+
 ## 1. What exists
 
 | Artifact | Where | What it is |
@@ -17,11 +19,11 @@ Status: design approved by the product owner. Nothing has been implemented in th
 
 The prototype runs without a build step. To view it locally: `cd docs/redesign-prototype && python3 -m http.server 8000`, then open it at phone width (390 wide). The left rail in a wide window jumps to any screen. Add `#library`, `#viewer`, `#details`, `#reorder`, `#settings`, `#privacy` or `#welcome` to the address to land on a screen.
 
-Not yet read by the author of this handoff: `Viewer.tsx`, `GalleryList.tsx`, `Admin.tsx`, `VaultSettings.tsx`, `Paywall.tsx` and the Playwright specs. The "likely home" column in section 8 comes from `TECH-SPEC.md` and the designer map, not from reading those files. Stage 0 of the plan is to confirm it.
+Not yet read by the author of this handoff: `Viewer.tsx`, `GalleryList.tsx`, `Admin.tsx`, `VaultSettings.tsx`, `Paywall.tsx` and the Playwright specs. The "likely home" column in section 8 comes from `TECH-SPEC.md` and the designer map, not from reading those files. Stage 0 of the plan is to confirm it. *(28 Oct 2026: done — the megaplan §4 is the confirmed map, based on source inspection.)*
 
 ## 2. Product philosophy (the owner's words, binding)
 
-1. Photographs are sacred. Nothing sits on a photograph: no arrows, no buttons, no labels.
+1. Photographs are sacred. Nothing sits on a photograph: no arrows, no buttons, no labels. *(28 Oct 2026 exception: temporary chrome overlays are allowed — top and bottom controls may overlay the photograph for three seconds after interaction, and the small position count remains. Arrows still reserve their own 64px bar below the photographs and never overlay one.)*
 2. Photographs are never cropped, and never upscaled past their natural size.
 3. Strip shows continuous images at their actual dimensions. A sufficiently hi-res image (2x the height of the screen) appears fit to height.
 4. One by one is fit to width on a vertical screen and fit to height on a horizontal one. Changing photograph is a very quick fade out, then the next fades in.
@@ -32,7 +34,7 @@ Not yet read by the author of this handoff: `Viewer.tsx`, `GalleryList.tsx`, `Ad
 
 ## 3. Visual system
 
-Style: True-black flat app (taste-skill, seed 1740959148).
+Style: True-black flat app (taste-skill, seed 1740959148). *(28 Oct 2026: this is the dark owner theme; a light owner theme is also approved — palette in megaplan §5.1. Owner theme is independent of the viewer's Black/Dark/Light canvas.)*
 
 | Token | Value | Use |
 |---|---|---|
@@ -71,7 +73,7 @@ Constants the prototype uses (CSS custom properties; copy the values):
 ## 4. Screens
 
 ### Welcome
-Big logo (the only place the logo is large). One sentence: "Your shared folders, shown properly." plus "Paste a Dropbox, Google Drive, iCloud or MEGA link, or pick a folder on this iPhone. manorama turns it into a quiet, full-screen gallery at your own address." Three full-width buttons, Apple first: Continue with Apple, Google, Dropbox. "Privacy policy" opens the in-app policy screen. No photographs before sign-in.
+Logo in the same 140 x 47 box as every other screen, centred lower as the opening focal point — not enlarged. *(28 Oct 2026: resolves the "large logo" versus fixed-size conflict in favour of the decisions record; megaplan §5.1.)* One sentence: "Your shared folders, shown properly." plus "Paste a Dropbox, Google Drive, iCloud or MEGA link and manorama turns it into a quiet, full-screen gallery at your own address." *(28 Oct 2026: "or pick a folder on this iPhone" removed — iPhone folder/photo import is deferred.)* Three full-width buttons, Apple first: Continue with Apple, Google, Dropbox. "Privacy policy" opens the in-app policy screen. No photographs before sign-in.
 
 ### Library
 - Top bar: logo centred, Settings gear at the right.
@@ -86,7 +88,7 @@ Big logo (the only place the logo is large). One sentence: "Your shared folders,
 - Pitfall found in the prototype: a CSS grid item defaults to `min-width: auto`, so a card grew to its thumbnails' full width and the rail had nothing to scroll. Fix: `min-width: 0` on the card and `minmax(0, 1fr)` on the column. Check the real layout for the same trap.
 
 ### Add a gallery (sheet)
-A bottom sheet, at most half the screen, like the Display sheet. Fields: "Shared folder or album link" with a Paste button, and an optional Name. "Add gallery" is a single pill pinned to the bottom of the sheet, so long scan output never pushes it out of reach. Then "or": "Choose a folder on this iPhone" and "Choose photographs", with the line "Originals stay encrypted on this iPhone; the gallery link still works for anyone." No per-provider description list. An iCloud Drive link shows the existing error: share the album as a Shared Album and paste that link.
+A bottom sheet, at most half the screen, like the Display sheet. Fields: "Shared folder or album link" with a Paste button, and an optional Name. "Add gallery" is a single pill pinned to the bottom of the sheet, so long scan output never pushes it out of reach. *(28 Oct 2026: the "Choose a folder on this iPhone" / "Choose photographs" buttons and their "Originals stay encrypted…" line are deferred and omitted — no new native import or upload service. Existing desktop folder/card workflows remain.)* No per-provider description list. An iCloud Drive link shows the existing error: share the album as a Shared Album and paste that link.
 
 ### Gallery details
 - Header is the Library card again: the same rail, then name, count and source with the live "Saving 9 of 13" and progress line, the caption, and a fainter line with the public address. The only difference from the Library card is no ··· button.
@@ -134,7 +136,7 @@ Share link calls the platform share sheet: `Share.share` from `@capacitor/share`
 Strip
 - Fit to height, never cropped, never upscaled past natural size (pixels divided by device pixel ratio; the web caps the ratio at 2, native trusts the true ratio via `trustDeviceDpr` in `packages/core/image-staging.ts`). A frame with at least twice the screen's height in pixels fills the height; a smaller one sits centred at natural size.
 - Arrows and the left and right keys use `advanceStripByViewport`. Each press travels at most one stage width. If the current photograph ends sooner, travel only that far so the next photograph docks exactly at the left edge. A photograph wider than the stage is paged in stage-width chunks, the last press docking the next. Back travels the lesser of one stage width or what is hidden of the current photograph. Rapid presses accumulate from the pending destination. Ad plates and the end card count as frames. Back at the very start jumps to the last photograph.
-- On Dark or Light canvases, docking the first photograph returns to 0, not to the 10px canvas margin (otherwise the next back press does nothing). Prototype-only adjustment; decide whether to keep it.
+- On Dark or Light canvases, docking the first photograph returns to 0, not to the 10px canvas margin (otherwise the next back press does nothing). *(28 Oct 2026: decided — keep it, but only where required by a reproducing test; megaplan P4.)*
 
 One by one
 - Fit to width on a vertical screen, fit to height on a horizontal one. If the fitted side pushes the other edge off screen (a very tall portrait on a vertical screen), contain instead. Never upscale past natural size.
@@ -167,7 +169,7 @@ These conflict with the current `TECH-SPEC.md` or with existing Playwright specs
 | C2 | One-at-a-time sweeps the incoming photograph directionally over the current one behind an opaque card | Quick fade out, then fade in | Update the spec paragraph and the one-at-a-time Playwright checks. |
 | C3 | Arrows dock at the viewport's bottom corners | Arrows live in a 64px bar below the photographs, which the stage gives up | Stage height changes when arrows are on; check strip fit and CLS. |
 | C4 | Curtain behaviour per the existing `qa` spec | Frosted veil that dissolves; can open on any photograph | Re-baseline the curtain tests. |
-| C5 | House-campaign ad plates appear only inside the viewer; `native/lib/ads.ts` is narrow by design | A sponsored slot at the top of the Library | New placement. Needs an ad rule, a switch (`/api/ads/visibility`) and App Store review thought. Ship dark behind a flag. |
+| C5 | House-campaign ad plates appear only inside the viewer; `native/lib/ads.ts` is narrow by design | A sponsored slot at the top of the Library | *(28 Oct 2026: resolved — house creative only, restyling the existing account placement. Preserve eligibility and the `/api/ads/visibility` master suppression; no new placement API and no live AdMob adapter in the redesigned Library.)* |
 | C6 | "Don't download this gallery" (a negative switch) | "Keep on this iPhone" (positive) | UI inversion only. Do not rename or flip the stored preference in `vault-settings.ts`; invert at the view layer. |
 | C7 | Store text and review notes name "View subscription options" and the product as Pro in places | "Go Visionary" | Update `submission/01-app-store-listing.md`, `submission/02-app-review-notes.md`, `submission/06-app-store-connect-fields.md` and the Playwright labels. Do not change the RevenueCat product id. |
 
@@ -187,13 +189,15 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 | Canvas options | Black, Dark, Light |
 | Gallery details rows | Open gallery, Share link, Name, Caption, Reorder photographs, Keep on this iPhone, Read the folder again, Remove gallery |
 | Remove footnote | Removing it leaves every photograph in Dropbox. |
-| Add sheet | Add a gallery; Shared folder or album link; Paste; Name; Add gallery; Choose a folder on this iPhone; Choose photographs |
+| Add sheet | Add a gallery; Shared folder or album link; Paste; Name; Add gallery *(28 Oct 2026: "Choose a folder on this iPhone" and "Choose photographs" removed — import deferred)* |
 | Share fallback | Copy link, WhatsApp, Messages, Email |
 | Reorder | Cancel, Reorder, Save; "Tap a photograph to pick it up, then tap where it goes." |
 
 ## 8. Where it lands in the code
 
-| Surface | Likely home (confirm in Stage 0) |
+*(28 Oct 2026: superseded — the confirmed code map is `docs/manorama-redesign-megaplan.md` §4, based on source inspection. This table is the pre-inspection guess, kept for history.)*
+
+| Surface | Likely home (confirmed in megaplan §4) |
 |---|---|
 | Tokens, fonts | `app/styles.css` (replace `--admin-*`), `public/fonts` |
 | Viewer chrome, Display, Info, curtain, arrows bar, end card | `app/islands/Viewer.tsx` |
@@ -213,17 +217,17 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 
 ## 9. Open questions and proposed defaults
 
-The owner approved the plan but has not made a choice on these. Proposed defaults let work proceed; flag the owner when you reach one.
+*(28 Oct 2026: all answered by the owner; resolutions recorded in `docs/manorama-redesign-megaplan.md` §2 and §4. The table below keeps the original questions and defaults, annotated with the answer.)*
 
-| # | Question | Proposed default |
-|---|---|---|
-| Q1 | The Library sponsored slot is a new ad placement. | Build the slot, hide it behind a flag driven by `/api/ads/visibility`, keep it off until the ad rule and App Store position are agreed. |
-| Q2 | Does the web dashboard (`Admin.tsx`) and the Tauri desktop app adopt the new Library and Details? | Native first. Web and desktop follow once native ships, reusing the shared tokens and copy. Do not block native on them. |
-| Q3 | Library rails for every gallery need thumbnails and dimensions without breaking "boot from vault, never the network". | Kept galleries read from the vault. Streamed galleries load a small thumbnail lazily with an average-colour placeholder (need a per-item colour in the manifest or a tiny derived field). Confirm the manifest can carry width, height and the colour. |
-| Q4 | Where do keyboard shortcuts help, Global View (the `G` filmstrip and the sequence bubble's "open global") and the fold/Diptych layout live now that the brand pill is gone? | Not designed. Keep the existing behaviour and the bubble; put the shortcuts list inside the Display sheet on fine pointers; treat Global View entry as a Library or Settings item. Ask the owner before shipping. |
-| Q5 | Info starts the C2PA check on open, which fetches one original file. | Follow the spec (lazy, one photograph, client-side). Revisit if cellular data use is a concern. |
-| Q6 | Visionary sheet figures (99 galleries, "larger" room, 30 days kept) | Replace with the real numbers from billing and retention, or remove the line that cannot be verified. |
-| Q7 | Dark/Light dock-to-zero adjustment on the first frame | Keep it; it fixes a dead back press. |
+| # | Question | Proposed default | Answer (28 Oct 2026) |
+|---|---|---|---|
+| Q1 | The Library sponsored slot is a new ad placement. | Build the slot, hide it behind a flag driven by `/api/ads/visibility`, keep it off until the ad rule and App Store position are agreed. | House creative only — restyle the existing account placement; preserve eligibility and master suppression; no live AdMob. |
+| Q2 | Does the web dashboard (`Admin.tsx`) and the Tauri desktop app adopt the new Library and Details? | Native first. Web and desktop follow once native ships, reusing the shared tokens and copy. Do not block native on them. | Every surface is in scope and ships together in one coordinated release. No separate native-first launch. |
+| Q3 | Library rails for every gallery need thumbnails and dimensions without breaking "boot from vault, never the network". | Kept galleries read from the vault. Streamed galleries load a small thumbnail lazily with an average-colour placeholder (need a per-item colour in the manifest or a tiny derived field). Confirm the manifest can carry width, height and the colour. | Confirmed: `toSummary` already ships `previewImages` with dimensions, placeholder and video poster — no manifest or D1 change needed. The placeholder is not a verified average colour; derive colour locally only from bytes already fetched (megaplan §4, §6.3). |
+| Q4 | Where do keyboard shortcuts help, Global View (the `G` filmstrip and the sequence bubble's "open global") and the fold/Diptych layout live now that the brand pill is gone? | Not designed. Keep the existing behaviour and the bubble; put the shortcuts list inside the Display sheet on fine pointers; treat Global View entry as a Library or Settings item. Ask the owner before shipping. | Preserve access: the position-count button and `G` open the picker/Global View; Settings controls the native cross-gallery scope; Display holds fine-pointer shortcut help; automatic fold/Diptych remains. |
+| Q5 | Info starts the C2PA check on open, which fetches one original file. | Follow the spec (lazy, one photograph, client-side). Revisit if cellular data use is a concern. | Confirmed: lazy, client-side, one photograph, with deduplication and stale-result discard (megaplan §5.3). |
+| Q6 | Visionary sheet figures (99 galleries, "larger" room, 30 days kept) | Replace with the real numbers from billing and retention, or remove the line that cannot be verified. | Real figures confirmed: 3 → 99 retained editable galleries, 30-day pipeline retention, free vault 256 MiB with paid configurable cap (megaplan §4). |
+| Q7 | Dark/Light dock-to-zero adjustment on the first frame | Keep it; it fixes a dead back press. | Keep, but only where required by a reproducing test (megaplan P4). |
 
 ## 10. Known issues and risks
 

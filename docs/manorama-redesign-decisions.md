@@ -2,6 +2,8 @@
 
 This answers the fresh-start brief and the one-page memo. The clickable prototype that goes with it is in `docs/redesign-prototype/index.html`. Open it at desktop width to see the design notes for each screen beside the phone, or at phone width to use it as the app.
 
+> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; where this document disagrees with it, the megaplan wins. Settled then: every surface in scope (iPhone, iPad, Android shell, desktop, public web, owner dashboard, Welcome, quick-add, privacy, operations UI); release-ready, phased PRs into `feat/iphone-redesign`; iPhone folder/photo import deferred (Add is paste-link only); temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only (restyle of the existing account placement, no live AdMob); picker/fold access preserved (count button and `G`); both dark and light owner themes; web Photo Editor keeps its horizontal row, native Reorder stays a vertical matrix; signed-out visitors get Display, Info, picker and Rewind only — no Library or Details; one coordinated release, not native-first. Inline corrections below are marked "(28 Oct 2026)".
+
 ## The product in one sentence
 
 manorama turns a folder you already share into a quiet, full-screen gallery at your own address.
@@ -24,7 +26,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 6. **Display settings or device settings?** Display means Layout, Canvas, Arrows (and Fullscreen on the web only). These live in the viewer. "Don't download this gallery" and its progress bar are about the device, so they move to Gallery details › On this iPhone. The default for new galleries, vault usage and the photo picker move to Settings › This iPhone.
 7. **Actions on a gallery card:** one tap to open, plus one ··· menu: Share link, Gallery details, Reorder photographs, Read the folder again, Remove gallery (last, in red). This replaces the five unlabelled icon buttons.
 8. **Plan and subscription:** one quiet line at the foot of the Library ("2 of 3 free galleries · Plan"). It becomes a sentence only when the next gallery would be temporary ("All 3 of 3 free galleries used. A new one would last 30 days."). The Add sheet says the same thing at that moment, and nowhere else. Settings › Plan shows usage at its true ratio and a secondary "Go Visionary" button (the paid plan is Visionary, matching the RevenueCat product `…manorama.visionary.annual`). Visionary is a three-line before-and-after sheet that hands off to the App Store. Never in the viewer.
-11. **Sponsored photographs:** two labelled placeholders, both shaped for a vertical photograph shown fit to height. One sits at the top of the Library, directly under the title and above every gallery. The other is an `AdFrame` plate in the viewer, following the spec: mid-sequence on the seeded cadence, never first or last, not counted in the position readout, suppressed in short galleries. The prototype shortens the cadence so one plate appears in a 13-photograph gallery.
+11. **Sponsored photographs:** two labelled placeholders, both shaped for a vertical photograph shown fit to height. One sits at the top of the Library, directly under the title and above every gallery. The other is an `AdFrame` plate in the viewer, following the spec: mid-sequence on the seeded cadence, never first or last, not counted in the position readout, suppressed in short galleries. The prototype shortens the cadence so one plate appears in a 13-photograph gallery. *(28 Oct 2026: the Library slot is house creative only — a restyle of the existing account placement, preserving eligibility and the master `/api/ads/visibility` suppression. No live AdMob adapter is wired in the redesigned Library.)*
 11b. **Sponsored slot spacing:** the Library slot is its own surface panel, 24px under the title line and 40px above the first gallery (the same gap as between galleries), so it never reads as the first gallery.
 12. **The mark:** one size and one place. 140 × 47px (`--logo-w`, `--logo-h`), centred horizontally in the 52px top bar (`--bar-h`), which starts at the top safe area (`--bar-top`), so its top edge is `bar-top + 2.5px`. Library, Gallery details, Settings and the curtain all resolve to the same box (on a 390px phone: x 125, y 16.5 below the safe area), so the mark never moves between them. Centre is the only position that works everywhere, because Gallery details and Settings need the left of the bar for Back. Welcome keeps the same size, centred lower down as the opening screen's hero, since nothing is on screen before it to jump from.
 13. **Rewind:** the end card has two one-word buttons, Rewind and Library. Rewind glides the strip (or scroll) home in 0.75s with an ease-in-out curve, whatever the distance. One-by-one returns to the first photograph. Reduced motion jumps.
@@ -39,7 +41,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 | Home: sponsored card | A sponsored slot at the top of the Library, above the galleries, shaped for a vertical photograph; a second one in the viewer strip after the last photograph |
 | Home: owner path field `manorama.xyz/[vidya-rao-2]` | Settings › Account › Address |
 | Home: greeting and "You are a Free User…" | The Library foot line; Settings › Plan |
-| Home: inline paste field and "Manorama-fy it!" | The Add sheet behind the Library's Add button: a bottom sheet like Display, at most half the screen, with Add gallery pinned to its bottom edge so a long scan never pushes it out of reach. Two paths: paste a link, or choose a folder or photographs on this iPhone. The button says "Add gallery". The per-provider description list is gone. |
+| Home: inline paste field and "Manorama-fy it!" | The Add sheet behind the Library's Add button: a bottom sheet like Display, at most half the screen, with Add gallery pinned to its bottom edge so a long scan never pushes it out of reach. One path: paste a link. *(28 Oct 2026: choosing a folder or photographs on this iPhone is deferred; those buttons and their copy are omitted.)* The button says "Add gallery". The per-provider description list is gone. |
 | Home: giant "Your galleries" | "Library", 28px. Every back button that leads there also says Library. |
 | Gallery card: caption prompt, public URL, five icon buttons | Caption shown when it exists. URL and actions in the ··· menu and Gallery details. |
 | Splash screen with logo and title | Kept as the curtain: a frosted veil over the first photograph with the mark, title, caption and count. It dissolves to reveal the photograph, sharp and in place. |
@@ -58,6 +60,8 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 ## Visual system
 
 From the True-black flat app style (taste-skill, seed 1740959148), with manorama's own colours and typeface kept.
+
+*(28 Oct 2026: the owner approved both a dark and a light owner theme. The dark set below is the canonical dark palette; the light palette is defined in the megaplan, §5.1. Owner theme stays independent of the viewer canvas, which keeps its own Black/Dark/Light choice.)*
 
 - **Ground** `#0a0a0a` (the existing gallery canvas). **Surface** `#161616`. **Raised** `#262626`. Elevation comes from lightness alone, with no borders or shadows on cards. Only sheets and dialogs cast a shadow.
 - **Ink** `#f3f0e8` (brand cream). Secondary `#b8b4ab`, meta `#98948c`. Every text tier passes 4.5:1 on the surface it sits on.
@@ -105,7 +109,7 @@ Privacy policy, on the welcome screen and under Settings › About, opens a Priv
 Every gallery in the Library, and the Sequence panel in Gallery details, carries a rail of all its thumbnails at their own proportions. You can pan it by touch, trackpad or mouse drag, as in the dashboard contract. A drag only captures after 6px, so a plain tap still opens the gallery, and tapping a thumbnail opens the viewer at that photograph, through the curtain.
 
 - **Kept on this iPhone:** thumbnails come out of the vault, so the rail is fully there at once. While a gallery is still saving, each photograph's thumbnail switches to its local copy the moment it lands.
-- **Streamed:** the rail pans just the same. Each thumbnail shows its average colour (the item placeholder) and fetches only when it scrolls near view, then fades in. This is slower and patchier than on-device, but costs nothing until someone looks along it. The prototype adds 0.35–1.1s of fake latency per streamed thumbnail.
+- **Streamed:** the rail pans just the same. Each thumbnail shows its average colour (the item placeholder) and fetches only when it scrolls near view, then fades in. This is slower and patchier than on-device, but costs nothing until someone looks along it. The prototype adds 0.35–1.1s of fake latency per streamed thumbnail. *(28 Oct 2026 correction: the existing item placeholder is not a verified average colour — megaplan §4. Show the existing placeholder first; an optional locally derived colour may only come from bytes already fetched, never an extra fetch.)*
 
 Why the rail had stopped scrolling: a CSS grid item defaults to `min-width: auto`, so each gallery card grew to the full width of its thumbnails (1,332px) and the rail never had anything to scroll. The fix is `min-width: 0` on the card and `minmax(0, 1fr)` on the column; the real dashboard should be checked for the same trap.
 
@@ -124,6 +128,8 @@ One prototype-only adjustment: on a Dark or Light canvas, docking the first phot
 Per the viewer contract, arrows are off by default on touch. Enabled, they dock at the bottom corners in a 64px bar that the stage gives up, so they never sit on a photograph; in vertical scroll they stack as ↑/↓ at the bottom right. The sequence bubble rides left of the arrow cluster, or in its corner slot when arrows are off.
 
 ## Where this lands in the code
+
+*(28 Oct 2026: superseded — the confirmed code map is `docs/manorama-redesign-megaplan.md` §4, which is based on source inspection. This table is the designer's first guess, kept for history.)*
 
 | Surface | Likely home |
 |---|---|

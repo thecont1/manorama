@@ -2,15 +2,17 @@
 
 Read `manorama-redesign-handoff.md` first. It defines the screens, the behaviour contracts, the deliberate contract changes (C1 to C7) and the open questions (Q1 to Q7). This plan says in what order to build them and how to know each step is done.
 
+> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; its §7 phases (P0–P12) and dependency/ownership rules supersede the stages below wherever they disagree. Settled then: every surface in scope with one coordinated release — not native-first; both dark and light owner themes; temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX, not Preact; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs), not `redesign/true-black`; the confirmed code map is megaplan §4. Inline corrections are marked "(28 Oct 2026)".
+
 Principles
-- Native first (iOS is the shipping target). Web and desktop follow, reusing tokens, copy and shared logic.
+- *(28 Oct 2026: superseded)* ~~Native first (iOS is the shipping target). Web and desktop follow, reusing tokens, copy and shared logic.~~ Every surface ships in one coordinated release; phases still integrate in dependency order via `feat/iphone-redesign`.
 - Behaviour contracts in `TECH-SPEC.md` win unless the handoff lists a change. Update the spec and the Playwright specs in the same commit as the code that changes them.
 - Shared logic goes in `packages/core` (platform-free: no Worker bindings, no `window`, no Node built-ins, no Capacitor imports).
 - Small, reviewable commits. Each stage ends with the checks in its exit criteria, and nothing is merged with a red check.
 - Size labels are relative effort, not time: S (a few hours), M (about a day), L (several days).
 
 Conventions
-- Work in a git worktree under `.worktrees/` on branch `redesign/true-black`. Run commands from the worktree.
+- Work on `feat/redesign-*` PR branches targeting the `feat/iphone-redesign` integration branch (not `redesign/true-black`). Stacked work branches from its reviewed dependency; nothing merges to `main` until the coordinated release.
 - Checks used throughout:
   - Types: `bunx tsc --noEmit`
   - Unit: `bun run test:unit` (never bare `bun test`; it dies `EMFILE` on the worktrees)
@@ -22,6 +24,8 @@ Conventions
 ## Stage 0: Recon and decisions (S)
 
 Goal: replace the handoff's "likely homes" with confirmed ones and settle the open questions that block code.
+
+*(28 Oct 2026: largely superseded — the megaplan §4 is the confirmed code map, §2 answers the open questions, and P0 is the baseline/locator-inventory phase. What remains of this stage is recording the reproducible baseline and fixtures.)*
 
 Tasks
 1. Create the worktree and branch. Run the full check list on the untouched branch and record the baseline (which specs pass, which are flaky).
@@ -40,7 +44,7 @@ Goal: the new look available everywhere without changing behaviour yet.
 Tasks
 1. Tokens in `app/styles.css`: add ground, surface, raised, ink, secondary, meta, data hue, negative, radii, bar height, logo box. Keep the `--admin-*` names as aliases until Stage 7, so nothing breaks mid-migration.
 2. Fonts: bundle Bricolage Grotesque (variable) in `public/fonts` and the native bundle; remove the Google Fonts request from native; delete DM Mono, Playfair Display and Great Vibes usage when the last screen is migrated.
-3. Shared components (Preact or the repo's island style): `TopBar` (logo box centred at 140 x 47 in a 52px bar, optional back and trailing slots), `Sheet` (grab handle, rise animation, max-height prop, focus trap, scrim), `ActionRow` (56px, icon, label, value, chevron or switch), `Panel`, `Pill` buttons (primary cream, secondary raised), `Meter` (data hue line), `Switch`, `Segmented`, `Toast`.
+3. Shared components (the repo's Hono JSX island style — `hono/jsx/dom`; 28 Oct 2026: no React, Preact, router package or component library): `TopBar` (logo box centred at 140 x 47 in a 52px bar, optional back and trailing slots), `Sheet` (grab handle, rise animation, max-height prop, focus trap, scrim), `ActionRow` (56px, icon, label, value, chevron or switch), `Panel`, `Pill` buttons (primary cream, secondary raised), `Meter` (data hue line), `Switch`, `Segmented`, `Toast`.
 4. A single logo asset with explicit width and height attributes so layout never depends on the image decoding.
 5. Unit tests for any logic (none expected) and a visual page listing the components, for parity checks.
 
@@ -104,7 +108,7 @@ Goal: handoff section 4 for Library, Add sheet and Gallery details.
 - Empty state and error state (no galleries; offline; scan failure) in the same visual system.
 
 3c. Add sheet (M)
-- Half-height sheet, Add gallery pinned at the bottom; paste path and on-device path; iCloud Drive error. Keyboard handling: the sheet resizes with the iOS keyboard (visual viewport) and the pinned button stays reachable.
+- Half-height sheet, Add gallery pinned at the bottom; paste path only *(28 Oct 2026: the on-device folder/photo path is deferred)*; iCloud Drive error. Keyboard handling: the sheet resizes with the iOS keyboard (visual viewport) and the pinned button stays reachable.
 - Playwright: the `Manorama-fy it!` label becomes `Add gallery`; update the quick-add and zero-click specs.
 
 3d. Gallery details (M)
@@ -161,7 +165,7 @@ Exit criteria: everything in the handoff's Definition of Done.
 ## Dependencies and ordering
 
 - Stage 0 blocks everything. Stage 1 blocks 2 to 5. Stage 3a blocks 3b and 3d. Stage 5's shared privacy module is independent and can go early. Stage 6 waits for native.
-- Parallelisable after Stage 1: Stage 2 (viewer), Stage 3 (library and details), Stage 4 (reorder) and Stage 5 (welcome, settings, privacy) touch mostly different files. Run them as separate branches off `redesign/true-black` and merge in the order 1, 2, 3, 4, 5.
+- Parallelisable after Stage 1: Stage 2 (viewer), Stage 3 (library and details), Stage 4 (reorder) and Stage 5 (welcome, settings, privacy) touch mostly different files. Run them as separate `feat/redesign-*` branches off `feat/iphone-redesign` and integrate in dependency order. *(28 Oct 2026: see the megaplan §7 phase graph P0–P12 for the authoritative ordering — and its warning that "mostly different files" is not permission for concurrent edits to the Viewer/GalleryShell and GalleryList monoliths; only one active lane edits each.)*
 
 ## Risk register
 
@@ -172,7 +176,7 @@ Exit criteria: everything in the handoff's Definition of Done.
 | Backdrop blur stutters on older iPhones | Medium | Opacity-fade fallback chosen by `fps-probe` |
 | Manifest or vault record changes need a migration | Medium | Additive fields only; fill lazily; old records still render with a neutral placeholder |
 | iOS keyboard covers half-height sheets | High | Visual-viewport resize; real-device test in Stage 3c |
-| App Store review flags the new Library ad slot | Medium | Ship it off (Q1); do not wire AdMob; include in a later release |
+| App Store review flags the new Library ad slot | Medium | *(28 Oct 2026: resolved — house creative only; do not wire AdMob in the redesigned Library)* |
 | Playwright specs depend on removed labels and the brand pill | High | Stage 0 locator inventory; update specs in the same commits |
 | Placeholder figures reach production (Visionary numbers, sample C2PA data) | Low | Stage 0 task 5; grep for the sample strings listed in the handoff before release |
 
