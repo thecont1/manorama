@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { showChrome } from './playwright-helpers'
 import { readFileSync } from 'node:fs'
 import { SignJWT } from 'jose'
 import { seedFromUrl } from './app/lib/doodle-background'
@@ -41,7 +42,7 @@ test.setTimeout(90_000)
 const gotoGallery = async (page: Page, url: string) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
-    if (await page.locator('.control-logo').count()) return
+    if (await page.locator('.stage-seq').count()) return
     await page.waitForTimeout(1000)
   }
   throw new Error(`gallery never became available at ${url} — is the dev server seeded?`)
@@ -53,7 +54,7 @@ const gotoGallery = async (page: Page, url: string) => {
 const openSettings = async (page: Page) => {
   // The first test against a cold dev server waits on Vite's on-demand
   // transform, so give hydration room before touching the chrome.
-  await page.locator('.control-logo').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
   const curtain = page.locator('[data-curtain]')
   if (await curtain.count()) {
     await curtain.first().click({ force: true }).catch(() => {})
@@ -64,9 +65,9 @@ const openSettings = async (page: Page) => {
       await curtain.first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {})
     })
   }
-  const logo = page.locator('.control-logo')
-  await logo.waitFor({ state: 'visible', timeout: 30000 })
-  await logo.click()
+  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 30000 })
+  await showChrome(page)
+  await page.getByRole('button', { name: 'Display', exact: true }).click()
   await expect(page.locator('#background-heading')).toBeVisible()
 }
 
@@ -254,7 +255,7 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
 
   // The preference persists, so the field must return identically.
   await page.reload({ waitUntil: 'domcontentloaded' })
-  await page.locator('.control-logo').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
   await page.waitForTimeout(1200)
   const second = await layerSignature(page)
 
@@ -298,7 +299,9 @@ test('the layer never intercepts a click meant for the gallery', async ({ page }
   expect(hit.isDoodle).toBe(false)
 
   // And the controls still respond after the layer is painted.
-  await page.locator('.control-logo').click()
+  await showChrome(page)
+  await page.getByRole('button', { name: 'Display', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: /display settings/i })).toBeVisible()
 })
 
 test('the layer is inert and hidden from assistive tech', async ({ page }) => {

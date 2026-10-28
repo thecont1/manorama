@@ -423,12 +423,8 @@ button { color: inherit; }
 
 /* The quiet dot remains the sole stage control and opens provenance plus
    current-image information. */
-.control-logo { position: fixed; z-index: 20; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 0; display: grid; place-items: center; background: transparent; opacity: .46; cursor: pointer; transform: translateX(-50%); transition: opacity 180ms ease, background 180ms ease, border-color 180ms ease, transform 180ms ease; }
-.control-logo::before { content: ''; width: 14px; height: 14px; border: 1px solid rgba(244, 240, 232, .88); border-radius: 50%; background: rgba(244, 240, 232, .09); }
 .sr-only { position: fixed; left: -2px; top: -2px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
-.control-logo:hover { opacity: 1; border-color: rgba(245, 240, 232, .88); background: rgba(10, 10, 10, .64); transform: translateX(-50%) scale(1.04); }
-.control-logo:focus-visible { outline: none; opacity: .75; }
 
 .curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: rgb(var(--ink)); cursor: pointer; touch-action: none; will-change: transform, opacity; transform: translate3d(0, 0, 0); transition: opacity 620ms cubic-bezier(.23, 1, .32, 1), transform 900ms cubic-bezier(.23, 1, .32, 1); }
 .curtain.is-lifting { opacity: 0; transform: translate3d(0, -108%, 0); pointer-events: none; }
@@ -455,120 +451,6 @@ button { color: inherit; }
    align-items pins the buttons right even inside the coarse-pointer
    full-width container above. */
 .stage-arrows--vertical { flex-direction: column; align-items: flex-end; }
-
-/* The sequence bubble: a quiet counter riding the nav cluster, parked
-   just left of the buttons (or of the ↑/↓ column in vertical — the
-   absolute dock keeps it beside the group rather than inside the flow).
-   When arrows are opted out the bubble takes the corner slot itself. */
-/* The .stage-arrows prefix out-specifies the shared `.stage-arrows
-   button` rule — otherwise its border-radius: 50% renders the expanded
-   state as an ellipse and its transition list would drop the pill's
-   size animation. */
-.stage-arrows .stage-seq {
-  /* In-flow flex child (order-first) instead of an absolutely-parked bubble
-     left of the cluster: an abs-positioned child outside its parent's layout
-     box is skipped by the trusted-input hit test on touch layouts, so taps
-     fell through to the stage. Flex flow keeps paint = hit target. */
-  position: relative;
-  order: -1;
-  margin-right: 8px;
-  display: grid;
-  place-items: center;
-  width: clamp(44px, 6.3svh, 59px);
-  min-width: clamp(44px, 6.3svh, 59px);
-  height: clamp(44px, 6.3svh, 59px);
-  padding: 0 12px;
-  border: 1px solid rgba(var(--ink), .18);
-  border-radius: 999px;
-  background: rgba(10, 10, 10, .55);
-  box-shadow: 2px 2px 0 rgba(var(--ink), .18);
-  color: rgba(var(--ink), .85);
-  font-family: inherit;
-  font-size: clamp(13px, 2svh, 18px);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  opacity: .5;
-  pointer-events: auto;
-  cursor: pointer;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  overflow: hidden;
-}
-/* Count fades back in after the pill has collapsed to circle size. */
-.stage-seq-num { transition: opacity 160ms ease 60ms; }
-/* The hover flyout: two centered lines that only exist inside the
-   expanded pill, so the resting circle stays a bare counter. */
-.stage-seq-detail {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  gap: 3px;
-  opacity: 0;
-  white-space: nowrap;
-  transition: opacity 140ms ease;
-}
-.stage-seq-tally { font-size: clamp(12px, 1.75svh, 15px); font-weight: 600; }
-.stage-seq-hint { font-size: clamp(9px, 1.28svh, 10.5px); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: rgba(var(--ink), .62); }
-/* On mouse pointers the circle animates into a pill — its right edge
-   stays docked to the nav cluster, so the expansion reads as the bubble
-   stretching left, not jumping. Hovering anywhere in the nav cluster
-   counts as "near" the counter (the pill grows away from the arrows,
-   so it never occludes them). A soft overshoot easing makes the grow
-   feel like the pill inflates; un-hover settles back faster. The flyout
-   waits for the pill to have room before fading in. Focus-visible gets
-   the same treatment so keyboard users see the affordance too. */
-@media (hover: hover) and (pointer: fine) {
-  .stage-arrows .stage-seq {
-    transition:
-      opacity 180ms ease,
-      border-color 180ms ease,
-      background 180ms ease,
-      min-width 220ms cubic-bezier(.4, 0, .2, 1),
-      height 220ms cubic-bezier(.4, 0, .2, 1);
-  }
-  .stage-seq:is(:hover, :focus-visible),
-  .stage-arrows:hover .stage-seq {
-    opacity: 1;
-    border-color: rgba(var(--ink), .8);
-    background: rgba(10, 10, 10, .82);
-    min-width: clamp(126px, 18svh, 168px);
-    height: clamp(52px, 7.4svh, 66px);
-    transition:
-      opacity 180ms ease,
-      border-color 180ms ease,
-      background 180ms ease,
-      min-width 340ms cubic-bezier(.28, 1.35, .42, 1),
-      height 340ms cubic-bezier(.28, 1.35, .42, 1);
-  }
-  .stage-seq:is(:hover, :focus-visible) .stage-seq-num,
-  .stage-arrows:hover .stage-seq .stage-seq-num { opacity: 0; transition: opacity 110ms ease; }
-  .stage-seq:is(:hover, :focus-visible) .stage-seq-detail,
-  .stage-arrows:hover .stage-seq .stage-seq-detail { opacity: 1; transition: opacity 200ms ease 120ms; }
-}
-.stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
-/* No buttons to flank: the bubble claims the corner outright. In flow it
-   already occupies that slot; just square it to the corner. */
-.stage-arrows--bare .stage-seq { margin-right: 0; }
-/* On touch the enabled arrows split to opposite corners — the bubble
-   stays docked just left of the forward arrow. In flow with order:-1
-   it would park at the far left of the full-width bar; re-dock it next
-   to the forward arrow via auto margin. (In vertical mode the column
-   stack keeps its natural top-to-bottom order with the counter above.)
-   The forward arrow needs order:2 so the bubble can sit between it and
-   the back arrow at the right corner. */
-@media (pointer: coarse) {
-  .stage-arrows:not(.stage-arrows--vertical) .stage-seq {
-    order: 1;
-    margin-right: 0;
-    margin-left: auto;
-  }
-  .stage-arrows:not(.stage-arrows--vertical) [data-nav-arrow]:last-child {
-    order: 2;
-  }
-}
 
 .controls-modal { position: fixed; z-index: 40; inset: 0; overflow: auto; display: grid; place-items: start center; padding: clamp(22px, 5vw, 72px); background: rgba(17, 20, 19, .73); backdrop-filter: blur(18px) saturate(.75); }
 .controls-modal[hidden] { display: none; }
@@ -1014,46 +896,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
    never moves. Hover, pointer proximity (the ::before hit-extender
    reaches ~100px up), or keyboard focus makes the pill jump up clear
    of the fold and brighten; the click opens display settings. */
-.control-logo { bottom: 0; width: clamp(160px, 18vw, 240px); height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; opacity: 1; overflow: visible; display: flex; align-items: flex-end; justify-content: center; transform: translateX(-50%); touch-action: none; }
-body.gallery-entered .control-logo .brand-mark-wrap { animation: control-logo-intro 4.5s ease 200ms backwards; }
-@media (prefers-reduced-motion: no-preference) {
-  body.gallery-entered .control-logo .brand-mark-wrap { animation: control-logo-intro 4.5s ease 200ms backwards, logo-tab-bob 5.6s ease-in-out 4.9s infinite; }
-}
-.control-logo::before { display: none; }
-/* The wrap must hug the wordmark, not the button's content box: the
-   image is height-bound (contain), so a 100%-wide wrap would anchor
-   .brand-tld's right:8.39% to empty space and push ".xyz" past "ma". */
-.control-logo .brand-mark-wrap { display: block; width: auto; height: clamp(64px, 6.7vw, 81px); margin: 0 auto; padding: 0; border: 0; background: transparent; box-shadow: none; opacity: .3; transform: translateY(60%); transition: transform 320ms cubic-bezier(.3, 1.45, .5, 1), opacity 220ms ease; }
-/* The pill itself: negative-inset ::before so it wraps the wordmark
-   without changing the wrap's box (the .brand-tld anchor stays put). */
-.control-logo .brand-mark-wrap::before { content: ''; position: absolute; inset: -8px -18px; border-radius: 999px; background: rgba(14, 16, 15, .42); border: 1.5px solid #fc0fc0; box-shadow: 4px 4px 0 rgba(252, 15, 192, .8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: -1; transition: background 220ms ease, border-color 220ms ease, box-shadow 220ms ease; }
-.control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap::before { background: rgba(14, 16, 15, .6); border-color: #fc0fc0; box-shadow: 5px 5px 0 rgba(252, 15, 192, .95); }
-/* Vertical scroll fills the width edge-to-edge — dock the pill at the
-   bottom-left corner where it interferes least with the photographs. */
-body:has(.viewer-stage.mode-vertical) .control-logo { left: max(20px, env(safe-area-inset-left)); transform: none; justify-content: flex-start; }
-body:has(.viewer-stage.mode-vertical) .control-logo .brand-mark-wrap { margin: 0; }
-.control-logo img { display: block; width: auto; height: 100%; object-fit: contain; object-position: center; opacity: .9; }
-@keyframes control-logo-intro {
-  0% { opacity: 1; }
-  55% { opacity: 1; }
-  100% { opacity: .3; }
-}
-@keyframes logo-tab-bob {
-  0%, 100% { transform: translateY(60%); }
-  50% { transform: translateY(51%); }
-}
-/* No button chrome on hover — the pill carries all the feedback.
-   .is-near is the JS proximity flag (pointermove within ~100px of the
-   strip) — proximity must NOT enlarge the clickable box, so it lives on
-   a class rather than a hit-extending pseudo-element. */
-.control-logo:hover { background: transparent; border-color: transparent; transform: translateX(-50%); }
-body:has(.viewer-stage.mode-vertical) .control-logo:hover { transform: none; }
-/* The `body` prefix matches body.gallery-entered's specificity (0,3,1):
-   at equal weight this later rule wins, so `animation: none` actually
-   cancels the bob — otherwise the bob's keyframe transform out-specifies
-   the raise and the pill only rises during the intro's first seconds. */
-body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opacity: .97; transform: translateY(-22%); animation: none; }
-.control-logo:focus-visible { outline: none; }
 @media (max-width: 720px) {
   .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
   .admin-brand-logo { width: min(300px, 80vw); }
@@ -1147,7 +989,6 @@ body .control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap { opaci
   letter-spacing: .01em;
   pointer-events: none;
 }
-.control-logo .brand-tld { font-size: clamp(13px, 1.6vw, 17px); font-weight: 800; }
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }
@@ -2297,3 +2138,103 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .admin-page--selector .admin-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; animation: admin-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
 }
 @media (max-width: 819px) and (prefers-reduced-motion: reduce) { .admin-page--selector .admin-drawer-panel { animation: none; } }
+
+/* Rest bubble — the quiet position counter. A 36px circle docked
+   bottom-right on a 44px hit box, keeping the stage-seq aria-label
+   contract. While the chrome shows, the top-bar's N-of-M pill takes
+   over and the bubble goes inert and transparent — never unmounted. */
+.stage-seq {
+  position: fixed;
+  z-index: 21;
+  right: max(var(--m-pad, 20px), env(safe-area-inset-right, 0px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(10, 10, 10, .62);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: rgba(var(--ink), .9);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 200ms ease;
+}
+.stage-seq .stage-seq-detail { display: none; }
+.stage-seq.is-chrome-showing { opacity: 0; pointer-events: none; }
+.stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
+@supports not (backdrop-filter: blur(12px)) { .stage-seq { background: rgba(10, 10, 10, .85); } }
+@media (prefers-reduced-motion: reduce) { .stage-seq { transition: none; } }
+
+/* Temporary viewer chrome (P3): top bar (Library + N of M) and bottom
+   row (Display / Info / Details). Always inside .m-dark — the pills
+   never follow the owner theme. */
+.m-chrome {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 var(--m-pad, 20px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms var(--m-ease, ease), transform 200ms var(--m-ease, ease);
+}
+.m-chrome.is-visible { opacity: 1; pointer-events: auto; }
+.m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px); justify-content: space-between; transform: translateY(-8px); }
+.m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
+.m-chrome--top.is-visible, .m-chrome--bottom.is-visible { transform: translateY(0); }
+.m-chrome-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--m-pill, 999px);
+  background: rgba(10, 10, 10, .62);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--m-ink, #f3f0e8);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+@supports not (backdrop-filter: blur(12px)) { .m-chrome-pill { background: rgba(10, 10, 10, .85); } }
+.m-chrome-pill:focus-visible { outline: 2px solid var(--m-focus, rgba(243, 240, 232, .85)); outline-offset: 2px; }
+.m-chrome-skip {
+  position: fixed;
+  z-index: 31;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  transform: translate(-50%, -140%);
+  transition: transform 160ms ease;
+}
+.m-chrome-skip:focus-visible {
+  transform: translate(-50%, 0);
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--m-pill, 999px);
+  background: rgba(10, 10, 10, .85);
+  color: #f3f0e8;
+  font: 600 16px/1 inherit;
+  outline: 2px solid rgba(243, 240, 232, .85);
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-chrome { transition: opacity 200ms ease; transform: none !important; }
+}

@@ -63,13 +63,3 @@
   color: var(--native-stage-ink);
   background: linear-gradient(130deg, var(--native-curtain-start), var(--native-stage-surface-strong) 58%, var(--native-curtain-end));
 }
-.control-logo .brand-mark-wrap::before {
-  background: var(--native-stage-surface);
-  border-color: var(--native-stage-accent);
-  box-shadow: 4px 4px 0 var(--native-stage-shadow);
-}
-.control-logo:is(:hover, .is-near, :focus-visible) .brand-mark-wrap::before {
-  background: var(--native-stage-surface-strong);
-  border-color: var(--native-stage-accent);
-  box-shadow: 5px 5px 0 var(--native-stage-shadow);
-}

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { showChrome } from '../playwright-helpers'
 
 /** P2 navigation seam: the reducer drives the real GalleryList surfaces in
  *  the browser fixture — viewer back lands on the library, a Global View
@@ -44,9 +45,9 @@ test('viewer back returns to the library and unmounts the stage', async ({ page 
   await openApp(page)
   await expect(page.locator('.viewer-stage')).toBeVisible()
 
-  // The in-viewer back affordance lives in the display-settings panel.
-  await page.locator('.control-logo').click()
-  await page.getByRole('button', { name: 'Back to your galleries' }).click()
+  // The in-viewer back affordance is the top bar's Library pill.
+  await showChrome(page)
+  await page.locator('[data-chrome-library]').click()
 
   await expect(page.locator('.viewer-stage')).toHaveCount(0)
   // The library surface is back — the signed-out landing renders.

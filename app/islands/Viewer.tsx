@@ -5,6 +5,7 @@ import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../li
 import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
+import ViewerChrome from '../components/viewer/ViewerChrome'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 import { platePositionsFor, type AdFrame } from '../lib/adframe'
@@ -41,7 +42,6 @@ type Props = {
   initialIndex?: number
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
-  alwaysShowNavigation?: boolean
   /** Reports the committed photograph (never an ad plate or the end card):
    *  once after mount and whenever a glide settles on a new index. */
   onPositionChange?: (position: { imageId: string; index: number }) => void
@@ -168,7 +168,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -264,7 +264,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const scrollTopAtDownRef = useRef(0)
   const gridSuppressClickRef = useRef(false)
   const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dotRef = useRef<HTMLButtonElement | null>(null)
   const seqRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -298,6 +297,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setInfoOpen(false)
     setGridOpen(false)
     setGridClosing(false)
+    scheduleChromeHide()
   }
   const requestCloseModals = () => {
     if (!gridOpenRef.current) { closeModals(); return }
@@ -307,6 +307,39 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       gridCloseTimerRef.current = null
       closeModals()
     }, 180)
+  }
+  // Temporary chrome: bars reveal on tap, a fine-pointer nudge, Tab or
+  // focus, and fade out after 3s of disinterest. A viewer sheet or the
+  // picker pauses the timer — closeModals restarts it — and navigation
+  // (drag, wheel, arrow keys) always tucks the bars away.
+  const [chromeVisible, setChromeVisible] = useState(false)
+  const chromeVisibleRef = useRef(false)
+  chromeVisibleRef.current = chromeVisible
+  const chromeTimerRef = useRef<number | null>(null)
+  const displayButtonRef = useRef<HTMLButtonElement | null>(null)
+  const clearChromeTimer = () => {
+    if (chromeTimerRef.current === null) return
+    window.clearTimeout(chromeTimerRef.current)
+    chromeTimerRef.current = null
+  }
+  const scheduleChromeHide = () => {
+    clearChromeTimer()
+    chromeTimerRef.current = window.setTimeout(() => {
+      chromeTimerRef.current = null
+      if (anyModalOpenRef.current || suspendedRef.current) return
+      setChromeVisible(false)
+    }, 3000)
+  }
+  const showChrome = () => {
+    if (suspendedRef.current || !document.body.classList.contains('gallery-entered')) return
+    setChromeVisible(true)
+    scheduleChromeHide()
+  }
+  const hideChrome = () => { clearChromeTimer(); setChromeVisible(false) }
+  const pauseChrome = () => { clearChromeTimer() }
+  const requestShowChrome = () => {
+    showChrome()
+    requestAnimationFrame(() => displayButtonRef.current?.focus())
   }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
@@ -375,6 +408,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     top: `${foldControlRegion.y + foldControlRegion.height - 62}px`,
     bottom: 'auto',
     transform: 'translateX(-50%)',
+  } : undefined
+  const foldChromeStyle = foldControlRegion ? {
+    left: `${foldControlRegion.x}px`,
+    width: `${foldControlRegion.width}px`,
   } : undefined
   const foldPanelStyle = foldControlRegion ? {
     position: 'absolute',
@@ -522,7 +559,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }, [])
 
   const hasMultiple = images.length > 1
-  const arrowsOn = alwaysShowNavigation || (mode === 'vertical' ? showArrowsVertical : showArrows)
+  const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -879,7 +916,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       curtain.classList.add('is-lifting')
       document.body.classList.add('gallery-entered')
       setGalleryEntered(true)
-      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : dotRef.current
+      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
       focusTarget?.focus({ preventScroll: true })
       const finish = () => {
         curtain.removeEventListener('transitionend', onLiftEnd)
@@ -1053,7 +1090,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
+      if (event.key === 'Tab') {
+        if (!suspendedRef.current && !anyModalOpenRef.current) chromeActionsRef.current.show()
+        return
+      }
       if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -1184,6 +1226,19 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // (hono/jsx re-arms passive effects asynchronously) and swallow a fast G.
   const gridActionsRef = useRef({ openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel })
   gridActionsRef.current = { openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel }
+
+  const chromeActionsRef = useRef({ show: () => {}, hide: () => {}, toggle: () => {}, pause: () => {} })
+  chromeActionsRef.current = {
+    show: showChrome,
+    hide: hideChrome,
+    toggle: () => { if (chromeVisibleRef.current) hideChrome(); else showChrome() },
+    pause: pauseChrome,
+  }
+
+  // Lifting the curtain is the first reveal cue.
+  useEffect(() => {
+    if (galleryEntered) showChrome()
+  }, [galleryEntered])
 
   // Magnifier availability is a media-query question, answered on the
   // client only: the server cannot know the pointer type, so the shortcut
@@ -1409,16 +1464,54 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const stage = stageRef.current
-    const logo = dotRef.current
+    if (!stage) return
+    let tap: { x: number; y: number; t: number } | null = null
+    let lastFine: { x: number; y: number } | null = null
+    const onTapDown = (event: PointerEvent) => {
+      if (!event.isPrimary) return
+      const el = event.target as HTMLElement
+      if (el.closest('button, a, video, input, select, textarea, [data-nav-arrow], .viewer-filmstrip, .controls-modal, .info-sheet')) return
+      tap = { x: event.clientX, y: event.clientY, t: performance.now() }
+    }
+    const onTapUp = (event: PointerEvent) => {
+      if (!tap) return
+      const held = tap
+      tap = null
+      if (event.type !== 'pointerup') return
+      if (Math.hypot(event.clientX - held.x, event.clientY - held.y) < 6 && performance.now() - held.t < 400) {
+        chromeActionsRef.current.toggle()
+      }
+    }
+    const onFineMove = (event: PointerEvent) => {
+      if (event.pointerType === 'touch' || event.buttons !== 0) return
+      const last = lastFine ?? { x: event.clientX, y: event.clientY }
+      lastFine = { x: event.clientX, y: event.clientY }
+      if (Math.hypot(event.clientX - last.x, event.clientY - last.y) > 4) chromeActionsRef.current.show()
+    }
+    const onWheel = () => chromeActionsRef.current.hide()
+    stage.addEventListener('pointerdown', onTapDown)
+    stage.addEventListener('pointerup', onTapUp)
+    stage.addEventListener('pointercancel', onTapUp)
+    stage.addEventListener('pointermove', onFineMove, { passive: true })
+    stage.addEventListener('wheel', onWheel, { passive: true })
+    return () => {
+      stage.removeEventListener('pointerdown', onTapDown)
+      stage.removeEventListener('pointerup', onTapUp)
+      stage.removeEventListener('pointercancel', onTapUp)
+      stage.removeEventListener('pointermove', onFineMove)
+      stage.removeEventListener('wheel', onWheel)
+    }
+  }, [])
+
+  useEffect(() => {
+    const stage = stageRef.current
     const seq = seqRef.current
     if (!stage) return
-    // A press landing on the brand pill or sequence counter is a drag
-    // candidate: the pill floats over the stage, and the counter lives
-    // inside the stage's control cluster. Both capture the pointer onto
-    // the stage and pan with the strip. A release that never travelled
-    // still counts as the button's own click (pointer capture suppresses
-    // the native click event, so each press is replayed here).
-    let logoPress: { x: number; y: number } | null = null
+    // A press landing on the sequence counter is a drag candidate: the
+    // counter floats over the stage and captures the pointer onto it,
+    // panning with the strip. A release that never travelled still counts
+    // as the button's own click (pointer capture suppresses the native
+    // click event, so each press is replayed here).
     let seqPress: { x: number; y: number } | null = null
     // The ad CTA gets the same replay: capturing the pointer onto the stage
     // suppresses the anchor's native click, so an untravelled release opens
@@ -1427,6 +1520,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // inert even though it is what stops the motion.
     let adPress: { x: number; y: number; href: string; armed: boolean } | null = null
     const beginDrag = (event: PointerEvent) => {
+      chromeActionsRef.current.hide()
       stopMomentum()
       setPlateActionability(null)
       draggingRef.current = true
@@ -1448,11 +1542,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           armed: plateMountCentered(adFrame) && !draggingRef.current && momentumRef.current === null,
         }
       }
-      beginDrag(event)
-    }
-    const onLogoDown = (event: PointerEvent) => {
-      if (mode !== 'strip') return
-      logoPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onSeqDown = (event: PointerEvent) => {
@@ -1491,12 +1580,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         queuePlateActionability()
         return
       }
-      if (logoPress) {
-        const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
-        logoPress = null
-        if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
-        return
-      }
       if (seqPress) {
         const travelled = Math.hypot(event.clientX - seqPress.x, event.clientY - seqPress.y)
         seqPress = null
@@ -1532,46 +1615,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
-    logo?.addEventListener('pointerdown', onLogoDown)
     seq?.addEventListener('pointerdown', onSeqDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
-      logo?.removeEventListener('pointerdown', onLogoDown)
       seq?.removeEventListener('pointerdown', onSeqDown)
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
   }, [mode])
-
-  // Pointer proximity wakes the brand pill — a ~100px box around the
-  // strip measured on pointermove, toggled as a class. Deliberately not
-  // a CSS hit-extender: inflating the button's box would swallow stage
-  // drags and clicks that should belong to the photographs.
-  useEffect(() => {
-    const button = dotRef.current
-    if (!button) return
-    const RANGE = 100
-    const onMove = (event: PointerEvent) => {
-      const r = button.getBoundingClientRect()
-      button.classList.toggle(
-        'is-near',
-        event.clientX > r.left - RANGE && event.clientX < r.right + RANGE &&
-        event.clientY > r.top - RANGE && event.clientY < r.bottom + RANGE,
-      )
-    }
-    const off = () => button.classList.remove('is-near')
-    window.addEventListener('pointermove', onMove, { passive: true })
-    document.documentElement.addEventListener('mouseleave', off)
-    window.addEventListener('blur', off)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      document.documentElement.removeEventListener('mouseleave', off)
-      window.removeEventListener('blur', off)
-    }
-  }, [])
 
   // Vertical mode scrolls natively for touch and wheel; map a mouse or
   // pen drag onto scrollTop so the feed answers a grabbed drag too. The
@@ -1579,12 +1633,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // release without travel still lands as its click.
   useEffect(() => {
     const stage = stageRef.current
-    const logo = dotRef.current
     if (!stage || mode !== 'vertical') return
     let dragging = false
     let lastY = 0
-    let logoPress: { x: number; y: number } | null = null
     const beginDrag = (event: PointerEvent) => {
+      chromeActionsRef.current.hide()
       dragging = true
       lastY = event.clientY
       stage.setPointerCapture(event.pointerId)
@@ -1594,11 +1647,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const onPointerDown = (event: PointerEvent) => {
       if (event.pointerType === 'touch') return
       if ((event.target as HTMLElement).closest('button')) return
-      beginDrag(event)
-    }
-    const onLogoDown = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return
-      logoPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onPointerMove = (event: PointerEvent) => {
@@ -1611,23 +1659,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       dragging = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
-      if (logoPress) {
-        const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
-        logoPress = null
-        if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
-      }
     }
     stage.addEventListener('pointerdown', onPointerDown)
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
-    logo?.addEventListener('pointerdown', onLogoDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
-      logo?.removeEventListener('pointerdown', onLogoDown)
     }
   }, [mode])
 
@@ -1941,6 +1982,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     if (!suspended) return
     requestCloseModals()
+    clearChromeTimer()
+    setChromeVisible(false)
   }, [suspended])
 
   // Committed-position reporting: the index state only advances on a
@@ -2270,13 +2313,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`} onClick={openGrid}>
-            <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
-            <span class="stage-seq-detail" aria-hidden="true">
-              <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
-              <span class="stage-seq-hint">open picker</span>
-            </span>
-          </button>
           {arrowsVisible ? (
             <>
               <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
@@ -2286,12 +2322,32 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" style={foldControlStyle} aria-label="Gallery controls" title="Gallery controls" onClick={openDisplaySettings}>
-        <span class="brand-mark-wrap" aria-hidden="true">
-          <img src="/manorama-merged-logo.png" alt="" />
-          <span class="brand-tld">.xyz</span>
+      {/* Rest bubble — keeps the stage-seq aria-label contract. A 36px
+          circle docked bottom-right; while the chrome shows, its N-of-M
+          pill takes over and the bubble goes inert and transparent. */}
+      <button ref={seqRef} type="button" class={`stage-seq ${chromeVisible ? 'is-chrome-showing' : ''}`} inert={chromeVisible ? true : undefined} aria-label={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`} onClick={openGrid}>
+        <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
+        <span class="stage-seq-detail" aria-hidden="true">
+          <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
+          <span class="stage-seq-hint">open picker</span>
         </span>
       </button>
+
+      <ViewerChrome
+        visible={chromeVisible && !suspended}
+        position={{ index, total: images.length }}
+        onReturnToGalleries={onReturnToGalleries}
+        libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
+        onOpenDisplay={openDisplaySettings}
+        onOpenInfo={openImageProvenance}
+        onOpenPicker={openGrid}
+        onRequestShow={requestShowChrome}
+        onActivity={pauseChrome}
+        onIdle={scheduleChromeHide}
+        displayRef={(el) => { displayButtonRef.current = el }}
+        topStyle={foldChromeStyle}
+        bottomStyle={foldChromeStyle}
+      />
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
@@ -2372,7 +2428,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             </div>
           </div>
 
-          {onReturnToGalleries ? <section class="panel-section"><button type="button" class="panel-action" onClick={onReturnToGalleries}>Back to your galleries</button></section> : null}
           {deviceControls}
 
           <section class="panel-section" aria-labelledby="view-mode-heading">

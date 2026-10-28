@@ -24,7 +24,7 @@ test.setTimeout(120_000)
 const gotoGallery = async (page: Page, url: string) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
-    if (await page.locator('.control-logo').count()) return
+    if (await page.locator('.stage-seq').count()) return
     await page.waitForTimeout(1000)
   }
   throw new Error(`gallery never became available at ${url} — is the dev server seeded?`)
@@ -35,7 +35,7 @@ const gotoGallery = async (page: Page, url: string) => {
  *  before hydration is silently dropped — so wait for the island first. */
 const enterGallery = async (page: Page) => {
   await gotoGallery(page, ALBUM)
-  await page.locator('.control-logo').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
   const curtain = page.locator('[data-curtain]')
   if (await curtain.count()) {
     await curtain.first().click({ force: true }).catch(() => {})

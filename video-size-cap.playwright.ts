@@ -18,10 +18,10 @@ test.setTimeout(180_000)
 const enter = async (page: Page) => {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await page.goto(ALBUM, { waitUntil: 'domcontentloaded' })
-    if (await page.locator('.control-logo').count()) break
+    if (await page.locator('.stage-seq').count()) break
     await page.waitForTimeout(1000)
   }
-  await page.locator('.control-logo').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
   const curtain = page.locator('[data-curtain]')
   for (let i = 0; i < 10 && await curtain.count(); i += 1) {
     await curtain.first().click({ force: true }).catch(() => {})
@@ -32,11 +32,11 @@ const enter = async (page: Page) => {
 
 /** The settings panel toggles, so drive it on visibility, not presence. */
 const setMode = async (page: Page, mode: string) => {
-  const logo = page.locator('.control-logo')
   const radio = page.locator(`input[name="view-mode"][value="${mode}"]`)
   for (let i = 0; i < 12; i += 1) {
     if (await radio.isVisible().catch(() => false)) break
-    await logo.click({ force: true }).catch(() => {})
+    await showChrome(page)
+    await page.getByRole('button', { name: 'Display', exact: true }).click().catch(() => {})
     await page.waitForTimeout(600)
   }
   await radio.waitFor({ state: 'visible', timeout: 30000 })

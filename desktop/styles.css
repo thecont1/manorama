@@ -182,9 +182,6 @@ body.manorama-desktop {
 
 /* ── The viewing stage ─────────────────────────────────────────────────── */
 
-.desktop-back { position: fixed; top: calc(var(--desktop-safe-top) + 10px); left: 18px; z-index: 110; border: 0; border-bottom: 1px solid rgba(var(--ink), .4); padding: 0 0 2px; background: transparent; color: rgba(var(--ink), .72); font: inherit; font-size: 12px; cursor: pointer; }
-.desktop-back:hover, .desktop-back:focus-visible { color: rgb(var(--ink)); border-color: rgb(var(--ink)); }
-.desktop-back:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 
 /* Viewer/curtain geometry matches native. */
 body.manorama-desktop .curtain-content { display: grid; grid-template-rows: 1fr 1fr; align-items: center; width: min(1200px, 100%); height: 100%; text-align: center; transform: none; }
@@ -198,24 +195,10 @@ body.manorama-desktop .curtain-caption { margin: 0 auto; }
   body.manorama-desktop .curtain-logo-wrap { grid-column: 1; grid-row: 1; }
   body.manorama-desktop .curtain-details { grid-column: 2; grid-row: 1; }
 }
-body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
-body.manorama-desktop .stage-arrows > button,
-body.manorama-desktop .control-logo { box-sizing: border-box; width: 100%; height: 100%; margin: 0; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: rgba(10, 10, 10, .62); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .9); pointer-events: auto; }
+body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
+body.manorama-desktop .stage-arrows > button { box-sizing: border-box; width: 100%; height: 100%; margin: 0; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: rgba(10, 10, 10, .62); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .9); pointer-events: auto; }
 body.manorama-desktop .stage-arrows .stage-nav-arrow--previous { grid-column: 1; grid-row: 1; }
-body.manorama-desktop .stage-arrows .stage-seq { grid-column: 3; grid-row: 1; min-width: 0; padding: 0 10px; }
-body.manorama-desktop .stage-arrows .stage-nav-arrow--next { grid-column: 4; grid-row: 1; }
-body.manorama-desktop .control-logo { z-index: 22; left: 50%; bottom: 18px; width: calc((100vw - 60px) / 4); display: grid; place-items: center; padding: 0; transform: translateX(-50%); opacity: 1; }
-body.manorama-desktop .control-logo:hover { transform: translateX(-50%); }
-/* This button is `position: fixed`, so the `height: 100%` it shares with the
-   row's buttons above would resolve against the viewport, not the row: the
-   wordmark and its pill would paint at viewport scale and float behind the
-   photographs. Pin it to the row height instead. */
-body.manorama-desktop .control-logo { height: var(--desktop-chrome-height); }
-/* A percentage height is no safer here than on the button: the wrap's containing
-   block is a fixed-position element, so 78% resolves against the viewport and
-   the wordmark paints at viewport scale. Derive it instead. */
-body.manorama-desktop .control-logo .brand-mark-wrap { width: auto; height: calc(var(--desktop-chrome-height) * .78); margin: 0 auto; opacity: .9; transform: none; animation: none; }
-
+body.manorama-desktop .stage-arrows .stage-nav-arrow--next { grid-column: 2; grid-row: 1; }
 /* ── Light theme ─────────────────────────────────────────────────────────
    `html.light` (set by the account pane's theme action) flips `--ink` for
    the whole stylesheet. Any surface this shell paints with its own dark
