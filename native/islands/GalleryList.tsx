@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
+import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from '../../packages/core/owner-navigation'
+import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
@@ -159,7 +161,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [foldLayout, setFoldLayout] = useState<FoldLayout | null>(null)
   const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [paywallOpen, setPaywallOpen] = useState(false)
+  const [nav, dispatchNav] = useReducer(ownerNavReducer, initialOwnerNav(true))
   const [globalViewOpen, setGlobalViewOpen] = useState(false)
   // null while secure storage is still being asked; sign-in completes with a
   // full reload, so by the first paint the token is already on the device.
@@ -205,6 +207,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // remount when the same gallery is re-entered at a different frame.
   const [frameKick, setFrameKick] = useState({ index: 0, nonce: 0 })
   const [activePhotoIndex, setActivePhotoIndex] = useState(0)
+  const positionRef = useRef<{ imageId: string; index: number } | null>(null)
+  const navRef = useRef<OwnerNavState>(null as unknown as OwnerNavState)
+  navRef.current = nav
   const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
@@ -235,7 +240,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setFrameKick({ index: 0, nonce: 0 })
     setOwnerInput(deepLinkSelection.owner)
     setSlugInput(deepLinkSelection.slug)
-    setSelection(deepLinkSelection)
+    enterGallery(deepLinkSelection)
   }, [deepLinkSelection])
 
   useEffect(() => {
@@ -261,7 +266,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setFrameKick({ index: 0, nonce: 0 })
         setOwnerInput(next.owner)
         setSlugInput(next.slug)
-        setSelection(next)
+        enterGallery(next)
       })
       .catch((reason: unknown) => {
         if (quickAddInFlight.current !== sourceUrl) return
@@ -518,6 +523,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     return subscribeToRuntimeFoldLayout(sync)
   }, [])
 
+  const enterGallery = (next: Selection) => {
+    setSelection(next)
+    dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: next.owner, slug: next.slug } })
+  }
+
   const openGlobalFrame = (next: Selection, index: number) => {
     setGlobalViewOpen(false)
     setActivePhotoIndex(index)
@@ -527,11 +537,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       return
     }
     setFrameKick({ index, nonce: 0 })
-    setSelection(next)
+    enterGallery(next)
   }
 
   const returnToGalleries = () => {
     setGlobalViewOpen(false)
+    dispatchNav({ type: 'back' })
+    positionRef.current = null
     setManifest(null)
     setSettings(null)
     setSelection({ owner: '', slug: '' })
@@ -545,10 +557,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     let remove: (() => Promise<void>) | undefined
     void App.addListener('backButton', () => {
       if (globalViewOpen) { setGlobalViewOpen(false); return }
-      if (manifest) {
-        const modal = document.querySelector<HTMLElement>('.controls-modal:not([hidden]), .info-sheet:not([hidden])')
-        if (modal) { modal.querySelector<HTMLButtonElement>('button[data-close], button[aria-label^="Close"]')?.click(); return }
-        returnToGalleries()
+      const modal = document.querySelector<HTMLElement>('.controls-modal:not([hidden]), .info-sheet:not([hidden])')
+      if (modal) { modal.querySelector<HTMLButtonElement>('button[data-close], button[aria-label^="Close"]')?.click(); return }
+      if (overlayDepth() > 0) { closeTopOverlay(); return }
+      if (canGoBack(navRef.current)) {
+        if (navRef.current.screen.kind === 'viewer') returnToGalleries()
+        else dispatchNav({ type: 'back' })
         return
       }
       if (accountMenuOpen) { setAccountMenuOpen(false); return }
@@ -558,7 +572,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       else void listener.remove()
     })
     return () => { active = false; void remove?.() }
-  }, [manifest, globalViewOpen, accountMenuOpen])
+  }, [globalViewOpen, accountMenuOpen])
 
   /** The newest intent per gallery, which is what a queued write persists.
    *  State alone lags a tap by a render, and a write that reads it can land
@@ -589,6 +603,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     streamOnlyWrites.current.set(key, queued)
     await queued
   }
+
+  const suspendedViewer =
+    (nav.screen.kind === 'details' ||
+      (nav.screen.kind === 'reorder' && nav.screen.detailsFrom === 'viewer')) &&
+    nav.viewer !== null
 
   if (manifest && settings) {
     const source = new BundledSource(manifest)
@@ -628,6 +647,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
               <p class="quiet-copy" role="status" aria-live="polite">{vaultNote}</p>
               {vaultProgress && !streamOnly ? <progress value={vaultProgress.completed} max={vaultProgress.total} aria-label="Photos saved to encrypted vault" /> : null}
             </section>}
+            suspended={suspendedViewer}
+            onPositionChange={(position) => { positionRef.current = position }}
             onOpenGlobalView={(index = 0) => {
               setActivePhotoIndex(index)
               setGlobalViewOpen(true)
@@ -637,6 +658,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             foldRenderer={foldEligible ? renderFold : undefined}
           />
         </GalleryShell>
+        {suspendedViewer ? (
+          <div class="m-owner m-screen" data-screen={nav.screen.kind} style="position:fixed;inset:0;background:var(--m-ground);z-index:40">
+            {/* TODO(P7): real details / reorder screens mount here. */}
+            <h2 class="m-sr-only">{nav.screen.kind}</h2>
+          </div>
+        ) : null}
         {globalViewOpen ? (
           <GlobalView
             store={productionOfflineGalleryStore}
@@ -644,7 +671,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             downloadNote={vaultNote}
             tier={globalViewEnabled === true ? billingState?.tier : 'free'}
             current={selection}
-            active={{ selection, index: activePhotoIndex }}
+            active={{ selection, index: positionRef.current?.index ?? activePhotoIndex }}
             onOpenFrame={openGlobalFrame}
             onClose={() => setGlobalViewOpen(false)}
           />
@@ -653,16 +680,22 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     )
   }
 
-  if (paywallOpen && billing) {
-    return <Paywall billing={billing} onClose={() => setPaywallOpen(false)} />
+  if (nav.screen.kind === 'visionary' && billing) {
+    return <Paywall billing={billing} onClose={() => dispatchNav({ type: 'back' })} />
+  }
+
+  const openReorderFor = (gallery: { owner: string; slug: string; title: string }) => {
+    setEditorGallery(gallery)
+    dispatchNav({ type: 'open-reorder', gallery: { kind: 'published', owner: gallery.owner, slug: gallery.slug }, from: 'library' })
   }
 
   const openSelection = (owner: string, slug: string) => {
     setFrameKick({ index: 0, nonce: 0 })
-    setSelection({ owner, slug })
+    enterGallery({ owner, slug })
   }
 
   const signOut = async () => {
+    dispatchNav({ type: 'signed-out' })
     await clearSessionToken()
     try {
       await billing?.signOut()
@@ -793,7 +826,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setBillingNote('Subscriptions are unavailable right now. Please try again shortly.')
       return
     }
-    setPaywallOpen(true)
+    dispatchNav({ type: 'open-visionary', from: 'library' })
   }
 
   const openGallery = (event: Event) => {
@@ -1241,7 +1274,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                     {/* The four square actions the web dashboard offers, plus the
                         running-order editor that only exists native-side. */}
                     <div class="native-gallery-actions" role="group" aria-label={`${galleryName(gallery)} actions`}>
-                      <button type="button" title="Edit the running order" aria-label={`Edit the running order of ${galleryName(gallery)}`} disabled={!ownerSlug} onClick={() => ownerSlug && setEditorGallery({ owner: ownerSlug, slug: gallery.slug, title: galleryName(gallery) })}><ReorderIcon /></button>
+                      <button type="button" title="Edit the running order" aria-label={`Edit the running order of ${galleryName(gallery)}`} disabled={!ownerSlug} onClick={() => ownerSlug && openReorderFor({ owner: ownerSlug, slug: gallery.slug, title: galleryName(gallery) })}><ReorderIcon /></button>
                       <button type="button" title="Copy gallery link" aria-label={`Copy ${galleryName(gallery)} link`} onClick={() => void copyGalleryLink(gallery)}><CopyIcon /></button>
                       {gallery.sourceUrl ? <button type="button" title="Open the source folder" aria-label={`Open ${galleryName(gallery)} source`} onClick={() => openExternal(gallery.sourceUrl!)}><OpenIcon /></button> : null}
                       {gallery.sourceUrl ? <button type="button" title={gallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : 'Refresh from source'} aria-label={`Refresh ${galleryName(gallery)} from source`} disabled={galleryActionBusy !== null || gallery.retention === 'pipeline'} onClick={() => void mutateGallery(gallery, 'refresh')}><RefreshIcon /></button> : null}
@@ -1262,13 +1295,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         ) : null}
       </section>
     </main>
-    {editorGallery ? (
+    {nav.screen.kind === 'reorder' && editorGallery ? (
       <GalleryEditor
         owner={editorGallery.owner}
         slug={editorGallery.slug}
         title={editorGallery.title}
         apiBase={apiBase}
-        onClose={() => setEditorGallery(null)}
+        onClose={() => { setEditorGallery(null); dispatchNav({ type: 'back' }) }}
         onSaved={() => setAccountRevision((revision) => revision + 1)}
       />
     ) : null}
