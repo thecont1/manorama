@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test'
+import { showChrome } from './playwright-helpers'
 
 /**
  * Desktop video size caps.

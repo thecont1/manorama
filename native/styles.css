@@ -1584,3 +1584,12 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
   .native-editor-note { padding-inline: 40px; }
   .native-editor-actions { padding-inline: 40px; }
 }
+
+/* The rest bubble docks left of the forward arrow, same as the web. */
+body.manorama-native .stage-seq {
+  right: max(12px, var(--native-safe-right, 0px));
+  bottom: max(12px, var(--native-safe-bottom, 0px));
+}
+body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
+  right: calc(max(12px, var(--native-safe-right, 0px)) + var(--native-chrome-height, 56px) + 10px);
+}

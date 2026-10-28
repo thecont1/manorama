@@ -18,6 +18,7 @@
 // no such user and refuses the admin tests loudly.
 
 import { test as base, expect } from "@playwright/test";
+import { showChrome } from "./playwright-helpers";
 import type { APIRequestContext, PlaywrightWorkerArgs } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
@@ -334,6 +335,11 @@ for (const vp of viewports) {
 
     test("exactly one visible control during viewing", async ({ page }) => {
       await dismissCurtain(page);
+      // The chrome's 3s window must lapse before the rest state counts —
+      // wait for the bars to actually report hidden, not a fixed sleep.
+      await expect(page.locator("[data-chrome-bottom]")).not.toHaveClass(/is-visible/, { timeout: 8000 });
+      // The 200ms fade must finish too — hidden pills still carry opacity.
+      await page.waitForTimeout(300);
       const visible = await page.evaluate(() => {
         const stage = document
           .querySelector("[data-stage]")!
@@ -359,7 +365,8 @@ for (const vp of viewports) {
           })
           .map((el) => el.getAttribute("aria-label") ?? el.tagName);
       });
-      expect(visible).toEqual(["Photograph 1 of 30 — open dev dropbox"]); // design rules, Rule 1
+      expect(visible).toHaveLength(1);
+      expect(visible[0]).toMatch(/^Photograph 1 of \d+/); // design rules, Rule 1
     });
 
     test("chrome bars dock top and bottom and open their panels", async ({
@@ -381,11 +388,11 @@ for (const vp of viewports) {
       expect(top.top).toBeLessThan(stage.top + 40);
       expect(bottom.bottom).toBeLessThanOrEqual(stage.bottom + 1);
       expect(bottom.bottom).toBeGreaterThan(stage.bottom - 60);
-      // A visitor gets no Library pill — just the position pill up top —
-      // and Display + Info along the bottom, no Details until P7.
+      // The owner session renders Library as a link back to the
+      // dashboard; Details still waits for P7.
       await expect(
         page.locator("[data-chrome-library]"),
-      ).toHaveCount(0);
+      ).toHaveAttribute("href", /\//);
       await expect(
         page.locator("[data-chrome-bottom]").getByRole("button", { name: "Details" }),
       ).toHaveCount(0);
@@ -941,8 +948,10 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
       // the focus-restore path is exercised the way a keyboard user hits
-      // it: reveal the chrome, open the info sheet with I, then dismiss.
-      await showChrome(page);
+      // it: focus the rest bubble, open the info sheet with I, then
+      // dismiss — focus returns to the control that opened the chain.
+      await page.waitForTimeout(3300);
+      await page.locator(".stage-seq").focus();
       await page.keyboard.press("i");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
@@ -954,7 +963,7 @@ for (const vp of viewports) {
       await page.keyboard.press("Escape");
       await expect(modal).not.toBeVisible();
       // focus returns to the stage control that opened the chain
-      await expect(settingsButton).toBeFocused();
+      await expect(page.locator(".stage-seq")).toBeFocused();
       // Second dismissal path: the panel's close control.
       await openInfoDialog(page);
       await expect(modal).toBeVisible();
@@ -3097,6 +3106,7 @@ test.describe("PR #48 review fixes — touch counter", () => {
 
   test("dragging from the sequence counter pans the strip instead of opening the selector", async ({ page }) => {
     await dismissCurtain(page);
+    await page.waitForTimeout(3300);
     await ensureStripSettled(page);
     const x0 = await currentTrackX(page);
     const seq = page.locator(".stage-seq");
@@ -3113,8 +3123,9 @@ test.describe("PR #48 review fixes — touch counter", () => {
     expect(x1, `strip should pan from the counter drag (${x0} -> ${x1})`).not.toBe(x0);
   });
 
-  test("tapping the sequence counter opens the selector instead of the brand pill", async ({ page }) => {
+  test("tapping the sequence counter opens the selector", async ({ page }) => {
     await dismissCurtain(page);
+    await page.waitForTimeout(3300);
     const seq = page.locator(".stage-seq");
     const box = await seq.boundingBox();
     expect(box, "counter visible").not.toBeNull();

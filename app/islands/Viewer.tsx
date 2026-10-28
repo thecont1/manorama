@@ -1235,9 +1235,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     pause: pauseChrome,
   }
 
-  // Lifting the curtain is the first reveal cue.
+  // Lifting the curtain is the first reveal cue. The ref guard matters:
+  // hono re-invokes effects on later renders, and every state churn would
+  // otherwise restart the auto-hide window and pin the bars open.
+  const chromeShownForEntryRef = useRef(false)
   useEffect(() => {
-    if (galleryEntered) showChrome()
+    if (!galleryEntered) { chromeShownForEntryRef.current = false; return }
+    if (chromeShownForEntryRef.current) return
+    chromeShownForEntryRef.current = true
+    showChrome()
   }, [galleryEntered])
 
   // Magnifier availability is a media-query question, answered on the
