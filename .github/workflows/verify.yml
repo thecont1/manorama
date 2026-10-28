@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feat/iphone-redesign]
 
 jobs:
   verify:
@@ -16,11 +16,14 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
       - name: Unit tests
         run: bun test
 
-      - name: Sync Vendo knowledge (docs changed only)
-        if: hashFiles('docs/**') != ''
+      - name: Sync Vendo knowledge (docs changed only, main pushes only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('docs/**') != ''
         env:
           VENDO_API_KEY: ${{ secrets.VENDO_API_KEY }}
         run: bunx vendo knowledge sync
@@ -30,3 +33,9 @@ jobs:
 
       - name: Build
         run: bun run build
+
+      - name: Build native bundle
+        run: bun run build:native
+
+      - name: Build desktop bundle
+        run: bun run build:desktop
