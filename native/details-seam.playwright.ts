@@ -14,9 +14,17 @@ const photo = (index: number): GalleryImage => ({
   c2pa: false,
   placeholder: svg(`ph ${index + 1}`),
 })
-// ~30 stills — enough frames for a house plate to exist. No real mp4 can be
-// fabricated in a routed fixture, so the video leg skips gracefully.
-const manifestImages: GalleryImage[] = Array.from({ length: 30 }, (_, i) => photo(i))
+// ~30 stills — enough frames for a house plate to exist — plus one real
+// video at index 3 (ffmpeg-generated H.264, served by the fixture server).
+const videoItem = {
+  ...photo(3),
+  type: 'video',
+  mimeType: 'video/mp4',
+  src: '/fixtures/seam-clip.mp4',
+  durationSeconds: 3,
+  poster: { src: svg('video poster'), width: 640, height: 900 },
+} as unknown as GalleryImage
+const manifestImages: GalleryImage[] = Array.from({ length: 30 }, (_, i) => (i === 3 ? videoItem : photo(i)))
 const payload = JSON.stringify({
   manifest: { slug: 'seam-fixture', title: 'Seam fixture', caption: 'Suspended-viewer seam.', date: '2026-10-28', images: manifestImages },
   settings: {
@@ -125,7 +133,19 @@ test('active video pauses while suspended and resumes on unsuspend', async ({ pa
   await page.setViewportSize({ width: 375, height: 812 })
   await openFixture(page)
   await dismissCurtain(page)
-  // Find the video slide (fixture manifest may or may not carry one).
+  // ArrowRight advances by a stage-width, not a frame — several presses
+  // may be needed per photograph, and a press mid-glide only retargets
+  // the in-flight destination. Step one settled glide at a time until the
+  // counter reaches the video slide at index 3.
+  const seq = page.locator('.stage-seq')
+  for (let guard = 0; guard < 14; guard += 1) {
+    if ((await seq.getAttribute('aria-label'))?.includes('Photograph 4')) break
+    await page.keyboard.press('ArrowRight')
+    await page.waitForTimeout(900)
+  }
+  await expect(seq).toHaveAttribute('aria-label', /Photograph 4 of/)
+  // The media element mounts on the active slide after the glide commits.
+  await page.waitForTimeout(800)
   const hasVideo = await page.locator('video').count()
   test.skip(!hasVideo, 'fixture gallery carries no video')
   const playing = async () =>
@@ -133,11 +153,20 @@ test('active video pauses while suspended and resumes on unsuspend', async ({ pa
   for (let i = 0; i < 40 && !(await playing()); i += 1) {
     await page.keyboard.press('ArrowRight')
   }
-  test.skip(!(await playing()), 'routed fixture video cannot play (no real mp4)')
+  test.skip(!(await playing()), 'routed fixture video cannot play')
   await page.locator('#toggle-details').click()
-  expect(await playing()).toBe(false)
+  await expect.poll(() => playing()).toBe(false)
   await page.locator('#toggle-details').click()
   await expect.poll(() => playing()).toBe(true)
+
+  // A video paused for a reason the app understands stays paused through
+  // a suspend/resume cycle: reduced motion keeps autoplay disallowed.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => playing()).toBe(false)
+  await page.locator('#toggle-details').click()
+  await page.locator('#toggle-details').click()
+  expect(await playing()).toBe(false)
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
 })
 
 test('ad plate CTA is not actionable while suspended', async ({ page }) => {

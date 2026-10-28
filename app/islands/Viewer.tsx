@@ -602,7 +602,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       const nearest = max > 0 && x >= max - 1
         ? (explicit !== null && frameOnStage(explicit, x) ? explicit : images.length - 1)
         : leftmostFrameIndex(x)
-      if (reportedIndexRef.current !== nearest) {
+      if (pendingEntryRef.current === null && reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
       }
@@ -642,7 +642,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // Input-driven motion (drag, wheel, momentum) retires any pending
       // explicit destination: the strip now reports where it landed. A
       // report that moved nothing — an idle tap on the stage — must not.
-      if (moved) explicitIndexRef.current = null
+      if (moved) {
+        explicitIndexRef.current = null
+        pendingEntryRef.current = null
+      }
       reportStripPosition()
     }
     return value
@@ -967,11 +970,37 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // Enter-at-frame: instant and pre-paint, so the curtain lifts onto the
   // tapped photograph rather than the strip travelling to it in view.
   const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
+  // While the entry is re-anchoring, the index belongs to the target —
+  // position reports must not commit a frame inferred from stale offsets.
+  const pendingEntryRef = useRef<number | null>(null)
   useLayoutEffect(() => {
     if (entryFrameRef.current === null) return
     const target = entryFrameRef.current
     entryFrameRef.current = null
+    pendingEntryRef.current = target
     goTo(target, true)
+    // Frames are still at placeholder sizes when the entry anchors: as
+    // real images decode, offsets reflow and the stored X would sit over a
+    // different photograph. Keep the strip glued to the target frame until
+    // its offset repeats — then hand position reporting back.
+    let lastStart = Number.NaN
+    let stableFor = 0
+    let elapsed = 0
+    const reseed = () => {
+      const pending = pendingEntryRef.current
+      if (pending === null) return
+      const start = imageStart(pending)
+      settleTo(-start, true)
+      stableFor = start === lastStart ? stableFor + 1 : 0
+      lastStart = start
+      elapsed += 1
+      if (stableFor >= 3 || elapsed > 150) {
+        pendingEntryRef.current = null
+        return
+      }
+      requestAnimationFrame(reseed)
+    }
+    requestAnimationFrame(reseed)
   }, [])
 
   useLayoutEffect(() => {
@@ -1904,21 +1933,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // gated by suspendedRef, pointer/wheel input dies with the inert root,
   // and the active video pauses — nothing about index, offset or decode
   // state is touched, so un-suspending resumes the identical frame.
-  const suspendedWasPlaying = useRef(false)
-  const galleryEnteredRef = useRef(galleryEntered)
-  galleryEnteredRef.current = galleryEntered
+  // Suspension freezes the session in place: modals close, keyboard is
+  // gated by suspendedRef, pointer/wheel input dies with the inert root,
+  // and VideoSlide treats suspended as an autoplay-disallowed input —
+  // nothing about index, offset or decode state is touched, so
+  // un-suspending resumes the identical frame.
   useEffect(() => {
-    const stage = stageRef.current
-    if (!suspended || !stage) return
+    if (!suspended) return
     requestCloseModals()
-    const video = stage.querySelector('video')
-    suspendedWasPlaying.current = Boolean(video && !video.paused)
-    video?.pause()
-    return () => {
-      // Resume only while unsuspending and only if it was playing — a
-      // galleryEntered flip during suspension must not restart playback.
-      if (suspendedWasPlaying.current && !suspendedRef.current && galleryEnteredRef.current) video?.play().catch(() => {})
-    }
   }, [suspended])
 
   // Committed-position reporting: the index state only advances on a
@@ -2083,6 +2105,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                         isActive={imageIndex === index}
                         soundOn={soundOn}
                         prefersReducedMotion={reducedMotion}
+                        suspended={suspended}
                         onToggleSound={setSoundOn}
                         boxStyle={cappedMediaStyle}
                       />
@@ -2459,5 +2482,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           </section>
         </div>
       </div>
-        </div>  )
+    </div>
+  )
 }

@@ -116,11 +116,7 @@ test.describe('standing preferences', () => {
     await context.close()
   })
 
-  // SSR honours ?photo= correctly (initialIndex 3, "Photograph 4" server-side)
-  // but the hydrated client settles at a later frame — the nonzero
-  // initialIndex entry path was only ever used by native's frameKick, so the
-  // web entry races something downstream. FIXME: P2 follow-up.
-  test.fixme('?photo= opens on that photograph, cleans the URL, and a reload restarts', async ({ browser }) => {
+  test('?photo= opens on that photograph, cleans the URL, and a reload restarts', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
     await signIn(context)
     const page = await context.newPage()
