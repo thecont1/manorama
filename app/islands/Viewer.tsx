@@ -200,11 +200,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
-  // One-at-a-time sweep: the outgoing frame stays mounted and fully
-  // opaque while the incoming frame wipes over it behind an opaque
-  // canvas card — no transparency ever lands on the background field.
+  // One-at-a-time fade: the outgoing frame stays mounted and fully
+  // opaque through its 90ms out-fade so no transparency ever lands on
+  // the background field behind the incoming photograph.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
-  const sweepTimerRef = useRef<number | null>(null)
+  const leavingTimerRef = useRef<number | null>(null)
   const singleFadeSeqRef = useRef(0)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
@@ -859,8 +859,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       ready.then(() => {
         if (seq !== singleFadeSeqRef.current || unmountedRef.current) return
         setIndex(next)
-        if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
-        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 170)
+        if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
+        leavingTimerRef.current = window.setTimeout(() => { leavingTimerRef.current = null; setLeavingIndex(null) }, 170)
       })
     } else {
       setIndex(next)
@@ -2054,7 +2054,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => () => {
     unmountedRef.current = true
-    if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
+    if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
@@ -2197,8 +2197,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
             // Single mode also keeps the outgoing frame's media mounted
-            // through the sweep, and pre-mounts the immediate neighbours
-            // so a step starts from decoded pixels, not a fetch.
+            // through its out-fade, and pre-mounts the immediate
+            // neighbours so a step starts from decoded pixels, not a fetch.
             const mountsMedia = isActive || (mode === 'single' && (imageIndex === leavingIndex || Math.abs(imageIndex - index) <= 1))
             const healed = healedDims[image.id]
             const frameW = healed?.w ?? image.width
