@@ -14,6 +14,8 @@ export type ViewerChromeProps = {
   onOpenDisplay: () => void
   onOpenInfo: () => void
   onOpenPicker: () => void
+  /** Same wording the rest bubble uses: "Photograph N of M — open X". */
+  pickerAriaLabel: string
   /** TODO(P7/P10): Details arrives with the details screens. */
   onOpenDetails?: (position: { index: number; total: number }) => void
   /** The skip button and any focus/hover entering the chrome ask the
@@ -35,6 +37,7 @@ export default function ViewerChrome({
   onOpenDisplay,
   onOpenInfo,
   onOpenPicker,
+  pickerAriaLabel,
   onOpenDetails,
   onRequestShow,
   onActivity,
@@ -69,7 +72,7 @@ export default function ViewerChrome({
             </button>
           )
         ) : null}
-        <button type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={`Photograph ${position.index + 1} of ${position.total} — open picker`} data-chrome-position>
+        <button type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position>
           {position.index + 1} of {position.total}
         </button>
       </header>

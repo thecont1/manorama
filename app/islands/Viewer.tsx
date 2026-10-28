@@ -335,7 +335,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setChromeVisible(true)
     scheduleChromeHide()
   }
-  const hideChrome = () => { clearChromeTimer(); setChromeVisible(false) }
+  const hideChrome = () => {
+    clearChromeTimer()
+    setChromeVisible(false)
+    const active = document.activeElement as HTMLElement | null
+    if (active?.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
+      stageRef.current?.focus({ preventScroll: true })
+    }
+  }
   const pauseChrome = () => { clearChromeTimer() }
   const requestShowChrome = () => {
     showChrome()
@@ -2347,6 +2354,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         onOpenDisplay={openDisplaySettings}
         onOpenInfo={openImageProvenance}
         onOpenPicker={openGrid}
+        pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`}
         onRequestShow={requestShowChrome}
         onActivity={pauseChrome}
         onIdle={scheduleChromeHide}
