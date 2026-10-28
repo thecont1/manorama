@@ -1241,10 +1241,18 @@ for (const vp of viewports) {
       await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await page.getByRole("button", { name: /next photograph/i }).click();
-      const docked = await page
-        .locator("[data-stage] [aria-current='true']")
-        .getAttribute("data-index");
-      expect(Number(docked)).toBeGreaterThan(1);
+      // The two-beat fade commits the index after the out-fade + decode
+      // — poll for the dock instead of reading the same frame.
+      let docked = "1";
+      await expect
+        .poll(async () => {
+          docked =
+            (await page
+              .locator("[data-stage] [aria-current='true']")
+              .getAttribute("data-index")) ?? "1";
+          return Number(docked);
+        })
+        .toBeGreaterThan(1);
       await openInfoDialog(page);
       await expect(
         page.getByRole("dialog", { name: `Photograph ${docked} of ${await imageCount(page)}` }),
