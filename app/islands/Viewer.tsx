@@ -944,19 +944,25 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const dismiss = () => {
       if (curtain.hidden || curtain.classList.contains('fading')) return
       // Drop focus before aria-hidden so a focused node never sits inside
-      // a hidden subtree; the stage receives it once the veil clears.
+      // a hidden subtree; the stage receives it below, at the tap — the
+      // one thing that changes while the veil dissolves.
       if (document.activeElement === curtain) curtain.blur()
       curtain.setAttribute('aria-hidden', 'true')
       curtain.classList.add('fading')
+      // gallery-entered opens the input gates immediately: a key or tap
+      // landing mid-dissolve still reaches the viewer. The React twin
+      // waits for finish() — it is what reveals the chrome and mounts
+      // ambient media, and those belong to the photograph being clear.
+      document.body.classList.add('gallery-entered')
+      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
+      focusTarget?.focus({ preventScroll: true })
       const finish = () => {
         curtain.removeEventListener('transitionend', onFadeEnd)
         if (finishTimer) window.clearTimeout(finishTimer)
         curtain.classList.remove('fading')
         curtain.hidden = true
         // The viewer controls appear once the photograph is clear.
-        entered()
-        const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
-        focusTarget?.focus({ preventScroll: true })
+        setGalleryEntered(true)
       }
       const onFadeEnd = (event: TransitionEvent) => {
         if (event.target === curtain && event.propertyName === 'opacity') finish()
