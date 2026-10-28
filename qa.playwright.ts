@@ -1089,6 +1089,7 @@ for (const vp of viewports) {
         .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await page.keyboard.press("Escape");
       // Single mode brings them back, stepping one image at a time.
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
