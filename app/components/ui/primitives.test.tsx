@@ -118,13 +118,19 @@ describe('Segmented', () => {
     expect(radios[1].getAttribute('tabindex')).toBe('-1')
     keydown(group, 'ArrowRight')
     await tick()
-    expect(container.querySelectorAll('[role="radio"]')[1].getAttribute('aria-checked')).toBe('true')
+    const second = container.querySelectorAll('[role="radio"]')[1]
+    expect(second.getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement).toBe(second)
     keydown(group, 'End')
     await tick()
-    expect(container.querySelectorAll('[role="radio"]')[2].getAttribute('aria-checked')).toBe('true')
+    const last = container.querySelectorAll('[role="radio"]')[2]
+    expect(last.getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement).toBe(last)
     keydown(group, 'Home')
     await tick()
-    expect(container.querySelectorAll('[role="radio"]')[0].getAttribute('aria-checked')).toBe('true')
+    const first = container.querySelectorAll('[role="radio"]')[0]
+    expect(first.getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement).toBe(first)
   })
 })
 
@@ -158,12 +164,23 @@ describe('Sheet', () => {
 
 describe('announce', () => {
   test('repeats are re-announced through one live region', async () => {
+    const seen: string[] = []
+    const observer = new MutationObserver(() => {
+      const region = document.querySelector('.m-sr-only[aria-live]')
+      if (region) seen.push(region.textContent ?? '')
+    })
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
     announce('Saved')
     announce('Saved')
     await new Promise((r) => setTimeout(r, 30))
+    observer.disconnect()
     const regions = document.querySelectorAll('.m-sr-only[aria-live]')
     expect(regions.length).toBe(1)
     expect(regions[0].textContent).toBe('Saved')
+    // A repeated message is only re-announced because the region is cleared
+    // and refilled — the mutation trail must show the empty beat.
+    expect(seen).toContain('')
+    expect(seen[seen.length - 1]).toBe('Saved')
     announce('Saved', 'assertive')
     await new Promise((r) => setTimeout(r, 30))
     expect(regions[0].getAttribute('aria-live')).toBe('assertive')

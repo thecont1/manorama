@@ -1,4 +1,4 @@
-import { useState } from 'hono/jsx'
+import { useRef, useState } from 'hono/jsx'
 
 /** Segmented control: role=radiogroup, options role=radio with a roving
  *  tabindex; Arrow/Home/End keys move and select. */
@@ -13,6 +13,7 @@ type Props<T extends string> = {
 
 export function Segmented<T extends string>({ label, options, value, onChange }: Props<T>) {
   const [focusIdx, setFocusIdx] = useState(() => Math.max(0, options.findIndex((o) => o.value === value)))
+  const groupRef = useRef<HTMLDivElement | null>(null)
   const currentIdx = options.findIndex((o) => o.value === value)
   const activeIdx = currentIdx >= 0 ? currentIdx : focusIdx
 
@@ -20,6 +21,11 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
     const wrapped = (next + options.length) % options.length
     setFocusIdx(wrapped)
     onChange(options[wrapped].value)
+    // Arrow-key selection must carry DOM focus along with it — the radio
+    // pattern fails when the checked option moves but focus stays behind
+    // on an element that has just gone tabindex=-1.
+    const radios = groupRef.current?.querySelectorAll<HTMLElement>('[role="radio"]')
+    radios?.[wrapped]?.focus()
   }
 
   const onKeyDown = (e: { key: string; preventDefault(): void }) => {
@@ -30,7 +36,7 @@ export function Segmented<T extends string>({ label, options, value, onChange }:
   }
 
   return (
-    <div class="m-segmented" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
+    <div class="m-segmented" role="radiogroup" aria-label={label} onKeyDown={onKeyDown} ref={groupRef}>
       {options.map((option, i) => (
         <button
           type="button"
