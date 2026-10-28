@@ -301,6 +301,7 @@ test.describe('native ad plate rules', () => {
   })
 
   test('activates the CTA only when the plate is centered and settled', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     const opened = await openApp(page, 36)
     const cta = plateCta(page)
 
@@ -314,6 +315,11 @@ test.describe('native ad plate rules', () => {
     await cta.click()
     expect((await openedUrls(opened)).every((url) => houseCta.test(url))).toBe(true)
     expect(await openedUrls(opened)).toHaveLength(1)
+
+    // The tap disarms the plate (beginDrag clears actionability); the settled
+    // re-measure re-arms it on a later frame. Wait for the arm before the
+    // keyboard activation, which is gated on the same live predicate.
+    await expect(cta).toHaveAttribute('tabindex', '0', { timeout: 5000 })
 
     // Keyboard activation is a real target=_blank popup, not window.open.
     const popupPromise = page.waitForEvent('popup')
