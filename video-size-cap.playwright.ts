@@ -42,6 +42,9 @@ const setMode = async (page: Page, mode: string) => {
   }
   await radio.waitFor({ state: 'visible', timeout: 30000 })
   await radio.check()
+  // An open sheet counts as a modal: the viewer keeps the video unmounted
+  // behind it, so the measurement below would read a poster-only frame.
+  await page.keyboard.press('Escape')
   await page.waitForTimeout(2000)
 }
 
