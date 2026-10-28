@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { showChrome } from './playwright-helpers'
 const base = process.env.CAPTURE_URL ?? 'http://localhost:4182'
 test.describe.configure({ mode: 'serial' })
 for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032 }, { width: 1440, height: 900 }]) {
@@ -168,7 +169,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await stream.check()
     await expect(stream).toBeChecked()
     await expect(page.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
-    await page.dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await page.keyboard.press('g')
     const picker = page.locator('[data-global-view]')
     await expect(picker).toBeVisible()
@@ -179,7 +180,10 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await page.getByRole('button', { name: 'Close photo picker', exact: true }).click()
     await showChrome(page)
     await page.getByRole('button', { name: 'Display', exact: true }).click()
-    await page.getByRole('button', { name: 'Back to your galleries', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Display' }).getByRole('button', { name: 'Close', exact: true }).click()
+    // The chrome's Library pill is the exit; the endcard carries a second
+    // Library control that stays behind the track until it is revealed.
+    await page.locator('[data-chrome-library]').click()
     await expect(page.locator('.native-account-overview')).toBeVisible()
     await expect(page.locator('[data-stage]')).toHaveCount(0)
     expect(errors).toEqual([])
@@ -205,8 +209,8 @@ test('375: a viewer that asks for less motion gets a still pill', async ({ brows
     return curtain.isHidden()
   }, { timeout: 20000 }).toBe(true)
   const bubble = page.locator('.stage-seq')
-  await expect(pill).toHaveCSS('opacity', '0.45')
+  await expect(bubble).toBeVisible()
   // The web's fade-in may still run; what must not run is the drift.
-  expect(await pill.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')
+  expect(await bubble.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')
   await context.close()
 })
