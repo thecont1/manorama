@@ -1,4 +1,4 @@
-import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
+import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
@@ -6,6 +6,9 @@ import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } fro
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import ViewerChrome from '../components/viewer/ViewerChrome'
+import DisplaySheet from '../components/viewer/DisplaySheet'
+import InfoSheet from '../components/viewer/InfoSheet'
+import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 import { platePositionsFor, type AdFrame } from '../lib/adframe'
@@ -35,7 +38,7 @@ type Props = {
   onOpenGlobalView?: (index: number) => void
   /** Native-only actions remain in the controls panel, never on the stage. */
   onReturnToGalleries?: () => void
-  deviceControls?: unknown
+  deviceControls?: Child
   /** Mount-time frame entry — the global grid lands the stage on the tapped
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
@@ -273,8 +276,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
-  const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
-  const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
+  const openDisplaySettings = () => {
+    previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
+    anyModalOpenRef.current = true
+    setModalOpen(true)
+  }
+  const openImageInfo = () => {
+    // Settings → info is a nested open: keep the first invoker so closing
+    // the sheet returns focus to what opened the chain, not a panel control.
+    if (previousFocusRef.current === null) previousFocusRef.current = document.activeElement as HTMLElement | null
+    anyModalOpenRef.current = true
+    setInfoOpen(true)
+  }
   const openGrid = () => {
     if (onOpenGlobalView) {
       onOpenGlobalView(indexRef.current)
@@ -1483,7 +1496,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const onTapDown = (event: PointerEvent) => {
       if (!event.isPrimary) return
       const el = event.target as HTMLElement
-      if (el.closest('button, a, video, input, select, textarea, [data-nav-arrow], .viewer-filmstrip, .controls-modal, .info-sheet')) return
+      if (el.closest('button, a, video, input, select, textarea, [data-nav-arrow], .viewer-filmstrip, .m-sheet-host')) return
       tap = { x: event.clientX, y: event.clientY, t: performance.now() }
     }
     const onTapUp = (event: PointerEvent) => {
@@ -1705,12 +1718,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     if (!modalOpen && !infoOpen) return
     const modal = modalOpen ? modalRef.current : infoModalRef.current
-    // Settings → info is a nested open: keep the first invoker so closing
-    // the sheet returns focus to the logo, not a now-hidden panel button.
-    if (previousFocusRef.current === null) previousFocusRef.current = document.activeElement as HTMLElement
     requestAnimationFrame(() => {
       modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
-      modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
     })
   }, [modalOpen, infoOpen])
 
@@ -1722,35 +1731,51 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
   }, [modalOpen, infoOpen])
 
-  const openCredentials = async () => {
+  // Content Credential checks run through a serial queue: one check in
+  // flight keyed by image id, the newest queued request supersedes a
+  // still-waiting one, and results land in per-id state so a settled
+  // check can never surface against another photograph.
+  const credentialQueueRef = useRef<ReturnType<typeof createCredentialQueue> | null>(null)
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  const credentialChecker = async (imageId: string): Promise<'verified' | 'unavailable'> => {
+    const image = imagesRef.current.find((item) => item.id === imageId)
+    if (!image?.c2pa || isVideoItem(image)) return 'unavailable'
+    const [{ createC2pa }, _webComponents] = await Promise.all([
+      import('@contentauth/c2pa-web') as Promise<{ createC2pa: (config: { wasmSrc: string }) => Promise<any> }>,
+      import('c2pa-wc'),
+    ])
+    if (!c2paRef.current) c2paRef.current = await createC2pa({ wasmSrc: '/vendor/c2pa_bg.wasm' })
+    const response = await fetch(image.src, { cache: 'force-cache' })
+    const blob = await response.blob()
+    const c2paReader = await c2paRef.current.reader.fromBlob(blob.type, blob)
+    try {
+      const store = await c2paReader.manifestStore()
+      const hasManifest = Boolean(store && JSON.stringify(store).length > 2)
+      if (hasManifest) setCredentialStores((previous) => ({ ...previous, [imageId]: store }))
+      return hasManifest ? 'verified' : 'unavailable'
+    } finally {
+      await c2paReader.free()
+    }
+  }
+  if (!credentialQueueRef.current) credentialQueueRef.current = createCredentialQueue(credentialChecker)
+
+  const openCredentials = () => {
     if (!currentImage) return
     if (!currentImage.c2pa) {
       setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'unavailable' }))
       return
     }
-    setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'loading' }))
-    try {
-      const [{ createC2pa }, _webComponents] = await Promise.all([
-        import('@contentauth/c2pa-web') as Promise<{ createC2pa: (config: { wasmSrc: string }) => Promise<any> }>,
-        import('c2pa-wc'),
-      ])
-      if (!c2paRef.current) c2paRef.current = await createC2pa({ wasmSrc: '/vendor/c2pa_bg.wasm' })
-      const response = await fetch(currentImage.src, { cache: 'force-cache' })
-      const blob = await response.blob()
-      const c2paReader = await c2paRef.current.reader.fromBlob(blob.type, blob)
-      const store = await c2paReader.manifestStore()
-      const hasManifest = Boolean(store && JSON.stringify(store).length > 2)
-      await c2paReader.free()
-      if (hasManifest) setCredentialStores((previous) => ({ ...previous, [currentImage.id]: store }))
-      setCredentialState((previous) => ({ ...previous, [currentImage.id]: hasManifest ? 'verified' : 'unavailable' }))
-    } catch {
-      setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'unavailable' }))
-    }
+    const imageId = currentImage.id
+    setCredentialState((previous) => ({ ...previous, [imageId]: 'loading' }))
+    void credentialQueueRef.current!.enqueue(imageId).then((result) => {
+      setCredentialState((previous) => ({ ...previous, [imageId]: result }))
+    })
   }
 
   const openImageProvenance = () => {
     openImageInfo()
-    if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
+    if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') openCredentials()
   }
 
   /** The external viewer fetches the file itself, so only absolute http(s)
@@ -2414,142 +2439,46 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         </div>
       </> : null}
 
-      <div
-        ref={modalRef}
-        class="controls-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Display settings"
-        hidden={!modalOpen}
-        onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
-        onKeyDown={onModalKeyDown}
-      >
-        <div class="controls-panel" style={foldPanelStyle}>
-          <div class="controls-panel-topbar">
-            <div class="controls-panel-brand brand-mark-wrap" aria-hidden="true">
-              <img src="/manorama-merged-logo.png" alt="" />
-              <span class="brand-tld">.xyz</span>
-            </div>
-            <button data-close class="quiet-button panel-close" aria-label="Close display settings" onClick={() => closeModals()}>
-              <span class="panel-close-mark" aria-hidden="true">×</span>
-              <span>Close</span>
-            </button>
-          </div>
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>Display settings</h2>
-            </div>
-          </div>
-
-          {deviceControls}
-
-          <section class="panel-section" aria-labelledby="view-mode-heading">
-            <h3 id="view-mode-heading">View mode</h3>
-            <div class="mode-options" role="radiogroup" aria-label="View mode">
-              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); closeModals() }} /> <span>Horizontal Strip</span><small>full-height, continuous</small></label>
-              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); closeModals() }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
-              <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); closeModals() }} /> <span>One at a time</span><small>advance per gesture</small></label>
-            </div>
-          </section>
-
-          <section class="panel-section" aria-labelledby="background-heading">
-            <h3 id="background-heading">Background</h3>
-            {/* 'none' leaves photographs abutting on the bare dark canvas;
-                Light and Dark wake the doodle field — keyed to this
-                gallery's URL, so the same album always wears the same
-                pattern — and give every image a 10px margin on the
-                trailing side. */}
-            <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
-              <label><input type="radio" name="background-mode" value="none" checked={background === 'none'} onChange={() => { setBackground('none'); saveBackgroundPreference('none'); closeModals() }} /> <span>None</span><small>photographs abut on the dark canvas</small></label>
-              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles, 10px margins</small></label>
-              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles, 10px margins</small></label>
-            </div>
-          </section>
-
-          <section class="panel-section compact-section" aria-label="Display options">
-            <div class="panel-actions">
-              <button type="button" class="panel-action" onClick={() => { if (mode === 'vertical') setShowArrowsVertical(!showArrowsVertical); else setShowArrows(!showArrows); closeModals() }}>{arrowsOn ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>
-              {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
-            </div>
-          </section>
-
-          <section class="panel-section" aria-labelledby="about-heading" hidden>
-            <h3 id="about-heading">About this gallery</h3>
-            <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
-          </section>
-
-          <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
-            <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
-            <p><kbd>G</kbd> photograph selector</p>
-            <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
-            <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
-            {/* Pointer-gated: a loupe replacing the cursor means nothing
-                on a touch device, so the row only exists where the key
-                actually works. */}
-            {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
-            <p><kbd>I</kbd> image info</p>
-            <p><kbd>⇧I</kbd> standalone c2pa viewer (new tab)</p>
-            <p><kbd>Esc</kbd> close controls</p>
-          </section>
-
-          {/* The one bit of chrome every gallery carries: the privacy
-              policy and the copyright line. Docked at the bottom of the
-              brand popover — present without ever interrupting the
-              photographs. Opens in a new tab so the gallery keeps its
-              place. */}
-          <footer class="panel-legal">
-            <a href="/privacy" target="_blank" rel="noopener" onClick={() => closeModals()}>Privacy policy</a>
-            <span aria-hidden="true"> · </span>© 2026 manorama
-          </footer>
-        </div>
+      <div ref={modalRef}>
+        <DisplaySheet
+          open={modalOpen}
+          onClose={requestCloseModals}
+          mode={mode}
+          onMode={setMode}
+          background={background}
+          onBackground={(next) => { setBackground(next); saveBackgroundPreference(next) }}
+          arrowsOn={arrowsOn}
+          onArrows={(on) => { if (mode === 'vertical') setShowArrowsVertical(on); else setShowArrows(on) }}
+          fullscreenAvailable={fullscreenAvailable}
+          fullscreenActive={fullscreenActive}
+          onFullscreen={() => { void toggleFullscreen() }}
+          showShortcuts={magnifierAvailable}
+          magnifierAvailable={magnifierAvailable}
+          magnifierActive={magnifierActive}
+          deviceControls={deviceControls}
+          privacyHref="/privacy"
+          panelStyle={foldPanelStyle}
+        />
       </div>
 
-      <div
-        ref={infoModalRef}
-        class="controls-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Image information and Content Credentials"
-        hidden={!infoOpen}
-        onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
-        onKeyDown={onModalKeyDown}
-      >
-        <div class="controls-panel" style={foldPanelStyle}>
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>{currentIsVideo ? 'Current video' : 'Current photograph'}</h2>
-            </div>
-            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => closeModals()}>Close</button>
-          </div>
-
-          <section class="panel-section" aria-labelledby="position-heading">
-            <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
-            <p class="quiet-copy">{currentIsVideo ? 'Video' : 'Photograph'} {index + 1} of {images.length}</p>
-          </section>
-
-          <section class="panel-section" aria-labelledby="info-heading">
-            <h3 id="info-heading">{currentIsVideo ? 'Video info' : 'Image info'}</h3>
-            <dl class="info-grid">
-              <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
-              <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
-              {currentImage?.caption ? <div><dt>Caption</dt><dd>{currentImage.caption}</dd></div> : null}
-              {currentVideo ? <div><dt>Type</dt><dd>Video ({currentVideo.mimeType})</dd></div> : null}
-              {currentVideo?.durationSeconds ? <div><dt>Duration</dt><dd>{formatDuration(currentVideo.durationSeconds)}</dd></div> : null}
-              {currentExif?.camera ? <div><dt>Camera</dt><dd>{currentExif.camera}</dd></div> : null}
-              {currentExif?.lens ? <div><dt>Lens</dt><dd>{currentExif.lens}</dd></div> : null}
-              {currentExif?.aperture ? <div><dt>Aperture</dt><dd>{currentExif.aperture}</dd></div> : null}
-              {currentExif?.iso ? <div><dt>ISO</dt><dd>{currentExif.iso}</dd></div> : null}
-              {currentExif?.dateOriginal ? <div><dt>Captured</dt><dd>{currentExif.dateOriginal}</dd></div> : null}
-            </dl>
-          </section>
-
-          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading">
-            <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
-            {!currentImage?.c2pa ? <p class="quiet-copy">{currentIsVideo ? 'This video carries no Content Credentials.' : 'This photograph carries no Content Credentials.'}</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
-          </section>
-        </div>
+      <div ref={infoModalRef}>
+        <InfoSheet
+          open={infoOpen}
+          onClose={requestCloseModals}
+          index={index}
+          total={images.length}
+          image={currentImage}
+          isVideo={currentIsVideo}
+          mimeType={currentVideo?.mimeType}
+          durationSeconds={currentVideo?.durationSeconds}
+          caption={currentImage?.caption}
+          camera={[currentExif?.camera, currentExif?.lens, currentExif?.aperture, currentExif?.iso].filter(Boolean) as string[]}
+          captured={currentExif?.dateOriginal}
+          credentialState={currentImage ? credentialState[currentImage.id] : undefined}
+          credentialStore={currentImage ? credentialStores[currentImage.id] : undefined}
+          onRetryCredentials={openCredentials}
+          panelStyle={foldPanelStyle}
+        />
       </div>
     </div>
   )

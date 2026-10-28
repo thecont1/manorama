@@ -51,14 +51,6 @@
 .stage-arrows button:hover {
   background: var(--native-stage-surface-strong);
 }
-.controls-modal {
-  color: var(--native-stage-ink);
-  background: var(--native-stage-surface);
-}
-.controls-panel {
-  border-color: var(--native-stage-border);
-  background: var(--native-stage-surface-strong);
-}
 .curtain {
   color: var(--native-stage-ink);
   background: linear-gradient(130deg, var(--native-curtain-start), var(--native-stage-surface-strong) 58%, var(--native-curtain-end));

@@ -985,14 +985,6 @@ body.manorama-native:not(.gallery-entered) .stage-seq {
   pointer-events: none;
 }
 
-/* The settings topbar reads as one line: the wordmark sets the height and the
-   Close control matches it, so neither sits proud of the other. */
-body.manorama-native .controls-panel-topbar { align-items: center; }
-body.manorama-native .controls-panel-topbar .controls-panel-brand,
-body.manorama-native .controls-panel-topbar .panel-close {
-  box-sizing: border-box;
-  height: var(--native-chrome-height);
-}
 /* Four controls do not fit across a phone: the previous arrow was encroaching on
    the sequence readout, and three equal pills wasted the fact that the index is
    always a circle. On narrow viewports the row carries three controls — the
@@ -1062,25 +1054,6 @@ body.manorama-native .controls-panel-topbar .panel-close {
     align-self: start;
     margin-top: 0;
   }
-}
-/* The Close control is a square with a thin X in it, and no word. The wordmark
-   on the other side already names the panel, so "Close" was repeating it, and a
-   square matching the round controls the rest of the viewer uses keeps the panel
-   reading as the same family. */
-body.manorama-native .controls-panel-topbar .panel-close {
-  display: grid;
-  place-items: center;
-  gap: 0;
-  padding: 0;
-  width: var(--native-chrome-height);
-  height: var(--native-chrome-height);
-  border-radius: 0;
-}
-body.manorama-native .controls-panel-topbar .panel-close > span:last-child { display: none; }
-body.manorama-native .controls-panel-topbar .panel-close-mark {
-  font-size: calc(var(--native-chrome-height) * .52);
-  font-weight: 200;
-  line-height: 1;
 }
 /* The WebView paints under the status bar now, and the body reserves the notch
    as padding — so the strip above a surface is the *body's* own background.
