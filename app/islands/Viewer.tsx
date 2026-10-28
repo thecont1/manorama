@@ -1258,6 +1258,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     pause: pauseChrome,
   }
 
+  // The `i`/`I` key handler subscribes once and reaches these through a ref —
+  // deps like [index] would unplug it for a few frames on every commit
+  // (hono/jsx re-arms passive effects asynchronously) and swallow a fast I.
+  const infoActionsRef = useRef({ provenance: () => {}, external: () => {} })
+
   // Lifting the curtain is the first reveal cue. The ref guard matters:
   // hono re-invokes effects on later renders, and every state churn would
   // otherwise restart the auto-hide window and pin the bars open.
@@ -1392,12 +1397,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // I opens the in-gallery info sheet directly; ⇧I jumps to the
       // standalone C2PA viewer instead (falling back to the sheet for
       // sources it cannot fetch).
-      if (event.shiftKey) openCurrentImageInfo()
-      else openImageProvenance()
+      if (event.shiftKey) infoActionsRef.current.external()
+      else infoActionsRef.current.provenance()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, images.length])
+  }, [])
 
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -1803,6 +1808,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     if (currentIsVideo || !/^https?:/i.test(absolute)) { openImageProvenance(); return }
     window.open(`${C2PA_VIEWER_URL}?uri=${encodeURIComponent(absolute)}`, '_blank', 'noopener')
   }
+  infoActionsRef.current = { provenance: openImageProvenance, external: openCurrentImageInfo }
 
   // HEIC originals can't render in a browser, so decode them at full
   // resolution via libheif WASM — lazily, only when a frame enters the
