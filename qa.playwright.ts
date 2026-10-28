@@ -131,8 +131,11 @@ async function ensureNavArrows(page: import("@playwright/test").Page) {
       .getByRole("switch", { name: /^arrows$/i })
       .click();
     // The sheet stays open on a change — dismiss it before the stage is
-    // needed, or the scrim eats the next click.
+    // needed, or the scrim eats the next click. Waiting for the scrim to
+    // actually clear matters under load: Escape can land before the
+    // sheet finishes mounting.
     await page.keyboard.press("Escape");
+    await expect(page.locator(".m-scrim--open")).toHaveCount(0);
   }
 }
 
@@ -356,19 +359,18 @@ for (const vp of viewports) {
       await expect(page.locator("[data-chrome-bottom]")).not.toHaveClass(/is-visible/, { timeout: 8000 });
       // The 200ms fade must finish too — hidden pills still carry opacity.
       await page.waitForTimeout(300);
-      const visible = await page.evaluate(() => {
-        const stage = document
-          .querySelector("[data-stage]")!
-          .getBoundingClientRect();
-        return [...document.querySelectorAll("body *")]
+      const audit = await page.evaluate(() => {
+        const stage = document.querySelector("[data-stage]")!;
+        const rect = stage.getBoundingClientRect();
+        const visible = [...document.querySelectorAll("body *")]
           .filter((el) => {
             const r = el.getBoundingClientRect();
             const s = getComputedStyle(el);
             const overStage =
-              r.left < stage.right &&
-              r.right > stage.left &&
-              r.top < stage.bottom &&
-              r.bottom > stage.top;
+              r.left < rect.right &&
+              r.right > rect.left &&
+              r.top < rect.bottom &&
+              r.bottom > rect.top;
             return (
               overStage &&
               !el.closest("[data-stage]") &&
@@ -380,9 +382,15 @@ for (const vp of viewports) {
             );
           })
           .map((el) => el.getAttribute("aria-label") ?? el.tagName);
+        return { visible, arrowBar: stage.classList.contains("has-arrow-bar") };
       });
-      expect(visible).toHaveLength(1);
-      expect(visible[0]).toMatch(/^Photograph 1 of \d+/); // design rules, Rule 1
+      // Rule 1: nothing floats on the photograph. With arrows on, the
+      // controls live in their own bar beneath the stage — zero overlap;
+      // with them off, only the position count rides the corner.
+      expect(audit.visible).toHaveLength(audit.arrowBar ? 0 : 1);
+      if (!audit.arrowBar) expect(audit.visible[0]).toMatch(/^Photograph 1 of \d+/);
+      await expect(page.locator(".stage-seq")).toBeVisible();
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
     });
 
     test("chrome bars dock top and bottom and open their panels", async ({
@@ -676,11 +684,14 @@ for (const vp of viewports) {
           innerHeight: window.innerHeight,
           stageHeight: stageRect.height,
           visualHeight: window.visualViewport?.height ?? window.innerHeight,
+          // The arrow bar is a deliberate reservation, not a viewport
+          // change: the stage (and so the image) is exactly 64px shorter.
+          barOffset: stage.classList.contains("has-arrow-bar") ? 64 : 0,
         };
       });
       expect(geometry.cssHeight).toBe(`${Math.round(geometry.visualHeight)}px`);
       expect(
-        Math.abs(geometry.stageHeight - geometry.visualHeight),
+        Math.abs(geometry.stageHeight - (geometry.visualHeight - geometry.barOffset)),
       ).toBeLessThanOrEqual(1);
       expect(
         Math.abs(geometry.imageHeight - geometry.stageHeight),
@@ -1346,11 +1357,16 @@ for (const vp of viewports) {
       const nextBox = await nextArrow.boundingBox();
       expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
       if (!coarse) {
-        // Fine pointers cluster ← → together — the bubble precedes both.
+        // In the reserved bar ← owns the far corner — the bubble rides
+        // with → on the right, so it only has to precede the forward
+        // arrow (asserted above).
         const prevBox = await page
           .getByRole("button", { name: /previous photograph/i })
           .boundingBox();
-        expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(prevBox!.x + 1);
+        const stageRect = await page
+          .locator("[data-stage]")
+          .evaluate((el) => el.getBoundingClientRect());
+        expect(prevBox!.x).toBeLessThan(stageRect.left + stageRect.width * 0.3);
       }
 
       await showChrome(page);
@@ -1368,10 +1384,10 @@ for (const vp of viewports) {
       expect(bare!.y + bare!.height).toBeGreaterThan(stage.bottom - 80);
     });
 
-    test("one-at-a-time steps sweep the next photograph over the current one", async ({
+    test("one-at-a-time steps dissolve the next photograph in over the current one", async ({
       page,
     }) => {
-      // The sweep is motion — opt back out of the suite-wide
+      // The fade is motion — opt back out of the suite-wide
       // reduced-motion emulation so the transition actually runs. The
       // mode comes from persisted prefs, not the bobbing settings tab,
       // which is intentionally click-unstable under no-preference.
@@ -1387,17 +1403,14 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
       await page.keyboard.press("ArrowRight");
-      // Mid-sweep the outgoing frame is still mounted and fully painted
-      // while the incoming one wipes in behind an opaque canvas card —
-      // nothing translucent ever sits over the field's stripes.
+      // Mid-fade the outgoing frame is still mounted and fully painted
+      // while the incoming one dissolves in — a guarded fade, never a
+      // directional wipe (clip-path stays 'none' the whole way).
       await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
       await expect(page.locator(".viewer-frame--leaving")).toHaveCount(1);
       await expect(page.locator(".viewer-frame--leaving")).toHaveCSS("opacity", "1");
-      const cardOpaque = await page
-        .locator(".viewer-frame--entering")
-        .evaluate((el) => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)");
-      expect(cardOpaque).toBe(true);
-      await expect(page.locator("[data-track]")).toHaveAttribute("data-sweep-dir", "fwd");
+      const entering = page.locator(".viewer-frame--entering");
+      expect(await entering.evaluate((el) => getComputedStyle(el).clipPath)).toBe("none");
       // Settles back into one clean frame on the new index.
       await expect(page.locator(".viewer-frame--leaving")).toHaveCount(0, { timeout: 3000 });
       await expect(page.locator(".viewer-frame--entering")).toHaveCount(0);
@@ -1627,9 +1640,9 @@ for (const vp of viewports) {
         Math.abs(shown!.x + shown!.width - (stageBox!.x + stageBox!.width)),
       ).toBeLessThan(2);
 
-      // The card carries a quiet "Back to Start" link that rewinds the
-      // strip to the first photograph and re-arms the reveal.
-      const reset = endcap.getByRole("button", { name: /back to start/i });
+      // The card carries a quiet Rewind that runs the strip home in a
+      // fixed 0.75s ease-in-out and re-arms the reveal.
+      const reset = endcap.getByRole("button", { name: /^rewind$/i });
       await expect(reset).toBeVisible();
       await reset.click();
       await waitForTrackSettled(page);
@@ -1666,12 +1679,150 @@ for (const vp of viewports) {
         page.locator("[aria-current='true']"),
       ).not.toHaveAttribute("data-index", "1");
 
-      // The card belongs to the strip alone.
+      // The card ends every layout — in Scroll it is a footer frame in
+      // the feed itself rather than a slid-in faux frame.
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
-      await expect(endcap).toHaveCount(0);
+      const feedCard = page.locator(".viewer-endcap--feed");
+      await expect(feedCard).toHaveCount(1);
+      await expect(feedCard).toHaveText(/The\s*End\./);
+      await expect(feedCard.getByRole("button", { name: /^rewind$/i })).toBeAttached();
+    });
+
+    test("enabled arrows live in a reserved 64px bar beneath the photographs", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const stage = page.locator("[data-stage]");
+      await ensureNavArrows(page);
+      await expect(stage).toHaveClass(/has-arrow-bar/);
+      // The stage cedes exactly the bar: viewport minus 64px (plus any
+      // safe-area inset, which is 0 in every matrix viewport).
+      const geo = await page.evaluate(() => {
+        const s = document.querySelector("[data-stage]")!.getBoundingClientRect();
+        return {
+          stageBottom: s.bottom,
+          stageHeight: s.height,
+          stageRight: s.right,
+          viewportH: window.innerHeight,
+          viewportW: window.innerWidth,
+        };
+      });
+      expect(Math.abs(geo.stageBottom - (geo.viewportH - 64))).toBeLessThan(2);
+      expect(Math.abs(geo.stageHeight - (geo.viewportH - 64))).toBeLessThan(2);
+      // Both buttons sit inside the bar — below the stage, never on a
+      // photograph — with ← at the left corner and → at the right.
+      const bar = page.locator(".stage-arrows");
+      const barBox = await bar.boundingBox();
+      expect(Math.abs(barBox!.height - 64)).toBeLessThan(2);
+      expect(barBox!.y).toBeGreaterThanOrEqual(geo.stageBottom - 1);
+      const [prevBox, nextBox] = await page.locator("[data-nav-arrow]").evaluateAll(
+        (els) => els.map((el) => el.getBoundingClientRect()),
+      );
+      expect(prevBox.top).toBeGreaterThanOrEqual(geo.stageBottom - 1);
+      expect(nextBox.top).toBeGreaterThanOrEqual(geo.stageBottom - 1);
+      expect(prevBox.left).toBeLessThan(geo.viewportW * 0.3);
+      expect(nextBox.right).toBeGreaterThan(geo.viewportW * 0.7);
+      // Turning arrows off hands the height straight back to the stage.
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("switch", { name: /^arrows$/i }).click();
+      await expect(stage).not.toHaveClass(/has-arrow-bar/);
+      const restored = await page.evaluate(
+        () => document.querySelector("[data-stage]")!.getBoundingClientRect().height,
+      );
+      expect(Math.abs(restored - geo.viewportH)).toBeLessThan(2);
+    });
+
+    test("one-by-one ends on the end card as an overlay; prev closes it", async ({
+      page,
+    }) => {
+      await page.context().addInitScript(
+        (slug) =>
+          window.localStorage.setItem(
+            `manorama:view:${slug}`,
+            JSON.stringify({ mode: "single" }),
+          ),
+        SLUG,
+      );
+      await dismissCurtain(page);
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      const card = page.locator(".viewer-endcap--single");
+      await expect(card).not.toHaveClass(/is-open/);
+      await expect(card).toBeHidden();
+      await page.keyboard.press("End");
+      // Next on the last photograph fades the card in over it.
+      await page.keyboard.press("ArrowRight");
+      await expect(card).toHaveClass(/is-open/);
+      await expect(card).toHaveText(/The\s*End\./);
+      await expect(card.getByRole("button", { name: /^rewind$/i })).toBeVisible();
+      // The signed-in owner also gets the Library exit.
+      await expect(
+        card.getByRole("button", { name: /^library$/i }).or(card.getByRole("link", { name: /^library$/i })),
+      ).toBeVisible();
+      // Prev simply closes the card — the last photograph is still live.
+      await page.keyboard.press("ArrowLeft");
+      await expect(card).not.toHaveClass(/is-open/);
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute(
+        "data-index",
+        `${await imageCount(page)}`,
+      );
+      // Rewind from a fresh reveal lands on the first photograph.
+      await page.keyboard.press("ArrowRight");
+      await card.getByRole("button", { name: /^rewind$/i }).click();
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "1");
+    });
+
+    test("rewind is a fixed 0.75s ride home, or an instant jump under reduced motion", async ({
+      page,
+    }) => {
+      const trackX = () =>
+        page.locator("[data-track]").evaluate((el) => {
+          const t = getComputedStyle(el).transform;
+          return t === "none" ? 0 : new DOMMatrixReadOnly(t).e;
+        });
+      // Motion on first: the ride takes real time but lands inside a
+      // bounded window — a deliberate return, never a wrap-jump.
+      const rewindBtn = () =>
+        page.locator("[data-endcard]").getByRole("button", { name: /^rewind$/i });
+      const revealEndcard = async () => {
+        // A narrow stage needs two presses: the first only end-docks the
+        // last photograph, the second reveals the card. Wide stages do
+        // it in one — the loop covers both without pressing past.
+        const next = page.getByRole("button", { name: /next photograph/i });
+        for (let i = 0; i < 8; i++) {
+          await next.click();
+          await waitForTrackSettled(page);
+          const box = await rewindBtn().boundingBox();
+          if (box && box.x + box.width / 2 < page.viewportSize()!.width) return;
+        }
+        throw new Error("endcard never slid on stage");
+      };
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await dismissCurtain(page);
+      await ensureNavArrows(page);
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      await revealEndcard();
+      await rewindBtn().click();
+      // Still travelling well after the click — not an instant snap.
+      await page.waitForTimeout(300);
+      expect(await trackX()).toBeLessThan(-1);
+      // And it lands inside the fixed-duration ride, on the first photo.
+      await expect.poll(trackX, { timeout: 2500 }).toBe(0);
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "1");
+      // Reduced motion lands immediately — far inside the 750ms ride.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      await revealEndcard();
+      const quickStart = Date.now();
+      await rewindBtn().click();
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "1");
+      expect(await trackX()).toBe(0);
+      expect(Date.now() - quickStart).toBeLessThan(500);
     });
 
     test("dragging past the last photograph reveals the endcard", async ({
@@ -3268,14 +3419,12 @@ test.describe("density-aware staging", () => {
       { id: "sq", w: 1600, h: 1600 },
     ]);
     // The photostrip fills height-first only while the source has the
-    // pixels for it at this density: 2400×1600 can feed 900 CSS px at
-    // DPR 1 but not DPR 2 (needs 1800 natural px), so it lands at 800 —
-    // every displayed pixel is real. DPR 3 caps to 2, so it matches.
-    const cases = [
-      { dpr: 1, w: 1350, h: 900 },
-      { dpr: 2, w: 1200, h: 800 },
-      { dpr: 3, w: 1200, h: 800 },
-    ];
+    // pixels for it at this density: 2400×1600 can feed the full stage
+    // height at DPR 1 but not DPR 2 (needs ~1700 natural px), so it lands
+    // at 800 — every displayed pixel is real. DPR 3 caps to 2, so it
+    // matches. Expectations derive from the measured stage: with arrows
+    // on, the stage is the viewport minus the reserved 64px bar.
+    const cases = [{ dpr: 1 }, { dpr: 2 }, { dpr: 3 }];
     for (const expected of cases) {
       const context = await browser.newContext({
         viewport: { width: 1440, height: 900 },
@@ -3283,18 +3432,25 @@ test.describe("density-aware staging", () => {
       });
       const page = await context.newPage();
       await dismissCurtain(page, url);
+      const stageHeight = await page
+        .locator("[data-stage]")
+        .evaluate((el) => el.getBoundingClientRect().height);
+      // effectiveImageDpr caps the density ask at 2 — anything past
+      // retina stages exactly like DPR 2.
+      const wantH = Math.min(stageHeight, 1600 / Math.min(expected.dpr, 2));
+      const wantW = wantH * 1.5;
       const img = page.locator("[aria-current='true'] .frame-img");
       await expect(img).toBeVisible();
       const box = await img.boundingBox();
-      expect(Math.abs(box!.width - expected.w)).toBeLessThan(2);
-      expect(Math.abs(box!.height - expected.h)).toBeLessThan(2);
+      expect(Math.abs(box!.width - wantW)).toBeLessThan(2);
+      expect(Math.abs(box!.height - wantH)).toBeLessThan(2);
       // A source with enough pixels still fills the stage — mixed-res
-      // folders blend: 1600×2400 has 2400 px for the 1800 DPR-2 asks.
+      // folders blend: 1600×2400 has 2400 px for the ~1700 DPR-2 asks.
       if (expected.dpr === 2) {
         const tall = page.locator("[data-image-id='tall'] .frame-img");
         await expect(tall).toBeVisible();
         const tallBox = await tall.boundingBox();
-        expect(Math.abs(tallBox!.height - 900)).toBeLessThan(2);
+        expect(Math.abs(tallBox!.height - stageHeight)).toBeLessThan(2);
       }
       await context.close();
     }

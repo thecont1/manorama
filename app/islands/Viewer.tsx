@@ -204,7 +204,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // opaque while the incoming frame wipes over it behind an opaque
   // canvas card — no transparency ever lands on the background field.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
-  const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
   const sweepTimerRef = useRef<number | null>(null)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
@@ -248,10 +247,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
   const suspendedRef = useRef(suspended)
   suspendedRef.current = suspended
-  // Stored for later phases (P6+): the route resolves who is looking and
-  // where their library lives; the viewer does not consume them yet.
-  void viewerRole
-  void libraryHref
   const magnifierRef = useRef<MagnifierHandle | null>(null)
   const magnifierKeyRef = useRef<((event: KeyboardEvent) => void) | null>(null)
   const heicPendingRef = useRef(new Set<string>())
@@ -405,10 +400,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // pan range until the visitor pushes past the last photograph — then
   // it joins the bounds and stays reachable for the session.
   const endcapRevealedRef = useRef(false)
-  // Mirrored into state purely so the card's "Back to Start" link can
+  // Mirrored into state purely so the card's Rewind and Library links
   // join the tab order only while it is on screen — bounds math keeps
   // reading the ref synchronously.
   const [endcapRevealed, setEndcapRevealed] = useState(false)
+  // One-by-one has no pan range for the card to join: stepping next on the
+  // last photograph fades the card in over the current slide instead.
+  const singleEndcapRef = useRef(false)
+  const [singleEndcap, setSingleEndcap] = useState(false)
   const [armedPlatePos, setArmedPlatePos] = useState<number | null>(null)
 
   const currentImage = images[index] ?? images[0]
@@ -580,6 +579,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   const hasMultiple = images.length > 1
   const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
+  // The end card's Library exit follows the chrome's rule exactly:
+  // signed-out visitors keep Rewind only.
+  const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -625,8 +627,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }
 
   // The endcard joins the pan range the first time a gesture pushes past
-  // the last photograph, and is disarmed by its own "Back to Start" link
-  // so a return visit earns the reveal again.
+  // the last photograph, and is disarmed by its own Rewind so a return
+  // visit earns the reveal again.
   const revealEndcap = () => {
     if (endcapRevealedRef.current) return
     endcapRevealedRef.current = true
@@ -634,11 +636,62 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     boundsDirtyRef.current = true
   }
 
-  const backToStart = () => {
-    endcapRevealedRef.current = false
-    setEndcapRevealed(false)
-    boundsDirtyRef.current = true
-    goTo(0)
+  const easeInOutCubic = (t: number) =>
+    t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+
+  // Rewind runs home in a fixed 0.75s ease-in-out whatever the distance —
+  // a deliberate return, not a jump; reduced motion jumps. The endcard
+  // stays in the pan range for the ride so the strip travels back through
+  // it smoothly; it disarms on landing, not at the click.
+  const rewind = () => {
+    const disarmEndcap = () => {
+      endcapRevealedRef.current = false
+      setEndcapRevealed(false)
+      boundsDirtyRef.current = true
+    }
+    singleEndcapRef.current = false
+    setSingleEndcap(false)
+    const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (mode === 'single') { disarmEndcap(); goTo(0); return }
+    if (mode === 'vertical') {
+      const stage = stageRef.current
+      reportedIndexRef.current = 0
+      explicitIndexRef.current = 0
+      setIndex(0)
+      disarmEndcap()
+      if (!stage || reduced) { if (stage) stage.scrollTop = 0; return }
+      const from = stage.scrollTop
+      const started = performance.now()
+      const tick = (now: number) => {
+        const k = Math.min(1, (now - started) / 750)
+        stage.scrollTop = from * (1 - easeInOutCubic(k))
+        if (k < 1) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+      return
+    }
+    stopMomentum()
+    cancelPositionReport()
+    reportedIndexRef.current = 0
+    explicitIndexRef.current = 0
+    setIndex(0)
+    if (reduced) { disarmEndcap(); navDestXRef.current = null; renderX(0, false); return }
+    navDestXRef.current = 0
+    const from = currentXRef.current
+    const started = performance.now()
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - started) / 750)
+      renderX(from * (1 - easeInOutCubic(k)), false)
+      if (k < 1) momentumRef.current = requestAnimationFrame(tick)
+      else {
+        momentumRef.current = null
+        navDestXRef.current = null
+        disarmEndcap()
+        queuePlateActionability()
+        reportStripPosition()
+      }
+    }
+    momentumRef.current = requestAnimationFrame(tick)
   }
 
   const reportStripPosition = () => {
@@ -788,25 +841,27 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     cancelPositionReport()
     reportedIndexRef.current = next
     explicitIndexRef.current = next
+    singleEndcapRef.current = false
+    setSingleEndcap(false)
     if (mode === 'single' && next !== index && !instant) {
-      const dir = next > index ? 'fwd' : 'back'
-      const beginSweep = () => {
+      const beginFade = () => {
         if (unmountedRef.current) return
-        setLeavingIndex(index)
+        // Read the live index, not the call-time closure — a rapid
+        // retarget during the decode wait must mark whichever frame is
+        // actually on stage as the one leaving.
+        setLeavingIndex(indexRef.current)
         setIndex(next)
         if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
-        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 800)
+        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 450)
       }
-      if (dir !== sweepDir) {
-        // Hidden frames carry the sweep's start clip. A direction change
-        // must reach the DOM a commit before the entering frame begins
-        // its transition — transitions interpolate from the previously
-        // resolved style, so a same-commit flip would wipe backwards.
-        setSweepDir(dir)
-        requestAnimationFrame(beginSweep)
-      } else {
-        beginSweep()
-      }
+      // The fade is decode-guarded: the incoming frame pre-mounts its
+      // neighbours, so its pixels are usually ready. A longer jump waits
+      // for the decode — never a blank — with a cap so a stalled fetch
+      // can freeze stepping only briefly, not forever.
+      const targetImg = trackRef.current?.querySelector<HTMLImageElement>(`[data-index="${next + 1}"] img`)
+      const decoded = targetImg?.decode ? targetImg.decode().catch(() => {}) : Promise.resolve()
+      const cap = new Promise<void>((resolve) => window.setTimeout(resolve, 800))
+      Promise.race([decoded, cap]).then(beginFade)
     } else {
       setIndex(next)
     }
@@ -825,13 +880,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // straddling frame (or the one before it when already aligned).
   const verticalStep = (direction: -1 | 1) => {
     const stageTop = stageRef.current?.getBoundingClientRect().top ?? 0
-    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index]') ?? [])]
+    // The end card is a feed frame too — down on the last photograph
+    // scrolls it into view rather than stopping at the photo.
+    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-endcard]') ?? [])]
     if (direction === 1) {
       const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
-      goTo(next ? Number(next.dataset.index) - 1 : images.length - 1)
+      if (!next) return
+      if (next.dataset.endcard !== undefined) { next.scrollIntoView({ block: 'start', behavior: 'smooth' }); return }
+      goTo(Number(next.dataset.index) - 1)
       return
     }
-    const above = frames.filter((f) => f.getBoundingClientRect().top < stageTop - 8)
+    const above = frames.filter((f) => f.getBoundingClientRect().top < stageTop - 8 && f.dataset.index !== undefined)
     goTo(above.length ? Number(above[above.length - 1].dataset.index) - 1 : 0)
   }
 
@@ -847,6 +906,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     } else if (mode === 'vertical') {
       verticalStep(direction)
     } else {
+      // One-by-one has no pan range: next on the last photograph fades
+      // the end card in over it, prev while the card is open simply
+      // closes it — Rewind inside the card handles the jump home.
+      if (singleEndcapRef.current) {
+        if (direction === -1) { singleEndcapRef.current = false; setSingleEndcap(false) }
+        return
+      }
+      if (direction === 1 && index === images.length - 1) {
+        singleEndcapRef.current = true
+        setSingleEndcap(true)
+        return
+      }
       goTo(index + direction)
     }
   }
@@ -903,6 +974,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         frame = frame.previousElementSibling as HTMLElement | null
         remaining = frame ? base - frame.offsetLeft : 0
       }
+      // Walking off the front of the track leaves `frame` null: the only
+      // distance left is the canvas margin itself, so the advance docks
+      // at zero rather than parking on a leading offset.
+      if (!frame) remaining = base
       advance = Math.min(viewportWidth, Math.max(0, remaining))
     }
     navDestXRef.current = clamp(-(base + direction * advance), -bounds.max, 0)
@@ -2099,7 +2174,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} bg-${background}`}
+        class={`viewer-stage mode-${mode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -2118,7 +2193,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
-          data-sweep-dir={mode === 'single' ? sweepDir : undefined}
         >
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
@@ -2382,23 +2456,63 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               that slides in behind the last photograph, so reaching the
               end reads as an ending instead of a jarring wrap to the
               start. `inert` until revealed — it sits past the pan bound
-              before then, so its link must not take focus or announce. */}
+              before then, so its links must not take focus or announce. */}
           {mode === 'strip' ? (
             <div class="viewer-endcap" data-endcard inert={!endcapRevealed}>
               <span>The</span>
               <span>End.</span>
-              <button class="endcap-reset" onClick={backToStart}>Back to Start</button>
+              <div class="endcap-actions">
+                <button class="endcap-reset" onClick={rewind}>Rewind</button>
+                {showLibraryExit ? (
+                  onReturnToGalleries
+                    ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
+                    : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          {/* The same card ends the vertical feed — a footer frame in the
+              scroll, always revealed, since the feed has no pan bound to
+              keep it out of. */}
+          {mode === 'vertical' ? (
+            <div class="viewer-endcap viewer-endcap--feed" data-endcard>
+              <span>The</span>
+              <span>End.</span>
+              <div class="endcap-actions">
+                <button class="endcap-reset" onClick={rewind}>Rewind</button>
+                {showLibraryExit ? (
+                  onReturnToGalleries
+                    ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
+                    : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>}
+        {/* One-by-one: the same card fades in over the last photograph —
+            no pan range exists to hold it, so it mounts as a stage overlay. */}
+        {mode === 'single' ? (
+          <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap}>
+            <span>The</span>
+            <span>End.</span>
+            <div class="endcap-actions">
+              <button class="endcap-reset" onClick={rewind}>Rewind</button>
+              {showLibraryExit ? (
+                onReturnToGalleries
+                  ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
+                  : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
           {arrowsVisible ? (
             <>
-              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
-              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0 && !singleEndcap}>{mode === 'vertical' ? '↑' : '←'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && singleEndcap}>{mode === 'vertical' ? '↓' : '→'}</button>
             </>
           ) : null}
         </div>

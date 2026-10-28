@@ -346,7 +346,12 @@ button { color: inherit; }
 
 .gallery-shell, honox-island { display: contents; }
 /* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
-.viewer-stage { position: relative; isolation: isolate; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: var(--viewer-stage-height, 100dvh); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
+/* When arrows are on, the stage cedes a real 64px bar beneath the
+   photographs — the controls live in their own strip and never sit on
+   an image. Scroll mode keeps the full-height feed: its ↑/↓ pair floats
+   stacked at bottom right instead. */
+.viewer-stage { --viewer-arrows-bar: 0px; position: relative; isolation: isolate; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar)); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
+.viewer-stage.mode-strip.has-arrow-bar, .viewer-stage.mode-single.has-arrow-bar { --viewer-arrows-bar: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
@@ -392,34 +397,25 @@ button { color: inherit; }
 .viewer-frame--short .frame-img { outline: 1px solid rgba(var(--ink), .14); outline-offset: 0; }
 
 .viewer-track--vertical .viewer-frame { width: 100%; height: auto; overflow: visible; }
-.viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); margin: 0 auto; object-fit: contain; }
+.viewer-track--vertical .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); margin: 0 auto; object-fit: contain; }
 .viewer-track--vertical .viewer-frame:not(.viewer-frame--video) { place-items: center; }
 .viewer-track--vertical .viewer-frame:not(.viewer-frame--video) img { max-height: none; }
 .viewer-track--vertical .viewer-frame .frame-ph { width: 100%; height: 100%; }
-.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: var(--viewer-stage-height, 100dvh); background: var(--gallery-canvas); overflow: hidden; }
-.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: var(--viewer-stage-height, 100dvh); object-fit: contain; }
+.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait { display: grid; place-items: center; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); background: var(--gallery-canvas); overflow: hidden; }
+.viewer-track--vertical .viewer-frame--video.viewer-frame--portrait img { width: auto; height: auto; max-width: 100%; max-height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar, 0px)); object-fit: contain; }
 .viewer-track--single .viewer-frame .frame-ph { width: 100%; height: 100%; }
-.viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), background-color 400ms ease; pointer-events: none; clip-path: inset(0); }
+.viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), background-color 400ms ease; pointer-events: none; }
 .viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { opacity: 1; pointer-events: auto; }
 .viewer-track--single .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
-/* The one-at-a-time change is a sweep, not a crossfade: the incoming
-   photograph rides in on a directional wipe behind an opaque canvas
-   card — forward steps reveal from the right edge, back steps from the
-   left. The outgoing photograph stays fully painted underneath until
-   the sweep lands, so no transparency ever ghosts the background field
-   through an image; afterwards the card's background eases back to
-   transparent and the field settles around the new photograph. */
-.viewer-track--single[data-sweep-dir='fwd'] .viewer-frame--hidden { clip-path: inset(0 0 0 100%); }
-.viewer-track--single[data-sweep-dir='back'] .viewer-frame--hidden { clip-path: inset(0 100% 0 0); }
+/* The one-at-a-time change is a quick decode-guarded fade, not a wipe:
+   the incoming photograph waits on its decode (capped, so a stalled
+   fetch cannot freeze stepping), then dissolves in over the outgoing
+   frame, which stays fully painted underneath. The keyframe covers a
+   fresh mount (picker jumps) where no hidden-state transition can run;
+   a pre-mounted neighbour just fades through the same opacity ramp. */
 .viewer-track--single .viewer-frame--leaving { z-index: 1; }
-.viewer-track--single .viewer-frame.viewer-frame--entering { z-index: 2; opacity: 1; background-color: var(--gallery-canvas); clip-path: inset(0); transition: clip-path 700ms cubic-bezier(0.22, 1, 0.36, 1); }
-.viewer-track--single .viewer-frame--entering .frame-img { animation: single-sweep-img 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-.viewer-track--single .viewer-frame--entering::after { content: ''; position: absolute; top: 0; bottom: 0; width: 24%; opacity: 0; background: linear-gradient(to right, transparent, rgba(255, 255, 255, .1), transparent); pointer-events: none; }
-.viewer-track--single[data-sweep-dir='fwd'] .viewer-frame--entering::after { animation: single-sheen-fwd 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-.viewer-track--single[data-sweep-dir='back'] .viewer-frame--entering::after { animation: single-sheen-back 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-@keyframes single-sweep-img { 0% { opacity: 0; transform: scale(1.045); } 45% { opacity: 1; } 100% { opacity: 1; transform: scale(1); } }
-@keyframes single-sheen-fwd { 0% { left: 100%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: -24%; opacity: 0; } }
-@keyframes single-sheen-back { 0% { left: -24%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+.viewer-track--single .viewer-frame.viewer-frame--entering { z-index: 2; opacity: 1; animation: single-enter 450ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes single-enter { from { opacity: 0; } to { opacity: 1; } }
 
 /* The quiet dot remains the sole stage control and opens provenance plus
    current-image information. */
@@ -443,21 +439,20 @@ button { color: inherit; }
 .curtain-prompt { margin-top: 22vh; color: rgba(var(--ink), .42); }
 .curtain:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -8px; }
 
-.stage-arrows { position: fixed; z-index: 21; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); display: flex; gap: 6px; pointer-events: none; }
+/* The arrows live in the bar the stage reserves for them — ← pinned to
+   the left corner, → to the right with the count bubble beside it, so
+   the controls never sit on a photograph. The container spans the full
+   bar so the sequence bubble's body:has() positioning keeps working. */
+.stage-arrows { position: fixed; z-index: 21; left: 0; right: 0; bottom: 0; box-sizing: border-box; height: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 0 max(20px, env(safe-area-inset-right)) env(safe-area-inset-bottom, 0px) max(20px, env(safe-area-inset-left)); display: flex; align-items: center; justify-content: space-between; gap: 6px; pointer-events: none; }
+.stage-arrows--bare { display: none; }
 .stage-arrows button { pointer-events: auto; width: clamp(44px, 6.3svh, 59px); height: clamp(44px, 6.3svh, 59px); border: 1px solid rgba(var(--ink), .18); border-radius: 50%; background: rgba(10, 10, 10, .55); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .85); font-size: clamp(14px, 2.4svh, 22px); line-height: 1; opacity: .5; cursor: pointer; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
-/* On touch the enabled arrows dock at the viewport's bottom corners —
-   reach with either thumb, out of the photograph's way. */
-@media (pointer: coarse) {
-  .stage-arrows { left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); justify-content: space-between; }
-}
 /* Vertical scroll stacks ↑ over ↓ at the bottom-right corner instead —
-   a width-fit feed reads top-to-bottom, so vertical travel docks right.
-   align-items pins the buttons right even inside the coarse-pointer
-   full-width container above. */
-.stage-arrows--vertical { flex-direction: column; align-items: flex-end; }
+   a width-fit feed reads top-to-bottom and keeps its full-height
+   canvas, so vertical travel docks right as a floating pair. */
+.stage-arrows--vertical { left: auto; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); width: auto; height: auto; padding: 0; flex-direction: column; align-items: flex-end; justify-content: initial; }
 
 .quiet-button, .text-button { border: 0; padding: 0; background: transparent; color: rgba(var(--ink), .68); font-size: 12px; cursor: pointer; }
 .quiet-button:hover, .text-button:hover, .quiet-button:focus-visible, .text-button:focus-visible { color: rgb(var(--ink)); }
@@ -1832,6 +1827,16 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 }
 .endcap-reset:hover { color: rgba(var(--ink), .9); }
 .endcap-reset:focus-visible { color: rgba(var(--ink), .9); outline: 1px solid rgba(var(--ink), .5); outline-offset: 3px; }
+/* Rewind + Library sit side by side beneath the display type. */
+.endcap-actions { display: flex; gap: 22px; align-items: baseline; }
+/* In the vertical feed the card is a footer frame — full width, own
+   height — since the feed has no pan bound to hide it behind. */
+.viewer-endcap--feed { width: 100%; min-height: 55svh; padding: 48px 40px; }
+/* One-by-one overlays it on the last photograph: opaque canvas card
+   faded in over 450ms, inert and hidden until the step past the end. */
+.viewer-endcap--single { position: absolute; inset: 0; z-index: 3; width: auto; height: auto; padding: 40px; background: var(--gallery-canvas); opacity: 0; visibility: hidden; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s 450ms; }
+.viewer-endcap--single.is-open { opacity: 1; visibility: visible; transition: opacity 450ms cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) { .viewer-endcap--single { transition: none; } }
 /* The in-strip plate wears the endcap's clothes — borderless faux frame,
    wordmark display face — with the required disclosure set small above the
    headline and the width capped so longer creative still reads as a card. */
@@ -2152,16 +2157,12 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
 @supports not (backdrop-filter: blur(12px)) { .stage-seq { background: rgba(10, 10, 10, .85); } }
 @media (prefers-reduced-motion: reduce) { .stage-seq { transition: none; } }
-/* With arrows docked, the counter keeps its old seat just left of them —
-   left of the whole cluster for fine pointers, left of the forward
-   arrow on touch, and above the ↑/↓ column in vertical scroll. */
-body:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
-  right: calc(max(20px, env(safe-area-inset-right, 0px)) + (2 * clamp(44px, 6.3svh, 59px)) + 14px);
-}
-@media (pointer: coarse) {
-  body:has(.stage-arrows:not(.stage-arrows--bare):not(.stage-arrows--vertical)) .stage-seq {
-    right: calc(max(16px, env(safe-area-inset-right, 0px)) + clamp(44px, 6.3svh, 59px) + 14px);
-  }
+/* Inside the reserved bar the counter sits just left of the forward
+   arrow — the prototype's "count + →" corner cluster. In vertical
+   scroll it rides above the floating ↑/↓ pair as before. */
+body:has(.viewer-stage.has-arrow-bar:not(.mode-vertical)) .stage-seq {
+  right: calc(max(20px, env(safe-area-inset-right, 0px)) + clamp(44px, 6.3svh, 59px) + 14px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
 }
 body:has(.stage-arrows--vertical:not(.stage-arrows--bare)) .stage-seq {
   right: max(20px, env(safe-area-inset-right, 0px));
@@ -2215,6 +2216,9 @@ body:has(.stage-arrows--vertical:not(.stage-arrows--bare)) .stage-seq {
 .m-chrome-pill { pointer-events: auto; }
 .m-chrome--top { top: calc(env(safe-area-inset-top, 0px) + 8px); justify-content: space-between; transform: translateY(-8px); }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
+/* With the arrow bar reserved, the temporary bottom chrome rides just
+   above it rather than inside the controls' strip. */
+body:has(.viewer-stage.has-arrow-bar:not(.mode-vertical)) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
 .m-chrome--top.is-visible, .m-chrome--bottom.is-visible { transform: translateY(0); }
 .m-chrome-pill {
   display: inline-flex;

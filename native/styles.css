@@ -31,7 +31,7 @@ body.manorama-native .curtain-caption { margin: 0 auto; }
 
 /* Native gallery chrome is a single reachable row. Every control shares the
    same dynamic height; the photograph remains untouched above it. */
-body.manorama-native .stage-arrows {
+body.manorama-native .stage-arrows:not(.stage-arrows--bare) {
   z-index: 21;
   left: max(12px, var(--native-safe-left));
   right: max(12px, var(--native-safe-right));
@@ -53,6 +53,14 @@ body.manorama-native .stage-arrows--vertical { flex-direction: initial; align-it
     grid-template-columns: repeat(4, minmax(0, 110px));
     justify-content: space-between;
   }
+}
+/* The native bottom row is its own control strip — reserve exactly its
+   footprint (row height plus the 12px float and safe inset) beneath the
+   stage so the controls never sit on a photograph. Applies in every
+   mode: the native ↑/↓ pair is the same docked row, not a floating
+   stack. */
+body.manorama-native .viewer-stage.has-arrow-bar {
+  --viewer-arrows-bar: calc(var(--native-chrome-height) + 12px + var(--native-safe-bottom));
 }
 body.manorama-native .stage-arrows > button {
   box-sizing: border-box;
