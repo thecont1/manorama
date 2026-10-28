@@ -986,6 +986,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     let lastStart = Number.NaN
     let stableFor = 0
     let elapsed = 0
+    let frame = 0
     const reseed = () => {
       const pending = pendingEntryRef.current
       if (pending === null) return
@@ -998,9 +999,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         pendingEntryRef.current = null
         return
       }
-      requestAnimationFrame(reseed)
+      frame = requestAnimationFrame(reseed)
     }
-    requestAnimationFrame(reseed)
+    frame = requestAnimationFrame(reseed)
+    return () => {
+      cancelAnimationFrame(frame)
+      pendingEntryRef.current = null
+    }
   }, [])
 
   useLayoutEffect(() => {
@@ -2207,6 +2212,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                               // gliding alike. A frame still ahead of the
                               // edge shifts nothing held.
                               if (delta === 0 || frame.offsetLeft >= -currentXRef.current) return
+                              // While the entry re-anchors, this report would
+                              // retire pendingEntryRef before the reseed loop's
+                              // offset stabilizes; the reseed itself keeps the
+                              // strip glued to the target every frame.
+                              if (pendingEntryRef.current !== null) return
                               renderX(currentXRef.current - delta)
                               if (draggingRef.current) dragTargetXRef.current -= delta
                             })

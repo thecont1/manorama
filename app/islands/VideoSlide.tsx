@@ -91,6 +91,9 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
   // never autoplays — the poster plus an explicit Play control stand in.
   // `isActive` is deliberately absent from the deps: stepping onto a
   // slide must not restart a clip that has been looping all along.
+  const wasPlayingBeforeSuspendRef = useRef(false)
+  const suspendedPlayRef = useRef(false)
+  const suspendedSoundRef = useRef(false)
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -100,10 +103,18 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
       connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
       documentHidden: typeof document !== 'undefined' && document.hidden,
     })
+    // The suspend edge records what was actually running; a re-run that
+    // is still suspended must not overwrite it with the suspension pause.
+    if (suspended && !suspendedPlayRef.current) wasPlayingBeforeSuspendRef.current = !video.paused
+    const released = suspendedPlayRef.current && !suspended
+    suspendedPlayRef.current = suspended
     // Autoplay being disallowed — including the moment reduced motion
     // turns on mid-session or the stage suspends — must also stop any
     // playback already running, not merely skip the play attempt.
     if (!autoplay) { video.pause(); return }
+    // Releasing suspension restarts only what was playing when it held:
+    // a clip the viewer paused by hand stays paused.
+    if (released && !wasPlayingBeforeSuspendRef.current) return
     void attemptPlay()
   }, [prefersReducedMotion, suspended])
 
@@ -115,7 +126,11 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     if (!video) return
     const audible = videoAudibleFor({ isActive, soundOn })
     video.muted = !audible
-    if (audible && video.paused && !prefersReducedMotion && !suspended) void attemptPlay()
+    const released = suspendedSoundRef.current && !suspended
+    suspendedSoundRef.current = suspended
+    if (audible && video.paused && !prefersReducedMotion && !suspended) {
+      if (!released || wasPlayingBeforeSuspendRef.current) void attemptPlay()
+    }
   }, [soundOn, isActive, suspended])
 
   // A backgrounded tab must not keep decoding video.
