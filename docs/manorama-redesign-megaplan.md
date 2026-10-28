@@ -464,7 +464,7 @@ Before creating issues/PRs, inspect live issue ownership and the repository PR t
 **Dependencies:** P3–P10 shared contracts; development may overlap P10 once shared interfaces stabilize. **Owns:** Catalogue, ShareFlow presentation, desktop styles/theme, native platform labels and shell adaptations.
 
 - Desktop Library/Details uses real local records, availability and root permissions. Retain folder/card pick, manual rescan, rename, removal, sync status and explicit publishing.
-- Local Details actions say what they do: Open, Publish/Share, Read folder again, Remove from Library. No “Keep on this iPhone,” provider-only metadata edits, or invented public address.
+- Local Details actions say what they do: Open, Publish/Share, Read folder again, Remove from Library. No “Keep a copy,” provider-only metadata edits, or invented public address.
 - Reuse ShareFlow upload/connect/confirm/error state machine; restyle without changing upload authorization or byte handling.
 - Preserve local gallery ordering only where supported; do not introduce a new persistent desktop editor just to mimic cloud controls.
 - Remove separate always-visible desktop viewer close overlay in favor of shared Library behavior when equivalent functionality is wired.

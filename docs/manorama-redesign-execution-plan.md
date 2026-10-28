@@ -56,7 +56,7 @@ Goal: the viewer chrome and behaviour of handoff sections 4 and 5, with every co
 
 2a. Chrome and sheets (M)
 - Remove the brand pill and its bobbing animation. One tap on the stage toggles chrome. Auto-hide after 3 seconds, cancelled while a sheet is open.
-- Top bar: Library back button and position text. Bottom row: Display, Info, Details (owner only; a visitor's view omits it). No Share.
+- Top bar: Library back button and position text — the Library action stays for the owner, is omitted for signed-out public-link visitors, and returns a signed-in non-owner to their own Library only. Bottom row: Display, Info, Details (owner only; a visitor's view omits it). No Share.
 - Display sheet: Layout, Canvas, Arrows, plus fullscreen on the web and the shortcuts list per the Q4 decision.
 - Move the in-gallery information sheet out of display settings into its own Info sheet; keep the `I` and Shift+I keys.
 - Tests: rewrite the display-settings and brand-pill specs; add focus-trap, Escape and return-focus tests for both sheets.
@@ -113,7 +113,7 @@ Goal: handoff section 4 for Library, Add sheet and Gallery details.
 
 3d. Gallery details (M)
 - New island and route. The header reuses the Library card component (rail, name, sub line, caption, address) minus the ··· button.
-- Four row groups. Name and Caption edit sheets with one field. Keep on this iPhone toggles the stored preference with inverted wording (C6). Read the folder again triggers a rescan and shows the last time. Remove gallery opens the confirmation dialog ("Keep" or "Remove").
+- Four row groups. Name and Caption edit sheets with one field. Keep a copy toggles the stored preference with inverted wording (C6). Read the folder again triggers a rescan and shows the last time. Remove gallery opens the confirmation dialog ("Keep" or "Remove").
 - Back behaviour: to the Library, or to the same photograph when entered from the viewer, skipping the curtain.
 
 3e. Share (S)
@@ -142,9 +142,9 @@ Exit criteria: reorder parity screenshots at slider minimum, default and maximum
 
 Exit criteria: sign-in flows unchanged functionally (run the auth specs); privacy text identical on web and native; no mention of "Pro" remains in user-visible strings (search the repo).
 
-## Stage 6: Web and desktop parity (L, scoped by Q2)
+## Stage 6: Web and desktop parity (L)
 
-Only after native is merged and the owner has answered Q2.
+Scheduled from the shared Stage 0 contracts as part of the coordinated release — web and desktop work proceeds alongside the later native stages rather than waiting on a native merge. *(28 Oct 2026: the former gate — "only after native is merged and the owner has answered Q2" — is superseded by the coordinated-release decision.)*
 - Web dashboard (`Admin.tsx`): adopt the tokens, Library layout, Details route and Add sheet, reusing Stage 1 and 3 components. At 1440 x 900 and 2560 x 1440 decide the Library column width and rail behaviour (hover arrows are not needed; drag and wheel are).
 - Desktop (`desktop/`, Tauri): `Catalogue` and `ShareFlow` get the same tokens and copy. Do not redesign `ShareFlow`'s flows in this pass.
 - Update the web Playwright specs and the owner-scoped routing checks.

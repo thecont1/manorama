@@ -12,7 +12,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 
 | Layer | Screens | Rule |
 |---|---|---|
-| Looking | Viewer, View options | Photographs and nothing else. No brand, plan, storage or editing. A visitor with a shared link sees only this layer. |
+| Looking | Viewer, View options | Photographs and nothing else — except the curtain, a temporary orientation overlay that may show the mark, title, caption, and count before dissolving. Otherwise no brand, plan, storage or editing. A visitor with a shared link sees only this layer. |
 | Galleries | Welcome, Library, Add a gallery, Gallery details | One task per screen. Each gallery is shown by its own photographs. |
 | Upkeep | Reorder, Settings, Visionary | Explicit and confident. Reached on purpose, never shown in passing. |
 
@@ -38,7 +38,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 | Was | Now |
 |---|---|
 | Sign-in: dictionary tagline, "WOW-est" line, CONTINUE WITH label, icon orbs | One sentence and three full-width sign-in buttons, Apple first. No photographs: nobody has signed in yet. Big logo only here. |
-| Home: sponsored card | A sponsored slot at the top of the Library, above the galleries, shaped for a vertical photograph; a second one in the viewer strip after the last photograph |
+| Home: sponsored card | A sponsored slot at the top of the Library, above the galleries, shaped for a vertical photograph; a second one in the viewer strip at seeded in-sequence positions, never first or last |
 | Home: owner path field `manorama.xyz/[vidya-rao-2]` | Settings › Account › Address |
 | Home: greeting and "You are a Free User…" | The Library foot line; Settings › Plan |
 | Home: inline paste field and "Manorama-fy it!" | The Add sheet behind the Library's Add button: a bottom sheet like Display, at most half the screen, with Add gallery pinned to its bottom edge so a long scan never pushes it out of reach. One path: paste a link. *(28 Oct 2026: choosing a folder or photographs on this iPhone is deferred; those buttons and their copy are omitted.)* The button says "Add gallery". The per-provider description list is gone. |
@@ -82,7 +82,7 @@ The header is the Library card again, so the same gallery looks the same in both
 
 1. Open gallery, Share link
 2. Name, Caption, Reorder photographs
-3. Keep on this iPhone (switch), Read the folder again
+3. Keep a copy (switch), Read the folder again
 4. Remove gallery, in red, with "Removing it leaves every photograph in Dropbox." under it
 
 Name and Caption each open a small sheet with one field and Save. The ··· menu is gone from this page's top bar, since every action is already on the page.
@@ -109,7 +109,7 @@ Privacy policy, on the welcome screen and under Settings › About, opens a Priv
 Every gallery in the Library, and the Sequence panel in Gallery details, carries a rail of all its thumbnails at their own proportions. You can pan it by touch, trackpad or mouse drag, as in the dashboard contract. A drag only captures after 6px, so a plain tap still opens the gallery, and tapping a thumbnail opens the viewer at that photograph, through the curtain.
 
 - **Kept on this iPhone:** thumbnails come out of the vault, so the rail is fully there at once. While a gallery is still saving, each photograph's thumbnail switches to its local copy the moment it lands.
-- **Streamed:** the rail pans just the same. Each thumbnail shows its average colour (the item placeholder) and fetches only when it scrolls near view, then fades in. This is slower and patchier than on-device, but costs nothing until someone looks along it. The prototype adds 0.35–1.1s of fake latency per streamed thumbnail. *(28 Oct 2026 correction: the existing item placeholder is not a verified average colour — megaplan §4. Show the existing placeholder first; an optional locally derived colour may only come from bytes already fetched, never an extra fetch.)*
+- **Streamed:** the rail pans just the same. Each thumbnail shows the existing item placeholder first and fetches only when it scrolls near view, then fades in. An optional locally derived colour may only come from bytes already fetched, never an extra media fetch. This is slower and patchier than on-device, but costs nothing until someone looks along it. The prototype adds 0.35–1.1s of fake latency per streamed thumbnail. *(28 Oct 2026)*
 
 Why the rail had stopped scrolling: a CSS grid item defaults to `min-width: auto`, so each gallery card grew to the full width of its thumbnails (1,332px) and the rail never had anything to scroll. The fix is `min-width: 0` on the card and `minmax(0, 1fr)` on the column; the real dashboard should be checked for the same trap.
 
@@ -121,7 +121,7 @@ Fit to width on a vertical screen, fit to height on a horizontal one. If the fit
 
 Strip uses `advanceStripByViewport` in `app/islands/Viewer.tsx` for the arrow buttons and the ←/→ keys, and the prototype now ports it line for line. Each press travels one stage width at most. If the current photograph ends sooner, the strip travels only that far, and the next photograph docks exactly at the left edge. A photograph wider than the stage is paged through in stage-width chunks, with the final press docking the next one. Back travels the lesser of one stage width or what is still hidden of the current photograph. Rapid presses accumulate from the pending destination. Ad plates and the end card count as frames. Back at the very start jumps to the last photograph.
 
-One prototype-only adjustment: on a Dark or Light canvas, docking the first photograph returns to 0 rather than parking at the 10px canvas margin, where a further back press would otherwise do nothing. `todo.md` line 42 still describes arrows advancing "slightly shorter than the viewport width"; the code advances exactly one width, so that line is stale.
+One prototype-only adjustment: on a Dark or Light canvas, docking the first photograph returns to 0 rather than parking at the 10px canvas margin, where a further back press would otherwise do nothing. *(28 Oct 2026: `todo.md` line 42 said "slightly shorter than the viewport width" — corrected; the code advances exactly one stage width.)*
 
 ### Arrows and the bubble
 
@@ -144,7 +144,7 @@ Per the viewer contract, arrows are off by default on touch. Enabled, they dock 
 | Tokens | `app/styles.css` (replace `--admin-*`, drop the monospace and script faces) |
 | Ad plate | `packages/core/adframe.ts`, `native/lib/ads.ts` (placement rules unchanged; plate dressed for a vertical photograph) |
 
-Playwright labels that change: `Manorama-fy it!` → `Add gallery`; the dialog `Display settings` → `Display`; `Don't download this gallery` → the switch `Keep a copy on this iPhone` (inverted meaning); `Horizontal Strip` → `Strip`.
+Playwright labels that change: `Manorama-fy it!` → `Add gallery`; the dialog `Display settings` → `Display`; `Don't download this gallery` → the switch `Keep a copy` (inverted meaning); `Horizontal Strip` → `Strip`.
 
 ## Sample content in the prototype
 

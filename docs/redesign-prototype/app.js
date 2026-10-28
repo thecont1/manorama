@@ -75,7 +75,7 @@ const NOTES = {
       ["Curtain", "A gallery opens on a frosted veil over its first photograph, with the mark, title, caption and count. One tap dissolves it: the words fade first, then the frost thins away and the same photograph comes up sharp, exactly where it was."],
       ["At rest", "Nothing but the photographs and a small position count in the corner. In Strip, every photograph is fit to the height of the canvas and never cropped; a hi-res frame is shown at its crispest."],
       ["Tap once", "One word per button. A top bar with Library on the left and the position on the right; no title, the curtain already said it. A bottom row: Display, Info and, for the owner, Details. No share button: sharing lives on Gallery details and the Library menu, and the viewer is for looking. It hides itself after three seconds. The end card offers Rewind and Library."],
-      ["Sponsored", "A vertical frame, fit to height, after the last photograph and before the end card. A placeholder until sponsored photographs exist."],
+      ["Sponsored", "A vertical frame, fit to height, at seeded in-sequence positions — never first or last. A placeholder until sponsored photographs exist."],
       ["Not here", "Storage, plan, editing, the brand pill. Someone who opens a shared link sees exactly this and nothing more."]
     ]
   },
@@ -104,7 +104,7 @@ const NOTES = {
     q: "What can I do with this gallery?",
     items: [
       ["One kind of control", "Below the header, everything is the same 56px row: icon, what it does, its current value, and a chevron or a switch. No text links and no pair of mismatched buttons. The header is the Library card again: the scrolling strip of every photograph, then the name, count, source and caption."],
-      ["Order", "Looking at it (Open gallery, Share link), then changing it (Name, Caption, Reorder), then where it lives (Keep on this iPhone, Read the folder again), and Remove on its own at the foot."],
+      ["Order", "Looking at it (Open gallery, Share link), then changing it (Name, Caption, Reorder), then where it lives (Keep a copy, Read the folder again), and Remove on its own at the foot."],
       ["No Content Credentials here", "They are verified one photograph at a time, in the viewer’s Info sheet, never as a batch for the whole gallery."],
       ["Edits", "Name and Caption each open a small sheet with one field and Save. The address under the name follows it."]
     ]
@@ -198,7 +198,7 @@ function renderWelcome() {}
 /* ───────── Library ───────── */
 /* Thumbnail rail. Every photograph of the gallery, at its own proportions.
    Kept on this iPhone: thumbnails come out of the vault, so they are there at once.
-   Streamed (or not yet saved): each one shows its average colour, then fetches only when it scrolls
+   Streamed (or not yet saved): each one shows the existing placeholder, then fetches only when it scrolls
    near view, so a long rail costs nothing until you look along it. The prototype adds 0.35 to 1.1s
    of latency per streamed thumbnail to stand in for the network. */
 function stripHTML(gal) {
@@ -613,7 +613,7 @@ function renderDetails() {
       ${act('data-go="reorder"', "reorder", "Reorder photographs", String(n))}
     </div>
     <div class="acts">
-      <button class="act" id="d-keep" role="switch" aria-checked="false">${ICON.keep}<span class="l">Keep on this iPhone</span><span class="v" id="d-keep-v"></span><span class="switch" aria-hidden="true"></span></button>
+      <button class="act" id="d-keep" role="switch" aria-checked="false">${ICON.keep}<span class="l">Keep a copy</span><span class="v" id="d-keep-v"></span><span class="switch" aria-hidden="true"></span></button>
       ${act("data-refresh", "refresh", "Read the folder again", `<span id="d-scanned">${x.scanned.split(",")[0]}</span>`)}
     </div>
     <div class="acts">
