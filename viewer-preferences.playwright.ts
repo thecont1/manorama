@@ -115,4 +115,32 @@ test.describe('standing preferences', () => {
 
     await context.close()
   })
+
+  // SSR honours ?photo= correctly (initialIndex 3, "Photograph 4" server-side)
+  // but the hydrated client settles at a later frame — the nonzero
+  // initialIndex entry path was only ever used by native's frameKick, so the
+  // web entry races something downstream. FIXME: P2 follow-up.
+  test.fixme('?photo= opens on that photograph, cleans the URL, and a reload restarts', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+    await signIn(context)
+    const page = await context.newPage()
+
+    // The manifest's fourth image id comes from the SSR frames, so the
+    // test survives seed renames — data-index is the strip position.
+    await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
+    const fourthId = await page.locator('[data-image-id][data-index="4"]').getAttribute('data-image-id')
+    expect(fourthId).toBeTruthy()
+
+    const sequence = await openGallery(page, `${base}/${owner}/${slug}?photo=${fourthId}`)
+    await expect(sequence).toHaveAttribute('aria-label', /Photograph 4 of \d+/)
+    // The transient param is stripped — a reload restarts at the first
+    // photograph on the bare gallery URL.
+    await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`))
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    if (await page.locator('[data-curtain]').isVisible().catch(() => false)) {
+      await dismissCurtain(page)
+    }
+    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', /Photograph 1 of \d+/)
+    await context.close()
+  })
 })

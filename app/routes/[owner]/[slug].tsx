@@ -64,7 +64,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}
