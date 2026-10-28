@@ -72,9 +72,11 @@ describe('theme vocabulary', () => {
   test('the storage key and class are the web dashboard\u2019s, not a desktop copy', () => {
     // A split here would silently give a Mac user two different themes. The
     // web pane is the authority; this fails the day the two drift apart.
+    const shared = readFileSync(fileURLToPath(new URL('../../app/lib/owner-theme.ts', import.meta.url)), 'utf8')
+    expect(shared).toContain(`'${THEME_KEY}'`)
+    expect(shared).toContain(`classList.add('light')`)
+    expect(shared).toContain(`classList.remove('light')`)
     const admin = readFileSync(fileURLToPath(new URL('../../app/islands/Admin.tsx', import.meta.url)), 'utf8')
-    expect(admin).toContain(`'${THEME_KEY}'`)
-    expect(admin).toContain(`classList.add('light')`)
-    expect(admin).toContain(`classList.remove('light')`)
+    expect(admin).toContain(`from '../lib/owner-theme'`)
   })
 })

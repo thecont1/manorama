@@ -119,7 +119,7 @@ Research limits: source inspection is complete enough to specify the changes, bu
 - Welcome uses the same logo asset and 140×47 box positioned as the opening focal point, resolving the documents' “large logo” versus fixed-size conflict in favor of the explicit decisions record.
 - All actionable targets at least 44×44; rows nominally 56px but expand for large text. Visible numeric badges may be smaller while the button hit area remains 44px.
 - Owner theme remains independent of viewer Canvas. The viewer retains its selected Black/Dark/Light treatment and neutral readable chrome.
-- Preserve existing theme persistence on web/desktop (`manorama:theme`); expose a Theme row in Settings. Native uses a small Preferences adapter for the same two values. Do not add account-side theme storage or persist web gallery/library data.
+- Preserve existing theme persistence on web/desktop (`manorama:theme`); expose a Theme row in Settings. Native uses the same `manorama:theme` localStorage key (amended in P1: Capacitor Preferences is async and cannot apply the class before first paint; a theme is not sensitive). Pre-paint application uses a same-origin `public/theme-init.js` because production CSP forbids inline scripts. Viewer appearance (doodle ink, canvas) must follow the viewer Canvas, never `html.light`. Do not add account-side theme storage or persist web gallery/library data.
 
 ### 5.2 Responsive layouts
 

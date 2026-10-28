@@ -50,6 +50,6 @@ export default createRoute(async (c) => {
           and no agent API is routed. Re-enable by reverting this change —
           the vendo modules and deps remain. */}
     </Fragment>,
-    { title: 'manorama' },
+    { title: 'manorama', ownerTheme: true },
   )
 })
