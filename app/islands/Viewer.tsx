@@ -310,11 +310,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setInfoOpen(false)
     setGridOpen(false)
     setGridClosing(false)
-    // Closing a sheet reveals the bars: the sheet's open hid them (a
-    // pointerdown on a pill still reaches the stage's drag-hide), and the
-    // pill that opened it must be non-inert to take focus back. The 3s
-    // window restarts from here.
-    setChromeVisible(true)
     scheduleChromeHide()
   }
   const requestCloseModals = () => {
@@ -1739,6 +1734,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // so the sheet's actual invoker wins.
       const target = previousFocusRef.current
       previousFocusRef.current = null
+      // A chrome pill is inert while the bars hide — reveal them long
+      // enough for the focus restore to land, then the 3s window tucks
+      // them away again (hideChrome returns the focus to the stage).
+      if (target.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
+        setChromeVisible(true)
+        scheduleChromeHide()
+      }
       requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
   }, [modalOpen, infoOpen])

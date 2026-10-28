@@ -121,7 +121,6 @@ async function openInfoDialog(page: import("@playwright/test").Page) {
   await page.keyboard.press("i");
 }
 
-/** Enables navigation arrows through display settings when they are hidden. */
 async function ensureNavArrows(page: import("@playwright/test").Page) {
   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
     await showChrome(page);
@@ -131,6 +130,9 @@ async function ensureNavArrows(page: import("@playwright/test").Page) {
     await page
       .getByRole("switch", { name: /^arrows$/i })
       .click();
+    // The sheet stays open on a change — dismiss it before the stage is
+    // needed, or the scrim eats the next click.
+    await page.keyboard.press("Escape");
   }
 }
 
@@ -1008,12 +1010,14 @@ for (const vp of viewports) {
         .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await page.keyboard.press("Escape");
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
         .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+      await page.keyboard.press("Escape");
       // Vertical keeps the toggle but defaults arrows off — the feed
       // scrolls natively, so they appear only on request.
       await showChrome(page);
@@ -1022,12 +1026,14 @@ for (const vp of viewports) {
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await page.keyboard.press("Escape");
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
         .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+      await page.keyboard.press("Escape");
       // Enabled vertical arrows stack ↑ over ↓ at the bottom-right.
       await expect(page.locator("[data-nav-arrow]").first()).toHaveText("↑");
       await expect(page.locator("[data-nav-arrow]").last()).toHaveText("↓");
@@ -2760,7 +2766,7 @@ test.describe("M magnifier (desktop only)", () => {
     await dismissCurtain(page);
     await showChrome(page);
     await page.getByRole("button", { name: "Display", exact: true }).click();
-    await expect(page.locator(".shortcuts", { hasText: "magnify" })).toBeVisible();
+    await expect(page.locator(".m-shortcut-list", { hasText: "magnify" })).toBeVisible();
   });
 });
 
