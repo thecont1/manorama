@@ -310,6 +310,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setInfoOpen(false)
     setGridOpen(false)
     setGridClosing(false)
+    // Closing a sheet reveals the bars: the sheet's open hid them (a
+    // pointerdown on a pill still reaches the stage's drag-hide), and the
+    // pill that opened it must be non-inert to take focus back. The 3s
+    // window restarts from here.
+    setChromeVisible(true)
     scheduleChromeHide()
   }
   const requestCloseModals = () => {
@@ -1115,6 +1120,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      // The overlay stack marks the Escape it consumed — the same keydown
+      // must not fall through and also tuck the bars away.
+      if (event.defaultPrevented) return
       chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
@@ -1726,8 +1734,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     if (modalOpen || infoOpen) return
     if (previousFocusRef.current) {
-      previousFocusRef.current.focus({ preventScroll: true })
+      // The overlay stack restores focus to whatever was focused before
+      // the sheet pushed — the rAF lands after that synchronous restore
+      // so the sheet's actual invoker wins.
+      const target = previousFocusRef.current
       previousFocusRef.current = null
+      requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
   }, [modalOpen, infoOpen])
 
@@ -1775,7 +1787,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   const openImageProvenance = () => {
     openImageInfo()
-    if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') openCredentials()
+    // Unset counts as idle: the check fires the first time Info opens on
+    // a flagged still, then dedupes while it is loading or settled.
+    if (currentImage?.c2pa && !currentIsVideo && (credentialState[currentImage.id] ?? 'idle') === 'idle') openCredentials()
   }
 
   /** The external viewer fetches the file itself, so only absolute http(s)

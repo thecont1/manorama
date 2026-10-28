@@ -33,7 +33,7 @@ const enter = async (page: Page) => {
 
 /** The settings panel toggles, so drive it on visibility, not presence. */
 const setMode = async (page: Page, mode: string) => {
-  const radio = page.locator(`input[name="view-mode"][value="${mode}"]`)
+  const radio = page.getByRole('radio', { name: { strip: 'Strip', vertical: 'Scroll', single: 'One by one' }[mode] ?? mode })
   for (let i = 0; i < 12; i += 1) {
     if (await radio.isVisible().catch(() => false)) break
     await showChrome(page)

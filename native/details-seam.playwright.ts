@@ -109,7 +109,7 @@ for (const viewport of [
     await page.keyboard.press('i')
     await page.mouse.wheel(0, 400)
     expect(await stripTransform(page)).toBe(before)
-    expect(await page.locator('.controls-modal:not([hidden]), .info-sheet:not([hidden])').count()).toBe(0)
+    expect(await page.locator('.m-sheet-host').count()).toBe(0)
 
     // Defect 5: Tab from the external toggle never lands inside the
     // viewer's inert subtree.

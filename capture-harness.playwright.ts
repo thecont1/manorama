@@ -22,7 +22,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
         await expect(page.locator('[data-curtain]')).toBeHidden()
         await expect(page.locator('[data-stage] img.frame-img').first()).toBeVisible()
       }
-      if (state === 2) await expect(page.getByRole('dialog', { name: 'Display settings' })).toBeVisible()
+      if (state === 2) await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
       if (state === 3) {
         const input = page.getByLabel('Public Dropbox, Google Drive, iCloud, or MEGA link', { exact: true })
         await expect(input).toBeInViewport()

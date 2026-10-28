@@ -55,6 +55,9 @@ const openSettings = async (page: Page) => {
   // The first test against a cold dev server waits on Vite's on-demand
   // transform, so give hydration room before touching the chrome.
   await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
+  // A Display selection no longer closes the sheet — dismiss any open
+  // sheet first or the scrim eats the stage tap that opens the next one.
+  if (await page.locator('.m-sheet-host').count()) await page.keyboard.press('Escape')
   const curtain = page.locator('[data-curtain]')
   if (await curtain.count()) {
     await curtain.first().click({ force: true }).catch(() => {})
@@ -68,7 +71,7 @@ const openSettings = async (page: Page) => {
   await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 30000 })
   await showChrome(page)
   await page.getByRole('button', { name: 'Display', exact: true }).click()
-  await expect(page.locator('#background-heading')).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
 }
 
 const sessionCookie = async () => {
@@ -112,16 +115,11 @@ const seedBackground = (page: Page, value: 'none' | 'light' | 'dark' = 'dark') =
   page.addInitScript((v) => { try { window.localStorage.setItem('manorama:background', v) } catch { /* private mode */ } }, value)
 
 const selectBackground = async (page: Page, value: 'none' | 'light' | 'dark') => {
-  // Selecting a radio closes the panel (closeModals, same as the view
-  // mode radios), so reopen it when a second selection follows.
-  const group = page.getByRole('radiogroup', { name: 'Background behind photographs' })
+  // The sheet stays open after a canvas change, so a second selection
+  // only re-opens when the sheet is not already showing.
+  const group = page.getByRole('radiogroup', { name: 'Canvas' })
   if (await group.count() === 0 || !(await group.isVisible().catch(() => false))) await openSettings(page)
-  // The radios are visually hidden inside their labels — drive the
-  // label, the element a pointer actually hits. Label textContent
-  // collapses the span/small gap ("Lightdark ink…"), so the pairing's
-  // own name plus its copy's first word disambiguates.
-  const name = { light: /Lightdark ink/, dark: /Darklight ink/, none: /Nonephotographs abut/ }[value]
-  await group.locator('label').filter({ hasText: name }).first().click()
+  await page.getByRole('radio', { name: { light: 'Light', dark: 'Dark', none: 'Black' }[value] }).click()
   await page.waitForTimeout(350)
 }
 
@@ -156,13 +154,14 @@ test('Background offers None/Dark/Light — None is default and photographs abut
   expect(gap).toBeLessThan(2)
 
   await openSettings(page)
-  const radios = page.locator('input[name="background-mode"]')
+  const group = page.getByRole('radiogroup', { name: 'Canvas' })
+  const radios = group.getByRole('radio')
   await expect(radios).toHaveCount(3)
-  // Order is None, Dark, Light — and None is the checked default.
-  await expect(radios.nth(0)).toHaveAttribute('value', 'none')
-  await expect(radios.nth(1)).toHaveAttribute('value', 'dark')
-  await expect(radios.nth(2)).toHaveAttribute('value', 'light')
-  await expect(radios.nth(0)).toBeChecked()
+  // Order is Black, Dark, Light — and Black is the checked default.
+  await expect(radios.nth(0)).toHaveText('Black')
+  await expect(radios.nth(1)).toHaveText('Dark')
+  await expect(radios.nth(2)).toHaveText('Light')
+  await expect(radios.nth(0)).toHaveAttribute('aria-checked', 'true')
   // The doodle on/off toggle is gone for good.
   await expect(page.locator('[data-doodle-toggle]')).toHaveCount(0)
 
@@ -218,8 +217,9 @@ test('Light and Dark give every image a 10px margin; None abuts', async ({ page 
   // Vertical: 10px rails left and right (the track's padding), a 10px
   // foot on every row, and the first row still starts flush at the top.
   await openSettings(page)
-  await page.locator('.mode-options label', { hasText: /vertical scroll/i }).click()
+  await page.getByRole('radio', { name: 'Scroll' }).click()
   await expect(page.locator('[data-stage]')).toHaveClass(/mode-vertical/)
+  await page.keyboard.press('Escape')
   await page.waitForTimeout(500)
   const vertical = await page.locator('[data-stage]').evaluate((stage) => {
     const stageBox = stage.getBoundingClientRect()
@@ -301,7 +301,7 @@ test('the layer never intercepts a click meant for the gallery', async ({ page }
   // And the controls still respond after the layer is painted.
   await showChrome(page)
   await page.getByRole('button', { name: 'Display', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: /display settings/i })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
 })
 
 test('the layer is inert and hidden from assistive tech', async ({ page }) => {

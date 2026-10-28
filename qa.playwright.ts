@@ -6,7 +6,7 @@
 // The stage carries no info button: `I` opens the in-gallery sheet, while
 // `⇧I` deep-links into the standalone C2PA viewer (falling back to the
 // in-gallery sheet for sources the viewer can't fetch).
-// The info modal has aria-label "Image information and Content Credentials".
+// The info sheet's accessible name is its title — "Photograph N of M".
 //
 // The admin surface requires a Manorama session — Dropbox sign-in mints an
 // HS256 `manorama_session` cookie (app/lib/session.ts). Every context
@@ -69,7 +69,7 @@ const BASE = process.env.GALLERY_URL ?? "http://localhost:8787";
 const OWNER = process.env.GALLERY_OWNER ?? "thecontrarian";
 const SLUG = process.env.GALLERY_SLUG ?? "dev-dropbox";
 const GALLERY = `${BASE}/${OWNER}/${SLUG}`;
-const CONTROL_NAME = /image information and content credentials/i;
+const CONTROL_NAME = /^(photograph|video) \d+ of \d+$/i;
 
 const viewports = [
   { name: "phone", width: 375, height: 812, hasTouch: true },
@@ -129,7 +129,7 @@ async function ensureNavArrows(page: import("@playwright/test").Page) {
       .getByRole("button", { name: "Display", exact: true })
       .click();
     await page
-      .getByRole("button", { name: /show navigation arrows/i })
+      .getByRole("switch", { name: /^arrows$/i })
       .click();
   }
 }
@@ -398,12 +398,10 @@ for (const vp of viewports) {
       ).toHaveCount(0);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await expect(
-        page.getByRole("dialog", { name: /display settings/i }),
+        page.getByRole("dialog", { name: "Display" }),
       ).toBeVisible();
       // Vertical scroll keeps the bars working in their docks.
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await page.keyboard.press("Escape");
       await openInfoDialog(page);
@@ -432,18 +430,18 @@ for (const vp of viewports) {
         .locator("[aria-current='true']")
         .getAttribute("data-index");
       await openInfoDialog(page);
-      await expect(page.locator(".position-value")).toHaveText(
-        `${docked} / ${await imageCount(page)}`,
-      );
+      await expect(
+        page.getByRole("dialog", { name: `Photograph ${docked} of ${await imageCount(page)}` }),
+      ).toBeVisible();
       await page.keyboard.press("Escape");
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(GALLERY);
       await page.locator("[data-curtain]").click();
       await expect(page.locator("[data-curtain]")).toBeHidden();
       await openInfoDialog(page);
-      await expect(page.locator(".position-value")).toHaveText(
-        `1 / ${await imageCount(page)}`,
-      );
+      await expect(
+        page.getByRole("dialog", { name: `Photograph 1 of ${await imageCount(page)}` }),
+      ).toBeVisible();
       await page.keyboard.press("Escape");
       await page.keyboard.press("Home");
       await expect(page).toHaveURL(GALLERY);
@@ -646,10 +644,9 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
       const stage = page.locator("[data-stage]");
       await page.mouse.move(vp.width / 2, vp.height - 200);
       await page.mouse.down();
@@ -955,9 +952,9 @@ for (const vp of viewports) {
       await page.keyboard.press("i");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
-      // The provenance dialog carries the frame's own sections; view modes
-      // and shortcuts live in the display-settings panel instead.
-      for (const label of [/position/i, /info|exif/i, /credentials/i]) {
+      // The provenance sheet carries the frame's own rows; view modes
+      // and shortcuts live in the Display sheet instead.
+      for (const label of [/file/i, /size/i, /content credentials/i]) {
         await expect(modal.getByText(label).first()).toBeVisible();
       }
       await page.keyboard.press("Escape");
@@ -968,13 +965,13 @@ for (const vp of viewports) {
       await openInfoDialog(page);
       await expect(modal).toBeVisible();
       await modal
-        .getByRole("button", { name: /close image information/i })
+        .getByRole("button", { name: "Close", exact: true })
         .click();
       await expect(modal).not.toBeVisible();
-      // Third: the backdrop itself (target === currentTarget).
+      // Third: the sheet's scrim.
       await openInfoDialog(page);
       await expect(modal).toBeVisible();
-      await modal.click({ position: { x: 4, y: 4 } });
+      await page.locator(".m-scrim").click({ position: { x: 4, y: 4 } });
       await expect(modal).not.toBeVisible();
     });
 
@@ -993,7 +990,7 @@ for (const vp of viewports) {
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await expect(
-        page.getByRole("button", { name: /enter fullscreen/i }),
+        page.getByRole("switch", { name: /fullscreen/i }),
       ).toHaveCount(supported ? 1 : 0);
     });
 
@@ -1008,28 +1005,27 @@ for (const vp of viewports) {
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /hide navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /show navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       // Vertical keeps the toggle but defaults arrows off — the feed
       // scrolls natively, so they appear only on request.
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /show navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       // Enabled vertical arrows stack ↑ over ↓ at the bottom-right.
@@ -1084,22 +1080,21 @@ for (const vp of viewports) {
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /hide navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       // Single mode brings them back, stepping one image at a time.
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /one at a time/i })
-        .click();
+      await page.getByRole("radio", { name: "One by one" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await page.getByRole("button", { name: /next photograph/i }).click();
       await openInfoDialog(page);
-      await expect(page.locator(".position-value")).toHaveText(
-        `2 / ${await imageCount(page)}`,
-      );
+      await expect(
+        page.getByRole("dialog", { name: `Photograph 2 of ${await imageCount(page)}` }),
+      ).toBeVisible();
     });
 
     test("touch pointers start without nav buttons; enabled arrows dock at the bottom corners", async ({
@@ -1218,7 +1213,7 @@ for (const vp of viewports) {
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /hide navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await expect(seq).toBeVisible();
@@ -1278,10 +1273,9 @@ for (const vp of viewports) {
       // label, the element a pointer actually hits.
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
       // Vertical mode mounts .frame-img only for the ACTIVE frame, so the
       // spec walks the sequence and samples each orientation the first
       // time a frame of that kind activates — real album order decides
@@ -1532,9 +1526,7 @@ for (const vp of viewports) {
       // The card belongs to the strip alone.
       await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
       await expect(endcap).toHaveCount(0);
     });
@@ -1638,20 +1630,22 @@ test("alternate modes switch instantly and preserve the current image", async ({
   await showChrome(page);
   await page.getByRole("button", { name: "Display", exact: true }).click();
   await page
-    .locator(".mode-options label", { hasText: /vertical scroll/i })
+    .getByRole("radio", { name: "Scroll" })
     .click();
   await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+  await page.keyboard.press("Escape");
   await openInfoDialog(page);
-  await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
+  await expect(page.getByRole("dialog", { name: `Photograph 2 of ${total}` })).toBeVisible();
   await page.keyboard.press("Escape");
   await showChrome(page);
   await page.getByRole("button", { name: "Display", exact: true }).click();
   await page
-    .locator(".mode-options label", { hasText: /one at a time/i })
+    .getByRole("radio", { name: "One by one" })
     .click();
   await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+  await page.keyboard.press("Escape");
   await openInfoDialog(page);
-  await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
+  await expect(page.getByRole("dialog", { name: `Photograph 2 of ${total}` })).toBeVisible();
   await expect(page).toHaveURL(GALLERY);
 });
 
@@ -1798,6 +1792,180 @@ test("the info sheet shows the photograph's caption", async ({
   ).toHaveCount(0);
 });
 
+test.describe("display and info sheets", () => {
+  test("layout and canvas segments apply live, stay open, and persist", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Display" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("radio", { name: "Scroll" }).click();
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("radio", { name: "Dark" }).click();
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(1);
+    await expect(dialog).toBeVisible();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await dismissCurtain(page);
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(1);
+
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await dialog.getByRole("radio", { name: "Strip" }).click();
+    await dialog.getByRole("radio", { name: "Black" }).click();
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await dismissCurtain(page);
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
+  });
+
+  test("escape closes the display sheet once and returns focus to its pill", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    const pill = page.getByRole("button", { name: "Display", exact: true });
+    await pill.click();
+    const dialog = page.getByRole("dialog", { name: "Display" });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(pill).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test("keyboard shortcuts render only where a fine pointer exists", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    const fine = await page.evaluate(() => matchMedia("(pointer: fine)").matches);
+    await expect(
+      page.getByRole("dialog", { name: "Display" }).getByText("Keyboard shortcuts"),
+    ).toHaveCount(fine ? 1 : 0);
+  });
+
+  test("axe is clean with the display sheet and the info sheet open", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Display" })).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.keyboard.press("Escape");
+    await openInfoDialog(page);
+    await expect(page.getByRole("dialog", { name: CONTROL_NAME })).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+});
+
+test("credentials queue: one check per flagged still, retry re-enqueues", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "c2pa-queue-qa",
+          images: [
+            { id: "q-flag", filename: "flagged.png", src: "/c2pa-flagged.png", width: 800, height: 600, alt: "flagged", c2pa: true },
+            { id: "q-plain", filename: "plain.png", src: "/c2pa-plain.png", width: 800, height: 600, alt: "plain" },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+
+  let flaggedRequests = 0;
+  let plainRequests = 0;
+  await page.route("**/c2pa-flagged.png", (route) => {
+    flaggedRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "cache-control": "no-store" },
+      body: Buffer.from(testPng(4, 4).split(",")[1], "base64"),
+    });
+  });
+  await page.route("**/c2pa-plain.png", (route) => {
+    plainRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "cache-control": "no-store" },
+      body: Buffer.from(testPng(4, 4).split(",")[1], "base64"),
+    });
+  });
+
+  await dismissCurtain(page, `${BASE}/retention-qa/c2pa-queue-qa`);
+  // The display fetch of the first frame may be in flight — wait for it
+  // to settle so the deltas below isolate the credential checks.
+  await expect.poll(() => flaggedRequests, { timeout: 15000 }).toBeGreaterThanOrEqual(1);
+  const docked = () => page.locator("[data-stage] [aria-current='true']").getAttribute("data-index");
+  await expect.poll(docked).toBe("1");
+  const panel = page.locator("[data-c2pa-panel]");
+  const dialog = page.getByRole("dialog", { name: CONTROL_NAME });
+  // Keyboard arrows ride the strip glide, which coalesces on narrow
+  // viewports — the picker's thumbnails commit the frame directly.
+  const goToFrame = async (itemIndex: number, dockedIndex: string) => {
+    // G opens the picker — the chrome pill is inert at rest, so the
+    // keyboard path is the deterministic way in.
+    await page.keyboard.press("g");
+    await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+    await page.locator(".viewer-filmstrip-item").nth(itemIndex).click();
+    await expect.poll(docked).toBe(dockedIndex);
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+  };
+
+  // Flagged still: open Info → exactly one fetch of its source.
+  const beforeFlag = flaggedRequests;
+  await openInfoDialog(page);
+  await expect(
+    panel,
+  ).toContainText(/checking content credentials|verified|could not be checked/i, { timeout: 30000 });
+  await expect.poll(() => flaggedRequests - beforeFlag).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+
+  // The unflagged still next door never triggers a check — its panel is
+  // the quiet no-credentials line, not the first photo's pending state.
+  await goToFrame(1, "2");
+  const beforePlain = flaggedRequests + plainRequests;
+  await openInfoDialog(page);
+  await expect(panel).toContainText(/carries no content credentials/i);
+  await page.waitForTimeout(400);
+  expect(flaggedRequests + plainRequests).toBe(beforePlain);
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+
+  // Back on the flagged still: a settled check dedupes the repeat open;
+  // when the outcome is unavailable the retry affordance re-enqueues it.
+  await goToFrame(0, "1");
+  const beforeRetry = flaggedRequests;
+  await openInfoDialog(page);
+  const retry = panel.getByRole("button", { name: /try again|verify on this device/i });
+  if (await retry.count()) {
+    await retry.click();
+    await expect.poll(() => flaggedRequests - beforeRetry, { timeout: 15000 }).toBe(1);
+  } else {
+    expect(flaggedRequests).toBe(beforeRetry);
+  }
+});
+
 test("a stalled image re-requests itself instead of staying blank", async ({
   page,
   request,
@@ -1848,6 +2016,18 @@ test("credentialed image validates through the browser reader", async ({
   await dismissCurtain(page);
   const total = await imageCount(page);
   const panel = page.locator("[data-c2pa-panel]");
+  const dialog = page.getByRole("dialog", { name: CONTROL_NAME });
+  // Keyboard arrows ride the strip glide, which coalesces on narrow
+  // viewports — the picker's thumbnails commit the frame directly.
+  const goToFrame = async (itemIndex: number, dockedIndex: string) => {
+    // G opens the picker — the chrome pill is inert at rest, so the
+    // keyboard path is the deterministic way in.
+    await page.keyboard.press("g");
+    await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+    await page.locator(".viewer-filmstrip-item").nth(itemIndex).click();
+    await expect.poll(docked).toBe(dockedIndex);
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+  };
   // Credentialed coverage is a property of the seeded album — iCloud
   // derivatives carry none, Dropbox/Drive/MEGA originals keep them — so
   // the spec walks forward to the first credentialed frame instead of
@@ -1863,11 +2043,11 @@ test("credentialed image validates through the browser reader", async ({
     // Credentialed frames auto-verify when the panel opens; the explicit
     // button only survives if auto-verification hasn't started yet.
     const verify = panel.getByRole("button", {
-      name: /verify in this browser/i,
+      name: /verify on this device/i,
     });
     if (await verify.count()) await verify.click();
     await expect(panel).toContainText(
-      /content credentials verified in this browser/i,
+      /content credentials verified on this device/i,
       { timeout: 30000 },
     );
     return;
@@ -2504,9 +2684,7 @@ test.describe("M magnifier (desktop only)", () => {
     await dismissCurtain(page);
     await showChrome(page);
       await page.getByRole("button", { name: "Display", exact: true }).click();
-    await page
-      .locator(".mode-options label", { hasText: /vertical scroll/i })
-      .click();
+    await page.getByRole("radio", { name: "Scroll" }).click();
     await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
     await page.keyboard.press("Escape");
 
@@ -2605,7 +2783,7 @@ test.describe("video slides", () => {
 
     await showChrome(page);
     await page.getByRole("button", { name: "Display", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Display settings" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Display" })).toBeVisible();
     await expect(videos).toHaveCount(0);
   });
 
