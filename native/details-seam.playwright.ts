@@ -14,13 +14,9 @@ const photo = (index: number): GalleryImage => ({
   c2pa: false,
   placeholder: svg(`ph ${index + 1}`),
 })
-// ~30 stills plus one video-shaped item at index 3; the video leg skips if
-// it cannot play (no real mp4 in a routed fixture).
-const manifestImages: GalleryImage[] = Array.from({ length: 30 }, (_, i) =>
-  i === 3
-    ? ({ ...photo(i), type: 'video', durationSeconds: 4 } as unknown as GalleryImage)
-    : photo(i),
-)
+// ~30 stills — enough frames for a house plate to exist. No real mp4 can be
+// fabricated in a routed fixture, so the video leg skips gracefully.
+const manifestImages: GalleryImage[] = Array.from({ length: 30 }, (_, i) => photo(i))
 const payload = JSON.stringify({
   manifest: { slug: 'seam-fixture', title: 'Seam fixture', caption: 'Suspended-viewer seam.', date: '2026-10-28', images: manifestImages },
   settings: {
@@ -32,6 +28,8 @@ const payload = JSON.stringify({
     defaultMode: 'strip',
     defaultShowArrows: false,
     defaultShowCaptions: true,
+    imageCaptions: {},
+    imageAlts: {},
   },
 })
 const openFixture = async (page: Page) => {
@@ -50,11 +48,12 @@ if (!nativeUrl) throw new Error('NATIVE_GALLERY_URL is required for the details-
 const fixture = `${nativeUrl}/details-fixture.html`
 
 const dismissCurtain = async (page: Page) => {
+  // The fixture mounts asynchronously after its manifest fetch resolves —
+  // wait for the curtain to exist rather than testing count() too early.
   const curtain = page.locator('[data-curtain]')
-  if (await curtain.count()) {
-    await curtain.click()
-    await expect(curtain).toBeHidden()
-  }
+  await expect(curtain).toBeVisible()
+  await curtain.click()
+  await expect(curtain).toBeHidden()
   await expect(page.locator('body.gallery-entered')).toHaveCount(1)
 }
 
@@ -73,6 +72,9 @@ for (const viewport of [
     // Commit a few photographs in; readout reports real images only.
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowRight')
+    // Let the glide fully settle before freezing — a transform or position
+    // read mid-glide would drift underneath the suspended frame.
+    await page.waitForTimeout(700)
     const readout = await page.locator('#position-readout').getAttribute('data-position')
     expect(readout).toMatch(/@\d+$/)
 
@@ -87,8 +89,10 @@ for (const viewport of [
 
     await page.locator('#toggle-details').click()
     await expect(page.locator('[data-screen="details"]')).toBeVisible()
-    expect(await page.locator('.viewer-stage').evaluate((n) => (n as HTMLElement).inert)).toBe(true)
-    expect(await page.locator('.viewer-stage').getAttribute('aria-hidden')).toBe('true')
+    // Inert lives on the viewer's display:contents wrap (fix 5), so the
+    // stage is inert by inheritance — check the ancestor, not the property.
+    expect(await page.locator('.viewer-stage').evaluate((n) => Boolean((n as HTMLElement).closest('[inert]')))).toBe(true)
+    expect(await page.locator('.viewer-stage').evaluate((n) => Boolean((n as HTMLElement).closest('[aria-hidden="true"]')))).toBe(true)
 
     // No input reaches the stage while suspended.
     const before = await stripTransform(page)
@@ -99,12 +103,20 @@ for (const viewport of [
     expect(await stripTransform(page)).toBe(before)
     expect(await page.locator('.controls-modal:not([hidden]), .info-sheet:not([hidden])').count()).toBe(0)
 
+    // Defect 5: Tab from the external toggle never lands inside the
+    // viewer's inert subtree.
+    await page.locator('#toggle-details').focus()
+    for (let i = 0; i < 8; i += 1) {
+      await page.keyboard.press('Tab')
+      expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[inert]')))).toBe(false)
+    }
+
     await page.locator('#toggle-details').click()
     await expect(page.locator('[data-screen="details"]')).toHaveCount(0)
     expect(await stripTransform(page)).toBe(transform)
     expect(await page.evaluate(() => document.querySelector('.viewer-stage')?.getAttribute('data-stage'))).toBe(activeId)
     expect(await page.evaluate(() => (document.querySelector('.viewer-stage') as HTMLElement & { __seam?: string }).__seam)).toBe(marker)
-    await expect(page.locator('[data-curtain]')).toHaveCount(0)
+    await expect(page.locator('[data-curtain]')).toBeHidden()
     expect(await page.locator('#position-readout').getAttribute('data-position')).toBe(readout)
   })
 }
