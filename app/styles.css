@@ -81,6 +81,20 @@
   --m-ease: cubic-bezier(.22, 1, .36, 1);
 }
 
+/* .m-dark re-declares the dark tokens so viewer chrome, sheets and the
+   curtain stay dark even under html.light — viewer UI never follows the
+   owner theme. */
+.m-dark {
+  --m-ground: #0a0a0a; --m-surface: #161616; --m-raised: #262626;
+  --m-active: #303030; --m-rule: #1d1d1d; --m-control: #4a4a4a;
+  --m-ink: #f3f0e8; --m-secondary: #b8b4ab; --m-meta: #98948c;
+  --m-primary: #f3f0e8; --m-on-primary: #0a0a0a;
+  --m-data: #fc0fc0; --m-data-outline: transparent;
+  --m-negative: #f0687a; --m-focus: var(--m-ink);
+  --m-scrim: rgba(0,0,0,.55);
+  color-scheme: dark;
+}
+
 html.light {
   /* Light owner theme — pink never carries state alone here: the data fill
      and selection outlines get an ink outline via --m-data-outline. */
