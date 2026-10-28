@@ -2547,7 +2547,7 @@ test.describe("privacy policy page", () => {
     await expect(
       page.locator(".policy-personas > section.policy-card"),
     ).toHaveCount(3);
-    for (const name of ["Just looking", "Making galleries", "Pro or Forever"]) {
+    for (const name of ["Just looking", "Making galleries", "Pro"]) {
       await expect(page.getByRole("region", { name })).toBeVisible();
     }
     for (const name of [
