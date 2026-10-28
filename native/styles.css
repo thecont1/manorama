@@ -904,7 +904,7 @@ body.manorama-native:has(.native-account-shell) {
   /* The account rows wear the web dashboard's type: the brand face for the
      title, a quieter subtitle beneath. Only the public address truncates — a
      long title wraps rather than losing its words. */
-  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 24px;
   font-variation-settings: "wdth" 100, "wght" 500;
   letter-spacing: -.04em;
@@ -928,7 +928,7 @@ body.manorama-native:has(.native-account-shell) {
 .native-gallery-heading .native-gallery-meta {
   flex: 0 0 auto;
   color: rgba(var(--ink), .6);
-  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-variation-settings: "wdth" 100, "wght" 500;
   letter-spacing: -.01em;
