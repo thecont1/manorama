@@ -426,6 +426,124 @@ for (const vp of viewports) {
       await expect(info.locator("[data-c2pa-panel]")).toBeInViewport();
     });
 
+    test("controls surface when the curtain clears, then tuck away", async ({
+      page,
+    }) => {
+      await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
+      const bottom = page.locator("[data-chrome-bottom]");
+      // No controls while the veil is up — only the curtain.
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      await page.locator("[data-curtain]").click();
+      await expect(page.locator("[data-curtain]")).toBeHidden();
+      // The bars reveal themselves once the photograph is clear — the
+      // visitor is not asked to discover the tap.
+      await expect(bottom).toHaveClass(/is-visible/);
+      await expect(page.locator("[data-chrome-top]")).toHaveClass(
+        /is-visible/,
+      );
+      // Three idle seconds later they tuck away again.
+      await expect(bottom).not.toHaveClass(/is-visible/, {
+        timeout: 8000,
+      });
+      // Hidden bars are inert — nothing inside can take focus or a tap.
+      await expect(bottom).toHaveAttribute("inert", "");
+      await expect(bottom).toHaveAttribute("aria-hidden", "true");
+      await expect(page.locator("[data-chrome-top]")).toHaveAttribute(
+        "inert",
+        "",
+      );
+    });
+
+    test("tap toggles chrome while wheel and drag never summon it", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const bottom = page.locator("[data-chrome-bottom]");
+      const stage = page.locator("[data-stage]");
+      await expect(bottom).not.toHaveClass(/is-visible/, { timeout: 8000 });
+      const box = (await stage.boundingBox())!;
+      // A wheel gesture moves photographs, not chrome.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 320);
+      await page.waitForTimeout(300);
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      // A tap toggles it on, a second tap toggles it off.
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(bottom).toHaveClass(/is-visible/);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      // And a drag is travel, not a tap — it must not leave the bars on.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      await expect(bottom).not.toHaveClass(/is-visible/);
+    });
+
+    test("the skip button summons controls and focus holds them open", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const bottom = page.locator("[data-chrome-bottom]");
+      await expect(bottom).not.toHaveClass(/is-visible/, { timeout: 8000 });
+      // Tab is itself a reveal cue — the bars answer the keyboard before
+      // any tab stop is reached.
+      await page.keyboard.press("Tab");
+      await expect(bottom).toHaveClass(/is-visible/);
+      // Any other key sends them away again.
+      await page.keyboard.press("Escape");
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      // The skip button is the tab-order entry point: off-viewport until
+      // focused, so activation is the DOM click a keyboard Enter sends.
+      await page
+        .getByRole("button", { name: "Show controls" })
+        .dispatchEvent("click");
+      await expect(bottom).toHaveClass(/is-visible/);
+      await expect(
+        page.getByRole("button", { name: "Display", exact: true }),
+      ).toBeFocused();
+      // Focus inside the chrome pauses the auto-hide — past three
+      // seconds the bars are still up while a pill is focused.
+      await page.waitForTimeout(3400);
+      await expect(bottom).toHaveClass(/is-visible/);
+    });
+
+    test("a signed-out visitor gets neither Library nor Details", async ({
+      browser,
+    }) => {
+      // No session cookie — the public-link visitor sees Display, Info
+      // and the position count, and nothing that exits or edits.
+      const context = await browser.newContext({
+        viewport: { width: vp.width, height: vp.height },
+        hasTouch: vp.hasTouch,
+      });
+      const page = await context.newPage();
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
+      await page.locator("[data-curtain]").click();
+      const bottom = page.locator("[data-chrome-bottom]");
+      await expect(bottom).toHaveClass(/is-visible/);
+      await expect(page.locator("[data-chrome-library]")).toHaveCount(0);
+      await expect(
+        bottom.getByRole("button", { name: "Details" }),
+      ).toHaveCount(0);
+      await expect(
+        bottom.getByRole("button", { name: "Display", exact: true }),
+      ).toBeVisible();
+      await expect(
+        bottom.getByRole("button", { name: "Info", exact: true }),
+      ).toBeVisible();
+      // Position still opens the picker; no Share control exists.
+      await expect(
+        page.locator("[data-chrome-position]"),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /^share$/i }),
+      ).toHaveCount(0);
+      await context.close();
+    });
+
     test("keyboard navigation preserves a clean URL and refresh returns to the first image", async ({
       page,
     }) => {

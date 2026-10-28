@@ -1678,9 +1678,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }, [mode])
 
   // Vertical mode scrolls natively for touch and wheel; map a mouse or
-  // pen drag onto scrollTop so the feed answers a grabbed drag too. The
-  // brand pill plays along — a press on it drags the feed, and a
-  // release without travel still lands as its click.
+  // pen drag onto scrollTop so the feed answers a grabbed drag too.
+  // Presses that land on a control are left to the control, never
+  // turned into a drag.
   useEffect(() => {
     const stage = stageRef.current
     if (!stage || mode !== 'vertical') return
