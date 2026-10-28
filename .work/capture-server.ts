@@ -385,7 +385,7 @@ const PREBOOT = async (which: number) => {
   }
 
   var stills = function () {
-    var images = document.querySelectorAll('.native-gallery-thumb img')
+    var images = document.querySelectorAll('.lib-th img')
     var loaded = 0
     for (var i = 0; i < images.length; i++) if (images[i].complete && images[i].naturalWidth > 0) loaded++
     return { thumbs: images.length, loaded: loaded }
@@ -407,24 +407,20 @@ const PREBOOT = async (which: number) => {
   var started = Date.now()
   var wait = function () {
     var account = document.querySelector('.native-account')
-    var cards = document.querySelector('.native-house-cards')
-    var policy = document.querySelector('.native-load-policy')
-    var input = document.querySelector('#native-source-url')
+    var add = document.querySelector('.native-library-heading .m-btn--primary')
     var strip = stills()
-    var bounds = input && input.getBoundingClientRect()
-    var inputVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
-    var ready = Boolean(account && inputVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
+    var bounds = add && add.getBoundingClientRect()
+    var addVisible = Boolean(bounds && bounds.width > 0 && bounds.height >= 44 && bounds.top >= 0 && bounds.bottom <= innerHeight)
+    var ready = Boolean(account && addVisible && strip.thumbs > 0 && strip.loaded === strip.thumbs)
     if (ready || Date.now() - started > 40000) {
       log('state ${which} ready:', ready, JSON.stringify(strip))
       send({
         ready: ready,
         elapsed: Date.now() - started,
         signedIn: Boolean(account),
-        inputVisible: inputVisible,
-        inputBounds: bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
-        houseCards: cards ? (cards.querySelector('.native-house-cards-status') || {}).textContent : null,
-        buttons: [].map.call(document.querySelectorAll('.native-house-cards-actions button'), function (b) { return b.textContent }),
-        headings: [].map.call(document.querySelectorAll('.native-house-cards h2, .native-load-policy h2, .native-global-setting h2, .native-device h2'), function (h) { return h.textContent }),
+        addVisible: addVisible,
+        addBounds: bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+        headings: [].map.call(document.querySelectorAll('.native-library-heading h1, .lib-card-title'), function (h) { return h.textContent }),
         thumbs: strip
       })
       return
@@ -472,7 +468,7 @@ const DRIVER = (which: number) => `
     body: JSON.stringify({ state: ${which}, generation: ${generation}, ready,
       firstImageWidth: document.querySelector('[data-stage] .viewer-frame[data-index="1"] img.frame-img')?.naturalWidth ?? 0,
       entered: document.body.classList.contains('gallery-entered'),
-      modalVisible: Boolean(document.querySelector('.controls-modal[aria-label="Display settings"]:not([hidden])')),
+      modalVisible: Boolean(document.querySelector('.m-sheet-host .m-sheet')),
       viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
       errors: window.__captureErrors || [] })
   })
@@ -496,13 +492,15 @@ const DRIVER = (which: number) => `
       return
     }
 
-    // The lift settles over ~980ms; wait it out so the dot is where the strip
-    // left it before the settings modal opens.
+    // Chrome stays visible for three seconds after entry. Open the redesigned
+    // Display sheet through its actual chrome control, not the retired logo
+    // button and controls-modal.
     await new Promise((r) => setTimeout(r, 2200))
-    log('opening settings:', click(document.querySelector('button.control-logo')))
-    const modal = await waitFor('.controls-modal[aria-label="Display settings"]:not([hidden])')
+    const display = document.querySelector('[data-chrome-bottom] button')
+    log('opening settings:', click(display))
+    const modal = await waitFor('.m-sheet-host .m-sheet')
     await new Promise((r) => setTimeout(r, 1000))
-    await report(Boolean(modal && document.querySelector('.controls-panel')))
+    await report(Boolean(modal && modal.querySelector('.m-sheet-body') && modal.querySelector('.m-sheet-title')?.textContent === 'Display'))
   })().catch(async (error) => {
     window.__captureErrors.push(String(error))
     await report(false)

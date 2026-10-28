@@ -304,10 +304,11 @@ describe('galleries beyond the free allowance', () => {
       const response = await api.request('/api/galleries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/fourth' }),
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/fourth', title: 'Named Overflow' }),
       }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
       expect(response.status).toBe(201)
-      const payload = await response.json() as { gallery?: { slug?: string; retention?: string; expiresAt?: string | null } }
+      const payload = await response.json() as { gallery?: { slug?: string; title?: string; retention?: string; expiresAt?: string | null } }
+      expect(payload.gallery?.title).toBe('Named Overflow')
       expect(payload.gallery?.retention).toBe('pipeline')
       expect(payload.gallery?.expiresAt).toBeTruthy()
     } finally {
@@ -340,7 +341,7 @@ describe('quick-add naming', () => {
       const response = await api.request('/api/galleries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/quick-one', quick: true }),
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/quick-one', quick: true, title: 'Quick Name Must Not Win' }),
       }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
       expect(response.status).toBe(201)
       const payload = await response.json() as { gallery?: { slug?: string; title?: string } }
@@ -365,6 +366,39 @@ describe('quick-add naming', () => {
       const payload = await response.json() as { gallery?: { slug?: string; title?: string } }
       expect(payload.gallery?.title).toBe('Family Album')
       expect(payload.gallery?.slug).toBe('family-album')
+    } finally {
+      restore()
+    }
+  })
+
+  test('an ordinary create uses its optional validated name', async () => {
+    const restore = stubScan('Provider Album')
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/named-one', title: '  My Named Album  ' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { slug?: string; title?: string } }
+      expect(payload.gallery?.title).toBe('My Named Album')
+      expect(payload.gallery?.slug).toBe('my-named-album')
+    } finally {
+      restore()
+    }
+  })
+
+  test('a blank optional name falls back to the provider title', async () => {
+    const restore = stubScan('Provider Album')
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/unnamed-one', title: '   ' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { title?: string } }
+      expect(payload.gallery?.title).toBe('Provider Album')
     } finally {
       restore()
     }
@@ -448,5 +482,27 @@ describe('source ordering', () => {
     } finally {
       restore()
     }
+  })
+
+  test('an order write accepts and returns all 1,000 provider keys', async () => {
+    const images = Array.from({ length: 1000 }, (_, index) => seedImage(`img${index + 1}.jpg`))
+    await createGallery(ORDER_OWNER, {
+      slug: 'ordered-thousand',
+      title: 'Ordered Thousand',
+      caption: '',
+      date: '',
+      images,
+    })
+    const order = [...images].reverse().map((image) => image.filename!)
+    const response = await api.request('/api/galleries/ordered-thousand', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: orderCookie },
+      body: JSON.stringify({ order }),
+    }, env)
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { gallery?: { images?: { filename: string }[] } }
+    expect(payload.gallery?.images).toHaveLength(1000)
+    expect(payload.gallery?.images?.[0]?.filename).toBe('img1000.jpg')
+    expect(payload.gallery?.images?.[999]?.filename).toBe('img1.jpg')
   })
 })

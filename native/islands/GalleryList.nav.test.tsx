@@ -60,9 +60,9 @@ const mount = async (props: Record<string, unknown> = {}) => {
 }
 
 describe('navigation reducer drives the shell surfaces', () => {
-  test('the account surface is the library screen', async () => {
+  test('the signed-out shell lands on Welcome', async () => {
     const container = await mount()
-    expect(container.querySelector('.native-account, [class*="account"]')).not.toBeNull()
+    expect(container.querySelector('.native-welcome')).not.toBeNull()
     expect(container.querySelector('.viewer-stage')).toBeNull()
   })
 

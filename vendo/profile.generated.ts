@@ -12,7 +12,7 @@ export const TOOLS_FILE = {
   "tools": [
     {
       "name": "host_create_gallery",
-      "description": "Create a gallery from a shared link. Scan a public Dropbox, Google Drive, or iCloud shared album link and create a gallery from its images, optionally in a given order.",
+      "description": "Create a gallery from a shared link. Scan a public Dropbox, Google Drive, or iCloud shared album link and create a gallery from its images, optionally with a title and given order.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -24,11 +24,16 @@ export const TOOLS_FILE = {
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 500,
+                "maxItems": 1000,
                 "type": "array"
               },
               "url": {
                 "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL to create the gallery from",
+                "type": "string"
+              },
+              "title": {
+                "description": "Optional gallery title; blank falls back to the provider folder name",
+                "maxLength": 120,
                 "type": "string"
               }
             },
@@ -197,7 +202,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_delete_gallery",
@@ -236,7 +241,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_drive_file",
@@ -267,7 +272,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_drive_thumbnail",
@@ -306,7 +311,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_dropbox_file",
@@ -338,7 +343,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_dropbox_thumbnail",
@@ -370,7 +375,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_icloud_image",
@@ -407,7 +412,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_mega_file",
@@ -447,7 +452,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_get_mega_preview",
@@ -487,7 +492,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "unknown",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_list_galleries",
@@ -650,7 +655,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_refresh_gallery",
@@ -822,7 +827,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_scan_gallery_source",
@@ -960,7 +965,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     },
     {
       "name": "host_update_gallery",
@@ -991,7 +996,7 @@ export const TOOLS_FILE = {
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 500,
+                "maxItems": 1000,
                 "type": "array"
               },
               "title": {
@@ -1164,7 +1169,7 @@ export const TOOLS_FILE = {
       },
       "inputSchemaSource": "declared",
       "outputSchemaSource": "declared",
-      "srcHash": "sha256:833d0a866978a5798f105e6a644ff480d7483576a2917cad49eb36b81a1f8180"
+      "srcHash": "sha256:b88cc43f1e5ed0695f66b828a66c32cf01ce6a8ec1f526f8279d1f2d24d75266"
     }
   ]
 } as {

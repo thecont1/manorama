@@ -81,11 +81,16 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 500,
+            "maxItems": 1000,
             "type": "array"
           },
           "url": {
             "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL to create the gallery from",
+            "type": "string"
+          },
+          "title": {
+            "description": "Optional gallery title; blank falls back to the provider folder name",
+            "maxLength": 120,
             "type": "string"
           }
         },
@@ -367,7 +372,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 500,
+            "maxItems": 1000,
             "type": "array"
           },
           "title": {
@@ -867,7 +872,7 @@
         ]
       },
       "post": {
-        "description": "Scan a public Dropbox, Google Drive, or iCloud shared album link and create a gallery from its images, optionally in a given order.",
+        "description": "Scan a public Dropbox, Google Drive, or iCloud shared album link and create a gallery from its images, optionally with a title and given order.",
         "operationId": "create_gallery",
         "requestBody": {
           "content": {

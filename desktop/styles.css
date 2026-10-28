@@ -172,6 +172,17 @@ body.manorama-desktop {
 .desktop-share-provider { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .52); font-size: 11px; }
 .desktop-share-confirm-actions { display: flex; gap: 8px; }
+.desktop-share--sheet { margin: 0; padding: 0; border: 0; background: transparent; }
+.desktop-share--sheet .desktop-share-providers,
+.desktop-share--sheet .desktop-share-confirm,
+.desktop-share--sheet .desktop-share-connecting,
+.desktop-share--sheet .desktop-share-progress,
+.desktop-share--sheet .desktop-share-done { gap: 16px; }
+.desktop-share--sheet .desktop-share-provider { min-height: 48px; border-bottom: 1px solid rgba(var(--ink), .14); }
+.desktop-share--sheet .desktop-share-confirm > p,
+.desktop-share--sheet .desktop-share-done > p { margin: 0; line-height: 1.55; }
+.desktop-share--sheet .desktop-share-confirm-actions { flex-wrap: wrap; }
+.desktop-share--sheet .desktop-paste { margin-top: 0; }
 
 .desktop-paste { display: grid; gap: 8px; margin-top: 24px; padding: 14px; border: 1px solid rgba(var(--ink), .16); background: rgba(0, 0, 0, .16); }
 .desktop-paste label { display: grid; gap: 6px; color: rgba(var(--ink), .62); font-size: 12px; }

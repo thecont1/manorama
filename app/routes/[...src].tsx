@@ -4,6 +4,7 @@ import { localFolderCandidate } from '../lib/local-source'
 import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
 import { SignInLinks } from '../lib/signin'
 import { getCookie } from 'hono/cookie'
+import { PUBLIC_HEADING_FONT_FAMILY } from '../components/PublicWelcome'
 
 /**
  * The quick-add script URL, resolved for both dev and production.
@@ -123,13 +124,13 @@ export default createRoute(async (c, next) => {
 
           {session ? (
             <div class="quickadd-panel" data-panel="working">
-              <h1 class="quickadd-title">Manorama-fying your<br />{provider} link…</h1>
+              <h1 class="quickadd-title" style={{ fontFamily: PUBLIC_HEADING_FONT_FAMILY, fontWeight: 700 }}>Manorama-fying your<br />{provider} link…</h1>
               <p class="quickadd-copy" data-quickadd-status role="status" aria-live="polite">Reading the album and building your gallery.</p>
               <p class="quickadd-spinner" aria-hidden="true">◍</p>
             </div>
           ) : (
             <div class="quickadd-panel" data-panel="signin">
-              <h1 class="quickadd-title">Open this {provider} album as a gallery</h1>
+              <h1 class="quickadd-title" style={{ fontFamily: PUBLIC_HEADING_FONT_FAMILY, fontWeight: 700 }}>Open this {provider} album as a gallery</h1>
               <p class="quickadd-copy">
                 {detected.provider === 'local'
                   ? 'Sign in and the dev server will read that folder straight off this machine — nothing is uploaded.'

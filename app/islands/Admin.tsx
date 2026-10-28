@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
-import { applyTheme, readStoredTheme, storeTheme, themeControlLabel, oppositeTheme, type Theme } from '../lib/owner-theme'
+import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/owner-theme'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
-import { FREE_RETENTION_DISCLOSURE, PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, paidGalleryLimitError } from '../lib/gallery-policy'
+import { PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired } from '../lib/gallery-policy'
 import type { AuthProvider } from '../lib/identity-repository'
 import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
 import { CopyIcon, OpenIcon, RefreshIcon, SourceIcon, TrashIcon } from '../components/admin-icons'
+import { AddGallerySheet } from '../components/AddGallerySheet'
+import { GalleryShareSheet } from '../components/GalleryShareSheet'
+import { GalleryDetailsView } from '../components/GalleryDetailsView'
+import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
+import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
+import { copyText } from '../lib/gallery-share'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -29,8 +35,10 @@ type GalleryDrag = {
   startIndex: number
   currentIndex: number
   images: GallerySummary['images']
+  activated: boolean
+  longPressTimer: ReturnType<typeof setTimeout> | null
 }
-type AccountIdentity = { provider: AuthProvider; displayName?: string; email?: string }
+type AccountIdentity = AccountIdentityWeb
 
 const SIGN_IN_METHODS: readonly { provider: AuthProvider; name: string }[] = [
   { provider: 'dropbox', name: 'Dropbox' },
@@ -78,11 +86,30 @@ const scrollToGalleryCard = (slug: string) => {
   })
 }
 
+/** The Details "Source" line names the provider behind a gallery's link. */
+const sourceLabelFor = (url?: string): string => {
+  if (!url) return 'Manorama'
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '')
+    if (host.includes('dropbox.com')) return 'Dropbox'
+    if (host.includes('drive.google.com')) return 'Google Drive'
+    if (host.includes('icloud.com')) return 'iCloud'
+    if (host.includes('mega.nz')) return 'MEGA'
+  } catch {
+    // Fall through to the generic label.
+  }
+  return 'shared folder'
+}
+
 /** Renders the owner's dashboard for importing, editing, and managing galleries. */
 export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free', accountId, upgradeUrl }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [sourceUrl, setSourceUrl] = useState('')
+  const [addName, setAddName] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [finePointer, setFinePointer] = useState(true)
   const [editing, setEditing] = useState<Editing>(null)
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
@@ -115,9 +142,28 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteNote, setDeleteNote] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
+  // Owner slug save errors surface inside Settings, not in a toast that the
+  // fixed surface would cover.
+  const [settingsNote, setSettingsNote] = useState('')
+  // Actions taken inside Details (refresh, remove, save) announce in the
+  // Details surface itself; the library toast lives behind it.
+  const [detailsNote, setDetailsNote] = useState<string | null>(null)
+  const [detailsSlug, setDetailsSlug] = useState<string | null>(null)
+  const [editField, setEditField] = useState<GalleryEditField | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [editNote, setEditNote] = useState<string | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
+  }, [])
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(any-pointer: fine)')
+    const update = () => setFinePointer(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
   }, [])
 
   const refreshIdentities = async () => {
@@ -215,7 +261,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     // Already handled by the OAuth `next` redirect if a gallery from this
     // link exists — addGallery's 409 path reports that harmlessly.
     setSourceUrl(pending)
-    announce('Your shared link is ready to add — press Manorama-fy to finish.')
+    setAddOpen(true)
+    announce('Your shared link is ready to add — press Add gallery to finish.')
   }, [])
 
   useEffect(() => {
@@ -278,6 +325,80 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }, [menuOpen])
 
+  // Browser Back/Forward across the Details and Settings surfaces. Each full
+  // surface occupies one history entry ({surface} state + search param); a
+  // popstate moves the app back to whichever surface the entry names, and a
+  // plain library entry closes everything. Opening Details from the viewer's
+  // `?details=<slug>&photo=<id>` navigation needs no push — Back from there
+  // falls through to the viewer page itself.
+  const initialDetailsRef = useRef<string | null>(null)
+  const pendingReorderFocusRef = useRef<string | null>(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const slug = params.get('details')
+    if (slug && galleries.some((gallery) => gallery.slug === slug)) {
+      initialDetailsRef.current = slug
+      setDetailsSlug(slug)
+    } else if (params.get('settings') === '1') {
+      setSettingsOpen(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    const onPop = (event: PopStateEvent) => {
+      const state = event.state as { surface?: string; slug?: string } | null
+      if (state?.surface === 'details') {
+        setDetailsSlug(state.slug ?? null)
+        setShareOpen(false)
+      } else if (state?.surface === 'settings') {
+        setSettingsOpen(true)
+      } else {
+        setDetailsSlug(null)
+        setSettingsOpen(false)
+        setShareOpen(false)
+      }
+      if (pendingReorderFocusRef.current) {
+        const slug = pendingReorderFocusRef.current
+        pendingReorderFocusRef.current = null
+        requestAnimationFrame(() => {
+          scrollToGalleryCard(slug)
+          requestAnimationFrame(() => {
+            const first = document.querySelector<HTMLElement>(`[data-gallery-card="${slug}"] .admin-gallery-strip-item`)
+            first?.focus()
+          })
+        })
+      }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+  const openDetails = (slug: string) => {
+    if (!galleries.some((gallery) => gallery.slug === slug)) return
+    setDetailsSlug(slug)
+    setDetailsNote(null)
+    setShareOpen(false)
+    const params = new URLSearchParams(window.location.search)
+    params.set('details', slug)
+    window.history.pushState({ surface: 'details', slug }, '', `${window.location.pathname}?${params}`)
+  }
+  const closeDetails = () => {
+    if (!detailsSlug) return
+    window.history.back()
+  }
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const openSettings = () => {
+    setMenuOpen(false)
+    setSettingsOpen(true)
+    setSettingsNote('')
+    const params = new URLSearchParams(window.location.search)
+    params.set('settings', '1')
+    window.history.pushState({ surface: 'settings' }, '', `${window.location.pathname}?${params}`)
+  }
+  const closeSettings = () => {
+    if (!settingsOpen) return
+    window.history.back()
+  }
+
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
   const galleryDrag = useRef<GalleryDrag | null>(null)
@@ -296,7 +417,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const saveOwnerSlug = async () => {
     const value = ownerSlugDraft.trim().toLowerCase()
     if (value.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
-      announce('Use at least 3 lowercase letters, numbers, and single hyphens')
+      setSettingsNote('Use at least 3 lowercase letters, numbers, and single hyphens')
       return
     }
     if (value === owner) {
@@ -305,7 +426,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     if (busy) return
     setBusy(true)
-    announce('Saving…', true)
+    setSettingsNote('')
     try {
       const response = await fetch('/api/account', {
         method: 'PATCH',
@@ -317,12 +438,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       sessionStorage.setItem('manorama-toast', `Your address is now manorama.xyz/${payload.ownerSlug}`)
       window.location.assign(`/${payload.ownerSlug}`)
     } catch (error) {
-      announce(error instanceof Error ? error.message : 'That URL could not be saved')
+      setSettingsNote(error instanceof Error ? error.message : 'That URL could not be saved')
       setBusy(false)
     }
   }
 
-   const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
+  const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
     if (blockPipelineEdit(gallery)) return
     if (busy) return
     setBusy(true)
@@ -356,19 +477,50 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     void persistGalleryOrder(gallery, images)
   }
 
+  const cancelPendingGalleryDrag = () => {
+    if (galleryDrag.current?.longPressTimer) clearTimeout(galleryDrag.current.longPressTimer)
+    galleryDrag.current = null
+  }
+
   const startGalleryDrag = (gallery: GallerySummary, index: number, event: PointerEvent) => {
     if (blockPipelineEdit(gallery)) { event.preventDefault(); return }
-    if (busy || (event.pointerType === 'touch' && !event.isPrimary)) return
+    if (busy) return
+    // Fine pointers use native HTML5 drag and drop. Touch starts with an
+    // ordinary scroll; only a stationary long-press arms reordering.
+    if (event.pointerType !== 'touch') return
+    if (!event.isPrimary || activeTouchPointers.current.size > 1) {
+      cancelPendingGalleryDrag()
+      return
+    }
     const item = event.currentTarget as HTMLElement
-    try { item.setPointerCapture(event.pointerId) } catch {}
-    galleryDrag.current = { slug: gallery.slug, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, startIndex: index, currentIndex: index, images: [...gallery.images] }
-    event.preventDefault()
+    const drag: GalleryDrag = {
+      slug: gallery.slug,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startIndex: index,
+      currentIndex: index,
+      images: [...gallery.images],
+      activated: false,
+      longPressTimer: null,
+    }
+    drag.longPressTimer = setTimeout(() => {
+      if (galleryDrag.current !== drag || activeTouchPointers.current.size > 1) return
+      drag.activated = true
+      try { item.setPointerCapture(event.pointerId) } catch {}
+      item.classList.add('is-reordering')
+    }, 350)
+    galleryDrag.current = drag
   }
 
   const moveGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
     const drag = galleryDrag.current
     if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
     if (blockPipelineEdit(gallery)) return
+    if (!drag.activated) {
+      if (Math.max(Math.abs(event.clientX - drag.startX), Math.abs(event.clientY - drag.startY)) > 6) cancelPendingGalleryDrag()
+      return
+    }
     const strip = (event.currentTarget as HTMLElement).parentElement
     if (!strip) return
     const items = Array.from(strip.children) as HTMLElement[]
@@ -399,8 +551,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const finishGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
     const drag = galleryDrag.current
     if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
-    if (blockPipelineEdit(gallery)) return
+    if (drag.longPressTimer) clearTimeout(drag.longPressTimer)
+    ;(event.currentTarget as HTMLElement).classList.remove('is-reordering')
     galleryDrag.current = null
+    if (!drag.activated || blockPipelineEdit(gallery)) return
+    if (event.type === 'pointercancel') {
+      setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? gallery : item))
+      return
+    }
     if (drag.currentIndex !== drag.startIndex) void persistGalleryOrder(gallery, drag.images)
   }
 
@@ -411,7 +569,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const startStripPan = (event: PointerEvent) => {
     if (event.pointerType === 'touch') {
       if (activeTouchPointers.current.size < 2) return
-      galleryDrag.current = null
+      cancelPendingGalleryDrag()
     } else if (event.target !== event.currentTarget) {
       return
     }
@@ -433,17 +591,17 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (panState.current?.pointerId === event.pointerId) panState.current = null
   }
 
-  const addGallery = async (event: Event) => {
-    event.preventDefault()
-    const url = sourceUrl.trim()
+  const addGallerySubmit = async (input: { url: string; name: string }) => {
+    const url = input.url.trim()
     if (!url) return
+    setAddError(null)
     setBusy(true)
-    announce("Manorama-fying…", true)
+    announce('Adding gallery…', true)
     try {
-      const response = await fetch("/api/galleries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+      const response = await fetch('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, ...(input.name ? { title: input.name } : {}) }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       // 409 "already exists" still carries the gallery — that is a
@@ -451,21 +609,25 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       // and say so instead of showing a could-not-read error.
       if (response.status === 409 && payload.gallery) {
         setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
-        setSourceUrl("")
+        setSourceUrl('')
+        setAddName('')
+        setAddOpen(false)
         scrollToGalleryCard(payload.gallery.slug)
         announce(payload.error || 'That link is already one of your galleries.')
         return
       }
       if (!response.ok || !payload.gallery) {
-        if (response.status === 403) { announce(payload.error || "That gallery could not be added"); return }
-        throw new Error(payload.error || "That gallery could not be added")
+        if (response.status === 403) { setAddError(payload.error || 'That gallery could not be added'); return }
+        throw new Error(payload.error || 'That gallery could not be added')
       }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
-      setSourceUrl("")
+      setSourceUrl('')
+      setAddName('')
+      setAddOpen(false)
       scrollToGalleryCard(payload.gallery.slug)
       announce('Done! ' + payload.gallery.title + ' is at the top.')
     } catch (error) {
-      announce(friendlySourceError(error))
+      setAddError(friendlySourceError(error))
     } finally {
       setBusy(false)
     }
@@ -575,6 +737,114 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
+  // Details-surface variants of the same management commands: they report in
+  // the Details note slot because the library toast sits behind the fixed
+  // surface. Remove closes the surface, returning where the owner came from.
+  const refreshGalleryFromDetails = async (gallery: GallerySummary) => {
+    if (blockPipelineEdit(gallery)) return
+    if (!gallery.sourceUrl) return
+    setBusy(true)
+    setDetailsNote(null)
+    try {
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, { method: 'POST' })
+      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      if (!response.ok) throw new Error(payload.error || 'That gallery could not be refreshed')
+      if (payload.gallery) {
+        setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? payload.gallery! : item))
+      }
+      setDetailsNote(`“${gallery.title}” refreshed`)
+    } catch (error) {
+      setDetailsNote(error instanceof Error ? error.message : 'That gallery could not be refreshed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeGalleryFromDetails = async (gallery: GallerySummary) => {
+    if (!window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
+    setBusy(true)
+    setDetailsNote(null)
+    try {
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, { method: 'DELETE' })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
+      setGalleries((previous) => previous.filter((item) => item.slug !== gallery.slug))
+      setShareOpen(false)
+      if (initialDetailsRef.current === gallery.slug) {
+        // Deep-linked from the viewer: the gallery the viewer was showing is
+        // gone, so land on the library instead of walking back into a 404.
+        window.location.assign(galleryPath('').replace(/\/$/, ''))
+      } else {
+        window.history.back()
+      }
+    } catch (error) {
+      setDetailsNote(error instanceof Error ? error.message : 'That gallery could not be removed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveEditFromDetails = async (value: string) => {
+    if (!editField || !detailsSlug || saveEditingInFlight.current) return
+    const gallery = galleries.find((item) => item.slug === detailsSlug)
+    if (!gallery) return
+    if (blockPipelineEdit(gallery)) return
+    const field = editField
+    if (field === 'name' && !value) {
+      setEditNote('A gallery title cannot be empty')
+      return
+    }
+    if (field === 'address' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
+      setEditNote('Use lowercase letters, numbers, and single hyphens for the gallery URL')
+      return
+    }
+    saveEditingInFlight.current = true
+    setBusy(true)
+    setEditNote(null)
+    try {
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(field === 'address' ? { newSlug: value } : { [field === 'name' ? 'title' : 'caption']: value }),
+      })
+      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That change could not be saved')
+      const updated = payload.gallery
+      setGalleries((previous) => sortRecent(previous.map((item) => item.slug === gallery.slug ? updated : item)))
+      setEditField(null)
+      setEditValue('')
+      setDetailsNote('Saved')
+      if (updated.slug !== gallery.slug) {
+        // A rename changes the Details target: retarget the entry so
+        // refresh and Back/Forward keep pointing at the same gallery.
+        setDetailsSlug(updated.slug)
+        const params = new URLSearchParams(window.location.search)
+        params.set('details', updated.slug)
+        window.history.replaceState({ surface: 'details', slug: updated.slug }, '', `${window.location.pathname}?${params}`)
+      }
+    } catch (error) {
+      setEditNote(error instanceof Error ? error.message : 'That change could not be saved')
+    } finally {
+      saveEditingInFlight.current = false
+      setBusy(false)
+    }
+  }
+
+  const openGalleryTab = (gallery: GallerySummary) => {
+    const anchor = document.createElement('a')
+    anchor.href = `https://${galleryAddress(gallery.slug)}`
+    anchor.target = '_blank'
+    anchor.rel = 'noreferrer'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  }
+
+  const reorderFromDetails = (gallery: GallerySummary) => {
+    pendingReorderFocusRef.current = gallery.slug
+    closeDetails()
+  }
+
   const editableText = (gallery: GallerySummary, field: EditableField, className: string) => {
     const isEditing = editing?.slug === gallery.slug && editing.field === field
     if (isEditing) {
@@ -608,6 +878,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const liveGalleries = galleries.filter((gallery) => !isGalleryExpired(gallery, new Date(now).toISOString()))
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
+  const detailsGallery = detailsSlug ? liveGalleries.find((gallery) => gallery.slug === detailsSlug) ?? null : null
+  const upgradeHref = upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'
 
   return (
     <>
@@ -627,8 +899,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         <svg class="admin-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
         <svg class="admin-tab-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
       </button>
-      {/* Hidden account controls stay outside the accessibility tree until
-          the hydrated dashboard opens them. */}
+      {/* The account drawer is now a short navigation menu: the account and
+          plan controls live on the full Settings surface. */}
       <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
       <div class="admin-drawer-scrim" aria-hidden="true" onClick={closeMenu} />
       <aside class="admin-drawer-panel" role="dialog" aria-modal="true" aria-label="Account" ref={drawerRef}>
@@ -639,105 +911,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       <header class="admin-header">
         <div>
           <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
-          <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-          <div class="admin-greeting">
-            <p class="admin-greeting-url">manorama.xyz/<input
-              class="admin-owner-slug-input"
-              type="text"
-              value={ownerSlugDraft}
-              disabled={busy}
-              aria-label="Your URL — edit to change your address"
-              spellcheck={false}
-              onInput={(event) => setOwnerSlugDraft((event.target as HTMLInputElement).value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') cancelOwnerSlugEditing()
-                if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
-              }}
-              onBlur={() => { void saveOwnerSlug() }}
-            /></p>
-            <p><br/>Hello <mark class="admin-greeting-name">{ownerName}</mark>. Welcome to manorama.xyz. This is where you maintain your galleries. Choose any username you like, as often as you like, by editing the link above. This is your manoramic world.</p>
-            {identities || identityNote ? (
-              <section class="admin-identities" aria-label="Sign-in methods">
-                <p class="admin-identities-heading">Sign-in methods</p>
-                {identities ? (
-                  <ul class="admin-identities-list">
-                    {SIGN_IN_METHODS.map((method) => {
-                      const linked = identities.find((identity) => identity.provider === method.provider)
-                      return (
-                        <li key={method.provider} class="admin-identity">
-                          {linked ? (
-                            <>
-                              <span>
-                                {method.name}
-                                {linked.displayName ? ` · ${linked.displayName}` : ''}
-                                {linked.email ? ` · ${linked.email}` : ''}
-                              </span>
-                              {identities.length > 1 ? (
-                                <button type="button" class="admin-row-action" onClick={() => { void removeIdentity(method.provider) }}>remove</button>
-                              ) : null}
-                            </>
-                          ) : (
-                            <a class="admin-text-link" href={`/auth/${method.provider}?link=1`}>Connect {method.name}</a>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                ) : null}
-                {identityNote ? <p class="admin-identities-note">{identityNote}</p> : null}
-              </section>
-            ) : null}
-            <details class="admin-delete-account">
-              <summary>Delete account</summary>
-              <p>
-                This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in your
-                Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first — App Store:
-                Settings › Subscriptions; web: your Stripe receipt.
-              </p>
-              <label class="admin-delete-confirm">
-                Type your URL name ({owner}) to confirm
-                <input
-                  type="text"
-                  value={deleteConfirm}
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellcheck={false}
-                  onInput={(event) => setDeleteConfirm((event.currentTarget as HTMLInputElement).value)}
-                />
-              </label>
-              <button
-                type="button"
-                class="admin-delete-button"
-                disabled={deleteBusy || deleteConfirm.trim() !== owner}
-                onClick={() => { void removeAccount() }}
-              >
-                {deleteBusy ? 'Deleting…' : 'Delete my account'}
-              </button>
-              {deleteNote ? <p class="admin-identities-note">{deleteNote}</p> : null}
-            </details>
-          </div>
         </div>
       </header>
+      <nav class="admin-account-nav" aria-label="Account">
+        <button type="button" class="admin-account-nav-item" onClick={() => { closeMenu(); openSettings() }}>Settings</button>
+        <a class="admin-account-nav-item" href="/privacy">Privacy Policy</a>
+      </nav>
       <footer class="site-footer">
         <a class="site-footer-link" href="/privacy">Privacy Policy</a>
         <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
       </footer>
-      </div>
-      {/* The account actions sit at the pane's foot: labelled, and away from
-          the galleries. */}
-        {(() => {
-          const retained = galleries.filter((gallery) => gallery.retention !== 'pipeline').length
-          return <div class="admin-retention-policy">
-            <p class="admin-limit-count" aria-live="polite">{retained} retained {retained === 1 ? 'gallery' : 'galleries'}{tier === 'pro' ? ` · ${Math.max(0, PAID_RETAINED_LIMIT - retained)} available` : ` · ${Math.max(0, FREE_RETAINED_LIMIT - retained)} editable slots available`}</p>
-            {tier === 'free' ? <p>{FREE_RETENTION_DISCLOSURE}</p> : <p>Paid accounts retain up to 99 galleries. Retained galleries stay until you delete them.</p>}
-            {tier === 'pro' && retained >= PAID_RETAINED_LIMIT ? <p>{paidGalleryLimitError().message}</p> : null}
-          </div>
-        })()}
-
-        <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
-      <div class="admin-drawer-actions">
-        <button type="button" class="admin-drawer-action" onClick={() => setTheme(oppositeTheme(theme))} aria-pressed={theme === 'light'}>{themeControlLabel(theme)}</button>
-        <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-drawer-action">Sign out</button></form>
       </div>
       </aside>
       </div>
@@ -745,7 +928,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
       {/* Only the continuous photographic rails span the centre. Account copy
-          and the import form each fit inside one half of the top workbench. */}
+          and the add control each fit inside one half of the top workbench. */}
       <div class="admin-overview">
       <section class="admin-welcome" aria-label="Welcome to manorama">
         <span class="admin-welcome-brand brand-mark-wrap">
@@ -756,13 +939,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         <p class="admin-profile-address">manorama.xyz/{owner}</p>
         <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
       </section>
-      <section class="gallery-import" aria-labelledby="import-heading">
-        <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
-        <form class="gallery-import-form" onSubmit={addGallery}>
-          <label class="admin-field"><span>Public Dropbox, Google Drive, iCloud, or MEGA link</span><input type="url" value={sourceUrl} placeholder="Dropbox folder, Drive folder, iCloud album, or MEGA link" onInput={(event) => { setSourceUrl((event.target as HTMLInputElement).value) }} required /></label>
-          <button class="admin-button admin-button--solid" type="submit" disabled={busy}>{busy ? 'Working…' : 'Manorama-fy it!'}</button>
-        </form>
-
+      <section class="admin-add-gallery" aria-labelledby="add-heading">
+        <div class="gallery-selector-heading"><h2 id="add-heading">Add a gallery</h2></div>
+        <button type="button" class="admin-button admin-button--solid" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add gallery</button>
       </section>
       </div>
 
@@ -776,24 +955,114 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             {/* client_reference_id is how the Stripe webhook maps a
                 completed checkout back to this account — hex-encoded because
                 Stripe drops ids outside its safe charset. Never strip it. */}
-            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'}>Upgrade</a></p>
+            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeHref}>Upgrade</a></p>
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
             <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
-              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery)} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
+              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery) && finePointer} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                 {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
               </figure>)}
             </div>
           </div>
-          <div class="gallery-card-actions"><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from its source link`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}<button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button></div>
+          <div class="gallery-card-actions"><button type="button" class="admin-button admin-button--secondary admin-details-button" aria-label={`Open details for ${gallery.title}`} onClick={() => openDetails(gallery.slug)} disabled={busy}>Details</button><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from its source link`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}<button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button></div>
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
       </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}
       </main>
+
+      <AddGallerySheet
+        open={addOpen}
+        url={sourceUrl}
+        name={addName}
+        busy={busy}
+        error={addError}
+        onUrlChange={(value) => { setSourceUrl(value); setAddError(null) }}
+        onNameChange={(value) => setAddName(value)}
+        onClose={() => { if (!busy) { setAddOpen(false); setAddError(null) } }}
+        onSubmit={(input) => void addGallerySubmit(input)}
+      />
+
+      {settingsOpen ? (
+        <WebSettings
+          ownerName={ownerName}
+          ownerSlug={owner}
+          ownerSlugDraft={ownerSlugDraft}
+          onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote('') }}
+          onSaveOwnerSlug={() => void saveOwnerSlug()}
+          ownerSlugBusy={busy}
+          ownerSlugNote={settingsNote}
+          identities={identities}
+          identityNote={identityNote}
+          onUnlinkIdentity={(provider) => void removeIdentity(provider)}
+          tier={tier}
+          retainedCount={retainedCount}
+          retainedLimit={retainedLimit}
+          upgradeHref={upgradeHref}
+          theme={theme}
+          onTheme={setTheme}
+          deleteConfirm={deleteConfirm}
+          onDeleteConfirmChange={setDeleteConfirm}
+          deleteBusy={deleteBusy}
+          deleteNote={deleteNote}
+          onDeleteAccount={() => void removeAccount()}
+          onBack={closeSettings}
+        />
+      ) : null}
+
+      {detailsGallery ? (
+        <>
+          <GalleryDetailsView
+            title={detailsGallery.title}
+            caption={detailsGallery.caption}
+            address={`${publicHost}/${owner}/${detailsGallery.slug}`}
+            imageCount={detailsGallery.imageCount}
+            sourceLabel={sourceLabelFor(detailsGallery.sourceUrl)}
+            temporary={isLocked(detailsGallery)}
+            expiresAt={detailsGallery.expiresAt}
+            editable={!isLocked(detailsGallery)}
+            busy={busy}
+            note={detailsNote}
+            streamOnly={false}
+            platform="web"
+            onStreamOnlyChange={() => {}}
+            onPurge={() => {}}
+            onBack={closeDetails}
+            onOpen={() => openGalleryTab(detailsGallery)}
+            onShare={() => { setDetailsNote(null); setShareOpen(true) }}
+            onEditName={() => { setEditField('name'); setEditValue(detailsGallery.title); setEditNote(null) }}
+            onEditCaption={() => { setEditField('caption'); setEditValue(detailsGallery.caption || ''); setEditNote(null) }}
+            onEditAddress={() => { setEditField('address'); setEditValue(detailsGallery.slug); setEditNote(null) }}
+            onReorder={() => reorderFromDetails(detailsGallery)}
+            onRefresh={() => void refreshGalleryFromDetails(detailsGallery)}
+            onRemove={() => void removeGalleryFromDetails(detailsGallery)}
+          />
+          <GalleryEditSheet
+            open={editField !== null}
+            field={editField}
+            value={editValue}
+            busy={busy}
+            note={editNote}
+            onValueChange={(value) => { setEditValue(value); setEditNote(null) }}
+            onSubmit={(value) => void saveEditFromDetails(value)}
+            onClose={() => { if (!busy) { setEditField(null); setEditNote(null) } }}
+          />
+          {shareOpen ? (
+            <GalleryShareSheet
+              payload={{
+                title: detailsGallery.title,
+                caption: detailsGallery.caption,
+                url: `https://${galleryAddress(detailsGallery.slug)}`,
+              }}
+              onClose={() => setShareOpen(false)}
+              onCopy={copyText}
+            />
+          ) : null}
+        </>
+      ) : null}
     </>
   )
 }

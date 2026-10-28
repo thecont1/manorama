@@ -157,7 +157,7 @@ for (const size of sizes) {
     // ── The account surface speaks the shared vocabulary ───────────────────
     // The same sentences the web dashboard's and iOS's panes use, with the
     // Mac's own local fact after them.
-    const planSentence = 'You are a Pro User.'
+    const planSentence = 'You are a Visionary.'
     await expect(page.locator('.admin-welcome-note')).toContainText('Welcome to manorama.xyz.')
     await expect(page.locator('.admin-welcome-note')).toContainText(planSentence)
     await expect(page.locator('.admin-welcome-note')).toContainText(`${built.galleries.length} galleries on this Mac.`)
@@ -167,7 +167,22 @@ for (const size of sizes) {
     expect(api.calls()).toBeGreaterThan(0)
     // Both sources are on the page: the folder of originals and the card.
     await expect(page.locator('.admin-gallery-card')).toHaveCount(built.galleries.length)
-    await expect(page.getByText('/Volumes/NO NAME/DCIM')).toBeVisible()
+    // Sources are named by kind, never by path — the roots are local-only by
+    // contract and stay off the surface.
+    await expect(page.locator('.admin-gallery-card').nth(0).locator('.admin-gallery-caption')).toHaveText('Folder on this Mac')
+    await expect(page.locator('.admin-gallery-card').nth(1).locator('.admin-gallery-caption')).toHaveText('Memory card')
+    await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
+    await expect(page.locator('body')).not.toContainText(SOURCE)
+    // Each card carries exactly one labelled control — Details — and none of
+    // the old workbench card actions (View/Rescan/Share/Remove).
+    for (let index = 0; index < built.galleries.length; index++) {
+      const card = page.locator('.admin-gallery-card').nth(index)
+      await expect(card.locator('.gallery-card-actions').getByRole('button')).toHaveCount(1)
+      await expect(card.locator('.gallery-card-actions').getByRole('button', { name: `Details ${built.galleries[index].title}` })).toBeVisible()
+    }
+    for (const old of ['View', 'Rescan', 'Share', 'Remove']) {
+      await expect(page.locator('.admin-gallery-card .gallery-card-actions button', { hasText: old })).toHaveCount(0)
+    }
 
     // ── The workbench, arranged like the web dashboard and iOS admin ────────
     const welcome = page.getByRole('region', { name: 'Welcome to manorama' })
@@ -276,8 +291,13 @@ for (const size of sizes) {
         await expect
           .poll(() => page.locator('html').evaluate((element) => element.classList.contains('light')), { timeout: 10_000 })
           .toBe(false)
+        // The stage opens behind its entry curtain; enter it the way a viewer
+        // does, so the stage (and its exit cue) are actually reachable.
+        await page.getByRole('button', { name: 'Enter gallery' }).click()
+        await expect(page.locator('[data-curtain]')).toBeHidden({ timeout: 15_000 })
         await page.screenshot({ path: resolve(evidence, `${engine}-${size.name}-light-stage.png`), animations: 'disabled', timeout: 15_000 })
-        await page.getByRole('button', { name: 'Back to the catalogue' }).click()
+        // The viewer's exit cue: the `‹ Library` chrome pill, always mounted.
+        await page.locator('[data-chrome-library]').click()
         await expect(page.locator('.desktop-catalogue')).toBeVisible()
         await expect
           .poll(() => page.locator('html').evaluate((element) => element.classList.contains('light')), { timeout: 10_000 })
@@ -288,3 +308,78 @@ for (const size of sizes) {
     expect(errors).toEqual([])
   })
 }
+
+test('window-1280x840: details surface and share sheet over real photographs, both themes', async ({ page }, testInfo) => {
+  test.setTimeout(180_000)
+  test.skip(allPhotos.length < 4, `no photographs with pixels on disk under ${SOURCE}`)
+  const engine = testInfo.project.name || String(testInfo.project.use?.defaultBrowserType ?? 'browser')
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.setViewportSize({ width: 1280, height: 840 })
+  await openCatalogue(page)
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible()
+
+  const record = built.galleries[0]
+  const details = page.locator('[data-screen="local-details"]')
+  const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+  const pane = page.getByRole('dialog', { name: 'Account', exact: true })
+
+  for (const theme of ['dark', 'light'] as const) {
+    const isLight = await page.evaluate(() => document.documentElement.classList.contains('light'))
+    if ((theme === 'light') !== isLight) {
+      await tab.click()
+      await expect(pane).toBeVisible()
+      await pane.getByRole('button', { name: theme === 'light' ? 'Switch to light mode' : 'Switch to dark mode', exact: true }).click()
+      await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)
+      await page.keyboard.press('Escape')
+      await expect(pane).toBeHidden()
+    }
+
+    // Library → Details through the card's single labelled Details action.
+    const card = page.locator('.admin-gallery-card').first()
+    await card.locator('.gallery-card-actions').getByRole('button', { name: `Details ${record.title}` }).click()
+    await expect(details).toBeVisible()
+    expect(new URL(page.url()).searchParams.get('details')).toBe(record.id)
+    await expect(details.locator('.m-topbar-title')).toHaveText(record.title)
+    await expect(details.locator('.m-owner-heading h1')).toHaveText(record.title)
+    await expect(details.locator('.m-owner-heading p.m-note').first()).toHaveText(`${record.itemCount} photographs · Folder on this Mac`)
+    await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
+    // Local-only facts stay off the surface: no paths, no invented
+    // public/provider/vault/offline/reorder metadata.
+    await expect(details).not.toContainText(SOURCE)
+    await expect(details).not.toContainText('/Volumes')
+    for (const banned of ['public', 'provider', 'vault', 'offline', 'reorder']) {
+      await expect(details).not.toContainText(banned)
+    }
+    await expect(details.locator('.m-actionrow')).toHaveCount(5)
+    const labels = await details.locator('.m-actionrow-label').allTextContents()
+    expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library'])
+
+    mkdirSync(evidence, { recursive: true })
+    await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })
+
+    // Publish/Share opens the shared Sheet — sheet presentation, never the
+    // inline header — with the upload-confirmation copy. No provider connect
+    // or upload is attempted.
+    await details.getByRole('button', { name: 'Publish/Share' }).click()
+    const share = page.locator('.desktop-share--sheet')
+    await expect(share).toBeVisible()
+    await expect(page.locator('.desktop-share-header')).toHaveCount(0)
+    await expect(share).toContainText('nothing uploads until you confirm')
+    await expect(share).toContainText('Dropbox')
+    await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-share.png`), animations: 'disabled', timeout: 15_000 })
+
+    // Closing the sheet returns to Details, untouched.
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(share).toBeHidden()
+    await expect(details).toBeVisible()
+
+    // Back returns to the Library and the URL is clean.
+    await details.getByRole('button', { name: 'Back' }).click()
+    await expect(page.locator('.desktop-catalogue')).toBeVisible()
+    await expect(details).toHaveCount(0)
+    expect(new URL(page.url()).search).toBe('')
+  }
+
+  expect(errors).toEqual([])
+})

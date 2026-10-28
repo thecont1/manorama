@@ -108,6 +108,12 @@ else
 fi
 xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || xcrun simctl boot "$UDID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
+if [[ "$DEVICE" == "ipad" ]]; then
+  # iPadOS 26/27 ignores UIRequiresFullScreen for resizable apps. Xcode 27.1's
+  # supported device controller rotates the actual simulator, so the captures
+  # are genuine landscape pixels rather than a transformed portrait image.
+  xcrun devicectl device orientation set --device "$UDID" landscapeLeft >/dev/null 2>&1 || true
+fi
 
 # --- the two builds -----------------------------------------------------------
 
@@ -162,10 +168,8 @@ prep_app() {
   /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$plist" 2>/dev/null || true
   # Capture-only orientation lock, and only on the staged copy. The shipped app
   # allows every iPad orientation; the submission evidence is landscape
-  # 2752x2064, and this machine's Simulator cannot be rotated from the command
-  # line — `simctl` has no rotate verb and UI scripting is denied. Declaring
-  # landscape for the staged bundle makes iOS launch it that way, so the pixels
-  # are the real app's pixels in the orientation the evidence calls for.
+  # 2752x2064. devicectl performs the real rotation above; this mask keeps the
+  # staged app in that orientation across the repeated launches below.
   if [[ "$DEVICE" == "ipad" ]]; then
     /usr/libexec/PlistBuddy -c "Add :UIInterfaceOrientation string UIInterfaceOrientationLandscapeLeft" "$plist" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Set :UIInterfaceOrientation UIInterfaceOrientationLandscapeLeft" "$plist"
@@ -173,9 +177,8 @@ prep_app() {
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" "$plist"
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:0 string UIInterfaceOrientationLandscapeLeft" "$plist"
     /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad:1 string UIInterfaceOrientationLandscapeRight" "$plist"
-    # iPad only enforces the orientation mask for an app that requires full
-    # screen. Without this the system grants every orientation and the app
-    # launches portrait, mask or no mask.
+    # Older runtimes need full-screen before honoring the mask. iPadOS 26/27
+    # may ignore this key for resizable apps, hence the devicectl rotation.
     /usr/libexec/PlistBuddy -c "Add :UIRequiresFullScreen bool true" "$plist" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Set :UIRequiresFullScreen true" "$plist"
   fi

@@ -39,6 +39,8 @@ type Props = {
   /** Native-only actions remain in the controls panel, never on the stage. */
   onReturnToGalleries?: () => void
   deviceControls?: Child
+  /** Browser fullscreen is web-only; native and desktop shells suppress it. */
+  allowFullscreen?: boolean
   /** Mount-time frame entry — the global grid lands the stage on the tapped
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
@@ -48,6 +50,8 @@ type Props = {
   /** Reports the committed photograph (never an ad plate or the end card):
    *  once after mount and whenever a glide settles on a new index. */
   onPositionChange?: (position: { imageId: string; index: number }) => void
+  /** Owner-only Details, with the stable media identity at the time it opens. */
+  onOpenDetails?: (position: { imageId: string; index: number }) => void
   /** Mounts the stage inert and aria-hidden for a session suspended under
    *  another surface — no keyboard, pointer or wheel input, no modal, the
    *  active video pauses; layout and decode state are untouched so a resume
@@ -171,7 +175,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -562,13 +566,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const updateFullscreenState = () => {
-      setFullscreenAvailable(Boolean(document.fullscreenEnabled && stageRef.current?.requestFullscreen))
+      setFullscreenAvailable(allowFullscreen && Boolean(document.fullscreenEnabled && stageRef.current?.requestFullscreen))
       setFullscreenActive(Boolean(document.fullscreenElement))
     }
     updateFullscreenState()
     document.addEventListener('fullscreenchange', updateFullscreenState)
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
-  }, [])
+  }, [allowFullscreen])
 
   useEffect(() => {
     const preventButtonFocus = (event: MouseEvent) => {
@@ -583,6 +587,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // The end card's Library exit follows the chrome's rule exactly:
   // signed-out visitors keep Rewind only.
   const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
+  const openOwnerDetails = onOpenDetails ?? (viewerRole === 'owner' && libraryHref ? () => {
+    const target = new URL(libraryHref, window.location.origin)
+    target.searchParams.set('details', slug)
+    target.searchParams.set('photo', images[index]?.id ?? '')
+    window.location.assign(`${target.pathname}${target.search}`)
+  } : undefined)
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -2537,6 +2547,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         onOpenDisplay={openDisplaySettings}
         onOpenInfo={openImageProvenance}
         onOpenPicker={openGrid}
+        onOpenDetails={openOwnerDetails ? () => openOwnerDetails({ imageId: images[index]?.id ?? '', index }) : undefined}
         pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`}
         onRequestShow={requestShowChrome}
         onActivity={pauseChrome}

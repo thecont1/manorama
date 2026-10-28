@@ -193,12 +193,19 @@ export class LibraryMediaLoader {
       const oversized = bytes.length > this.maxBlobBytes
       if (oversized) this.evictAllUnpinned()
       if (oversized || this.evictUntilFits(bytes.length)) {
-        const url = this.objectUrls.create(bytes, cell.mimeType)
-        const entry: LiveEntry = { galleryId: cell.galleryId, url, bytes: bytes.length, pins: 0, oversized }
-        bytes.fill(0)
-        this.liveBytes += entry.bytes
-        this.live.set(key, entry)
-        return url
+        try {
+          const url = this.objectUrls.create(bytes, cell.mimeType)
+          const entry: LiveEntry = { galleryId: cell.galleryId, url, bytes: bytes.length, pins: 0, oversized }
+          this.liveBytes += entry.bytes
+          this.live.set(key, entry)
+          return url
+        } catch {
+          // URL construction is a vault miss too: fall back to the provider
+          // preview, and never retain the decrypted source buffer.
+          return undefined
+        } finally {
+          bytes.fill(0)
+        }
       }
       bytes.fill(0)
       // Everything live is pinned on screen; park until a release makes an

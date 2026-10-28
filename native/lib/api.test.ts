@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createGalleryFromQuickAdd, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError } from './api'
+import { createGalleryFromQuickAdd, createGalleryFromSource, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError, unlinkAccountIdentity } from './api'
 
 const originalFetch = globalThis.fetch
 const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
@@ -84,6 +84,25 @@ describe('native quick-add', () => {
       quick: true,
     })
     expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+  })
+
+  test('an ordinary create sends its optional title without the quick flag', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ galleryUrl: '/thecontrarian/named-album' }, 201))
+    await createGalleryFromSource('https://manorama.xyz', 'https://www.dropbox.com/scl/fo/folder/key', { title: '  Named Album  ' })
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      url: 'https://www.dropbox.com/scl/fo/folder/key',
+      title: 'Named Album',
+    })
+  })
+
+  test('an ordinary create omits a blank optional title', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ galleryUrl: '/thecontrarian/provider-album' }, 201))
+    await createGalleryFromSource('https://manorama.xyz', 'https://www.dropbox.com/scl/fo/folder/key', { title: '   ' })
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      url: 'https://www.dropbox.com/scl/fo/folder/key',
+    })
   })
 
   test('accepts a duplicate response when it includes the existing gallery URL', async () => {
@@ -186,6 +205,30 @@ describe('fetchDeviceGalleries', () => {
     fetchSpy(() => json({ galleries: 'not-an-array' }))
 
     await expect(fetchDeviceGalleries('https://manorama.xyz')).rejects.toThrow('Device gallery list response was incomplete')
+  })
+})
+
+describe('unlinkAccountIdentity', () => {
+  test('deletes the provider identity with the stored bearer token', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ ok: true }))
+
+    await unlinkAccountIdentity('https://manorama.xyz/', 'dropbox')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('https://manorama.xyz/api/account/identities/dropbox')
+    expect(calls[0].init?.method).toBe('DELETE')
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
+  })
+
+  test('maps a non-OK response to NativeGalleryHttpError with the server message', async () => {
+    installLocalStorage()
+    fetchSpy(() => json({ error: 'That sign-in method could not be removed' }, 400))
+
+    const unlinking = unlinkAccountIdentity('https://manorama.xyz', 'google')
+
+    await expect(unlinking).rejects.toBeInstanceOf(NativeGalleryHttpError)
+    await expect(unlinking).rejects.toMatchObject({ status: 400, message: 'That sign-in method could not be removed' })
   })
 })
 

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { blockProductionApi, bridgePayload, installBridge } from './desktop-admin-fixture'
+import { blockProductionApi, bridgePayload, GALLERY_ID, installBridge } from './desktop-admin-fixture'
 
 /**
  * The macOS catalogue's admin surface, exercised in a real browser.
@@ -11,9 +11,10 @@ import { blockProductionApi, bridgePayload, installBridge } from './desktop-admi
  * fixture installs the bridge before any page script runs and answers the
  * handful of commands the catalogue actually calls, which is what lets the
  * signed-in surface render at all. Everything asserted below — quadrants,
- * pane, theme, focus, contrast, overflow — is then the real bundle's own
- * behaviour, not a fixture's. The screenshots are browser evidence for the
- * desktop shell and are deliberately NOT presented as native macOS captures.
+ * pane, theme, focus, contrast, overflow, and the Library → Details → share
+ * flow — is then the real bundle's own behaviour, not a fixture's. The
+ * screenshots are browser evidence for the desktop shell and are deliberately
+ * NOT presented as native macOS captures.
  *
  * Run against `bun run dev:desktop` (port 5175).
  */
@@ -107,7 +108,7 @@ for (const size of sizes) {
         // The account's own facts, not invented copy: the name and plan the
         // session carries, and the count of galleries this Mac holds.
         await expect(welcome).toContainText('Welcome to manorama.xyz.')
-        await expect(welcome).toContainText('You are a Pro User.')
+        await expect(welcome).toContainText('You are a Visionary.')
         await expect(welcome).toContainText('2 galleries on this Mac.')
         await expect(importer.getByRole('button', { name: 'Choose a folder or card' })).toBeVisible()
         await expect(importer).toContainText('2 galleries on this Mac')
@@ -123,7 +124,23 @@ for (const size of sizes) {
         await expect(cards).toHaveCount(2)
         await expect(cards.first()).toContainText('Bangkok Rain')
         await expect(cards.first()).toContainText('(25 photos)')
-        await expect(page.getByText('/Volumes/NO NAME/DCIM')).toBeVisible()
+        // The source is named by kind, never by its path: the root path and
+        // mount point are local-only by contract and stay off the surface.
+        await expect(cards.nth(0).locator('.admin-gallery-caption')).toHaveText('Folder on this Mac')
+        await expect(cards.nth(1).locator('.admin-gallery-caption')).toHaveText('Memory card')
+        await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
+        await expect(page.locator('body')).not.toContainText('/Users/photographer/Pictures')
+        // Each card carries exactly one labelled control — Details — and none
+        // of the old workbench card actions (View/Rescan/Share/Remove).
+        for (let index = 0; index < 2; index++) {
+          const actions = cards.nth(index).locator('.gallery-card-actions')
+          await expect(actions.getByRole('button')).toHaveCount(1)
+          const title = index === 0 ? 'Bangkok Rain' : 'Monsoon Card'
+          await expect(actions.getByRole('button', { name: `Details ${title}` })).toBeVisible()
+        }
+        for (const old of ['View', 'Rescan', 'Share', 'Remove']) {
+          await expect(page.locator('.admin-gallery-card .gallery-card-actions button', { hasText: old })).toHaveCount(0)
+        }
 
         for (const theme of ['dark', 'light'] as const) {
           await tab.click()
@@ -219,5 +236,89 @@ test('the desktop admin surface survives a resize without losing the pane state'
     await expect(dialog).toBeHidden()
     await expect(tab).toBeFocused()
     expect(new URL(page.url()).search).toBe('')
+  } finally { await context.close() }
+})
+
+test('desktop admin details: Library → Details → share sheet, both themes, clean back', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const context = await browser.newContext({ viewport: { width: 1280, height: 840 } })
+  await context.addInitScript(installBridge, bridgePayload)
+  try {
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await blockProductionApi(page)
+    await page.goto(base, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
+    await settleStyles(page)
+
+    const details = page.locator('[data-screen="local-details"]')
+    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+    const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
+
+    for (const theme of ['dark', 'light'] as const) {
+      // Fresh contexts start dark; light is reached through the pane's own
+      // control, exactly like the main spec.
+      const isLight = await page.evaluate(() => document.documentElement.classList.contains('light'))
+      if ((theme === 'light') !== isLight) {
+        await tab.click()
+        await expect(dialog).toBeVisible()
+        await page.getByRole('button', { name: theme === 'light' ? 'Switch to light mode' : 'Switch to dark mode', exact: true }).click()
+        await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
+      }
+
+      // Library → Details through the card's single labelled Details action.
+      const card = page.locator('.admin-gallery-card').first()
+      await card.locator('.gallery-card-actions').getByRole('button', { name: 'Details Bangkok Rain' }).click()
+      await expect(details).toBeVisible()
+      expect(new URL(page.url()).searchParams.get('details')).toBe(GALLERY_ID)
+      // The surface states the gallery's own facts: title, count, source kind.
+      await expect(details.locator('.m-topbar-title')).toHaveText('Bangkok Rain')
+      await expect(details.locator('.m-owner-heading h1')).toHaveText('Bangkok Rain')
+      await expect(details.locator('.m-owner-heading p.m-note').first()).toHaveText('25 photographs · Folder on this Mac')
+      await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
+      // Local-only facts stay off the surface: no paths, no invented
+      // public/provider/vault/offline/reorder metadata.
+      await expect(details).not.toContainText('/Users/photographer/Pictures')
+      await expect(details).not.toContainText('/Volumes')
+      for (const banned of ['public', 'provider', 'vault', 'offline', 'reorder']) {
+        await expect(details).not.toContainText(banned)
+      }
+      // Exactly the five action rows, in the contract's order, and no more.
+      await expect(details.locator('.m-actionrow')).toHaveCount(5)
+      const labels = await details.locator('.m-actionrow-label').allTextContents()
+      expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library'])
+
+      await mkdir(evidence, { recursive: true })
+      await page.screenshot({ path: resolve(evidence, `window-${theme}-details.png`), animations: 'disabled', timeout: 10_000 })
+
+      // Publish/Share opens the shared Sheet: the sheet presentation, never
+      // the inline header, and the upload-confirmation copy. Nothing here may
+      // connect or upload to a real provider.
+      await details.getByRole('button', { name: 'Publish/Share' }).click()
+      const share = page.locator('.desktop-share--sheet')
+      await expect(share).toBeVisible()
+      await expect(page.locator('.desktop-share-header')).toHaveCount(0)
+      await expect(page.locator('.m-sheet')).toBeVisible()
+      await expect(share).toContainText('nothing uploads until you confirm')
+      await expect(share).toContainText('Dropbox')
+      await expect(share).toContainText('Google Drive')
+      await page.screenshot({ path: resolve(evidence, `window-${theme}-share.png`), animations: 'disabled', timeout: 10_000 })
+
+      // Closing the sheet returns to Details, untouched.
+      await page.getByRole('button', { name: 'Close' }).click()
+      await expect(share).toBeHidden()
+      await expect(details).toBeVisible()
+
+      // Back returns to the Library and the URL is clean.
+      await details.getByRole('button', { name: 'Back' }).click()
+      await expect(page.locator('.desktop-catalogue')).toBeVisible()
+      await expect(details).toHaveCount(0)
+      expect(new URL(page.url()).search).toBe('')
+    }
+
+    expect(errors).toEqual([])
   } finally { await context.close() }
 })

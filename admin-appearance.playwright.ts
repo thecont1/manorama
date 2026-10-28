@@ -6,6 +6,7 @@ const base = process.env.GALLERY_URL ?? 'http://localhost:5175'
 const evidence = resolve('demo-captures/web/admin-appearance')
 const sizes = [
   { name: 'iphone', width: 375, height: 812, touch: true },
+  { name: 'iphone-plus', width: 390, height: 844, touch: true },
   { name: 'ipad', width: 1376, height: 1032, touch: true },
   { name: 'desktop', width: 1440, height: 900, touch: false },
   { name: 'wide', width: 2560, height: 1440, touch: false },
@@ -81,12 +82,18 @@ for (const size of sizes) {
             expect(bounds!.height).toBe(size.height)
           }
           await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
-          if (theme === 'light') await page.getByRole('button', { name: 'Switch to light mode', exact: true }).click()
+          await dialog.getByRole('link', { name: 'thecontrarian.in', exact: true }).focus()
+          await page.keyboard.press('Tab')
+          await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
+          await dialog.getByRole('button', { name: 'Settings', exact: true }).click()
+          const settings = page.locator('.web-settings')
+          await expect(settings).toBeVisible()
+          await settings.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click()
           await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)
           // Footer links animate their color over 180ms. Measure the settled
           // theme, not the intermediate light-on-light crossfade.
           await page.waitForTimeout(250)
-          const contrast = await dialog.evaluate(element => {
+          const contrast = await settings.evaluate(element => {
             const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number)
             const background = rgb(getComputedStyle(element).backgroundColor)
             const luminance = (channels: number[]) => channels.slice(0, 3).map(c => {
@@ -94,7 +101,7 @@ for (const size of sizes) {
               return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4
             }).reduce((n, c, i) => n + c * [.2126, .7152, .0722][i], 0)
             const bg = luminance(background)
-            return [...element.querySelectorAll<HTMLElement>('.admin-intro, .admin-greeting, .admin-drawer-action, .site-footer-link, .site-footer-copy, .admin-delete-account summary')].map(node => {
+            return [...element.querySelectorAll<HTMLElement>('.m-actionrow-label, .m-actionrow-value, .m-note, .m-panel > p')].map(node => {
               const color = rgb(getComputedStyle(node).color)
               const alpha = color[3] ?? 1
               const fg = luminance(color.slice(0, 3).map((c, i) => c * alpha + background[i] * (1 - alpha)))
@@ -102,23 +109,13 @@ for (const size of sizes) {
             })
           })
           for (const sample of contrast) expect(sample.ratio, `${theme} ${sample.text}`).toBeGreaterThanOrEqual(4.5)
-          await expect.poll(async () => Math.abs((await dialog.boundingBox())!.x)).toBeLessThan(1)
-          const panelBox = await dialog.boundingBox()
-          const logoBox = await dialog.locator('.admin-brand-logo').boundingBox()
-          expect(Math.abs(panelBox!.x)).toBeLessThan(1)
-          expect(logoBox!.x).toBeGreaterThanOrEqual(panelBox!.x)
-          expect(logoBox!.x + logoBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width)
-          expect(await dialog.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true)
-          await page.getByRole('button', { name: 'Sign out', exact: true }).focus()
-          await page.keyboard.press('Tab')
-          await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
+          expect(await settings.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true)
           if (!reduced) {
             await mkdir(evidence, { recursive: true })
             await page.screenshot({ path: resolve(evidence, `${size.name}-${theme}-pane.png`), animations: 'disabled', timeout: 10_000 })
           }
-          await page.keyboard.press('Escape')
-          await expect(dialog).toBeHidden()
-          await expect(tab).toBeFocused()
+          await settings.getByRole('button', { name: 'Back', exact: true }).click()
+          await expect(settings).toHaveCount(0)
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
           // The rail is one row even before its source images finish loading.
           const rail = page.locator('.admin-gallery-strip').first()

@@ -64,6 +64,24 @@ describe('beginProviderSignIn', () => {
       Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: realWindow })
     }
   })
+
+  test('connects an additional provider with the link flag', async () => {
+    const opened: string[] = []
+    const realWindow = globalThis.window
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { open: (url: string) => { opened.push(url); return null } },
+    })
+    try {
+      await beginProviderSignIn('dropbox', 'https://manorama.xyz', true)
+      expect(opened).toEqual([
+        'https://manorama.xyz/auth/dropbox?native=1&link=1',
+      ])
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: realWindow })
+    }
+  })
 })
 
 describe('native OAuth callback', () => {

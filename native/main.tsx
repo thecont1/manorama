@@ -5,6 +5,7 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 import GalleryList from './islands/GalleryList'
 import { RevenueCatBilling, type BillingState } from './lib/billing'
 import { authErrorMessage, beginProviderSignIn, getSessionAppUserId, installNativeAuth, type AuthProvider, type NativeGallerySelection } from './lib/session'
+import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../app/lib/owner-theme'
 import './styles.css'
 
 const root = document.getElementById('app')
@@ -17,6 +18,12 @@ function NativeApp() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [deepLinkSelection, setDeepLinkSelection] = useState<NativeGallerySelection | null>(null)
   const [billingState, setBillingState] = useState<BillingState | undefined>(undefined)
+  const [ownerTheme, setOwnerTheme] = useState<Theme>(() => readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
+  useEffect(() => {
+    applyTheme(ownerTheme, document.documentElement)
+    storeTheme(localStorage, ownerTheme)
+    void configureNativeChrome(ownerTheme)
+  }, [ownerTheme])
   const billing = useMemo(() => new RevenueCatBilling(undefined, setBillingState), [])
   const configureRevenueCat = async () => {
     const apiKey = import.meta.env.VITE_REVENUECAT_API_KEY?.trim()
@@ -43,17 +50,20 @@ function NativeApp() {
       void cleanup?.()
     }
   }, [billing])
-  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} authError={authError} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
+  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} ownerTheme={ownerTheme} onOwnerThemeChange={setOwnerTheme} authError={authError} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
 }
 
 render(<NativeApp />, root)
 
-const configureNativeChrome = async () => {
+const configureNativeChrome = async (theme: Theme) => {
   try {
     // Overlay, not inset: the page owns the status-bar strip and paints its own
     // safe-area padding, so no native background band can show above a surface.
     await StatusBar.setOverlaysWebView({ overlay: true })
-    await StatusBar.setStyle({ style: Style.Dark })
+    await StatusBar.setBackgroundColor({ color: theme === 'light' ? '#f3f0e8' : '#0a0a0a' })
+    // Capacitor names the background, not the glyphs: Dark gives light content
+    // on our dark canvas; Light gives dark content on the light owner theme.
+    await StatusBar.setStyle({ style: theme === 'light' ? Style.Light : Style.Dark })
   } catch {
     // Capacitor plugins are no-ops in the browser preview.
   }
@@ -63,4 +73,3 @@ const configureNativeChrome = async () => {
     // Capacitor plugins are no-ops in the browser preview.
   }
 }
-void configureNativeChrome()

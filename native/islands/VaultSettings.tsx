@@ -9,6 +9,8 @@ type Props = {
   controller: VaultSettingsController
   tier?: NativeTier
   onClose?: () => void
+  /** Settings embeds the same live storage controls without a second shell. */
+  embedded?: boolean
 }
 
 const MIB = 1024 * 1024
@@ -36,7 +38,7 @@ type PendingAction =
  *  destructive per-gallery / whole-vault purges behind explicit confirmation.
  *  Nothing here touches the server or a provider — every byte lives only on
  *  this device. */
-export default function VaultSettings({ controller, tier, onClose }: Props) {
+export default function VaultSettings({ controller, tier, onClose, embedded = false }: Props) {
   const isPro = tier === 'pro'
   const [snapshot, setSnapshot] = useState<VaultSettingsSnapshot | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
@@ -107,9 +109,8 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
   const galleryLabel = (gallery: OfflineGallerySummary): string =>
     gallery.status === 'cached' ? gallery.title : 'Unreadable cache'
 
-  return (
-    <main class="native-vault-shell" aria-live="polite" aria-busy={snapshot === null}>
-      <section class="native-vault-card">
+  const card = (
+    <section class="native-vault-card" aria-live="polite" aria-busy={snapshot === null}>
         <header class="native-vault-header">
           <div>
             <h1>On-device storage</h1>
@@ -117,7 +118,7 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
               Encrypted copies of the galleries you open. Everything here lives only on this device.
             </p>
           </div>
-          {onClose ? (
+          {!embedded && onClose ? (
             <button type="button" class="native-vault-close" onClick={onClose} aria-label="Close storage settings">
               Close
             </button>
@@ -158,7 +159,7 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
         </label>
         <p class="native-vault-note">
           The limit is an upper bound, not reserved space — the vault still needs free disk to write.
-          {!isPro ? ` Larger limits and unlimited storage come with manorama Pro.` : ''}
+          {!isPro ? ` Larger limits and unlimited storage come with manorama Visionary.` : ''}
         </p>
 
         <label class="native-vault-cap">
@@ -239,9 +240,9 @@ export default function VaultSettings({ controller, tier, onClose }: Props) {
             {refreshFailure} — showing the last successful read.
           </p>
         ) : null}
-      </section>
-    </main>
+    </section>
   )
+  return embedded ? card : <main class="native-vault-shell">{card}</main>
 }
 
 const sameAction = (a: PendingAction | null, b: PendingAction): boolean =>
