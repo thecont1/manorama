@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
 import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from '../../packages/core/owner-navigation'
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
+import { decideBack } from '../lib/back-decision'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
@@ -557,16 +558,23 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     let active = true
     let remove: (() => Promise<void>) | undefined
     void App.addListener('backButton', () => {
-      if (globalViewOpen) { setGlobalViewOpen(false); return }
-      const modal = document.querySelector<HTMLElement>('.controls-modal:not([hidden]), .info-sheet:not([hidden])')
-      if (modal) { modal.querySelector<HTMLButtonElement>('button[data-close], button[aria-label^="Close"]')?.click(); return }
-      if (overlayDepth() > 0) { closeTopOverlay(); return }
-      if (canGoBack(navRef.current)) {
-        if (navRef.current.screen.kind === 'viewer') returnToGalleries()
-        else dispatchNav({ type: 'back' })
+      const decision = decideBack({
+        globalViewOpen,
+        viewerModalOpen: document.querySelector('.controls-modal:not([hidden]), .info-sheet:not([hidden])') !== null,
+        overlayDepth: overlayDepth(),
+        nav: navRef.current,
+        accountMenuOpen,
+      })
+      if (decision === 'close-global') { setGlobalViewOpen(false); return }
+      if (decision === 'close-viewer-modal') {
+        document.querySelector<HTMLElement>('.controls-modal:not([hidden]), .info-sheet:not([hidden])')
+          ?.querySelector<HTMLButtonElement>('button[data-close], button[aria-label^="Close"]')?.click()
         return
       }
-      if (accountMenuOpen) { setAccountMenuOpen(false); return }
+      if (decision === 'close-overlay') { closeTopOverlay(); return }
+      if (decision === 'return-to-library') { returnToGalleries(); return }
+      if (decision === 'nav-back') { dispatchNav({ type: 'back' }); return }
+      if (decision === 'close-account-menu') { setAccountMenuOpen(false); return }
       void App.exitApp()
     }).then((listener) => {
       if (active) remove = () => listener.remove()
