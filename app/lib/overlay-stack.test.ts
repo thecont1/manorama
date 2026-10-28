@@ -1,7 +1,8 @@
 import 'hono/jsx/dom'
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { pushOverlay } from './overlay-stack'
+import { overlayDepth, pushOverlay } from './overlay-stack'
+import { announce } from './announce'
 
 const globals = globalThis as Record<string, unknown>
 let dom: Window
@@ -15,6 +16,8 @@ beforeAll(() => {
   globals.MouseEvent = dom.MouseEvent
   globals.HTMLElement = dom.HTMLElement
   globals.Element = dom.Element
+  globals.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0)
+  globals.cancelAnimationFrame = (id: number) => clearTimeout(id)
 })
 afterAll(() => {
   globals.document = previousDocument
@@ -126,5 +129,45 @@ describe('overlay-stack', () => {
     key('Tab', { shiftKey: true })
     expect(document.activeElement?.id).toBe('second-btn')
     release()
+  })
+
+  test('an element that was already inert stays inert after the stack empties', () => {
+    const already = el()
+    already.inert = true
+    const page = el()
+    const release = pushOverlay({ host: el() })
+    expect(already.inert).toBe(true)
+    expect(page.inert).toBe(true)
+    release()
+    expect(already.inert).toBe(true)
+    expect(page.inert).toBe(false)
+  })
+
+  test('data-overlay-exempt elements are never inerted', () => {
+    const live = el()
+    live.setAttribute('data-overlay-exempt', '')
+    const release = pushOverlay({ host: el() })
+    expect(live.inert).toBe(false)
+    release()
+    expect(live.inert).toBe(false)
+  })
+
+  test('announce() reaches a non-inert live region while an overlay is open', async () => {
+    const release = pushOverlay({ host: el() })
+    announce('Saved.')
+    await new Promise((r) => setTimeout(r, 30))
+    const region = document.querySelector('.m-sr-only[aria-live]') as HTMLElement
+    expect(region).not.toBeNull()
+    expect(region.inert).toBe(false)
+    expect(region.textContent).toBe('Saved.')
+    release()
+  })
+
+  test('overlayDepth reports the stack size', () => {
+    const base = overlayDepth()
+    const release = pushOverlay({ host: el() })
+    expect(overlayDepth()).toBe(base + 1)
+    release()
+    expect(overlayDepth()).toBe(base)
   })
 })

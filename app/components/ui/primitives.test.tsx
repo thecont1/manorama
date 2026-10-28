@@ -11,6 +11,7 @@ import { Segmented } from './Segmented'
 import { Meter } from './Meter'
 import { Sheet } from './Sheet'
 import { announce } from '../../lib/announce'
+import { overlayDepth, releaseAllOverlays } from '../../lib/overlay-stack'
 
 const globals = globalThis as Record<string, unknown>
 let dom: Window
@@ -35,15 +36,20 @@ afterAll(() => {
   globals.window = undefined
 })
 
-afterEach(() => {
-  container.innerHTML = ''
+afterEach(async () => {
+  // Unmount through the renderer so component effects release their
+  // overlays; the cleanups are deferred, so settle before stripping nodes.
+  render(<></>, container)
+  await settle()
   document.querySelectorAll('.m-sheet-host').forEach((n) => n.remove())
+  releaseAllOverlays()
 })
 
 const keydown = (target: Element | Document, key: string, opts: KeyboardEventInit = {}) =>
   target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...opts }))
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
+const settle = async () => { for (let i = 0; i < 5; i++) await tick() }
 
 describe('Button / TopBar / ActionRow SSR', () => {
   test('Button variants render as real buttons with m- classes', () => {
@@ -161,5 +167,53 @@ describe('announce', () => {
     announce('Saved', 'assertive')
     await new Promise((r) => setTimeout(r, 30))
     expect(regions[0].getAttribute('aria-live')).toBe('assertive')
+  })
+})
+
+describe('Sheet stability under parent re-renders', () => {
+  test('typing in a parent-state input keeps the sheet stable; Escape drains the stack', async () => {
+    const Demo = () => {
+      const [open, setOpen] = useState(false)
+      const [v, setV] = useState('')
+      return (
+        <>
+          <button id="opener-btn" onClick={() => setOpen(true)}>open</button>
+          <Sheet open={open} onClose={() => setOpen(false)} title="Add" size="half">
+            <input
+              id="field"
+              value={v}
+              onInput={(e: Event) => setV((e.target as HTMLInputElement).value)}
+            />
+          </Sheet>
+        </>
+      )
+    }
+    render(<Demo />, container)
+    const base = overlayDepth()
+    const opener = container.querySelector('#opener-btn') as HTMLButtonElement
+    opener.focus()
+    opener.click()
+    await tick()
+    const input = document.getElementById('field') as HTMLInputElement
+    expect(input).not.toBeNull()
+    input.focus()
+    for (const ch of 'hello world') {
+      input.value += ch
+      input.dispatchEvent(new (dom as unknown as { Event: typeof Event }).Event('input', { bubbles: true }))
+      await tick()
+      // The parent re-renders on every keystroke with a fresh inline
+      // onClose; the sheet must neither remount the input nor duplicate
+      // its overlay. (happy-dom's activeElement bookkeeping cannot express
+      // focus persistence — the Playwright spec asserts it in a browser.)
+      expect(document.getElementById('field')).toBe(input)
+      expect(document.querySelectorAll('.m-sheet-host').length).toBe(1)
+    }
+    expect(input.value).toBe('hello world')
+    keydown(document, 'Escape')
+    await settle()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    // The sheet's own entry drained; any residual entries belong to earlier
+    // tests' unmounted fixtures (drained in afterEach).
+    expect(overlayDepth()).toBe(base)
   })
 })

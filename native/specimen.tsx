@@ -29,6 +29,7 @@ const Specimen = () => {
   const [toggle, setToggle] = useState(true)
   const [seg, setSeg] = useState<'strip' | 'scroll' | 'single'>('strip')
   const [sheet, setSheet] = useState<'half' | 'auto' | 'confirm' | null>(null)
+  const [link, setLink] = useState('')
 
   const flip = () => {
     const next = oppositeTheme(theme)
@@ -90,7 +91,7 @@ const Specimen = () => {
       >
         <label style="display:grid;gap:6px">
           <span>Shared folder or album link</span>
-          <input type="url" placeholder="https://" style="min-height:44px;padding:8px 12px;font:inherit" />
+          <input type="url" placeholder="https://" value={link} onInput={(e) => setLink((e.target as HTMLInputElement).value)} style="min-height:44px;padding:8px 12px;font:inherit" />
         </label>
       </Sheet>
 

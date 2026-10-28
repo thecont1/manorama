@@ -1,4 +1,4 @@
-import { useState } from 'hono/jsx/dom'
+import { useState } from 'hono/jsx'
 
 /** Segmented control: role=radiogroup, options role=radio with a roving
  *  tabindex; Arrow/Home/End keys move and select. */

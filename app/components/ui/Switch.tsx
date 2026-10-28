@@ -1,4 +1,4 @@
-import { useId } from 'hono/jsx/dom'
+import { useId } from 'hono/jsx'
 
 /** Aria switch: a labelled <button role="switch">. The track fills with
  *  --m-primary when on. */
@@ -19,7 +19,6 @@ export function Switch({ checked, onChange, label, describedBy, disabled = false
       id={id}
       class="m-switch"
       aria-checked={checked ? 'true' : 'false'}
-      aria-label={label}
       aria-describedby={describedBy}
       disabled={disabled}
       onClick={() => onChange(!checked)}

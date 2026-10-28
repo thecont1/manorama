@@ -1,31 +1,56 @@
 /** One overlay stack for sheets, menus and confirmations. The topmost entry
- *  owns Escape and a Tab trap; everything below it and every other body child
- *  is inert while it sits on top. Releasing out of order is safe — a stale
- *  release is ignored until its entry reaches the top, which can't happen
- *  once popped, so it is simply dropped. */
+ *  owns Escape and a Tab trap; every other body child is inert while an
+ *  overlay is on top — except elements marked `data-overlay-exempt`, which
+ *  must stay live (the announcer live region must keep reaching screen
+ *  readers while a sheet is open).
+ *
+ *  Inert is restored, not cleared: the original `inert` value of every
+ *  element the stack touches is remembered the first time it is touched, and
+ *  put back when the stack empties, so an element that was already inert
+ *  before any overlay opened stays inert. Releasing out of order is safe. */
 
 type Entry = {
   host: HTMLElement
   onEscape?: () => void
   returnFocus: Element | null
-  inerted: HTMLElement[]
 }
 
 const stack: Entry[] = []
+const originalInert = new Map<HTMLElement, boolean>()
 let listenerAttached = false
 
 const top = () => stack[stack.length - 1]
 
-const bodyChildren = (): HTMLElement[] =>
-  Array.from(document.body.children).filter((el): el is HTMLElement => el instanceof HTMLElement)
+const exempt = (el: HTMLElement) => el.hasAttribute('data-overlay-exempt')
+
+/** Everything except the host and its ancestor chain: all siblings at every
+ *  level from the host up to <body>. Works whether the host is a direct body
+ *  child (portal-style) or nested inside the app root (inline render). */
+const wantedInert = (host: HTMLElement): Set<HTMLElement> => {
+  const wanted = new Set<HTMLElement>()
+  let node: HTMLElement | null = host
+  while (node.parentElement) {
+    for (const sib of node.parentElement.children) {
+      if (sib instanceof HTMLElement && sib !== node && !exempt(sib)) wanted.add(sib)
+    }
+    node = node.parentElement
+  }
+  return wanted
+}
 
 const applyInert = () => {
   const active = top()
-  for (const el of bodyChildren()) el.inert = active ? el !== active.host : false
-}
-
-const restoreInert = (entry: Entry) => {
-  for (const el of entry.inerted) if (el.isConnected) el.inert = false
+  const wanted = active ? wantedInert(active.host) : new Set<HTMLElement>()
+  for (const [el, orig] of [...originalInert]) {
+    if (!wanted.has(el)) {
+      el.inert = orig
+      originalInert.delete(el)
+    }
+  }
+  for (const el of wanted) {
+    if (!originalInert.has(el)) originalInert.set(el, el.inert)
+    el.inert = true
+  }
 }
 
 const focusables = (root: HTMLElement): HTMLElement[] =>
@@ -83,11 +108,9 @@ export const pushOverlay = ({ host, onEscape }: { host: HTMLElement; onEscape?: 
     host,
     onEscape,
     returnFocus: document.activeElement,
-    inerted: [],
   }
   stack.push(entry)
   ensureListener()
-  entry.inerted = bodyChildren().filter((el) => el !== host)
   applyInert()
 
   let released = false
@@ -97,10 +120,26 @@ export const pushOverlay = ({ host, onEscape }: { host: HTMLElement; onEscape?: 
     const index = stack.indexOf(entry)
     if (index === -1) return
     stack.splice(index, 1)
-    restoreInert(entry)
     applyInert()
     dropListener()
     const target = entry.returnFocus
     if (target instanceof HTMLElement && target.isConnected) target.focus()
   }
+}
+
+/** Diagnostic depth — tests assert the stack has exactly one entry while a
+ *  single sheet is open. */
+export const overlayDepth = (): number => stack.length
+
+/** Test teardown: releases every live entry in order. Production code must
+ *  not call this — it exists so a fixture that drops its overlay DOM can
+ *  drain the stack deterministically. */
+export const releaseAllOverlays = (): void => {
+  while (stack.length > 0) {
+    const entry = stack.pop()!
+    applyInert()
+    const target = entry.returnFocus
+    if (target instanceof HTMLElement && target.isConnected) target.focus()
+  }
+  dropListener()
 }

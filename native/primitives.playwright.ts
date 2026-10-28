@@ -59,7 +59,7 @@ test('sheet: focus lands on the heading, Tab cycles within, Escape closes top fi
   // Initial focus is the heading (tabindex=-1), never the input.
   await expect(dialog.locator('h2')).toBeFocused()
   // Background is inert while the sheet is open.
-  expect(await page.locator('#app').evaluate((n) => (n as HTMLElement).inert)).toBe(true)
+  expect(await page.locator('.m-owner > main').evaluate((n) => (n as HTMLElement).inert)).toBe(true)
   // Tab cycles inside the sheet.
   await page.keyboard.press('Tab')
   const inside = await page.evaluate(() => document.querySelector('.m-sheet')!.contains(document.activeElement))
@@ -68,9 +68,14 @@ test('sheet: focus lands on the heading, Tab cycles within, Escape closes top fi
   await dialog.getByRole('button', { name: 'Add gallery' }).click()
   const nested = page.getByRole('dialog', { name: 'Remove this gallery?' })
   await expect(nested).toBeVisible()
+  // A visible sheet is not yet pushed: its activation (and heading focus) is
+  // deferred, so wait for focus before sending Escape — otherwise the
+  // keypress reaches the stale entry underneath.
+  await expect(nested.locator('h2')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(nested).toBeHidden()
   await expect(dialog).toBeVisible()
+  await expect(dialog.locator('h2')).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   await expect(opener).toBeFocused()
@@ -127,4 +132,21 @@ test('html.light is applied by theme-init.js before first paint', async ({ brows
   await page.goto(specimen, { waitUntil: 'domcontentloaded' })
   expect(await page.evaluate(() => (window as unknown as { __themeAtDCL: unknown }).__themeAtDCL)).toBe(true)
   await context.close()
+})
+test('sheet input typing keeps focus, one overlay, Escape returns to opener', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await openSpecimen(page, 'dark')
+  const opener = page.getByRole('button', { name: 'Open half sheet' })
+  await opener.click()
+  const input = page.locator('.m-sheet input')
+  await input.click()
+  await input.type('hello-world')
+  // The input's value lives in the specimen's parent state, so every
+  // keystroke re-renders the parent with a fresh inline onClose.
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('hello-world')
+  expect(await page.locator('.m-sheet-host').count()).toBe(1)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('[role="dialog"]')).toHaveCount(0)
+  await expect(opener).toBeFocused()
 })

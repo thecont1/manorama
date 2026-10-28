@@ -5,9 +5,14 @@ let region: HTMLElement | null = null
 let queued: number | null = null
 
 const ensureRegion = (): HTMLElement => {
-  if (region?.isConnected) return region
+  // Same-document check too: a cached region from another document (test
+  // fixture, iframe) still reports isConnected.
+  if (region?.isConnected && region.ownerDocument === document) return region
   region = document.createElement('div')
   region.className = 'm-sr-only'
+  // Live regions inside inert subtrees are hidden from the a11y tree, so the
+  // overlay stack must never inert this one while a sheet or menu is open.
+  region.setAttribute('data-overlay-exempt', '')
   region.setAttribute('aria-live', 'polite')
   region.setAttribute('aria-atomic', 'true')
   document.body.appendChild(region)
