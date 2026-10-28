@@ -1,4 +1,3 @@
-import type { GalleryMediaItem } from '../../app/lib/imagesource'
 import type { OfflineObjectUrlProvider } from './offline-gallery'
 
 export const LIBRARY_MEDIA_MAX_LIVE_URLS = 24
@@ -46,7 +45,28 @@ export const previewSrcFor = (item: {
   poster?: { src: string }
 }): string => item.variants?.[0]?.src ?? item.poster?.src ?? item.src
 
-export const mimeTypeForItem = (item: GalleryMediaItem): string => {
+/** Provider word for a gallery's source link, matched on host alone — the
+ *  scanner graph stays server-side, so this never imports `detectSource`. */
+export const sourceLabelFor = (sourceUrl: string | null | undefined): string => {
+  if (!sourceUrl) return 'gallery'
+  let url: URL
+  try {
+    url = new URL(sourceUrl)
+  } catch {
+    return 'local folder'
+  }
+  const host = url.hostname.replace(/^www\./, '')
+  if (host === 'dropbox.com') return 'Dropbox'
+  if (host === 'drive.google.com') return 'Google Drive'
+  if (host === 'icloud.com' || host === 'share.icloud.com') return 'iCloud'
+  if (host === 'mega.nz' || host === 'mega.co.nz') return 'MEGA'
+  return 'gallery'
+}
+
+export const mimeTypeForItem = (item: {
+  filename: string
+  variants?: readonly { format?: string }[]
+}): string => {
   const format = item.variants?.[0]?.format?.toLowerCase().replace(/^image\//, '') ?? item.filename.split('.').pop()?.toLowerCase()
   if (format === 'jpg' || format === 'jpeg') return 'image/jpeg'
   if (format === 'png' || format === 'webp' || format === 'avif' || format === 'gif') return `image/${format}`
@@ -163,7 +183,9 @@ export class LibraryMediaLoader {
 
   private async vaultUrl(cell: LibraryMediaCell, key: string, generation: number): Promise<string | undefined> {
     for (;;) {
-      const bytes = await this.read(cell.galleryId, cell.entryId)
+      // A vault read error is a miss, not a failure — the cell falls back to
+      // its remote preview rather than stranding every acquirer on the job.
+      const bytes = await this.read(cell.galleryId, cell.entryId).catch(() => undefined)
       if (this.released || this.stale(cell, generation)) { bytes?.fill(0); return undefined }
       if (!bytes) return undefined
       // A frame bigger than the entire budget is still shown — alone. It is

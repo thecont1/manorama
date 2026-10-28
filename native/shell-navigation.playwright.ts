@@ -85,7 +85,10 @@ test('the reorder editor opens and closes back onto the library', async ({ page 
   await page.route('**/api/device-galleries', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.goto(`${nativeUrl}/`, { waitUntil: 'domcontentloaded' })
   // A signed-out library shows the landing/quick-add surface rather than
-  // gallery cards — the editor button only exists with a session.
-  const editorButton = page.getByRole('button', { name: /Edit the running order/ })
+  // gallery cards — the editor menu only exists with a session.
+  const menuButton = page.locator('.lib-card-menu').first()
+  test.skip((await menuButton.count()) === 0, 'editor requires a signed-in gallery list fixture')
+  await menuButton.click()
+  const editorButton = page.getByRole('menuitem', { name: 'Reorder photographs' })
   test.skip((await editorButton.count()) === 0, 'editor requires a signed-in gallery list fixture')
 })
