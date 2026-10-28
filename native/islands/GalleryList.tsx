@@ -640,7 +640,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
     return (
       <>
-        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined}>
+        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
           <Viewer
             key={`${manifest.slug}:${frameKick.nonce}`}
             slug={manifest.slug}

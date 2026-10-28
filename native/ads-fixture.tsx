@@ -45,7 +45,7 @@ window.__MANORAMA_AD_FIXTURE_STATE__ = {
 }
 
 render(
-  <GalleryShell settings={gallery.settings}>
+  <GalleryShell settings={gallery.settings} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
     <Viewer slug={manifest.slug} images={source.list()} settings={gallery.settings} plate={plate} />
   </GalleryShell>,
   root,

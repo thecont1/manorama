@@ -26,7 +26,7 @@ const Fixture = () => {
         <button id="toggle-details" type="button" onClick={() => setSuspended((s) => !s)}>Toggle details</button>
         <output id="position-readout" data-position={last}>{last}</output>
       </div>
-      <GalleryShell settings={gallery.settings}>
+      <GalleryShell settings={gallery.settings} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
         <Viewer
           slug={manifest.slug}
           images={source.list()}

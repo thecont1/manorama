@@ -64,7 +64,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}
