@@ -9,9 +9,11 @@ import {
   offlineGalleryId,
   offlineSourceFor,
   openGalleryNetworkFirst,
+  type OfflineCacheItemReady,
   type OfflineGalleryStore,
   type OfflineObjectUrlProvider,
 } from './offline-gallery'
+import { cacheFillRegistry } from './cache-fill'
 import { thumbnailEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { VaultKeyProvider, VaultStorageProvider } from './vault'
@@ -619,4 +621,45 @@ test('cache progress counts only photos written into the encrypted vault', async
   await store.cache(selection, gallery, undefined, (next) => progress.push(next))
   expect(progress).toEqual([{ completed: 0, total: 2 }, { completed: 1, total: 2 }, { completed: 2, total: 2 }])
   expect((await store.inspect(selection)).status).toBe('complete')
+})
+
+describe('per-item fill descriptors', () => {
+  test('onItemReady fires after each vault write in manifest order', async () => {
+    const { store } = makeHarness()
+    const ready: OfflineCacheItemReady[] = []
+    await store.cache(selection, gallery, undefined, undefined, (item) => ready.push(item))
+    expect(ready).toEqual([
+      { id: 'stable-one', entryId: thumbnailEntryId('stable-one'), mimeType: 'image/jpeg', index: 0 },
+      { id: 'stable-two', entryId: thumbnailEntryId('stable-two'), mimeType: 'image/png', index: 1 },
+    ])
+  })
+
+  test('the shared registry publishes each landed entry under its gallery id', async () => {
+    const { store } = makeHarness()
+    const galleryId = await offlineGalleryId(selection)
+    const seen: string[] = []
+    const off = cacheFillRegistry.subscribe(galleryId, (item) => seen.push(item.entryId))
+    try {
+      await store.cache(selection, gallery)
+      expect(seen).toEqual([thumbnailEntryId('stable-one'), thumbnailEntryId('stable-two')])
+    } finally {
+      off()
+      cacheFillRegistry.reset()
+    }
+  })
+
+  test('openGalleryNetworkFirst forwards the per-item seam into the fill', async () => {
+    const { store } = makeHarness()
+    const ready: OfflineCacheItemReady[] = []
+    const result = await openGalleryNetworkFirst({
+      selection,
+      fetchOnline: async () => gallery,
+      store,
+      onItemReady: (item) => ready.push(item),
+    })
+    await result.cacheFill
+    expect(ready).toHaveLength(2)
+    expect(ready[0].index).toBe(0)
+    expect(ready[1].index).toBe(1)
+  })
 })

@@ -25,6 +25,7 @@ import {
 } from '../lib/offline-gallery'
 import { computeCachedGallery, OnDeviceLocalCompute, readImageFeatures } from '../lib/local-compute'
 import { thumbnailEntryId } from '../lib/thumbs'
+import { mimeTypeForItem, previewSrcFor } from '../lib/library-media'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
@@ -97,13 +98,7 @@ const selectionFromLocation = (): Selection => {
 
 const localCompute = new OnDeviceLocalCompute({ vault: productionVault })
 
-const mimeTypeForImage = (image: GalleryMediaItem): string => {
-  const format = image.variants?.[0]?.format?.toLowerCase().replace(/^image\//, '') ?? image.filename.split('.').pop()?.toLowerCase()
-  if (format === 'jpg' || format === 'jpeg') return 'image/jpeg'
-  if (format === 'png' || format === 'webp' || format === 'avif' || format === 'gif') return `image/${format}`
-  if (format === 'heic' || format === 'heif') return `image/${format}`
-  return 'application/octet-stream'
-}
+const mimeTypeForImage = mimeTypeForItem
 
 export const galleryStatusMessage = (status: GalleryStatus): string => {
   if (status === 'loading') return 'Opening gallery…'
@@ -948,11 +943,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const accountFoldStyle = leftRegion && rightRegion && rightRegion.x > leftRegion.x + leftRegion.width
     ? { '--admin-pane-limit': `${leftRegion.x + leftRegion.width}px`, '--admin-left-end': `${leftRegion.x + leftRegion.width}px`, '--admin-right-start': `${rightRegion.x}px` }
     : undefined
-  // The first variant is the provider's own thumbnail, and for a film it is the
-  // poster — `src` would be the video itself, which no <img> can show. This is
-  // the same `variants?.[0]?.src ?? src` the web dashboard's row previews use.
-  const imagePreview = (image: GallerySummary['images'][number]) =>
-    image.variants?.[0]?.src ?? ('poster' in image ? image.poster.src : image.src)
+  // The first variant is the provider's own thumbnail, and for a film it is
+  // the poster — `src` would be the video itself, which no <img> can show.
+  const imagePreview = (image: GallerySummary['images'][number]) => previewSrcFor(image)
   const copyGalleryLink = async (gallery: GallerySummary) => {
     const url = `https://${accountGalleryLink(gallery)}`
     try {
