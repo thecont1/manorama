@@ -42,6 +42,19 @@ type Props = {
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
   alwaysShowNavigation?: boolean
+  /** Reports the committed photograph (never an ad plate or the end card):
+   *  once after mount and whenever a glide settles on a new index. */
+  onPositionChange?: (position: { imageId: string; index: number }) => void
+  /** Mounts the stage inert and aria-hidden for a session suspended under
+   *  another surface — no keyboard, pointer or wheel input, no modal, the
+   *  active video pauses; layout and decode state are untouched so a resume
+   *  shows the identical frame. */
+  suspended?: boolean
+  /** Who is looking, resolved by the route — stored for later phases. */
+  viewerRole?: 'owner' | 'member' | 'visitor'
+  /** Where the owner's library lives, resolved by the route — stored for
+   *  later phases. */
+  libraryHref?: string
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -155,7 +168,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -230,6 +243,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // curtain (or never start after entry, depending on mount timing).
   const [galleryEntered, setGalleryEntered] = useState(() =>
     typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
+  const suspendedRef = useRef(suspended)
+  suspendedRef.current = suspended
+  // Stored for later phases (P6+): the route resolves who is looking and
+  // where their library lives; the viewer does not consume them yet.
+  void viewerRole
+  void libraryHref
   const magnifierRef = useRef<MagnifierHandle | null>(null)
   const magnifierKeyRef = useRef<((event: KeyboardEvent) => void) | null>(null)
   const heicPendingRef = useRef(new Set<string>())
@@ -841,7 +860,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
-    if (!curtain) return
+    // No curtain — or one already lifted — means the gallery is entered:
+    // nothing will ever fire the dismiss path that gates video playback.
+    if (!curtain || curtain.hidden) {
+      document.body.classList.add('gallery-entered')
+      setGalleryEntered(true)
+      return
+    }
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
@@ -999,7 +1024,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
-      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -1025,7 +1050,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       }
       if (event.key === 'Escape' && gridOpenRef.current) { event.preventDefault(); actions.requestCloseModals(); return }
       if (event.key !== 'g' && event.key !== 'G') return
-      if (!document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       if (gridOpenRef.current) actions.requestCloseModals()
       else if (!anyModalOpenRef.current) actions.openGrid()
@@ -1223,7 +1248,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (event.key !== 'm' && event.key !== 'M') return
-      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       const handle = magnifierRef.current
       if (!handle) return
@@ -1249,7 +1274,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       const target = event.target as HTMLElement | null
       if (isTypingTarget(target)) return
       if (event.key !== 'i' && event.key !== 'I') return
-      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       // I opens the in-gallery info sheet directly; ⇧I jumps to the
       // standalone C2PA viewer instead (falling back to the sheet for
@@ -1875,6 +1900,33 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
   }
 
+  // Suspending freezes the session in place: modals close, keyboard is
+  // gated by suspendedRef, pointer/wheel input dies with the inert root,
+  // and the active video pauses — nothing about index, offset or decode
+  // state is touched, so un-suspending resumes the identical frame.
+  const suspendedWasPlaying = useRef(false)
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!suspended || !stage) return
+    requestCloseModals()
+    const video = stage.querySelector('video')
+    suspendedWasPlaying.current = Boolean(video && !video.paused)
+    video?.pause()
+    return () => {
+      // Resume only if it was playing when suspended — reduced motion and
+      // tab-hidden pauses belong to their own logic.
+      if (suspendedWasPlaying.current && galleryEntered) video?.play().catch(() => {})
+    }
+  }, [suspended, galleryEntered])
+
+  // Committed-position reporting: the index state only advances on a
+  // settled glide, never mid-drag, and ad plates/the end card are not real
+  // indices — so every fire names a real photograph.
+  useEffect(() => {
+    const image = images[index]
+    if (image && onPositionChange) onPositionChange({ imageId: image.id, index })
+  }, [index])
+
   const foldStartIndex = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
   // Resolve displayable sources here — heicSrc lives in this component, so
   // the renderer receives frames it can paint without knowing about HEIC.
@@ -1896,6 +1948,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         class={`viewer-stage mode-${mode} bg-${background}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
+        inert={suspended || undefined}
+        aria-hidden={suspended ? 'true' : undefined}
         tabIndex={-1}
       >
         {/* A single decorative layer beneath the gallery content. Inside

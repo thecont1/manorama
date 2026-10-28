@@ -143,3 +143,11 @@ export const releaseAllOverlays = (): void => {
   }
   dropListener()
 }
+
+/** Closes the top overlay by invoking its Escape handler — the Android back
+ *  button's equivalent of pressing Escape. No-op when the stack is empty or
+ *  the top overlay is non-dismissible. */
+export const closeTopOverlay = (): void => {
+  const active = top()
+  active?.onEscape?.()
+}
