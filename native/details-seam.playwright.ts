@@ -16,10 +16,11 @@ const photo = (index: number): GalleryImage => ({
 })
 // ~30 stills plus one video-shaped item at index 3; the video leg skips if
 // it cannot play (no real mp4 in a routed fixture).
-const manifestImages = [
-  ...Array.from({ length: 30 }, (_, i) => photo(i)).map((p, i) =>
-    i === 3 ? ({ ...p, type: 'video' as const, durationSeconds: 4 } as GalleryImage) : p),
-]
+const manifestImages: GalleryImage[] = Array.from({ length: 30 }, (_, i) =>
+  i === 3
+    ? ({ ...photo(i), type: 'video', durationSeconds: 4 } as unknown as GalleryImage)
+    : photo(i),
+)
 const payload = JSON.stringify({
   manifest: { slug: 'seam-fixture', title: 'Seam fixture', caption: 'Suspended-viewer seam.', date: '2026-10-28', images: manifestImages },
   settings: {

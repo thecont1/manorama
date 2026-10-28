@@ -1905,6 +1905,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // and the active video pauses — nothing about index, offset or decode
   // state is touched, so un-suspending resumes the identical frame.
   const suspendedWasPlaying = useRef(false)
+  const galleryEnteredRef = useRef(galleryEntered)
+  galleryEnteredRef.current = galleryEntered
   useEffect(() => {
     const stage = stageRef.current
     if (!suspended || !stage) return
@@ -1913,11 +1915,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     suspendedWasPlaying.current = Boolean(video && !video.paused)
     video?.pause()
     return () => {
-      // Resume only if it was playing when suspended — reduced motion and
-      // tab-hidden pauses belong to their own logic.
-      if (suspendedWasPlaying.current && galleryEntered) video?.play().catch(() => {})
+      // Resume only while unsuspending and only if it was playing — a
+      // galleryEntered flip during suspension must not restart playback.
+      if (suspendedWasPlaying.current && !suspendedRef.current && galleryEnteredRef.current) video?.play().catch(() => {})
     }
-  }, [suspended, galleryEntered])
+  }, [suspended])
 
   // Committed-position reporting: the index state only advances on a
   // settled glide, never mid-drag, and ad plates/the end card are not real
@@ -1938,8 +1940,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       : image)
   const foldActiveIndex = Math.max(0, index - foldStartIndex)
 
+  // Suspension must make the WHOLE viewer subtree unreachable — the pill,
+  // arrows, bubble and modals render outside the stage, so inerting only
+  // the stage would leave them keyboard- and reader-reachable behind the
+  // details layer. The wrapper is display:contents so layout and sibling
+  // selectors are unchanged.
   return (
-    <>
+    <div style="display:contents" inert={suspended || undefined} aria-hidden={suspended ? 'true' : undefined}>
       {/* Behind everything, inert: a deterministic field keyed to this
           gallery's URL. Sits outside the stage so it stays put while the
           track scrolls. */}
@@ -1948,8 +1955,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         class={`viewer-stage mode-${mode} bg-${background}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
-        inert={suspended || undefined}
-        aria-hidden={suspended ? 'true' : undefined}
         tabIndex={-1}
       >
         {/* A single decorative layer beneath the gallery content. Inside
@@ -2454,6 +2459,5 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           </section>
         </div>
       </div>
-    </>
-  )
+        </div>  )
 }

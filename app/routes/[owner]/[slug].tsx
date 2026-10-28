@@ -36,8 +36,7 @@ export default createRoute(async (c) => {
     const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
     if (session) {
       viewerRole = session.accountId === user.accountId ? 'owner' : 'member'
-      const slug2 = (session as { ownerSlug?: string }).ownerSlug
-      if (slug2) libraryHref = `/${slug2}`
+      if (session.ownerSlug) libraryHref = `/${session.ownerSlug}`
     }
   } catch {
     viewerRole = 'visitor'
@@ -48,12 +47,11 @@ export default createRoute(async (c) => {
   // the client so a reload starts at the first photograph. Only manifest
   // item ids count (ad plates never do).
   const photoParam = c.req.query('photo')
-  const source0 = new BundledSource(gallery as GalleryRecord)
-  const photoIndex = photoParam ? source0.list().findIndex((item) => item.id === photoParam) : -1
+  const source = new BundledSource(gallery as GalleryRecord)
+  const photoIndex = photoParam ? source.list().findIndex((item) => item.id === photoParam) : -1
 
   const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c))
 
-  const source = source0
   const settings = defaultGallerySettings(gallery)
   // Per-gallery social card: the first frame with the wordmark over it.
   // `?i=` is the first item's stable key, so reordering the gallery
@@ -77,7 +75,7 @@ export default createRoute(async (c) => {
         libraryHref={libraryHref}
         initialIndex={photoIndex > 0 ? photoIndex : 0}
       />
-      {photoIndex > 0 ? <PhotoParamCleanup /> : null}
+      {photoParam !== undefined ? <PhotoParamCleanup /> : null}
     </GalleryShell>,
     {
       title: `${gallery.title} — manorama`,

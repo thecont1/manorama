@@ -524,6 +524,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }, [])
 
   const enterGallery = (next: Selection) => {
+    positionRef.current = null
     setSelection(next)
     dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: next.owner, slug: next.slug } })
   }
