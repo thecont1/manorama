@@ -426,8 +426,15 @@ button { color: inherit; }
 .sr-only { position: fixed; left: -2px; top: -2px; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 
-.curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .96), rgba(20, 23, 22, .94) 58%, rgba(12, 14, 14, .97)); color: rgb(var(--ink)); cursor: pointer; touch-action: none; will-change: transform, opacity; transform: translate3d(0, 0, 0); transition: opacity 620ms cubic-bezier(.23, 1, .32, 1), transform 900ms cubic-bezier(.23, 1, .32, 1); }
-.curtain.is-lifting { opacity: 0; transform: translate3d(0, -108%, 0); pointer-events: none; }
+/* The curtain is a frosted veil over the first photograph, not a separate
+   page. One tap dissolves it: the words fade first (0.35s), then the frost
+   thins from a 28px blur to none while the veil fades out (1.1s), and the
+   same photograph comes up sharp, in place. Nothing moves — only focus
+   changes — so the veil keeps no transform at all. */
+.curtain { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 10vw; background: linear-gradient(130deg, rgba(46, 50, 47, .68), rgba(20, 23, 22, .62) 58%, rgba(12, 14, 14, .74)); color: rgb(var(--ink)); cursor: pointer; touch-action: none; -webkit-backdrop-filter: blur(28px) saturate(1.1); backdrop-filter: blur(28px) saturate(1.1); will-change: opacity; transition: opacity 1.1s cubic-bezier(.4, 0, .2, 1), -webkit-backdrop-filter 1.1s cubic-bezier(.4, 0, .2, 1), backdrop-filter 1.1s cubic-bezier(.4, 0, .2, 1); }
+.curtain > * { transition: opacity .35s ease-out; }
+.curtain.fading { opacity: 0; -webkit-backdrop-filter: blur(0) saturate(1); backdrop-filter: blur(0) saturate(1); pointer-events: none; }
+.curtain.fading > * { opacity: 0; }
 .curtain[hidden] { display: none; }
 .curtain-content { width: min(640px, 100%); transform: translateY(-2vh); }
 .curtain-kicker, .eyebrow, .curtain-date, .curtain-prompt { margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .08em; text-transform: lowercase; color: rgba(var(--ink), .62); }
@@ -492,6 +499,9 @@ cai-manifest-summary { display: block; margin-top: 16px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
   .viewer-frame img { transition: none; }
+  /* Reduced motion swaps the dissolve for a plain 0.2s fade — the frost
+     and the words go together, still without anything moving. */
+  .curtain, .curtain > * { transition-duration: .2s !important; }
 }
 
 /* Privacy policy page: readable long-form text on the same dark surface. */

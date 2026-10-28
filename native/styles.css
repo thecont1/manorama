@@ -977,7 +977,7 @@ body.manorama-native:has(.native-account-shell) {
 /* The web app keeps its chrome out of the way until the gallery is entered, and
    the native shells should match: while the curtain is up the photograph and the
    title are the whole interface. `gallery-entered` is set on the body when the
-   curtain lifts, so nothing else has to know about this. */
+   curtain dissolves, so nothing else has to know about this. */
 body.manorama-native:not(.gallery-entered) .stage-arrows,
 body.manorama-native:not(.gallery-entered) .stage-seq {
   opacity: 0;

@@ -93,9 +93,9 @@ async function dismissCurtain(
 // state so a case's outcome never depends on what ran before it.
 test.beforeEach(async ({ request, page }) => {
   // Reduced motion keeps animated chrome click-stable for every spec.
-  // RULE: a spec that asserts an animation mid-flight (is-lifting, the
-  // logo bob, sweeps) must re-emulate no-preference first — under reduce
-  // the transition is ~0ms and intermediate states die in one frame.
+  // RULE: a spec that asserts an animation mid-flight (curtain fading,
+  // the logo bob, sweeps) must re-emulate no-preference first — under
+  // reduce the transitions collapse and intermediate states die fast.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reset = await request.post(`${BASE}/.dev-seed/reset`);
   expect(reset.status(), "dev seed reset — is this `bun run dev`?").toBe(204);
@@ -203,38 +203,52 @@ test("curtain uses larger brand type without entry labels", async ({
   );
 });
 
-test("curtain lifts upward before it hides", async ({ page }) => {
-  // This spec asserts the lift itself — under the suite-wide reduced
-  // motion emulation the transition is ~0ms and is-lifting only exists
-  // for a frame, so run it with motion on.
+test("curtain is a frosted veil, not an opaque page", async ({ page }) => {
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
+  const curtain = page.locator("[data-curtain]");
+  // The first photograph sits behind a 28px frost plus scrim — a veil
+  // the photograph reads through, never a solid page in front of it.
+  await expect(curtain).toHaveCSS("backdrop-filter", /blur\(28px\)/);
+  // Reduced motion (the suite default) is a plain 0.2s fade.
+  await expect(curtain).toHaveCSS("transition-duration", /0\.2s/);
+});
+
+test("curtain dissolves in place — nothing moves — before it hides", async ({
+  page,
+}) => {
+  // The dissolve itself is asserted — under the suite-wide reduced
+  // motion emulation the fade is 0.2s and `fading` is hard to catch,
+  // so run it with motion on.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
-  await expect(curtain).toHaveClass(/is-lifting/);
-  await page.waitForTimeout(150);
-  await expect(curtain).not.toHaveCSS("transform", "none");
+  await expect(curtain).toHaveClass(/fading/);
+  // The veil fades where it stands — no lift, no translate, ever.
+  await expect(curtain).toHaveCSS("transform", "none");
   await expect(curtain).toBeHidden();
 });
 
-test("curtain reveal remains visible through a calmer lift before it hides", async ({
+test("curtain words fade first while the frost keeps dissolving", async ({
   page,
 }) => {
-  // Lift duration is asserted — motion required (see the spec above).
+  // The 0.35s/1.1s split is asserted — motion required (see above).
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
-  await page.waitForTimeout(650);
-  await expect(curtain).toHaveClass(/is-lifting/);
+  // Words take 0.35s; the veil takes 1.1s — once the copy is gone the
+  // frost must still be mid-flight, then the whole curtain hides.
+  await expect(curtain.locator(".curtain-content")).toHaveCSS("opacity", "0");
+  await expect(curtain).toHaveClass(/fading/);
   await expect(curtain).not.toHaveAttribute("hidden");
   await expect(curtain).toBeHidden();
 });
 
-test("curtain accepts an upward swipe before it lifts away", async ({
+test("curtain accepts an upward swipe before it dissolves", async ({
   page,
 }) => {
-  // Lift class asserted — motion required.
+  // Fading class asserted — motion required.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
@@ -242,7 +256,7 @@ test("curtain accepts an upward swipe before it lifts away", async ({
   await page.mouse.down();
   await page.mouse.move(300, 360, { steps: 4 });
   await page.mouse.up();
-  await expect(curtain).toHaveClass(/is-lifting/);
+  await expect(curtain).toHaveClass(/fading/);
   await expect(curtain).toBeHidden();
 });
 
@@ -558,9 +572,9 @@ for (const vp of viewports) {
       );
     });
 
-    test("touch upward swipe lifts the opening curtain", async ({ page }) => {
+    test("touch upward swipe dissolves the opening curtain", async ({ page }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
-      // Lift class asserted — motion required.
+      // Fading class asserted — motion required.
       await page.emulateMedia({ reducedMotion: "no-preference" });
       await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
       const client = await page.context().newCDPSession(page);
@@ -577,7 +591,7 @@ for (const vp of viewports) {
         type: "touchEnd",
         touchPoints: [],
       });
-      await expect(curtain).toHaveClass(/is-lifting/);
+      await expect(curtain).toHaveClass(/fading/);
       await expect(curtain).toBeHidden();
     });
 
@@ -2780,7 +2794,7 @@ test.describe("video slides", () => {
 
   const videoGallery = () => `${BASE}/${OWNER}/${VIDEO_SLUG}`;
 
-  test("no media element mounts before the curtain lifts, or under a modal", async ({ page }) => {
+  test("no media element mounts before the curtain dissolves, or under a modal", async ({ page }) => {
     // The gating that SSR and source-text tests cannot prove: a video-first
     // gallery stays fully inert behind the curtain, and opening a panel
     // releases the media element rather than leaving it playing underneath.

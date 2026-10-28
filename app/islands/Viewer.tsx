@@ -920,35 +920,51 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
-    // No curtain — or one already lifted — means the gallery is entered:
-    // nothing will ever fire the dismiss path that gates video playback.
-    if (!curtain || curtain.hidden) {
+    const entered = () => {
       document.body.classList.add('gallery-entered')
       setGalleryEntered(true)
+    }
+    // No curtain — or one already dissolved — means the gallery is entered:
+    // nothing will ever fire the dismiss path that gates video playback.
+    if (!curtain || curtain.hidden) {
+      entered()
+      return
+    }
+    // A remount landing mid-dissolve finishes instantly — the veil would
+    // otherwise hang transparent over an entered gallery forever.
+    if (curtain.classList.contains('fading')) {
+      curtain.classList.remove('fading')
+      curtain.hidden = true
+      entered()
       return
     }
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
     const dismiss = () => {
-      if (curtain.hidden || curtain.classList.contains('is-lifting')) return
+      if (curtain.hidden || curtain.classList.contains('fading')) return
+      // Drop focus before aria-hidden so a focused node never sits inside
+      // a hidden subtree; the stage receives it once the veil clears.
+      if (document.activeElement === curtain) curtain.blur()
       curtain.setAttribute('aria-hidden', 'true')
-      curtain.classList.add('is-lifting')
-      document.body.classList.add('gallery-entered')
-      setGalleryEntered(true)
-      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
-      focusTarget?.focus({ preventScroll: true })
+      curtain.classList.add('fading')
       const finish = () => {
-        curtain.removeEventListener('transitionend', onLiftEnd)
+        curtain.removeEventListener('transitionend', onFadeEnd)
         if (finishTimer) window.clearTimeout(finishTimer)
-        curtain.classList.remove('is-lifting')
+        curtain.classList.remove('fading')
         curtain.hidden = true
+        // The viewer controls appear once the photograph is clear.
+        entered()
+        const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
+        focusTarget?.focus({ preventScroll: true })
       }
-      const onLiftEnd = (event: TransitionEvent) => {
-        if (event.target === curtain && event.propertyName === 'transform') finish()
+      const onFadeEnd = (event: TransitionEvent) => {
+        if (event.target === curtain && event.propertyName === 'opacity') finish()
       }
-      curtain.addEventListener('transitionend', onLiftEnd)
-      finishTimer = window.setTimeout(finish, 980)
+      curtain.addEventListener('transitionend', onFadeEnd)
+      // The dissolve is 1.1s — the timer is only a backstop for engines
+      // that drop transitionend on an interrupted backdrop-filter.
+      finishTimer = window.setTimeout(finish, 1400)
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -1024,7 +1040,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
   }
 
-  // Enter-at-frame: instant and pre-paint, so the curtain lifts onto the
+  // Enter-at-frame: instant and pre-paint, so the curtain dissolves onto the
   // tapped photograph rather than the strip travelling to it in view.
   const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
   // While the entry is re-anchoring, the index belongs to the target —
