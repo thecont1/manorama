@@ -51,7 +51,7 @@ function NativeApp() {
       void cleanup?.()
     }
   }, [billing])
-  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} ownerTheme={ownerTheme} onOwnerThemeChange={setOwnerTheme} authError={authError} linkConflict={linkConflict} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
+  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} ownerTheme={ownerTheme} onOwnerThemeChange={setOwnerTheme} authError={authError} linkConflict={linkConflict} onClearLinkConflict={() => setLinkConflict(null)} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
 }
 
 render(<NativeApp />, root)

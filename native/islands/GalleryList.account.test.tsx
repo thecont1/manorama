@@ -465,7 +465,7 @@ describe('signed-in account area', () => {
     ...overrides,
   })
 
-  const mountAccount = (options: { billing?: BillingState; client?: RevenueCatBilling; store?: OfflineGalleryStore } = {}) => {
+  const mountAccount = (options: { billing?: BillingState; client?: RevenueCatBilling; store?: OfflineGalleryStore; linkConflict?: string; onClearLinkConflict?: () => void } = {}) => {
     const Harness = () => {
       const [billingState] = useState<BillingState | undefined>(options.billing)
       return (
@@ -475,6 +475,8 @@ describe('signed-in account area', () => {
           onSignIn={() => {}}
           billing={options.client}
           offlineStore={options.store}
+          linkConflict={options.linkConflict}
+          onClearLinkConflict={options.onClearLinkConflict}
         />
       )
     }
@@ -1144,6 +1146,30 @@ describe('signed-in account area', () => {
     expect(attempts).toBe(2)
     const deletes = calls.filter((call) => call.url === 'https://manorama.xyz/api/account' && call.init?.method === 'DELETE')
     expect(deletes).toHaveLength(1)
+  })
+
+  test('a link conflict surfaces on the Library and clears when linking again', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch()
+    let cleared = 0
+    const { container } = mountAccount({
+      linkConflict: 'That identity is linked to a different account',
+      onClearLinkConflict: () => { cleared += 1 },
+    })
+    await settle()
+
+    // A cold-start conflict lands on the Library — Settings may never mount.
+    expect(container.textContent).toContain('That identity is linked to a different account')
+
+    await openSettings(container)
+    expect(container.textContent).toContain('That identity is linked to a different account')
+    const linkButtons = [...container.querySelectorAll('button')].filter((button) => button.textContent === 'Link')
+    if (linkButtons.length > 0) {
+      linkButtons[0].click()
+      await settle()
+      expect(cleared).toBe(1)
+    }
   })
 
   test('the gear opens Settings directly in one tap', async () => {

@@ -290,6 +290,9 @@ body:has(.native-diptych) {
    hairlines, with nothing boxing each gallery in. */
 .native-gallery-list {
   display: grid;
+  /* minmax(0, 1fr): without it the grid track grows to the rail's content
+     width and the rail can never scroll — the classic grid trap. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   margin: 0 0 22px;
   padding: 0;

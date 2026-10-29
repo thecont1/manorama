@@ -68,6 +68,7 @@ type Props = {
   onSignIn?: (provider: AuthProvider) => void
   authError?: string | null
   linkConflict?: string | null
+  onClearLinkConflict?: () => void
   billing?: RevenueCatBilling
   billingState?: BillingState
   ownerTheme?: Theme
@@ -192,7 +193,7 @@ export const regionName = (code: string | null | undefined): string => {
 
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
-export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, linkConflict, billing, billingState: liveBilling, ownerTheme = 'dark', onOwnerThemeChange = () => {}, accountAdLoader = adFrameFor, offlineStore = productionOfflineGalleryStore }: Props) {
+export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, linkConflict, onClearLinkConflict, billing, billingState: liveBilling, ownerTheme = 'dark', onOwnerThemeChange = () => {}, accountAdLoader = adFrameFor, offlineStore = productionOfflineGalleryStore }: Props) {
   // Browser previews have no RevenueCat to configure. The capture harness
   // can stand the account surface in a billing state through
   // window.__demoBilling so every tier-bearing element can be reviewed.
@@ -873,6 +874,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const linkIdentity = async (provider: string) => {
     if (identityBusy) return
     setIdentityNote(null)
+    // A fresh attempt retires the previous link's result, so the conflict
+    // line it left behind clears here rather than outliving its context.
+    onClearLinkConflict?.()
     setIdentityBusy(true)
     let listener: { remove: () => Promise<void> } | undefined
     try {
@@ -1056,6 +1060,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setOwnerSlugDraft(ownerSlug ?? '')
       return
     }
+    // The conflict note sits ahead of slugNote in Settings — clear it when a
+    // real save begins so its answer is not masked by a stale link result.
+    onClearLinkConflict?.()
     try {
       const saved = await renameOwnerSlug(base, value)
       setOwnerSlug(saved)
@@ -1295,7 +1302,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // many galleries live on this iPhone. Stream-only flags count as not kept;
   // an unset policy follows the vault default.
   const keptOnDevice = ownerSlug
-    ? accountGalleries?.filter((gallery) => galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] !== true).length ?? 0
+    ? retainedAccountGalleries.filter((gallery) => galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] !== true).length
     : 0
   const libraryFinding = vaultProgress && vaultProgress.total > 0
     ? `${selection.slug} is saving to this iPhone, ${vaultProgress.completed} of ${vaultProgress.total}.`
@@ -1448,6 +1455,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <p class="native-library-finding">{libraryFinding}</p>
         {galleryActionNote ? <p role="status">{galleryActionNote}</p> : null}
         {authError ? <p role="alert">{authError}</p> : null}
+        {/* A link result can arrive on a cold start, before Settings has
+            ever mounted — it needs a line on the Library too. */}
+        {linkConflict ? <p class="native-account-note" role="alert">{linkConflict}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen && !addOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {/* The sponsored panel sits between the Library heading and the
@@ -1489,7 +1499,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       {/* The plan line is the only account copy on the Library: quiet
           normally, a warning sentence when the next gallery would be
           temporary. Settings › Plan carries the detail. */}
-      {signedIn && billingState?.tier ? (
+      {signedIn && billingState?.tier && accountGalleries ? (
         <footer class="native-lib-foot">
           {billingState.isPro ? (
             <>
