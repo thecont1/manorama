@@ -226,8 +226,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
+  const [adsShow, setAdsShow] = useState(false)
   const [theme, setTheme] = useState<Theme>(() =>
     readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
+
+  // The web account surface carries the same sponsored slot the native
+  // Library does. Undefined (offline, unanswered) means show — suppression
+  // is a courtesy switch, not a gate.
+  useEffect(() => {
+    let live = true
+    void fetch('/api/ads/visibility')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: unknown) => {
+        if (live) setAdsShow(payload !== null ? (payload as { show?: boolean }).show !== false : true)
+      })
+      .catch(() => { if (live) setAdsShow(true) })
+    return () => { live = false }
+  }, [])
 
   // Quick-add resume. The `manorama_oauth_next` cookie is the real record
   // of an interrupted /<share-url> flow; this is the fallback for when it
@@ -832,17 +847,43 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
         <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <p class="admin-profile-address">manorama.xyz/{owner}</p>
-        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Visionary' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
+        <div class="admin-greeting">
+          <p class="admin-greeting-url">manorama.xyz/<input
+            class="admin-owner-slug-input"
+            type="text"
+            value={ownerSlugDraft}
+            aria-label="Your URL — edit to change your address"
+            spellcheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
+            onInput={(event) => { setSettingsNote(''); setOwnerSlugDraft((event.currentTarget as HTMLInputElement).value) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') cancelOwnerSlugEditing()
+              if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
+            }}
+            onBlur={() => { void saveOwnerSlug() }}
+          /></p>
+          <p class="admin-greeting-hello">Hello, <mark class="admin-greeting-name">{ownerName || owner}</mark>. Welcome to manorama.xyz.</p>
+          <p class="admin-greeting-plan">You are a {tier === 'pro' ? 'Visionary' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
+          {settingsNote ? <p class="admin-welcome-note" role="status">{settingsNote}</p> : null}
+        </div>
       </section>
-      <section class="admin-add-gallery" aria-labelledby="add-heading">
-        <div class="gallery-selector-heading"><h2 id="add-heading">Add a gallery</h2></div>
-        <button type="button" class="admin-button admin-button--solid" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add gallery</button>
-      </section>
+      {adsShow ? (
+        /* The sponsored slot sits opposite the welcome — the same house
+           creative and header placement the native account surface uses. */
+        <aside class="account-ad" aria-label="Sponsored: manorama">
+          <span class="account-ad-badge">Sponsored</span>
+          <strong class="account-ad-headline">More photographs, quietly shared.</strong>
+          <a class="account-ad-cta" href="https://manorama.xyz" target="_blank" rel="noopener">Explore manorama</a>
+        </aside>
+      ) : null}
       </div>
 
       <section class="gallery-list" aria-labelledby="galleries-heading">
-        <h1 class="admin-galleries-heading" id="galleries-heading">Your galleries</h1>
+        <div class="admin-library-heading">
+          <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
+          <button type="button" class="admin-button admin-button--solid" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add</button>
+        </div>
         {liveGalleries.length ? <div class="admin-gallery-list">{liveGalleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
           {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>

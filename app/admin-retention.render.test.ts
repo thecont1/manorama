@@ -124,13 +124,13 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
 
-  test('welcome and import share the top level with galleries below both', async () => {
+  test('welcome and the sponsored slot share the top level with galleries below both', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     expect(html).toContain('class="admin-overview"')
     expect(html).toContain('aria-label="Welcome to manorama"')
     expect(html).toContain('You are a Free User. You have used 3 of your 3 gallery limit.')
-    expect(html.indexOf('class="admin-welcome"')).toBeLessThan(html.indexOf('id="add-heading"'))
-    expect(html.indexOf('id="add-heading"')).toBeLessThan(html.indexOf('id="galleries-heading"'))
+    expect(html.indexOf('class="admin-welcome"')).toBeLessThan(html.indexOf('class="admin-library-heading"'))
+    expect(html.indexOf('class="admin-library-heading"')).toBeLessThan(html.indexOf('class="admin-gallery-list"'))
     expect(html).toContain('aria-labelledby="galleries-heading"')
   })
 

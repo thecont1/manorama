@@ -63,8 +63,8 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
       }
     })
 
-    const cta = page.locator('.admin-add-gallery button')
-    await expect(cta).toHaveText('Add gallery')
+    const cta = page.locator('.admin-library-heading button')
+    await expect(cta).toHaveText('Add')
     await cta.click()
 
     const dialog = page.getByRole('dialog', { name: 'Add gallery', exact: true })

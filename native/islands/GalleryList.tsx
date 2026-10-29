@@ -1759,7 +1759,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             on narrow ones the wrapper dissolves (display:contents) and the
             footer's order puts it last in the stacked page. */}
         <footer class="site-footer native-legal">
-          <a class="site-footer-link" href={PRIVACY_URL} onClick={(event) => { event.preventDefault(); openExternal(PRIVACY_URL) }}>Privacy Policy</a>
+          <a class="site-footer-link" href={PRIVACY_URL} onClick={(event) => { event.preventDefault(); dispatchNav({ type: 'open-privacy', from: 'library' }) }}>Privacy Policy</a>
           <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href={AUTHOR_URL} onClick={(event) => { event.preventDefault(); openExternal(AUTHOR_URL) }}>thecontrarian.in</a></p>
         </footer>
 

@@ -1475,15 +1475,19 @@ describe('signed-in account area', () => {
 })
 
 describe('native-only placement', () => {
-  test('the web dashboard carries no account slot', () => {
+  /* The web dashboard carries the same house-creative slot as the native
+     account surface, but rented frames stay native-only — no AdMob markup
+     or native ad classes may appear in the web bundle. */
+  test('the web dashboard carries only the house creative', () => {
     const appDir = fileURLToPath(new URL('../../app', import.meta.url))
     const sources = (readdirSync(appDir, { recursive: true }) as string[]).filter((file) =>
-      /\.(ts|tsx|css)$/.test(file),
+      /\.(ts|tsx|css)$/.test(file) && !file.includes('app-ads.txt'),
     )
     expect(sources.length).toBeGreaterThan(0)
-    const withSlot = sources.filter((file) =>
-      readFileSync(join(appDir, file), 'utf8').includes('account-ad'),
-    )
-    expect(withSlot).toHaveLength(0)
+    const withRented = sources.filter((file) => {
+      const source = readFileSync(join(appDir, file), 'utf8')
+      return source.includes('native-account-ad') || source.toLowerCase().includes('admob')
+    })
+    expect(withRented).toHaveLength(0)
   })
 })

@@ -22,7 +22,7 @@ export type OwnerScreen =
       detailsFrom?: 'library' | 'viewer'
     }
   | { kind: 'settings' }
-  | { kind: 'privacy'; from: 'welcome' | 'settings' | 'visionary' }
+  | { kind: 'privacy'; from: 'welcome' | 'library' | 'settings' | 'visionary' }
   | { kind: 'visionary'; from: 'library' | 'settings' }
 
 export type OwnerNavState = {
@@ -41,7 +41,7 @@ export type OwnerNavAction =
   | { type: 'open-reorder'; gallery: GalleryIdentity; from: 'library' | 'details' }
   | { type: 'open-settings' }
   | { type: 'open-visionary'; from: 'library' | 'settings' }
-  | { type: 'open-privacy'; from: 'welcome' | 'settings' | 'visionary' }
+  | { type: 'open-privacy'; from: 'welcome' | 'library' | 'settings' | 'visionary' }
   | { type: 'back' }
 
 export const initialOwnerNav = (signedIn: boolean): OwnerNavState => ({
@@ -126,6 +126,7 @@ export const ownerNavReducer = (state: OwnerNavState, action: OwnerNavAction): O
         case 'privacy':
           if (screen.from === 'settings') return { screen: { kind: 'settings' }, viewer: null }
           if (screen.from === 'visionary') return { screen: { kind: 'visionary', from: 'library' }, viewer: null }
+          if (screen.from === 'library') return { screen: { kind: 'library' }, viewer: null }
           return { screen: { kind: 'welcome' }, viewer: null }
         case 'library':
         case 'welcome':

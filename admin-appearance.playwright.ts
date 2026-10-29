@@ -52,8 +52,8 @@ for (const size of sizes) {
         await expect(page.getByText('Photo Editor', { exact: true })).toHaveCount(0)
 
         const welcome = page.getByRole('region', { name: 'Welcome to manorama' })
-        const importer = page.getByRole('region', { name: 'Add a gallery' })
-        const heading = page.getByRole('heading', { name: 'Your galleries', exact: true })
+        const importer = page.locator('.account-ad')
+        const heading = page.getByRole('heading', { name: 'Library', exact: true })
         await expect(welcome).toBeVisible()
         await expect(importer).toBeVisible()
         const welcomeBox = (await welcome.boundingBox())!
