@@ -1222,6 +1222,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // keys still fall through: arrows must reach the strip even while
       // focus sits on a control.
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
+      // Combos belong to the browser — Alt+Left is history-back, not a
+      // strip move — so they neither hide the chrome nor navigate.
+      if (event.altKey || event.ctrlKey || event.metaKey) return
       const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, .stage-seq')
       if (!inChrome) chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
