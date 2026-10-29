@@ -16,6 +16,7 @@ const apiBase = import.meta.env.VITE_API_BASE || 'https://manorama.xyz'
 
 function NativeApp() {
   const [authError, setAuthError] = useState<string | null>(null)
+  const [linkConflict, setLinkConflict] = useState<string | null>(null)
   const [deepLinkSelection, setDeepLinkSelection] = useState<NativeGallerySelection | null>(null)
   const [billingState, setBillingState] = useState<BillingState | undefined>(undefined)
   const [ownerTheme, setOwnerTheme] = useState<Theme>(() => readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
@@ -38,7 +39,7 @@ function NativeApp() {
   useEffect(() => {
     let cleanup: (() => Promise<void>) | undefined
     let active = true
-    void installNativeAuth(apiBase, setAuthError, setDeepLinkSelection)
+    void installNativeAuth(apiBase, setAuthError, setDeepLinkSelection, setLinkConflict)
       .then((removeListener) => {
         cleanup = removeListener
         if (active) return configureRevenueCat()
@@ -50,7 +51,7 @@ function NativeApp() {
       void cleanup?.()
     }
   }, [billing])
-  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} ownerTheme={ownerTheme} onOwnerThemeChange={setOwnerTheme} authError={authError} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
+  return <GalleryList apiBase={apiBase} billing={billing} billingState={billingState} ownerTheme={ownerTheme} onOwnerThemeChange={setOwnerTheme} authError={authError} linkConflict={linkConflict} deepLinkSelection={deepLinkSelection} onSignIn={signIn} />
 }
 
 render(<NativeApp />, root)

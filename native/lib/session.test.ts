@@ -235,6 +235,31 @@ describe('native OAuth callback', () => {
     }
   })
 
+  test('a link result replayed by getLaunchUrl after reload is not re-handled', () => {
+    const session = installSessionStorage()
+    try {
+      const url = `${NATIVE_CALLBACK_URL}?linked=dropbox`
+      expect(__private__.claimLinkResult(url)).toBe(true)
+      // window.location.reload() wipes module state but keeps sessionStorage.
+      __private__.resetHandledLinkResults()
+      expect(__private__.claimLinkResult(url)).toBe(false)
+    } finally {
+      session.restore()
+    }
+  })
+
+  test('a different link result after a reload is a new attempt', () => {
+    const session = installSessionStorage()
+    try {
+      expect(__private__.claimLinkResult(`${NATIVE_CALLBACK_URL}?linked=dropbox`)).toBe(true)
+      __private__.resetHandledLinkResults()
+      // A new attempt's URL differs from the stored one, so it still lands.
+      expect(__private__.claimLinkResult(`${NATIVE_CALLBACK_URL}?link=conflict`)).toBe(true)
+    } finally {
+      session.restore()
+    }
+  })
+
   test('a failed exchange releases the handoff so a redelivery can retry', async () => {
     installLocalStorage()
     const fetcher = globalThis.fetch
