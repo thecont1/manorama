@@ -1394,7 +1394,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       >
         <div class="lib-menu" role="menu" aria-label={`${galleryName(menuGallery)} actions`}>
           <button type="button" role="menuitem" onClick={() => { setOpenMenuSlug(null); void copyGalleryLink(menuGallery) }}>Share link</button>
-          <button type="button" role="menuitem" disabled={!ownerSlug} onClick={() => {
+          {/* TODO(P7): enable when the details screens mount — until then
+              the item stays in the written menu order, disabled. */}
+          <button type="button" role="menuitem" disabled title="Details screens arrive in a later phase" onClick={() => {
             if (!ownerSlug) return
             setOpenMenuSlug(null)
             dispatchNav({ type: 'open-details', gallery: { kind: 'published', owner: ownerSlug, slug: menuGallery.slug }, from: 'library' })

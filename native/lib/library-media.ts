@@ -134,7 +134,10 @@ export class LibraryMediaLoader {
       const generation = this.generations.get(cell.galleryId) ?? 0
       task = this.enqueue(() => this.resolve(cell, key, generation))
       this.inflight.set(key, task)
-      task.finally(() => this.inflight.delete(key))
+      // finally() would carry a rejection into an unhandled promise —
+      // a two-armed then forgets the key either way and settles clean.
+      const forget = () => this.inflight.delete(key)
+      task.then(forget, forget)
     }
     return task.then((outcome) => {
       if (!outcome || this.released) return undefined
@@ -193,12 +196,19 @@ export class LibraryMediaLoader {
       const oversized = bytes.length > this.maxBlobBytes
       if (oversized) this.evictAllUnpinned()
       if (oversized || this.evictUntilFits(bytes.length)) {
-        const url = this.objectUrls.create(bytes, cell.mimeType)
-        const entry: LiveEntry = { galleryId: cell.galleryId, url, bytes: bytes.length, pins: 0, oversized }
-        bytes.fill(0)
-        this.liveBytes += entry.bytes
-        this.live.set(key, entry)
-        return url
+        try {
+          const url = this.objectUrls.create(bytes, cell.mimeType)
+          const entry: LiveEntry = { galleryId: cell.galleryId, url, bytes: bytes.length, pins: 0, oversized }
+          this.liveBytes += entry.bytes
+          this.live.set(key, entry)
+          return url
+        } catch {
+          // A URL that cannot be minted is a miss — the cell falls back
+          // to its remote preview rather than failing the job.
+          return undefined
+        } finally {
+          bytes.fill(0)
+        }
       }
       bytes.fill(0)
       // Everything live is pinned on screen; park until a release makes an
