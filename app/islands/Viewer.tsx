@@ -1218,10 +1218,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // must not fall through and also tuck the bars away.
       if (event.defaultPrevented) return
       // A modifier alone, or a key handled inside the chrome or the rest
-      // bubble, is interaction — not a cue to hide the bars.
+      // bubble, is interaction — not a cue to hide the bars. Navigation
+      // keys still fall through: arrows must reach the strip even while
+      // focus sits on a control.
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
-      if ((event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, .stage-seq')) return
-      chromeActionsRef.current.hide()
+      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, .stage-seq')
+      if (!inChrome) chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
