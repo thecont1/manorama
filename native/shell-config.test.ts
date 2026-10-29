@@ -7,9 +7,9 @@ describe('native platform adaptations', () => {
     expect(manifest).toContain('android:windowSoftInputMode="adjustResize"')
   })
 
-  test('the Library, drawer and editor have explicit Light grounds', () => {
+  test('the Library and editor have explicit Light grounds', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
-    for (const selector of ['.native-list-shell', '.native-account-edge-tab', '.native-drawer-panel', '.native-editor']) {
+    for (const selector of ['.native-list-shell', '.native-editor']) {
       expect(css).toContain(`html.light body.manorama-native ${selector}`)
     }
   })

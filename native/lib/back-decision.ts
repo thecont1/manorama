@@ -10,7 +10,6 @@ export type BackDecision =
   | 'close-overlay'
   | 'return-to-library'
   | 'nav-back'
-  | 'close-account-menu'
   | 'exit'
 
 export type BackInput = {
@@ -18,7 +17,6 @@ export type BackInput = {
   viewerModalOpen: boolean
   overlayDepth: number
   nav: OwnerNavState
-  accountMenuOpen: boolean
 }
 
 export const decideBack = (input: BackInput): BackDecision => {
@@ -27,6 +25,5 @@ export const decideBack = (input: BackInput): BackDecision => {
   if (input.overlayDepth > 0) return 'close-overlay'
   if (canGoBack(input.nav))
     return input.nav.screen.kind === 'viewer' ? 'return-to-library' : 'nav-back'
-  if (input.accountMenuOpen) return 'close-account-menu'
   return 'exit'
 }

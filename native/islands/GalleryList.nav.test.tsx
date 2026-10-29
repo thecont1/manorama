@@ -145,7 +145,7 @@ describe('navigation reducer drives the shell surfaces', () => {
     globals.fetch = async () => new Response('{}', { status: 404 })
     try {
       const container = await mount()
-      ;(container.querySelector('[aria-label="Account menu"]') as unknown as HTMLButtonElement).click()
+      ;(container.querySelector('[aria-label="Settings"]') as unknown as HTMLButtonElement).click()
       await settle()
       const signOutButton = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Sign out') as HTMLButtonElement | undefined
       expect(signOutButton).not.toBeUndefined()

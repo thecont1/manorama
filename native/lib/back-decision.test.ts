@@ -9,7 +9,6 @@ const base: BackInput = {
   viewerModalOpen: false,
   overlayDepth: 0,
   nav: initialOwnerNav(true),
-  accountMenuOpen: false,
 }
 
 const navAt = (...actions: Parameters<typeof ownerNavReducer>[1][]) =>
@@ -17,7 +16,7 @@ const navAt = (...actions: Parameters<typeof ownerNavReducer>[1][]) =>
 
 describe('decideBack precedence', () => {
   test('global view wins over everything', () => {
-    expect(decideBack({ ...base, globalViewOpen: true, viewerModalOpen: true, overlayDepth: 2, accountMenuOpen: true })).toBe('close-global')
+    expect(decideBack({ ...base, globalViewOpen: true, viewerModalOpen: true, overlayDepth: 2 })).toBe('close-global')
   })
 
   test('a viewer modal beats the overlay stack and navigation', () => {
@@ -35,10 +34,6 @@ describe('decideBack precedence', () => {
   test('a non-viewer screen above the library dispatches nav back', () => {
     expect(decideBack({ ...base, nav: navAt({ type: 'open-settings' }) })).toBe('nav-back')
     expect(decideBack({ ...base, nav: navAt({ type: 'open-visionary', from: 'library' }) })).toBe('nav-back')
-  })
-
-  test('the account menu closes before the app exits', () => {
-    expect(decideBack({ ...base, accountMenuOpen: true })).toBe('close-account-menu')
   })
 
   test('on the library with nothing open the app exits', () => {

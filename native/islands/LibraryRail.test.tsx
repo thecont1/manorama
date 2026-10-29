@@ -334,10 +334,10 @@ describe('LibraryRail', () => {
     }
     render(<Harness />, container)
     await settle()
-    expect(container.textContent).toContain('Saved on this device')
+    expect(container.textContent).toContain('On this iPhone')
     flushSync(() => refresh(undefined))
     await settle()
-    expect(container.textContent).not.toContain('Saved on this device')
+    expect(container.textContent).not.toContain('On this iPhone')
   })
 
   test('a batched viewport exit-and-return still loads the rail', async () => {

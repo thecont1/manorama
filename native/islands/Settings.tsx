@@ -42,7 +42,6 @@ type Props = {
   onOpenVisionary: () => void
   onOpenPrivacy: () => void
   onOpenAuthor: () => void
-  openAnotherGallery: Child
   onSignOut: () => void
   deleteConfirming: boolean
   deleting: boolean
@@ -141,10 +140,6 @@ export default function Settings(props: Props) {
           <p class="m-note m-panel-note">Encrypted copies stay app-private. The picker setting expands native scope; the current-gallery selector remains available.</p>
           {deviceGalleries.map((gallery) => <ActionRow label={gallery.title} value={`${gallery.itemCount} photographs`} chevron={Boolean(gallery.publicGallerySlug)} onClick={gallery.publicGallerySlug ? () => props.onOpenDeviceGallery(gallery) : undefined} />)}
           <VaultSettings controller={props.controller} tier={tier} embedded />
-        </ActionGroup>
-
-        <ActionGroup label="Open another gallery">
-          <div class="m-settings-open">{props.openAnotherGallery}</div>
         </ActionGroup>
 
         <ActionGroup label="About">

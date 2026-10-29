@@ -491,16 +491,12 @@ describe('signed-in account area', () => {
     return container.querySelector('#m-add-gallery-form') as HTMLFormElement
   }
 
-  /** Every account control moved behind the drawer's Settings button; the
-   *  old drawer-only interactions start from the Settings screen now. */
+  /** The topbar gear is the only account affordance — one tap opens the full
+   *  Settings screen; the drawer and its second door are gone. */
   const openSettings = async (container: HTMLElement) => {
-    const accountMenu = container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement
-    expect(accountMenu).not.toBeNull()
-    accountMenu.click()
-    await settle()
-    const settings = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Settings') as HTMLButtonElement
-    expect(settings).toBeDefined()
-    settings.click()
+    const gear = container.querySelector('[aria-label="Settings"]') as HTMLButtonElement
+    expect(gear).not.toBeNull()
+    gear.click()
     await settle()
   }
 
@@ -544,27 +540,22 @@ describe('signed-in account area', () => {
     expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 1 kept on this iPhone.')
     expect(html).toContain('Kashmir')
     expect(html).toContain('A winter album')
-    expect(html).toContain('manorama.xyz/quiet-owner/kashmir')
     expect(html).toContain('kashmir')
     expect(html).toContain('12 photographs')
-    // The account menu is the only account affordance on the page, and the
-    // drawer it opens is closed until asked for.
-    expect(html).toContain('aria-label="Account menu"')
+    // The topbar gear is the only account affordance — the drawer is gone.
+    expect(html).toContain('aria-label="Settings"')
+    expect(html).not.toContain('aria-label="Account menu"')
     expect(html).not.toContain('data-account-drawer')
     // Both fixture images ride the rail — every photograph, not a cover.
     expect(container.querySelectorAll('.lib-rail .lib-th')).toHaveLength(2)
     expect(html).not.toContain('sequence only')
-    // Sign out waits behind the account menu now, so the drawer has to be
-    // opened before it exists.
-    const accountMenu = container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement
-    accountMenu.click()
-    await settle()
-    expect(container.querySelector('[data-account-drawer]')).not.toBeNull()
+    // Sign out waits inside Settings, reached by the gear directly.
+    await openSettings(container)
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'Sign out')).toBe(true)
-    // The drawer carries exactly one door into the account controls now.
-    expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'Settings')).toBe(true)
-    // Signed-in home replaces the provider row; the manual open form waits in
-    // Settings, never on the Library surface.
+    ;(container.querySelector('[aria-label="Back"]') as HTMLButtonElement).click()
+    await settle()
+    // Signed-in home replaces the provider row; Settings never shows a
+    // manual open form — deep links cover shared galleries.
     expect(html).not.toContain('Sign in with Apple')
     expect(container.querySelector('main')?.textContent).not.toContain('Open another gallery')
 
@@ -580,14 +571,15 @@ describe('signed-in account area', () => {
     const thumbs = [...rail!.querySelectorAll<HTMLButtonElement>('.lib-th')]
     expect(thumbs.map((thumb) => thumb.querySelector('img')?.getAttribute('src')))
       .toEqual(['https://cdn.example/first.jpg', 'https://cdn.example/second.jpg'])
-    // One article per gallery: rail, title row, metadata, caption, address.
+    // One article per gallery: rail, title row, metadata, caption. The card
+    // carries no address — the sub line ends on the device word.
     const card = rail!.closest('.lib-card') as HTMLElement
     const order = [...card.children].map((child) => child.className.split(' ')[0])
-    expect(order).toEqual(['lib-rail', 'lib-card-head', 'lib-card-sub', 'native-gallery-caption', 'native-gallery-link'])
+    expect(order).toEqual(['lib-rail', 'lib-card-head', 'lib-card-sub', 'native-gallery-caption'])
     expect(card.querySelector('.lib-card-sub')?.textContent).toContain('12 photographs')
     expect(card.querySelector('.lib-card-sub')?.textContent).toContain('gallery')
     expect(card.querySelector('.native-gallery-caption')?.textContent).toBe('A winter album')
-    expect(card.querySelector('.native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
+    expect(card.querySelector('.native-gallery-link')).toBeNull()
 
     // Reorder lives in the card's ··· menu now, behind its own sheet.
     ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
@@ -609,7 +601,7 @@ describe('signed-in account area', () => {
     expect(galleryCalls().filter((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir').length)
       .toBeGreaterThanOrEqual(2)
 
-    // The account controls live in Settings behind the drawer's own button.
+    // The account controls live in Settings behind the topbar gear.
     await openSettings(container)
     const settingsHtml = container.innerHTML
     expect(settingsHtml).toContain('Expanded photo picker')
@@ -618,7 +610,7 @@ describe('signed-in account area', () => {
     expect(settingsHtml).not.toContain('Open photo picker')
   })
 
-  test('names the account in the drawer and PATCHes an edited URL from Settings', async () => {
+  test('PATCHes an edited address from Settings', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({
@@ -638,18 +630,17 @@ describe('signed-in account area', () => {
     await settle()
 
     const html = container.innerHTML
-    // The greeting is gone from the Library — the name reaches the drawer.
+    // The greeting is gone from the Library — account copy lives in Settings.
     expect(html).not.toContain('Hello,')
     expect(html).not.toContain('You are a Free User')
-    expect(html).toContain('aria-label="Account menu"')
+    expect(html).toContain('aria-label="Settings"')
+    expect(html).not.toContain('aria-label="Account menu"')
     expect(html).not.toContain('data-account-drawer')
     expect(html).not.toContain('This is your manoramic world')
-    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
-    await settle()
-    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Privacy Policy')
-    expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('© 2026 Mahesh Shantaram')
 
     await openSettings(container)
+    expect(container.querySelector('[data-account-drawer]')).toBeNull()
+    expect(container.innerHTML).toContain('Privacy Policy')
     const input = container.querySelector('#settings-owner-address') as HTMLInputElement | null
     expect(input).not.toBeNull()
     expect(input!.value).toBe('quiet-owner')
@@ -793,13 +784,13 @@ describe('signed-in account area', () => {
     expect(cards.length).toBe(2)
     for (const card of cards) {
       // The photographs lead, then the title row with its ··· menu, then the
-      // count·source metadata, caption and address — one column, top-down.
+      // count·source·device metadata and the caption — one column, top-down.
       const order = [...card.children].map((child) => child.className.split(' ')[0])
       const at = (needle: string) => order.findIndex((name) => name === needle || name.startsWith(needle))
       expect(at('lib-rail')).toBe(0)
       expect(at('lib-card-head')).toBeGreaterThan(at('lib-rail'))
       expect(at('lib-card-sub')).toBeGreaterThan(at('lib-card-head'))
-      expect(at('native-gallery-link')).toBeGreaterThan(at('lib-card-sub'))
+      expect(at('native-gallery-link')).toBe(-1)
       // Every photograph rides the rail — not a single cover.
       expect(card.querySelectorAll('.lib-rail .lib-th')).toHaveLength(1)
       // One menu button per card; the per-action buttons live in its sheet.
@@ -890,7 +881,7 @@ describe('signed-in account area', () => {
     expect(container.innerHTML).not.toContain('Temp Galleries')
   })
 
-  test('a failed account list shows a quiet retry and never blocks the manual form', async () => {
+  test('a failed account list shows a quiet retry', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ error: 'The gallery list is temporarily unavailable' }, 503) })
@@ -900,7 +891,7 @@ describe('signed-in account area', () => {
     const html = container.innerHTML
     expect(html).toContain('Your galleries could not be loaded.')
     expect(html).toContain('Try again')
-    // The manual path survives a dead list.
+    // Settings carries no open form even when the list is dead.
     expect(container.querySelector('main')?.textContent).not.toContain('Open another gallery')
 
     const listCalls = () => calls.filter((call) => call.url === 'https://manorama.xyz/api/galleries').length
@@ -912,7 +903,7 @@ describe('signed-in account area', () => {
     expect(container.innerHTML).toContain('Your galleries could not be loaded.')
 
     await openSettings(container)
-    expect(container.querySelector('.m-settings-open form')).not.toBeNull()
+    expect(container.querySelector('#settings-owner-address')).not.toBeNull()
   })
 
   test('cached galleries paint before the account list resolves', async () => {
@@ -960,9 +951,7 @@ describe('signed-in account area', () => {
     const { container } = mountAccount({ client })
     await settle()
 
-    const accountMenu = container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement
-    accountMenu.click()
-    await settle()
+    await openSettings(container)
     const signOut = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Sign out') as HTMLButtonElement
     expect(signOut).toBeDefined()
     signOut.click()
@@ -1157,26 +1146,22 @@ describe('signed-in account area', () => {
     expect(deletes).toHaveLength(1)
   })
 
-  test('the manual form still opens another owner\u2019s gallery while signed in', async () => {
+  test('the gear opens Settings directly in one tap', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch()
     const { container } = mountAccount()
     await settle()
 
+    // No drawer, no intermediate menu: the topbar gear is the only affordance
+    // and it lands on the full Settings screen.
+    expect(container.querySelector('[aria-label="Account menu"]')).toBeNull()
     await openSettings(container)
-    const form = container.querySelector('.m-settings-open form') as HTMLFormElement | null
-    expect(form).not.toBeNull()
-    const inputs = [...form!.querySelectorAll('input')] as HTMLInputElement[]
-    inputs[0].value = 'other-owner'
-    inputs[0].dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
-    inputs[1].value = 'elsewhere'
-    inputs[1].dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
-    await settle()
-    form!.dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
-    await settle()
-
-    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/other-owner/elsewhere')).toBe(true)
+    expect(container.querySelector('#settings-owner-address')).not.toBeNull()
+    expect(container.textContent).toContain('Privacy Policy')
+    expect(container.textContent).toContain('Sign out')
+    // Shared galleries arrive by deep link — Settings carries no open form.
+    expect(container.textContent).not.toContain('Open another gallery')
   })
 
   for (const status of [200, 409]) {
@@ -1444,7 +1429,7 @@ describe('signed-in account area', () => {
     expect(pipelineItems.find((item) => item.textContent === 'Share link')!.disabled).toBe(false)
   })
 
-  test('the menu leads with the brand and closes with a circled X', async () => {
+  test('Add is a deliberate sheet and the gear returns to the Library', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary()] }) })
@@ -1459,17 +1444,13 @@ describe('signed-in account area', () => {
     ;(container.querySelector('.m-sheet [aria-label="Close"]') as HTMLButtonElement).click()
     await settle()
 
-    ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
+    // The topbar gear is the sole account affordance — one tap to Settings.
+    await openSettings(container)
+    expect(container.querySelector('[data-account-drawer]')).toBeNull()
+    expect(container.querySelector('#settings-owner-address')).not.toBeNull()
+    ;(container.querySelector('[aria-label="Back"]') as HTMLButtonElement).click()
     await settle()
-    const drawer = container.querySelector('[data-account-drawer]') as HTMLElement
-    const head = drawer.querySelector('.native-drawer-head') as HTMLElement
-    expect(head.querySelector('.native-drawer-brand .landing-brand-mark')).not.toBeNull()
-    expect(head.querySelector('.native-drawer-brand .brand-tld')?.textContent).toBe('.xyz')
-    expect(head.querySelector('.landing-brand-intro')?.textContent).toContain('adj.')
-    const close = head.querySelector('.native-drawer-close') as HTMLButtonElement
-    expect(close.getAttribute('aria-label')).toBe('Close account menu')
-    expect(close.querySelector('svg')).not.toBeNull()
-    expect(drawer.textContent).toContain('Add a gallery from a public Dropbox, Google Drive, iCloud, or MEGA link')
+    expect(container.querySelector('.native-library-heading')).not.toBeNull()
   })
 
 })
