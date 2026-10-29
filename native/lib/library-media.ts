@@ -134,7 +134,10 @@ export class LibraryMediaLoader {
       const generation = this.generations.get(cell.galleryId) ?? 0
       task = this.enqueue(() => this.resolve(cell, key, generation))
       this.inflight.set(key, task)
-      task.finally(() => this.inflight.delete(key))
+      // finally() would carry a rejection into an unhandled promise —
+      // a two-armed then forgets the key either way and settles clean.
+      const forget = () => this.inflight.delete(key)
+      task.then(forget, forget)
     }
     return task.then((outcome) => {
       if (!outcome || this.released) return undefined

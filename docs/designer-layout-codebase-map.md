@@ -29,7 +29,7 @@ Design reading:
 Likely code locations:
 - Authentication entry UI, probably in `app/routes` and shared components in `app/components`.
 - Supporting product copy is also echoed in App Store review notes and submission docs.
-- Search evidence shows the text `Continue with` in documentation about the first screen, which strongly suggests the same copy exists in the shipped UI or mirrors it closely.
+- Verified shipped copy: `Continue with` renders in `app/lib/signin.tsx` (the `signin-lead` lead-in before provider buttons), `app/quickadd.ts` (the "Continue with Dropbox/Google" link labels), and `native/islands/GalleryList.tsx` (the same `signin-lead` plus `Continue with {provider}` aria-labels on the sign-in buttons).
 
 ### 2. Home / account / gallery list screen
 

@@ -123,14 +123,33 @@ test('html.light is applied by theme-init.js before first paint', async ({ brows
   const context = await browser.newContext()
   await context.addInitScript(() => {
     try { localStorage.setItem('manorama:theme', 'light') } catch { /* ignore */ }
-    ;(window as unknown as { __themeAtDCL: unknown }).__themeAtDCL = null
-    document.addEventListener('DOMContentLoaded', () => {
-      (window as unknown as { __themeAtDCL: unknown }).__themeAtDCL = document.documentElement.classList.contains('light')
+    ;(window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule = null
+    // DOMContentLoaded is too late to isolate theme-init.js — by then the
+    // specimen's module bundle has run and could have applied the class
+    // itself. The boundary that matters is readyState 'interactive': set
+    // after parsing ends, before deferred and module scripts execute, and
+    // signalled by readystatechange. The observer covers mid-parse batches;
+    // the readystatechange read is the authoritative pre-module capture.
+    // (Watching for a type=module script element does not work — dev
+    // servers inject their own module client ahead of theme-init.)
+    const observer = new MutationObserver(() => {
+      if (document.readyState !== 'loading') return
+      ;(window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule =
+        document.documentElement.classList.contains('light')
+    })
+    // documentElement does not exist yet when init scripts run — observe
+    // the document, which does.
+    observer.observe(document, { childList: true, subtree: true })
+    document.addEventListener('readystatechange', () => {
+      if (document.readyState !== 'interactive') return
+      ;(window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule =
+        document.documentElement.classList.contains('light')
+      observer.disconnect()
     })
   })
   const page = await context.newPage()
   await page.goto(specimen, { waitUntil: 'domcontentloaded' })
-  expect(await page.evaluate(() => (window as unknown as { __themeAtDCL: unknown }).__themeAtDCL)).toBe(true)
+  expect(await page.evaluate(() => (window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule)).toBe(true)
   await context.close()
 })
 test('sheet input typing keeps focus, one overlay, Escape returns to opener', async ({ page }) => {

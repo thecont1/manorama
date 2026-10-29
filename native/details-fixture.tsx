@@ -4,7 +4,7 @@
 import { render, useState } from 'hono/jsx/dom'
 import GalleryShell from '../app/components/GalleryShell'
 import Viewer from '../app/islands/Viewer'
-import { BundledSource } from '../app/lib/imagesource'
+import { BundledSource, mediaCountOf } from '../app/lib/imagesource'
 import { adFrameFor } from './lib/ads'
 import { fetchGallery } from './lib/api'
 import './styles.css'
@@ -26,7 +26,7 @@ const Fixture = () => {
         <button id="toggle-details" type="button" onClick={() => setSuspended((s) => !s)}>Toggle details</button>
         <output id="position-readout" data-position={last}>{last}</output>
       </div>
-      <GalleryShell settings={gallery.settings} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
+      <GalleryShell settings={gallery.settings} mediaCount={mediaCountOf(source.list())}>
         <Viewer
           slug={manifest.slug}
           images={source.list()}

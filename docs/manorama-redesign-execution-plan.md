@@ -2,7 +2,7 @@
 
 Read `manorama-redesign-handoff.md` first. It defines the screens, the behaviour contracts, the deliberate contract changes (C1 to C7) and the open questions (Q1 to Q7). This plan says in what order to build them and how to know each step is done.
 
-> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; its §7 phases (P0–P12) and dependency/ownership rules supersede the stages below wherever they disagree. Settled then: every surface in scope with one coordinated release — not native-first; both dark and light owner themes; temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX, not Preact; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs), not `redesign/true-black`; the confirmed code map is megaplan §4. Inline corrections are marked "(28 Oct 2026)".
+> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is the owner-approved plan of record; precedence follows its §1 authority order — owner decisions, then AGENTS.md invariants, then the redesign decisions, handoff, this plan, prototype, and spec/tests. Its §7 phases (P0–P12) and dependency/ownership rules supersede the stages below wherever they disagree. Settled then: every surface in scope with one coordinated release — not native-first; both dark and light owner themes; temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX, not Preact; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs), not `redesign/true-black`; the confirmed code map is megaplan §4. Inline corrections are marked "(28 Oct 2026)".
 
 Principles
 - *(28 Oct 2026: superseded)* ~~Native first (iOS is the shipping target). Web and desktop follow, reusing tokens, copy and shared logic.~~ Every surface ships in one coordinated release; phases still integrate in dependency order via `feat/iphone-redesign`.
@@ -31,7 +31,7 @@ Tasks
 1. Create the worktree and branch. Run the full check list on the untouched branch and record the baseline (which specs pass, which are flaky).
 2. Read and note, per file, the exports and tests that touch the redesign: `app/islands/Viewer.tsx`, `app/islands/Admin.tsx`, `native/islands/{GalleryList,VaultSettings,Paywall}.tsx`, `native/lib/{thumbs,vault,offline-gallery,vault-settings,billing,ads}.ts`, `packages/core/{imagesource,image-staging,adframe}.ts`, `app/styles.css`, `app/routes/privacy.tsx`, and every `*.playwright.ts`.
 3. Update the "Where it lands" table in the handoff with the confirmed paths. List every Playwright locator that will break (start with the label changes in the handoff).
-4. Check that the gallery manifest can carry per-item width, height and an average colour (Q3). If not, specify the smallest addition to the manifest and the vault thumbnail record.
+4. ~~Check that the gallery manifest can carry per-item width, height and an average colour (Q3). If not, specify the smallest addition to the manifest and the vault thumbnail record.~~ *(28 Oct 2026: superseded — per-item width and height already ship in the manifest and gallery summary; no colour field is added to either. The rail shows the existing item placeholder; any optional colour derives only from bytes already fetched.)*
 5. Pull the real Visionary figures from `native/lib/billing.ts` and the retention code (Q6).
 6. Take the open questions to the owner: Q1 (ad slot), Q2 (web and desktop scope), Q4 (shortcuts help, Global View entry, fold layout). Record answers in the handoff.
 
@@ -56,7 +56,7 @@ Goal: the viewer chrome and behaviour of handoff sections 4 and 5, with every co
 
 2a. Chrome and sheets (M)
 - Remove the brand pill and its bobbing animation. One tap on the stage toggles chrome. Auto-hide after 3 seconds, cancelled while a sheet is open.
-- Top bar: Library back button and position text. Bottom row: Display, Info, Details (owner only; a visitor's view omits it). No Share.
+- Top bar: Library back button and position text — the Library action stays for the owner, is omitted for signed-out public-link visitors, and returns a signed-in non-owner to their own Library only. Bottom row: Display, Info, Details (owner only; a visitor's view omits it). No Share.
 - Display sheet: Layout, Canvas, Arrows, plus fullscreen on the web and the shortcuts list per the Q4 decision.
 - Move the in-gallery information sheet out of display settings into its own Info sheet; keep the `I` and Shift+I keys.
 - Tests: rewrite the display-settings and brand-pill specs; add focus-trap, Escape and return-focus tests for both sheets.
@@ -85,24 +85,24 @@ Goal: the viewer chrome and behaviour of handoff sections 4 and 5, with every co
 - Tests: extend the existing C2PA spec to the new Info entry point; keep a test that iCloud items never show the flag.
 
 2f. End card and ad plate dressing (S)
-- End card: Rewind (eased scroll or index reset, 0.75s unless reduced motion) and Library.
+- End card: Rewind (eased scroll or index reset, 0.75s unless reduced motion); Library appears only when that destination exists — signed-out public-link visitors have no Library.
 - Ad plate: dress the existing `AdFrame` plate for a vertical photograph, fit to height. Cadence, suppression and tap rules do not change. Run `native/ads.playwright.ts`.
 
 2g. Spec and test pass (S)
 - Edit `TECH-SPEC.md` for C1 to C4. Remove or rewrite assertions that referenced the old chrome. Run the whole matrix at 375 x 812, 1440 x 900 and 2560 x 1440, including the video and fold specs.
 
-Exit criteria for Stage 2: viewer checks in the Definition of Done pass; video slides, Diptych and Global View still work; no photograph is overlapped by any control at any size; the strip arrow tests above are green.
+Exit criteria for Stage 2: viewer checks in the Definition of Done pass; video slides, Diptych and Global View still work; *(28 Oct 2026)* temporary viewer chrome may overlay photographs — the no-overlap requirement applies only to controls that must reserve space, and arrows still reserve the 64px bar; the strip arrow tests above are green.
 
 ## Stage 3: Library, Add, Details (L)
 
 Goal: handoff section 4 for Library, Add sheet and Gallery details.
 
-3a. Thumbnail data path (M). Depends on Stage 0 task 4.
-- Ensure each library item exposes thumbnail URL or vault key, width, height and average colour. Add the smallest manifest or vault-record extension needed and migrate existing records lazily.
-- Kept galleries: read thumbnails from the vault, switching each to its local copy as it lands. Streamed galleries: placeholder colour, IntersectionObserver near-view loading, fade-in on decode; bounded concurrency (reuse the `thumbs.ts` limits).
+3a. Thumbnail data path (M). Depends on the remaining Stage 0 work — the recorded baseline and fixtures (task 4 is superseded; no colour field is added).
+- The existing gallery summary already carries what the rail needs: per-item width and height and a thumbnail source — the existing thumbnail URL for streamed galleries, the vault key for kept ones. No average-colour metadata: do not add a manifest or vault-record colour field or migrate existing records for this rail.
+- Kept galleries: read thumbnails from the vault, switching each to its local copy as it lands. Streamed galleries: show the existing item placeholder first, IntersectionObserver near-view loading, fade-in on decode; bounded concurrency (reuse the `thumbs.ts` limits). An optional locally derived colour may only come from bytes already fetched — never another media fetch.
 
 3b. Library (M)
-- Layout: top bar with Settings gear, title and Add pill, status line, sponsored slot (behind the Q1 flag, hidden when off), gallery cards.
+- Layout: top bar with Settings gear, title and Add pill, status line, sponsored slot (house-only restyle of the existing account placement — existing eligibility and `/api/ads/visibility` master suppression unchanged; no new flag, no live AdMob), gallery cards.
 - Card: full-bleed rail (drag after 6px; touch, trackpad and mouse; `min-width: 0` and `minmax(0, 1fr)` to avoid the grid trap), name and sub line with live saving state, progress line, caption, ··· menu.
 - Tapping a thumbnail opens the viewer at that photograph through the curtain; tapping the card opens at the first.
 - Empty state and error state (no galleries; offline; scan failure) in the same visual system.
@@ -113,7 +113,7 @@ Goal: handoff section 4 for Library, Add sheet and Gallery details.
 
 3d. Gallery details (M)
 - New island and route. The header reuses the Library card component (rail, name, sub line, caption, address) minus the ··· button.
-- Four row groups. Name and Caption edit sheets with one field. Keep on this iPhone toggles the stored preference with inverted wording (C6). Read the folder again triggers a rescan and shows the last time. Remove gallery opens the confirmation dialog ("Keep" or "Remove").
+- Four row groups. Name and Caption edit sheets with one field. Keep a copy toggles the stored preference with inverted wording (C6). Read the folder again triggers a rescan and shows the last time. Remove gallery opens the confirmation dialog ("Keep" or "Remove").
 - Back behaviour: to the Library, or to the same photograph when entered from the viewer, skipping the curtain.
 
 3e. Share (S)
@@ -142,9 +142,9 @@ Exit criteria: reorder parity screenshots at slider minimum, default and maximum
 
 Exit criteria: sign-in flows unchanged functionally (run the auth specs); privacy text identical on web and native; no mention of "Pro" remains in user-visible strings (search the repo).
 
-## Stage 6: Web and desktop parity (L, scoped by Q2)
+## Stage 6: Web and desktop parity (L)
 
-Only after native is merged and the owner has answered Q2.
+Scheduled from the shared Stage 0 contracts as part of the coordinated release — web and desktop work proceeds alongside the later native stages rather than waiting on a native merge. *(28 Oct 2026: the former gate — "only after native is merged and the owner has answered Q2" — is superseded by the coordinated-release decision.)*
 - Web dashboard (`Admin.tsx`): adopt the tokens, Library layout, Details route and Add sheet, reusing Stage 1 and 3 components. At 1440 x 900 and 2560 x 1440 decide the Library column width and rail behaviour (hover arrows are not needed; drag and wheel are).
 - Desktop (`desktop/`, Tauri): `Catalogue` and `ShareFlow` get the same tokens and copy. Do not redesign `ShareFlow`'s flows in this pass.
 - Update the web Playwright specs and the owner-scoped routing checks.
@@ -164,7 +164,7 @@ Exit criteria: everything in the handoff's Definition of Done.
 
 ## Dependencies and ordering
 
-- Stage 0 blocks everything. Stage 1 blocks 2 to 5. Stage 3a blocks 3b and 3d. Stage 5's shared privacy module is independent and can go early. Stage 6 waits for native.
+- Stage 0 blocks everything. Stage 1 blocks 2 to 5. Stage 3a blocks 3b and 3d. Stage 5's shared privacy module is independent and can go early. *(28 Oct 2026: superseded — "Stage 6 waits for native" is replaced by the coordinated-release decision: web and desktop work is scheduled from the shared Stage 0 contracts and proceeds alongside the later native stages.)*
 - Parallelisable after Stage 1: Stage 2 (viewer), Stage 3 (library and details), Stage 4 (reorder) and Stage 5 (welcome, settings, privacy) touch mostly different files. Run them as separate `feat/redesign-*` branches off `feat/iphone-redesign` and integrate in dependency order. *(28 Oct 2026: see the megaplan §7 phase graph P0–P12 for the authoritative ordering — and its warning that "mostly different files" is not permission for concurrent edits to the Viewer/GalleryShell and GalleryList monoliths; only one active lane edits each.)*
 
 ## Risk register

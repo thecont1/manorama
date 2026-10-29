@@ -284,7 +284,7 @@ test('375: a viewer that asks for less motion gets a still pill', async ({ brows
     return curtain.isHidden()
   }, { timeout: 20000 }).toBe(true)
   const bubble = page.locator('.stage-seq')
-  await expect(bubble).toBeVisible()
+  await expect(bubble).toHaveCSS('opacity', '1')
   // The web's fade-in may still run; what must not run is the drift.
   expect(await bubble.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')
   await context.close()

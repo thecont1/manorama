@@ -167,7 +167,7 @@ html.light {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--m-logo-w) minmax(0, 1fr);
   align-items: center;
-  height: var(--m-bar-h);
+  height: calc(var(--m-bar-h) + env(safe-area-inset-top));
   padding-top: env(safe-area-inset-top);
   padding-inline: var(--m-pad);
 }

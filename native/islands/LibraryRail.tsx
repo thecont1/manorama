@@ -196,6 +196,15 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
       return
     }
     const cells = [...rail.querySelectorAll<HTMLElement>('[data-rail-cell]')]
+    // A rail scrolled out of the page stops watching its cells and drops
+    // every lease — offscreen cards hold no media.
+    const gate = new IntersectionObserver((entries) => {
+      // Batches arrive oldest-first — the last entry is the rail's state
+      // now, so a rapid exit-and-return re-watches its cells.
+      if (entries.at(-1)?.isIntersecting) for (const cell of cells) observer.observe(cell)
+      else { observer.disconnect(); setVisible(new Set()) }
+    })
+    gate.observe(rail)
     const observer = new IntersectionObserver(
       (entries) => {
         setVisible((previous) => {
@@ -213,7 +222,7 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
       { root: rail, rootMargin: '0px 100%' },
     )
     for (const cell of cells) observer.observe(cell)
-    return () => observer.disconnect()
+    return () => { gate.disconnect(); observer.disconnect() }
   }, [galleryId, images, range.start, range.end])
 
   const onPointerDown = (event: PointerEvent) => {
