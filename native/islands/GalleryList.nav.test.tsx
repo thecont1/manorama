@@ -152,15 +152,35 @@ describe('hardware back sees the gallery on the nav stack', () => {
   const accountListFetches = (urls: string[]) =>
     urls.filter((u) => /\/api\/galleries(\?|$)/.test(u)).length
 
+  // A real gallery payload so fetchGallery succeeds and the Viewer mounts —
+  // the same shape the shell-navigation fixture serves.
+  const photo = (index: number) => ({
+    id: `nav-${index}`,
+    filename: `nav-${index}.svg`,
+    src: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+    width: 64,
+    height: 90,
+    alt: `Nav photograph ${index + 1}`,
+    c2pa: false,
+    placeholder: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="90"/>')}`,
+  })
+  const galleryPayload = JSON.stringify({
+    manifest: { slug: 'coast', title: 'Coast', caption: '', date: '2026-10-28', images: [photo(0), photo(1)] },
+    settings: { title: 'Coast', caption: '', date: '2026-10-28', curtainKicker: '', curtainPrompt: '', defaultMode: 'strip', defaultShowArrows: false, defaultShowCaptions: false, imageCaptions: {}, imageAlts: {} },
+  })
+  const mockFetch = (urls: string[]) => async (input: RequestInfo | URL) => {
+    const url = String(input)
+    urls.push(url)
+    if (url.includes('/api/gallery/')) return new Response(galleryPayload, { status: 200, headers: { 'content-type': 'application/json' } })
+    return new Response('{}', { status: 404 })
+  }
+
   test('a manually opened gallery returns to library instead of exiting', async () => {
     installLocalStorage()
     storage.set('capacitor-storage_manorama.session-token', 'session-token-1')
     const urls: string[] = []
     const prevFetch = globals.fetch
-    globals.fetch = async (input: RequestInfo | URL) => {
-      urls.push(String(input))
-      return new Response('{}', { status: 404 })
-    }
+    globals.fetch = mockFetch(urls)
     try {
       const rejectedBefore = rejections.length
       const container = await mount()
@@ -181,6 +201,9 @@ describe('hardware back sees the gallery on the nav stack', () => {
       ;(form as unknown as { dispatchEvent(event: Event): boolean }).dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
       await settle()
       expect(urls.some((u) => u.includes('/api/gallery/ana/coast'))).toBe(true)
+      // The manifest resolved and the real Viewer mounted — back must take
+      // it down again via 'return-to-library', not exit.
+      expect(container.querySelector('.viewer-stage')).not.toBeNull()
       const listFetches = accountListFetches(urls)
       await fireBack()
       // 'return-to-library' bumps accountRevision — a fresh account-list
@@ -188,6 +211,7 @@ describe('hardware back sees the gallery on the nav stack', () => {
       // through exitApp instead.
       expect(accountListFetches(urls)).toBeGreaterThan(listFetches)
       expect(rejections.length).toBe(rejectedBefore)
+      expect(container.querySelector('.viewer-stage')).toBeNull()
     } finally {
       globals.fetch = prevFetch
       storage.clear()
@@ -200,18 +224,17 @@ describe('hardware back sees the gallery on the nav stack', () => {
     storage.set('capacitor-storage_manorama.session-token', 'session-token-1')
     const urls: string[] = []
     const prevFetch = globals.fetch
-    globals.fetch = async (input: RequestInfo | URL) => {
-      urls.push(String(input))
-      return new Response('{}', { status: 404 })
-    }
+    globals.fetch = mockFetch(urls)
     try {
       const rejectedBefore = rejections.length
-      await mount({ owner: 'ana', slug: 'coast' })
+      const container = await mount({ owner: 'ana', slug: 'coast' })
       expect(urls.some((u) => u.includes('/api/gallery/ana/coast'))).toBe(true)
+      expect(container.querySelector('.viewer-stage')).not.toBeNull()
       const listFetches = accountListFetches(urls)
       await fireBack()
       expect(accountListFetches(urls)).toBeGreaterThan(listFetches)
       expect(rejections.length).toBe(rejectedBefore)
+      expect(container.querySelector('.viewer-stage')).toBeNull()
     } finally {
       globals.fetch = prevFetch
       storage.clear()
