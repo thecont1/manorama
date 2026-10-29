@@ -85,7 +85,7 @@ Goal: the viewer chrome and behaviour of handoff sections 4 and 5, with every co
 - Tests: extend the existing C2PA spec to the new Info entry point; keep a test that iCloud items never show the flag.
 
 2f. End card and ad plate dressing (S)
-- End card: Rewind (eased scroll or index reset, 0.75s unless reduced motion) and Library.
+- End card: Rewind (eased scroll or index reset, 0.75s unless reduced motion); Library appears only when that destination exists — signed-out public-link visitors have no Library.
 - Ad plate: dress the existing `AdFrame` plate for a vertical photograph, fit to height. Cadence, suppression and tap rules do not change. Run `native/ads.playwright.ts`.
 
 2g. Spec and test pass (S)

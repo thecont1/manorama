@@ -110,7 +110,7 @@ A bottom sheet, at most half the screen, like the Display sheet. Fields: "Shared
 - No Share button in the viewer.
 - Display sheet: Layout (Strip, Scroll, One by one), Canvas (Black, Dark, Light), Arrows (switch).
 - Info sheet: position, file, size, camera, and Content Credentials for this photograph (see section 5).
-- End card (after the last photograph): Rewind and Library.
+- End card (after the last photograph): Rewind; Library only when that destination exists *(28 Oct 2026 — signed-out public-link visitors have no Library)*.
 - Arrows sit in their own 64px bar below the photographs and never overlap one. In Scroll mode they stack as up and down arrows at the bottom right. The sequence bubble rides left of the arrows, or in the arrows' corner when arrows are off.
 - Ad plate: a vertical placeholder fit to height, mid-sequence only, following the existing `AdFrame` rules.
 
