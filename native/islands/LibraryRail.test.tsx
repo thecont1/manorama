@@ -122,10 +122,10 @@ const withX = (event: Event, x: number) => Object.assign(event, { clientX: x, bu
 describe('LibraryRail', () => {
   test('every photograph rides the rail at its own aspect ratio', async () => {
     const { container, recorded } = await mount({ count: 3 })
-    const cells = [...container.querySelectorAll<HTMLButtonElement>('.lib-th')]
+    const cells = [...container.querySelectorAll('.lib-th')]
     expect(cells).toHaveLength(3)
-    expect(cells[0].style.getPropertyValue('--ar')).toBe('1200 / 800')
-    expect(cells[1].style.getPropertyValue('--ar')).toBe('800 / 1200')
+    expect((cells[0] as unknown as HTMLElement).style.getPropertyValue('--ar')).toBe('1200 / 800')
+    expect((cells[1] as unknown as HTMLElement).style.getPropertyValue('--ar')).toBe('800 / 1200')
     // Without an observer the fallback lets every cell acquire — the
     // loader's own budgets still bound what is actually held.
     expect(recorded.cells).toHaveLength(3)
@@ -134,29 +134,29 @@ describe('LibraryRail', () => {
       'thumb:photo-0', 'thumb:photo-1', 'thumb:photo-2',
     ])
     // The remote preview is what lands in the <img>.
-    const imgs = [...container.querySelectorAll<HTMLImageElement>('.lib-th img')]
-    expect(imgs[0].src).toBe('https://cdn.example/photo-0.jpg')
+    const imgs = [...container.querySelectorAll('.lib-th img')]
+    expect((imgs[0] as unknown as HTMLImageElement).src).toBe('https://cdn.example/photo-0.jpg')
   })
 
   test('a thumb click opens its own index; rail background opens the first', async () => {
     const { container, opened } = await mount({ count: 3 })
-    ;(container.querySelectorAll<HTMLButtonElement>('.lib-th')[2]).click()
+    ;(container.querySelectorAll('.lib-th')[2] as unknown as HTMLElement).click()
     await settle()
     expect(opened).toEqual([2])
-    ;(container.querySelector('.lib-rail') as HTMLElement).click()
+    ;(container.querySelector('.lib-rail') as unknown as HTMLElement).click()
     await settle()
     expect(opened).toEqual([2, 0])
   })
 
   test('a drag past 6px pans and suppresses the click; shorter travel still opens', async () => {
     const { container, opened } = await mount({ count: 3 })
-    const rail = container.querySelector('.lib-rail') as HTMLElement
+    const rail = container.querySelector('.lib-rail') as unknown as HTMLElement
 
     // Short travel — an ordinary click still opens.
     rail.dispatchEvent(withX(pointer('pointerdown'), 100))
     rail.dispatchEvent(withX(pointer('pointermove'), 104))
     rail.dispatchEvent(withX(pointer('pointerup'), 104))
-    ;(container.querySelectorAll<HTMLButtonElement>('.lib-th')[0]).click()
+    ;(container.querySelectorAll('.lib-th')[0] as unknown as HTMLElement).click()
     await settle()
     expect(opened).toEqual([0])
     expect(rail.classList.contains('lib-rail--dragging')).toBe(false)
@@ -167,12 +167,12 @@ describe('LibraryRail', () => {
     rail.dispatchEvent(withX(pointer('pointerup'), 90))
     expect(rail.classList.contains('lib-rail--dragging')).toBe(false)
     expect(rail.scrollLeft).toBe(10)
-    ;(container.querySelectorAll<HTMLButtonElement>('.lib-th')[0]).click()
+    ;(container.querySelectorAll('.lib-th')[0] as unknown as HTMLElement).click()
     await settle()
     expect(opened).toEqual([0])
 
     // The click after that is free again.
-    ;(container.querySelectorAll<HTMLButtonElement>('.lib-th')[0]).click()
+    ;(container.querySelectorAll('.lib-th')[0] as unknown as HTMLElement).click()
     await settle()
     expect(opened).toEqual([0, 0])
   })
@@ -180,14 +180,14 @@ describe('LibraryRail', () => {
   test('only intersecting cells acquire media', async () => {
     class StubObserver {
       static last: StubObserver | undefined
-      readonly targets = new Set<Element>()
+      readonly targets = new Set<unknown>()
       constructor(private readonly callback: IntersectionObserverCallback) {
         StubObserver.last = this
       }
-      observe(el: Element) { this.targets.add(el) }
-      unobserve(el: Element) { this.targets.delete(el) }
+      observe(el: unknown) { this.targets.add(el) }
+      unobserve(el: unknown) { this.targets.delete(el) }
       disconnect() { this.targets.clear() }
-      fire(visible: Element[]) {
+      fire(visible: unknown[]) {
         const entries = [...this.targets].map((target) => ({
           target,
           isIntersecting: visible.includes(target),
@@ -204,7 +204,7 @@ describe('LibraryRail', () => {
 
     // Nothing intersecting yet — offscreen media never starts.
     expect(recorded.cells).toHaveLength(0)
-    const cells = [...container.querySelectorAll<HTMLElement>('[data-rail-cell]')]
+    const cells = [...container.querySelectorAll('[data-rail-cell]')]
     StubObserver.last!.fire([cells[1]])
     await settle()
     expect(recorded.cells.map((cell) => cell.entryId)).toEqual(['thumb:photo-1'])
