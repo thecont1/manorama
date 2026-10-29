@@ -38,6 +38,7 @@ import { cacheFillRegistry } from '../lib/cache-fill'
 import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
 import { shareGalleryNative } from '../lib/gallery-share'
 import { LibraryRail } from './LibraryRail'
+import { TopBar } from '../../app/components/ui/TopBar'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
@@ -66,6 +67,8 @@ type Props = {
   deepLinkSelection?: NativeGallerySelection | null
   onSignIn?: (provider: AuthProvider) => void
   authError?: string | null
+  linkConflict?: string | null
+  onClearLinkConflict?: () => void
   billing?: RevenueCatBilling
   billingState?: BillingState
   ownerTheme?: Theme
@@ -120,18 +123,16 @@ export const LibraryDeviceStatus = ({
     })
   }, [galleryId])
 
-  if (streamOnly) return <p class="lib-card-device">Streamed — nothing saved on this device</p>
-  if (summary?.status === 'corrupt') return <p class="lib-card-device">Saved copy unreadable</p>
+  if (streamOnly) return <span class="lib-card-device"> · Streams</span>
+  if (summary?.status === 'corrupt') return <span class="lib-card-device"> · Saved copy unreadable</span>
   if (!galleryId || liveSaved <= 0) return null
   if (liveSaved < imageCount) {
-    return (
-      <p class="lib-card-device">
-        Saving {liveSaved} of {imageCount}
-        <progress class="lib-card-meter" value={liveSaved} max={imageCount} aria-label={`${liveSaved} of ${imageCount} photographs saved`} />
-      </p>
-    )
+    return (<>
+      <span class="lib-card-device"> · Saving {liveSaved} of {imageCount}</span>
+      <progress class="lib-card-meter" value={liveSaved} max={imageCount} aria-label={`${liveSaved} of ${imageCount} photographs saved`} />
+    </>)
   }
-  return <p class="lib-card-device">Saved on this device</p>
+  return <span class="lib-card-device"> · On this iPhone</span>
 }
 
 const PRIVACY_URL = 'https://manorama.xyz/privacy'
@@ -192,7 +193,11 @@ export const regionName = (code: string | null | undefined): string => {
 
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
-export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState, ownerTheme = 'dark', onOwnerThemeChange = () => {}, accountAdLoader = adFrameFor, offlineStore = productionOfflineGalleryStore }: Props) {
+export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, linkConflict, onClearLinkConflict, billing, billingState: liveBilling, ownerTheme = 'dark', onOwnerThemeChange = () => {}, accountAdLoader = adFrameFor, offlineStore = productionOfflineGalleryStore }: Props) {
+  // Browser previews have no RevenueCat to configure. The capture harness
+  // can stand the account surface in a billing state through
+  // window.__demoBilling so every tier-bearing element can be reviewed.
+  const billingState = liveBilling ?? (globalThis as { __demoBilling?: BillingState }).__demoBilling
   const initial = selectionFromLocation()
   const initialSelection = { owner: owner ?? initial.owner, slug: slug ?? initial.slug }
   const [selection, setSelection] = useState<Selection>(initialSelection)
@@ -211,8 +216,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }, [])
   const [globalViewEnabled, setGlobalViewEnabled] = useState<boolean | null>(null)
   const [globalViewSaving, setGlobalViewSaving] = useState(false)
-  const [ownerInput, setOwnerInput] = useState(selection.owner)
-  const [slugInput, setSlugInput] = useState(selection.slug)
   const [manifest, setManifest] = useState<GalleryManifest | null>(null)
   const [settings, setSettings] = useState<GallerySettings | null>(null)
   const [plate, setPlate] = useState<Awaited<ReturnType<typeof adFrameFor>>>(null)
@@ -251,9 +254,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const quickAddInFlight = useRef<string | null>(null)
   // The account actions used to be scattered through the greeting copy. They
   // live in one drawer now, closed on every mount and never encoded in the URL.
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
-  const accountMenuButtonRef = useRef<HTMLButtonElement | null>(null)
-  const accountDrawerRef = useRef<HTMLDivElement | null>(null)
   const [ownerSlug, setOwnerSlug] = useState<string | undefined>(undefined)
   const [ownerName, setOwnerName] = useState<string | undefined>(undefined)
   const [accountIdentities, setAccountIdentities] = useState<AccountIdentity[] | null>(null)
@@ -336,8 +336,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       return
     }
     setFrameKick({ index: 0, nonce: 0 })
-    setOwnerInput(deepLinkSelection.owner)
-    setSlugInput(deepLinkSelection.slug)
     enterGallery(deepLinkSelection)
   }, [deepLinkSelection])
 
@@ -362,8 +360,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setSourceUrl('')
         void clearPendingQuickAdd()
         setFrameKick({ index: 0, nonce: 0 })
-        setOwnerInput(next.owner)
-        setSlugInput(next.slug)
         enterGallery(next)
       })
       .catch((reason: unknown) => {
@@ -682,6 +678,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setSettings(null)
     setSelection({ owner: '', slug: '' })
     setStatus('idle')
+    // The fill keeps running after leaving the gallery, but its progress is
+    // keyed to the cleared selection — drop it so the status line falls back
+    // to the gallery count instead of naming an empty slug.
+    setVaultProgress(null)
     setFrameKick({ index: 0, nonce: 0 })
     setAccountRevision((revision) => revision + 1)
   }
@@ -700,7 +700,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         viewerModalOpen: document.querySelector('.m-sheet-host') !== null,
         overlayDepth: overlayDepth(),
         nav: navRef.current,
-        accountMenuOpen,
       })
       if (decision === 'close-global') { setGlobalViewOpen(false); return }
       if (decision === 'close-viewer-modal') {
@@ -711,14 +710,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       if (decision === 'close-overlay') { closeTopOverlay(); return }
       if (decision === 'return-to-library') { returnToGalleries(); return }
       if (decision === 'nav-back') { dispatchNav({ type: 'back' }); return }
-      if (decision === 'close-account-menu') { setAccountMenuOpen(false); return }
       void App.exitApp()
     }).then((listener) => {
       if (active) remove = () => listener.remove()
       else void listener.remove()
     })
     return () => { active = false; void remove?.() }
-  }, [globalViewOpen, accountMenuOpen])
+  }, [globalViewOpen])
 
   /** The newest intent per gallery, which is what a queued write persists.
    *  State alone lags a tap by a render, and a write that reads it can land
@@ -876,6 +874,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const linkIdentity = async (provider: string) => {
     if (identityBusy) return
     setIdentityNote(null)
+    // A fresh attempt retires the previous link's result, so the conflict
+    // line it left behind clears here rather than outliving its context.
+    onClearLinkConflict?.()
     setIdentityBusy(true)
     let listener: { remove: () => Promise<void> } | undefined
     try {
@@ -1059,6 +1060,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setOwnerSlugDraft(ownerSlug ?? '')
       return
     }
+    // The conflict note sits ahead of slugNote in Settings — clear it when a
+    // real save begins so its answer is not masked by a stale link result.
+    onClearLinkConflict?.()
     try {
       const saved = await renameOwnerSlug(base, value)
       setOwnerSlug(saved)
@@ -1117,22 +1121,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
   }
 
-  const openGallery = (event: Event) => {
-    event.preventDefault()
-    const next = {
-      owner: ownerInput.trim(),
-      slug: slugInput.trim(),
-    }
-    if (!next.owner || !next.slug) {
-      setStatus('error')
-      setError('Enter both an owner and gallery slug')
-      return
-    }
-    setFrameKick({ index: 0, nonce: 0 })
-    enterGallery(next)
-  }
-
-  const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value
   const retryAccountLists = () => setAccountRevision((revision) => revision + 1)
   const importCloudGallery = async (input: { url: string; name: string }) => {
     const url = input.url.trim()
@@ -1149,8 +1137,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setSourceName('')
       setAddOpen(false)
       setFrameKick({ index: 0, nonce: 0 })
-      setOwnerInput(next.owner)
-      setSlugInput(next.slug)
       enterGallery(next)
       setAccountRevision((revision) => revision + 1)
     } catch (reason) {
@@ -1169,79 +1155,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const menuGallery = openMenuSlug ? visibleAccountGalleries.find((gallery) => gallery.slug === openMenuSlug) : undefined
   const standaloneDeviceGalleries = deviceGalleries?.filter((gallery) => !gallery.publicGallerySlug || !visibleAccountGalleries.some((published) => published.slug === gallery.publicGallerySlug)) ?? []
   const galleryLimit = billingState?.isPro ? 99 : 3
-  const userType = billingState?.isPro ? 'Visionary' : 'Free'
   const accountName = ownerName ?? ownerSlug ?? 'friend'
-  const closeAccountMenu = () => {
-    setAccountMenuOpen(false)
-    // WebKit can drop immediate focus while Hono removes the focused drawer
-    // during a pending resize commit. Restore it on the surviving trigger.
-    requestAnimationFrame(() => accountMenuButtonRef.current?.focus())
-  }
-  // Focus moves into the drawer, Tab stays inside it, and Esc hands the caret
-  // back to the button that opened it — the contract the viewer's modal keeps.
-  // None of this touches the stage.
-  useEffect(() => {
-    if (!accountMenuOpen) return
-    const panel = accountDrawerRef.current
-    panel?.querySelector<HTMLButtonElement>('button')?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        closeAccountMenu()
-        return
-      }
-      if (event.key !== 'Tab' || !panel) return
-      const focusable = panel.querySelectorAll<HTMLElement>('button, a[href], input')
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (!first || !last) return
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [accountMenuOpen])
-  const message = authError ?? error ?? galleryStatusMessage(status)
-  // The manual form stays as the secondary path for galleries outside the
-  // signed-in account; the opening screen is the sign-in door alone.
-  const openForm = (
-    <form onSubmit={openGallery}>
-      <label>
-        Owner
-        <input
-          value={ownerInput}
-          onInput={(event) => {
-            setOwnerInput(
-              (event.currentTarget as HTMLInputElement).value,
-            )
-          }}
-          autoCapitalize="none"
-          autoCorrect="off"
-        />
-      </label>
-      <label>
-        Gallery slug
-        <input
-          value={slugInput}
-          onInput={(event) => {
-            setSlugInput(readInput(event))
-          }}
-          autoCapitalize="none"
-          autoCorrect="off"
-        />
-      </label>
-      <button type="submit">Open gallery</button>
-    </form>
-  )
-  const accountGallerySubtitle = (gallery: GallerySummary) => gallery.caption?.trim() || gallery.date?.trim() || ''
-  const accountGalleryLink = (gallery: GallerySummary) => ownerSlug
-    ? `manorama.xyz/${ownerSlug}/${gallery.slug}`
-    : `manorama.xyz/${gallery.slug}`
   const leftRegion = foldLayout?.controlRegions[0]
   const rightRegion = foldLayout?.controlRegions[1]
   const accountFoldStyle = leftRegion && rightRegion && rightRegion.x > leftRegion.x + leftRegion.width
@@ -1335,15 +1249,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'}
           {' · '}{sourceLabelFor(gallery.sourceUrl)}
           {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+          <LibraryDeviceStatus
+            galleryId={galleryId}
+            imageCount={gallery.imageCount}
+            streamOnly={streamOnlyGallery}
+            summary={vaultSummary}
+          />
         </p>
-        <LibraryDeviceStatus
-          galleryId={galleryId}
-          imageCount={gallery.imageCount}
-          streamOnly={streamOnlyGallery}
-          summary={vaultSummary}
-        />
         {caption ? <p class="native-gallery-caption">{caption}</p> : null}
-        <span class="native-gallery-link">{accountGalleryLink(gallery)}</span>
         {removeGallerySlug === gallery.slug ? <div class="native-gallery-remove-confirm" role="group" aria-label={`Confirm removal of ${galleryName(gallery)}`}>
           <p>Remove “{galleryName(gallery)}” from manorama? This cannot be undone. Your cloud files and existing device vault copies are not deleted.</p>
           <button type="button" disabled={galleryActionBusy !== null} onClick={() => void mutateGallery(gallery, 'delete')}>Remove gallery</button>
@@ -1373,8 +1286,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <button type="button" class="lib-card-title" onClick={() => openSelectionAt(gallery.owner, gallery.slug, 0)}>{gallery.title}</button>
         <button type="button" class="lib-card-menu" aria-label={`${gallery.title} saved-copy actions`} aria-haspopup="dialog" onClick={() => setCachedMenuGallery(gallery)}>···</button>
       </div>
-      <p class="lib-card-sub">{gallery.frames.length} {gallery.frames.length === 1 ? 'photograph' : 'photographs'} · Offline copy complete</p>
-      <p class="native-gallery-link">Saved on this device{accountGalleries && !accountListFailed ? ' · not in the online account list' : ' · account list pending'}</p>
+      <p class="lib-card-sub">{gallery.frames.length} {gallery.frames.length === 1 ? 'photograph' : 'photographs'} · Offline copy complete · Saved on this device{accountGalleries && !accountListFailed ? ' · not in the online account list' : ' · account list pending'}</p>
     </article>
   )
   // Render gate: an unresolved entitlement drops the slot in the same paint
@@ -1386,29 +1298,61 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // rect, so it has to exist before the fill is asked for. Until a rented
   // rectangle paints over it, the reserve carries the house creative.
   const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
+  // The status line under the title reports vault activity first, then how
+  // many galleries live on this iPhone. Kept means what the cards mean: not
+  // stream-only, with a committed vault copy holding every image.
+  const keptOnDevice = ownerSlug
+    ? retainedAccountGalleries.filter((gallery) => {
+        if (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] === true) return false
+        const summary = galleryIds[gallery.slug] ? vaultGalleries.get(galleryIds[gallery.slug]) : undefined
+        return summary?.status === 'cached' && summary.images >= gallery.imageCount
+      }).length
+    : 0
+  const libraryFinding = vaultProgress && vaultProgress.total > 0
+    ? `${selection.slug} is saving to this iPhone, ${vaultProgress.completed} of ${vaultProgress.total}.`
+    : retainedAccountGalleries.length > 0
+      ? `${retainedAccountGalleries.length} ${retainedAccountGalleries.length === 1 ? 'gallery' : 'galleries'}, ${keptOnDevice} kept on this iPhone.`
+      : ''
+
   const accountAdAside = billingState?.tier && visibility?.show !== false ? (
+    /* Its own surface panel — a vertical photograph slot beside the copy —
+       so it reads as a sponsored plate, not the first gallery. */
     <aside
       class={`native-account-ad${accountAdFrame?.provider === 'admob-banner' ? ' native-account-ad--live' : ''}`}
       data-account-ad
       aria-label={`${accountAdCreative.badge}: ${accountAdCreative.advertiser}`}
     >
       <span class="native-account-ad-badge">{accountAdCreative.badge}</span>
-      <strong class="native-account-ad-headline">
-        {accountAdCreative.headline ?? accountAdCreative.advertiser}
-      </strong>
-      {accountAdCreative.cta ? (
-        // The account page has no strip in motion, so the same CTA the
-        // viewer renders is always actionable here; _blank keeps the
-        // tap out of the app's own webview.
-        <a
-          class="native-account-ad-cta"
-          href={accountAdCreative.cta.url}
-          target="_blank"
-          rel="noopener"
-        >
-          {accountAdCreative.cta.label}
-        </a>
-      ) : null}
+      <div class="native-account-ad-slot">
+        <div class="native-account-ad-frame">
+          {accountAdCreative.image ? (
+            <img src={accountAdCreative.image.src} width={accountAdCreative.image.width} height={accountAdCreative.image.height} alt="" />
+          ) : (
+            <span class="native-account-ad-placeholder">Vertical photograph, fit to height</span>
+          )}
+        </div>
+        <div class="native-account-ad-copy">
+          <strong class="native-account-ad-headline">
+            {accountAdCreative.headline ?? accountAdCreative.advertiser}
+          </strong>
+          {accountAdCreative.provider === 'manorama-house' ? (
+            <span class="native-account-ad-sub">A placeholder until sponsored photographs arrive.</span>
+          ) : null}
+          {accountAdCreative.cta ? (
+            // The account page has no strip in motion, so the same CTA the
+            // viewer renders is always actionable here; _blank keeps the
+            // tap out of the app's own webview.
+            <a
+              class="native-account-ad-cta"
+              href={accountAdCreative.cta.url}
+              target="_blank"
+              rel="noopener"
+            >
+              {accountAdCreative.cta.label}
+            </a>
+          ) : null}
+        </div>
+      </div>
     </aside>
   ) : null
 
@@ -1420,7 +1364,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onOwnerSlugDraft={(value) => { setSlugNote(null); setOwnerSlugDraft(value) }}
       onSaveOwnerSlug={() => { void saveOwnerSlug() }}
       identities={accountIdentities}
-      identityNote={identityNote ?? slugNote}
+      identityNote={identityNote ?? linkConflict ?? slugNote}
       onUnlinkIdentity={(provider) => { void unlinkIdentity(provider) }}
       onLinkIdentity={(provider) => { void linkIdentity(provider) }}
       tier={billingState?.tier}
@@ -1468,7 +1412,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onOpenVisionary={() => dispatchNav({ type: 'open-visionary', from: 'settings' })}
       onOpenPrivacy={() => dispatchNav({ type: 'open-privacy', from: 'settings' })}
       onOpenAuthor={() => openExternal(AUTHOR_URL)}
-      openAnotherGallery={openForm}
       onSignOut={() => { void signOut() }}
       deleteConfirming={deleteConfirming}
       deleting={deleting}
@@ -1496,72 +1439,29 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   return (
     <>
     <main class="m-owner native-list-shell native-account-shell" style={accountFoldStyle} data-admin-segmented={accountFoldStyle ? 'true' : undefined}>
-          <button
-            type="button"
-            class="native-account-menu native-account-edge-tab"
-            aria-label="Account menu"
-            aria-expanded={accountMenuOpen}
-            aria-controls="native-account-drawer"
-            ref={accountMenuButtonRef}
-            onClick={() => setAccountMenuOpen(true)}
-          >
-            <span class="native-account-tab-label" aria-hidden="true">Account <span>›</span></span>
-            <svg class="native-account-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-          </button>
-
-      <div class="native-account-overview" aria-label="Account overview">
-      {/* The brand column — same classes as the web's landing and dashboard,
-          so logo, tagline, greeting and footer can't drift between platforms.
-          Wide screens pin it left beside the account card; narrow screens
-          stack it above. */}
-      <div class="native-account-left">
-      <div class="native-account-side">
-        {/* The wordmark and the account menu share one row: the mark is the
-            quiet opening gesture, the menu holds the account actions. */}
-        <div class="native-account-head">
-          <span class="brand-mark-wrap">
-            <img
-              src="/manorama-merged-logo.png"
-              alt="manorama"
-              class="landing-brand-mark"
-            />
-            <span class="brand-tld" aria-hidden="true">.xyz</span>
-          </span>
-        </div>
-        <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <div class="admin-greeting">
-          <p class="admin-greeting-url">manorama.xyz/<input
-            class="admin-owner-slug-input"
-            type="text"
-            value={ownerSlugDraft}
-            aria-label="Your URL — edit to change your address"
-            spellcheck={false}
-            autoCapitalize="none"
-            autoCorrect="off"
-            onInput={(event) => {
-              setSlugNote(null)
-              setOwnerSlugDraft((event.currentTarget as HTMLInputElement).value)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setOwnerSlugDraft(ownerSlug ?? '')
-              if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
-            }}
-            onBlur={() => { void saveOwnerSlug() }}
-          /></p>
-          <p class="admin-greeting-hello">Hello, <mark class="admin-greeting-name">{accountName}</mark>. Welcome to manorama.xyz.</p>
-          <p class="admin-greeting-plan">You are a {userType} User. {retainedAccountGalleries.length <= galleryLimit ? `You have used ${retainedAccountGalleries.length} of your ${galleryLimit} gallery limit.` : `You have ${retainedAccountGalleries.length} retained galleries. Your plan includes ${galleryLimit} editable gallery slots; all your galleries are listed below.`}</p>
-          {slugNote ? <p class="native-account-note">{slugNote}</p> : null}
-        </div>
-      </div>
-      </div>
-      </div>
+      <TopBar end={(
+        <button
+          type="button"
+          class="m-btn m-btn--quiet"
+          aria-label="Settings"
+          onClick={() => dispatchNav({ type: 'open-settings' })}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3.4" /><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" /></svg>
+        </button>
+      )} />
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <div class="native-library-heading">
           <h1>Library</h1>
-          <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}>Add</button>
+          <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add</button>
         </div>
+        {/* The status line under the title reports vault activity first,
+            then how many galleries live on this iPhone. */}
+        <p class="native-library-finding">{libraryFinding}</p>
         {galleryActionNote ? <p role="status">{galleryActionNote}</p> : null}
         {authError ? <p role="alert">{authError}</p> : null}
+        {/* A link result can arrive on a cold start, before Settings has
+            ever mounted — it needs a line on the Library too. */}
+        {linkConflict ? <p class="native-account-note" role="alert">{linkConflict}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen && !addOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
         {/* The sponsored panel sits between the Library heading and the
@@ -1600,6 +1500,29 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           </div>
         ) : null}
       </section>
+      {/* The plan line is the only account copy on the Library: quiet
+          normally, a warning sentence when the next gallery would be
+          temporary. Settings › Plan carries the detail. */}
+      {signedIn && billingState?.tier && accountGalleries ? (
+        <footer class="native-lib-foot">
+          {billingState.isPro ? (
+            <>
+              <span><span class="num">{retainedAccountGalleries.length}</span> {retainedAccountGalleries.length === 1 ? 'gallery' : 'galleries'} · Visionary</span>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Plan</button>
+            </>
+          ) : retainedAccountGalleries.length < galleryLimit ? (
+            <>
+              <span><span class="num">{retainedAccountGalleries.length} of {galleryLimit}</span> free galleries</span>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Plan</button>
+            </>
+          ) : (
+            <>
+              <span>All <span class="num">{retainedAccountGalleries.length} of {galleryLimit}</span> free galleries used. A new one would last 30 days.</span>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-visionary', from: 'library' })}>Go Visionary</button>
+            </>
+          )}
+        </footer>
+      ) : null}
     </main>
     {detailsView}
     <AddGallerySheet
@@ -1688,84 +1611,6 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           void reloadOpenGallery()
         }}
       />
-    ) : null}
-    {accountMenuOpen ? (
-      <div class="native-drawer" id="native-account-drawer" data-account-drawer style={accountFoldStyle}>
-        <div class="native-drawer-scrim" aria-hidden="true" onClick={closeAccountMenu} />
-        <div
-          class="native-drawer-panel"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Account"
-          ref={accountDrawerRef}
-          onKeyDown={(event) => {
-            if (event.key !== 'Escape') return
-            event.preventDefault()
-            event.stopPropagation()
-            closeAccountMenu()
-          }}
-        >
-          <div class="native-drawer-head">
-            {/* The brand sits exactly where it sits on the account page, so the
-                menu reads as the page unfolding rather than a second surface
-                arriving, and everything else starts below it. */}
-            <div class="native-drawer-brand native-account-side">
-              {/* The page's own brand row: the wordmark keeps the account
-                  page's cap, including the room the hamburger reserves. */}
-              <div class="native-account-head">
-                <span class="brand-mark-wrap">
-                  <img
-                    src="/manorama-merged-logo.png"
-                    alt="manorama"
-                    class="landing-brand-mark"
-                  />
-                  <span class="brand-tld" aria-hidden="true">.xyz</span>
-                </span>
-              </div>
-              <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-            </div>
-            <button
-              type="button"
-              class="native-drawer-close"
-              aria-label="Close account menu"
-              onClick={closeAccountMenu}
-            >
-              <CloseIcon />
-            </button>
-          </div>
-          <p class="native-drawer-hint">Add a gallery from a public Dropbox, Google Drive, iCloud, or MEGA link. Paste the folder or album link into the box on the main page and manorama will read it.</p>
-          <p class="native-drawer-note">{accountName} · manorama.xyz/{ownerSlug ?? ''}</p>
-            {deviceListFailed ? (
-              <p class="native-account-note">
-                The list from this device could not be loaded.{' '}
-                <button type="button" class="native-retry" onClick={retryAccountLists}>
-                  Try again
-                </button>
-              </p>
-            ) : null}
-
-
-        {signedIn ? (
-          <>
-            <button type="button" class="native-drawer-action" onClick={() => {
-              closeAccountMenu()
-              dispatchNav({ type: 'open-settings' })
-            }}>Settings</button>
-            {billingNote ? <p class="native-account-note">{billingNote}</p> : null}
-          </>
-        ) : null}
-
-        {/* Legal ends the left column's own scroll region on wide screens;
-            on narrow ones the wrapper dissolves (display:contents) and the
-            footer's order puts it last in the stacked page. */}
-        <footer class="site-footer native-legal">
-          <a class="site-footer-link" href={PRIVACY_URL} onClick={(event) => { event.preventDefault(); openExternal(PRIVACY_URL) }}>Privacy Policy</a>
-          <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href={AUTHOR_URL} onClick={(event) => { event.preventDefault(); openExternal(AUTHOR_URL) }}>thecontrarian.in</a></p>
-        </footer>
-
-          <button type="button" class="native-drawer-action" onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </div>
     ) : null}
     {globalViewOpen ? (
       <GlobalView

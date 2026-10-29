@@ -51,25 +51,23 @@ for (const size of sizes) {
         expect(tabBox!.width).toBeGreaterThanOrEqual(44)
         await expect(page.getByText('Photo Editor', { exact: true })).toHaveCount(0)
 
-        const welcome = page.getByRole('region', { name: 'Welcome to manorama' })
-        const importer = page.getByRole('region', { name: 'Add a gallery' })
-        const heading = page.getByRole('heading', { name: 'Your galleries', exact: true })
-        await expect(welcome).toBeVisible()
-        await expect(importer).toBeVisible()
-        const welcomeBox = (await welcome.boundingBox())!
-        const importBox = (await importer.boundingBox())!
+        // The Library leads with its heading; the sponsored portrait slot sits
+        // between it and the first card; the plan line closes the page.
+        await expect(page.getByRole('region', { name: 'Welcome to manorama' })).toHaveCount(0)
+        const heading = page.getByRole('heading', { name: 'Library', exact: true })
+        const sponsored = page.locator('.account-ad')
+        const firstCard = page.locator('.admin-gallery-card').first()
+        const foot = page.locator('.admin-lib-foot')
+        await expect(sponsored).toBeVisible()
+        await expect(foot).toBeVisible()
         const headingBox = (await heading.boundingBox())!
-        if (size.width >= 820) {
-          expect(welcomeBox.x + welcomeBox.width).toBeLessThan(size.width / 2)
-          expect(importBox.x).toBeGreaterThan(size.width / 2)
-          expect(Math.abs(welcomeBox.y - importBox.y)).toBeLessThan(2)
-        } else {
-          expect(importBox.y).toBeGreaterThanOrEqual(welcomeBox.y + welcomeBox.height)
-        }
-        expect(headingBox.y).toBeGreaterThanOrEqual(Math.max(welcomeBox.y + welcomeBox.height, importBox.y + importBox.height))
-        const headerLogo = (await welcome.locator('img').boundingBox())!
-        expect(headerLogo.x + headerLogo.width).toBeLessThanOrEqual(welcomeBox.x + welcomeBox.width)
-        await expect(welcome).toContainText('Welcome to manorama.xyz.')
+        const sponsoredBox = (await sponsored.boundingBox())!
+        const cardBox = (await firstCard.boundingBox())!
+        const footBox = (await foot.boundingBox())!
+        expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)
+        expect(cardBox.y).toBeGreaterThanOrEqual(sponsoredBox.y + sponsoredBox.height)
+        expect(footBox.y).toBeGreaterThanOrEqual(cardBox.y + cardBox.height)
+        await expect(foot).toContainText('Visionary')
 
         for (const theme of ['dark', 'light'] as const) {
           await tab.click()

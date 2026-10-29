@@ -14,15 +14,18 @@ for (const mode of ['web', 'native'] as const) {
       await expect(page.locator('[data-admin-ready]')).toBeVisible()
     } else {
       expect((await request.get(`${capture}/state/3`)).ok()).toBe(true)
-      await page.goto(capture, { waitUntil: 'domcontentloaded' })
+      // ?tier= feeds the harness's billing seam — the sponsored slot only
+      // renders for a resolved entitlement.
+      await page.goto(`${capture}?tier=free`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('.native-account')).toBeVisible()
     }
     const main = page.locator(mode === 'web' ? '.admin-page' : '.native-account-shell')
     await expect(main).toHaveAttribute('data-admin-segmented', /^(true)?$/)
-    const left = await page.locator(mode === 'web' ? '.admin-welcome' : '.native-account-left').boundingBox()
-    const right = await page.locator(mode === 'web' ? '.gallery-import' : '.native-gallery-import').boundingBox()
-    expect(left!.x + left!.width).toBeLessThanOrEqual(520)
-    expect(right!.x).toBeGreaterThanOrEqual(580)
+    // The Library's own panels must not straddle the hinge.
+    const sponsored = page.locator(mode === 'web' ? '.account-ad' : '.native-account-ad')
+    await expect(sponsored).toBeVisible()
+    const sponsoredBox = (await sponsored.boundingBox())!
+    expect(sponsoredBox!.x + sponsoredBox!.width <= 520 || sponsoredBox!.x >= 580).toBe(true)
     const tab = page.getByRole('button', { name: 'Account menu', exact: true })
     await tab.click()
     const panel = page.getByRole('dialog', { name: 'Account', exact: true })

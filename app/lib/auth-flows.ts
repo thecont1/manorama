@@ -74,9 +74,10 @@ const checked = (input: AuthFlowInput) => {
   if (native !== '' && native !== '1' && native !== 'desktop') throw new Error('Unsupported native handoff')
   const accountId = input.accountId?.trim() || undefined
   if (input.intent === 'link' && !accountId) throw new Error('Linking requires a signed-in account')
-  // Linking is web-only for now: the callback re-verifies the browser
-  // session, so a native or desktop handoff would be meaningless.
-  if (input.intent === 'link' && native !== '') throw new Error('Linking is not available from a client handoff')
+  // Web linking re-verifies the browser session at the callback; a native
+  // link flow arrives bound by its short-lived link handoff instead, so it
+  // skips the session recheck and returns through the custom scheme.
+  if (input.intent === 'link' && native === 'desktop') throw new Error('Linking is not available from a desktop handoff')
   const appChallenge = input.appChallenge?.trim() || undefined
   if (native === 'desktop') {
     // The callback cannot mint a desktop handoff without the app's
@@ -145,7 +146,7 @@ export const createAuthFlow = async (
   input: AuthFlowInput,
   env?: UserRepositoryEnv,
   ttlSeconds = AUTH_FLOW_TTL_SECONDS,
-): Promise<{ state: string; nonce: string; codeVerifier?: string }> => {
+): Promise<{ state: string; nonce: string; codeVerifier?: string; native: AuthFlowNative }> => {
   const flow = checked(input)
   const state = randomHex(32)
   const nonce = randomHex(32)
@@ -186,7 +187,7 @@ export const createAuthFlow = async (
       ...(flow.nextUrl ? { nextUrl: flow.nextUrl } : {}),
     })
   }
-  return { state, nonce, ...(codeVerifier ? { codeVerifier } : {}) }
+  return { state, nonce, native: flow.native, ...(codeVerifier ? { codeVerifier } : {}) }
 }
 
 /**

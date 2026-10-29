@@ -19,6 +19,7 @@ import {
   createNativeHandoffToken,
   createSessionToken,
   resolveManoramaSession,
+  verifyLinkHandoffToken,
   RETURNING_COOKIE,
   RETURNING_TTL_SECONDS,
   SESSION_COOKIE,
@@ -114,7 +115,7 @@ const fetchIdentity = async (
 export const startProviderAuth = async (
   c: Context,
   provider: AuthProvider,
-  intent: { intent: 'signin' | 'link'; accountId?: string } = { intent: 'signin' },
+  intent: { intent: 'signin' | 'link'; accountId?: string; native?: '1' } = { intent: 'signin' },
 ) => {
   const env = accessEnvOf(c)
   const linking = intent.intent === 'link'
@@ -122,9 +123,10 @@ export const startProviderAuth = async (
     provider,
     intent: intent.intent,
     accountId: intent.accountId,
-    // Linking re-verifies the browser session at the callback, so handoff
-    // parameters are meaningless there — ignore rather than reject them.
-    native: linking ? '' : c.req.query('native') ?? '',
+    // Web linking re-verifies the browser session at the callback, so a
+    // query-string handoff is meaningless there — ignore rather than reject
+    // it. A client link arrives pre-bound: caller passes native explicitly.
+    native: linking ? intent.native ?? '' : c.req.query('native') ?? '',
     appChallenge: linking ? undefined : c.req.query('code_challenge'),
     next: c.req.query('next'),
   }, env).catch(() => null)
@@ -138,12 +140,21 @@ export const startProviderAuth = async (
 }
 
 /** The route-level entry for GET /auth/{provider}: `?link=1` upgrades to a
- *  link intent only when the caller already holds a valid session. */
+ *  link intent only when the caller already holds a valid session. A
+ *  `?link={token}` value is the client handoff twin — minted behind a bearer
+ *  session for one minute — for browsers that hold no manorama cookie. */
 export const providerAuthEntry = async (c: Context, provider: AuthProvider) => {
-  if (c.req.query('link') === '1') {
+  const link = c.req.query('link')
+  if (link === '1') {
     const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
     if (!session) return c.redirect('/?error=1')
     return startProviderAuth(c, provider, { intent: 'link', accountId: session.accountId })
+  }
+  if (link) {
+    const secret = accessEnvOf(c).HOST_API_JWT_SECRET?.trim()
+    const accountId = secret ? await verifyLinkHandoffToken(link, secret).catch(() => null) : null
+    if (!accountId) return c.redirect('/?error=1')
+    return startProviderAuth(c, provider, { intent: 'link', accountId, native: '1' })
   }
   return startProviderAuth(c, provider)
 }
@@ -170,10 +181,12 @@ export const finishProviderAuth = async (
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return finishFailure(c)
 
-  // A link flow must still belong to the browser that started it — check
-  // the session before spending the authorization code.
+  // A web link flow must still belong to the browser that started it — check
+  // the session before spending the authorization code. A client link flow
+  // was pre-bound by its link handoff and returns through the custom scheme.
   let linkSessionAccount: { accountId: string; ownerSlug: string } | null = null
-  if (flow.intent === 'link') {
+  const nativeLink = flow.intent === 'link' && flow.native === '1'
+  if (flow.intent === 'link' && !nativeLink) {
     const session = await resolveManoramaSession(c.req.raw, env)
     if (!session || session.accountId !== flow.accountId) return finishFailure(c)
     linkSessionAccount = session
@@ -191,13 +204,13 @@ export const finishProviderAuth = async (
         await linkIdentity(flow.accountId!, identity, env)
       } catch (error) {
         if (error instanceof IdentityConflictError) {
-          return c.redirect(`/${linkSessionAccount!.ownerSlug}?link=conflict`)
+          return c.redirect(nativeLink ? `${NATIVE_CALLBACK}?link=conflict` : `/${linkSessionAccount!.ownerSlug}?link=conflict`)
         }
         throw error
       }
       const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
       await setLastSeenCountry(flow.accountId!, country, env).catch(() => {})
-      return c.redirect(`/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
+      return c.redirect(nativeLink ? `${NATIVE_CALLBACK}?linked=${provider}` : `/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
     }
 
     const user = await upsertIdentitySignIn(identity, env)

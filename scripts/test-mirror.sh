@@ -58,6 +58,7 @@ rsync -a --delete \
   --exclude 'test-results/' \
   --exclude 'playwright-report/' \
   --exclude 'ios/build/' \
+  --exclude 'ios/build-sim/' \
   --exclude 'ios/App/build/' \
   --exclude 'src-tauri/target/' \
   --exclude '.vendo/data/' \

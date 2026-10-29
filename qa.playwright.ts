@@ -2396,7 +2396,7 @@ test("owner admin lists galleries without a selector and remains noindex", async
   // page's own h1 is now the galleries heading.
   await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Add gallery", exact: true }),
+    page.getByRole("button", { name: "Add", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".admin-gallery-card").first()).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveCount(0);
@@ -2832,7 +2832,7 @@ test("Manorama-fication adds a gallery directly without an intermediate preview"
   ).toBeVisible();
   await expect(page.locator(".dropbox-scan")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Add gallery" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Add gallery", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Add", exact: true })).toHaveCount(1);
 });
 
 

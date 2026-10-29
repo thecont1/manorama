@@ -311,6 +311,18 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const guard = { since: this.vault.epoch() }
     const selection = requireSelection(rawSelection)
     const galleryId = await offlineGalleryId(selection)
+    // Read the prior record before invalidating it: the stored manifest's
+    // src is the only validator for reused bytes (a replaced photo arrives
+    // with a new source URL under the same image ID), and its committed
+    // MIME survives reuse instead of being re-derived from the filename.
+    const prior = await this.readMetadataById(galleryId)
+    const priorById = new Map<string, { src: string; mimeType: string }>()
+    if (prior.status === 'ready') {
+      prior.value.images.forEach((priorImage, index) => {
+        const src = prior.value.manifest.images[index]?.src
+        if (src) priorById.set(priorImage.id, { src, mimeType: priorImage.mimeType })
+      })
+    }
     // Invalidate the commit record first. A failed refresh may leave encrypted
     // bytes behind, but they can never be mistaken for a complete gallery.
     await this.vault.remove(galleryId, METADATA_ENTRY_ID)
@@ -325,6 +337,25 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     onProgress?.({ completed: 0, total: stillImages.length })
     for (const [index, image] of stillImages.entries()) {
       throwIfAborted(signal)
+      const entryId = thumbnailEntryId(image.id)
+      // A fill runs on every online open: bytes already in the vault are
+      // reused instead of re-downloaded — but only while the provider source
+      // is unchanged, and the touched read keeps them ahead of the entries
+      // this same fill writes (an evicting LRU could otherwise delete them
+      // mid-fill). The metadata commit still refreshes manifest/settings.
+      const priorImage = priorById.get(image.id)
+      const existing = await this.vault.read(galleryId, entryId, { touch: true })
+      if (existing) {
+        existing.fill(0)
+        if (priorImage?.src === image.src) {
+          cachedImages.push({ id: image.id, entryId, mimeType: priorImage.mimeType })
+          const item: OfflineCacheItemReady = { id: image.id, entryId, mimeType: priorImage.mimeType, index }
+          cacheFillRegistry.publish({ galleryId, item })
+          onItemReady?.(item)
+          onProgress?.({ completed: cachedImages.length, total: stillImages.length })
+          continue
+        }
+      }
       const selected = offlineSourceFor(image)
       const response = await this.fetchImage(selected.src, { signal })
       if (!response.ok) throw new Error(`Offline image request failed (${response.status})`)
@@ -333,7 +364,6 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       try {
         throwIfAborted(signal)
         if (bytes.length === 0) throw new Error('Offline image response was empty')
-        const entryId = thumbnailEntryId(image.id)
         await this.vault.write(galleryId, entryId, bytes, guard)
         // A stable thumbnail entry can now contain different bytes. Do not
         // let a version/image-ID-only feature record survive that replacement.

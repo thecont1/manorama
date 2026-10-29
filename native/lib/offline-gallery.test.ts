@@ -236,6 +236,71 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
 
+  test('a repeat fill reuses vaulted bytes instead of re-downloading every image', async () => {
+    const { requested, store } = makeHarness()
+    const first = await store.cache(selection, gallery)
+    expect(first).toMatchObject({ status: 'complete' })
+    expect(requested).toEqual([
+      'https://provider.test/original-one.jpg',
+      'https://provider.test/original-two.png',
+    ])
+    requested.length = 0
+    const ready: string[] = []
+    const second = await store.cache(selection, gallery, undefined, undefined, (item) => ready.push(item.id))
+    expect(second).toMatchObject({ status: 'complete' })
+    // Every still was already in the vault — the fill publishes each item
+    // from cache and the network is never touched.
+    expect(requested).toEqual([])
+    expect(ready).toEqual(['stable-one', 'stable-two'])
+  })
+
+  test('a repeat fill refetches only an image whose provider source changed', async () => {
+    const { requested, store } = makeHarness(new Map([
+      ['https://provider.test/original-one.jpg', { bytes: firstBytes, type: 'image/jpeg' }],
+      ['https://provider.test/original-two.png', { bytes: secondBytes, type: 'image/png' }],
+      ['https://provider.test/original-two-v2.png', { bytes: secondBytes, type: 'image/png' }],
+    ]))
+    await store.cache(selection, gallery)
+    requested.length = 0
+
+    // The provider replaced the photo: same stable ID, new source URL.
+    const replaced: NativeGalleryResponse = {
+      ...gallery,
+      manifest: {
+        ...manifest,
+        images: [
+          manifest.images[0],
+          image({ ...(manifest.images[1] as GalleryImage), src: 'https://provider.test/original-two-v2.png' }),
+        ],
+      },
+    }
+    expect(await store.cache(selection, replaced)).toMatchObject({ status: 'complete' })
+    expect(requested).toEqual(['https://provider.test/original-two-v2.png'])
+  })
+
+  test('a reused entry keeps its committed MIME instead of the filename guess', async () => {
+    const { requested, store } = makeHarness()
+    await store.cache(selection, gallery)
+    requested.length = 0
+
+    // The fill can be renamed so the filename derives nothing — the reused
+    // bytes still report the MIME the earlier commit recorded.
+    const renamed: NativeGalleryResponse = {
+      ...gallery,
+      manifest: {
+        ...manifest,
+        images: [
+          manifest.images[0],
+          image({ ...(manifest.images[1] as GalleryImage), filename: 'two.dat' }),
+        ],
+      },
+    }
+    const ready: OfflineCacheItemReady[] = []
+    await store.cache(selection, renamed, undefined, undefined, (item) => ready.push(item))
+    expect(requested).toEqual([])
+    expect(ready.find((item) => item.id === 'stable-two')?.mimeType).toBe('image/png')
+  })
+
   test('detects complete caches and refuses a missing image entry', async () => {
     const { store, vault } = makeHarness()
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })

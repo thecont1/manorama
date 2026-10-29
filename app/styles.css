@@ -1981,6 +1981,67 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-overview .gallery-import-form .admin-button { justify-self: start; }
 .admin-overview .admin-retention-policy { margin: 0 0 22px; }
 .admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 20px; font-weight: 500; letter-spacing: -.025em; }
+.admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.admin-library-heading .admin-galleries-heading { margin-bottom: 24px; }
+
+/* Account surface sponsored slot: one labelled panel under the Library
+   heading, above every gallery — its own surface shaped for a vertical
+   photograph, never the first gallery, never inside a card. */
+.account-ad {
+  width: min(480px, 100%);
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  margin: 0 0 40px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(var(--ink), .06);
+}
+.account-ad-badge {
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.account-ad-slot { display: flex; gap: 14px; align-items: stretch; }
+/* The plate is a vertical photograph shown fit to height; until a rented
+   creative supplies art the placeholder keeps the same 2:3 frame. */
+.account-ad-frame {
+  width: 112px;
+  height: 168px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(var(--ink), .12);
+}
+.account-ad-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.account-ad-placeholder {
+  padding: 10px;
+  color: rgba(var(--ink), .45);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.account-ad-copy { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
+.account-ad-headline { color: rgb(var(--ink)); font-size: 15px; font-weight: 400; line-height: 1.35; }
+.account-ad-sub { margin-top: 4px; color: rgba(var(--ink), .55); font-size: 13px; line-height: 1.45; }
+.account-ad-cta { margin-top: 8px; color: rgb(var(--ink)); font-size: 14px; line-height: 1.2; text-underline-offset: 3px; }
+
+/* The quiet plan foot line — the only account copy the Library carries. */
+.admin-lib-foot {
+  margin-top: 40px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--ink), .12);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  color: rgba(var(--ink), .55);
+  font-size: 13px;
+}
 @media (min-width: 820px) {
   /* The page's asymmetric edge-tab gutter would pull a simple 50/50 split
      right of the physical centre. Compensate so neither top block crosses it. */
@@ -1991,6 +2052,9 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 @media (horizontal-viewport-segments: 2) {
   .admin-overview { grid-template-columns: minmax(0, calc(env(viewport-segment-width 0 0) - 56px)) minmax(0, 1fr); column-gap: max(32px, calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0))); }
 }
+/* A surface panel never straddles the hinge — the sponsored slot stays
+   inside the leading segment's padded column. */
+.admin-page[data-admin-segmented] .account-ad { width: min(480px, calc(var(--admin-left-end) - 160px)); }
 
 .admin-edge-tab {
   position: fixed;

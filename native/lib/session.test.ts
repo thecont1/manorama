@@ -73,12 +73,26 @@ describe('beginProviderSignIn', () => {
       writable: true,
       value: { open: (url: string) => { opened.push(url); return null } },
     })
+    // A link flow mints the one-minute handoff under the bearer session,
+    // then opens the auth route with `?link={token}` — never `native=1&link=1`,
+    // which the route cannot bind without a cookie.
+    const storage = installLocalStorage()
+    storage.set(TOKEN_KEY, 'bearer-xyz')
+    const fetcher = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = (async (url: string | URL) => {
+      calls.push(String(url))
+      return new Response(JSON.stringify({ linkToken: 'link-tok' }), { status: 200 })
+    }) as typeof fetch
     try {
       await beginProviderSignIn('dropbox', 'https://manorama.xyz', true)
+      expect(calls).toEqual(['https://manorama.xyz/api/account/link-handoff'])
       expect(opened).toEqual([
-        'https://manorama.xyz/auth/dropbox?native=1&link=1',
+        'https://manorama.xyz/auth/dropbox?link=link-tok',
       ])
     } finally {
+      globalThis.fetch = fetcher
+      restoreLocalStorage()
       Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: realWindow })
     }
   })
@@ -113,6 +127,15 @@ describe('native OAuth callback', () => {
     expect(url.protocol).toBe('in.thecontrarian.manorama:')
     expect(url.hostname).toBe('auth')
     expect(url.searchParams.get('handoff')).toBe('abc')
+  })
+
+  test('recognises provider link results on the native callback', () => {
+    expect(__private__.linkResultFromUrl(`${NATIVE_CALLBACK_URL}?linked=dropbox`)).toBe('linked')
+    expect(__private__.linkResultFromUrl(`${NATIVE_CALLBACK_URL}?link=conflict`)).toBe('conflict')
+    // A sign-in handoff is not a link result, and neither is a web URL.
+    expect(__private__.linkResultFromUrl(`${NATIVE_CALLBACK_URL}?handoff=abc`)).toBeNull()
+    expect(__private__.linkResultFromUrl('https://manorama.xyz/?linked=dropbox')).toBeNull()
+    expect(__private__.linkResultFromUrl('not a url')).toBeNull()
   })
 
   test('ignores unrelated deep links before making a request', async () => {
@@ -209,6 +232,31 @@ describe('native OAuth callback', () => {
       globalThis.fetch = fetcher
       session.restore()
       restoreLocalStorage()
+    }
+  })
+
+  test('a link result replayed by getLaunchUrl after reload is not re-handled', () => {
+    const session = installSessionStorage()
+    try {
+      const url = `${NATIVE_CALLBACK_URL}?linked=dropbox`
+      expect(__private__.claimLinkResult(url)).toBe(true)
+      // window.location.reload() wipes module state but keeps sessionStorage.
+      __private__.resetHandledLinkResults()
+      expect(__private__.claimLinkResult(url)).toBe(false)
+    } finally {
+      session.restore()
+    }
+  })
+
+  test('a different link result after a reload is a new attempt', () => {
+    const session = installSessionStorage()
+    try {
+      expect(__private__.claimLinkResult(`${NATIVE_CALLBACK_URL}?linked=dropbox`)).toBe(true)
+      __private__.resetHandledLinkResults()
+      // A new attempt's URL differs from the stored one, so it still lands.
+      expect(__private__.claimLinkResult(`${NATIVE_CALLBACK_URL}?link=conflict`)).toBe(true)
+    } finally {
+      session.restore()
     }
   })
 

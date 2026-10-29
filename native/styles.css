@@ -178,113 +178,11 @@ body:has(.native-diptych) {
   padding: clamp(8px, 4vw, 28px) 0;
 }
 
-/* Signed-in, the page splits into a brand column and the account card —
-   a flex column while narrow, a two-column grid at the same 820px line
-   the landing split uses. The brand column reuses .landing-brand-mark,
-   .landing-brand-intro, .admin-greeting and .site-footer verbatim and
-   owns the ad slot, so the welcome copy shares the web's stylesheet and
-   cannot drift. */
-.native-account-shell {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: clamp(28px, 6vw, 44px);
-}
-
-.native-account-side {
-  width: min(100%, 460px);
-  margin-inline: auto;
-}
-
-.native-account-side .landing-brand-mark {
-  width: min(300px, 72vw);
-  max-width: 100%;
-}
-
-.native-account-side .landing-brand-intro {
-  margin-top: clamp(20px, 4vw, 32px);
-  margin-bottom: clamp(24px, 5vw, 36px);
-  max-width: none;
-}
-
-/* The slot spans the brand column edge to edge, holding the labelled
-   frame the ad contract requires while it fills its half of the split. */
-.native-account-side .native-account-ad {
-  flex: none;
-  width: 100%;
-  max-width: none;
-  margin: 0 0 clamp(24px, 5vw, 36px);
-  padding: 16px 18px;
-}
-
-.native-account-side .admin-greeting {
-  margin-top: 0;
-  max-width: none;
-}
-
-/* Legal lives inside the left scroller — narrow dissolves the wrapper
-   (display:contents) and the explicit orders put it after the card;
-   wide keeps it at the end of the brand column's own scroll. */
-.native-account-left { display: contents; }
-.native-account-shell .native-list-card { order: 1; }
-.native-legal {
-  order: 2;
-  width: min(100%, 460px);
-  margin-inline: auto;
-  padding: 14px 0;
-}
-
+/* Signed-in, the Library is one ruled column on every width — the
+   two-column brand split is gone (megaplan 5.4: title + Add, no account
+   workbench). */
 .native-account-shell .native-list-card {
   margin-inline: auto;
-}
-
-@media (min-width: 820px) {
-  /* Both columns scroll independently — the shell locks to the viewport,
-     the left ends on the legal footer, the right runs through the
-     galleries without moving the brand. */
-  .native-account-shell {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    column-gap: clamp(40px, 6vw, 96px);
-    row-gap: 40px;
-    align-items: stretch;
-    justify-items: stretch;
-    width: 100%;
-    max-width: 1240px;
-    height: 100svh;
-    margin-inline: auto;
-    overflow: hidden;
-  }
-  .native-account-left {
-    grid-column: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .native-account-side {
-    width: auto;
-    margin-inline: 0;
-  }
-  .native-account-side .landing-brand-mark {
-    width: min(100%, 480px);
-  }
-  .native-account-shell .native-list-card {
-    grid-column: 2;
-    order: 0;
-    width: 100%;
-    min-height: 0;
-    margin-inline: 0;
-    padding-top: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .native-account-left .native-legal {
-    order: 0;
-    width: auto;
-    margin: auto 0 0;
-  }
 }
 
 .native-list-card h1 {
@@ -365,100 +263,11 @@ body:has(.native-diptych) {
   color: rgb(var(--ink));
 }
 
-/* The account's preferences are three questions, and they only read as three
-   when each one carries its own heading. The visibility switch sat unlabelled
-   between the load policy and the photo picker, so all three ran together as
-   one undifferentiated list. */
-.native-house-cards,
-.native-load-policy {
-  display: grid;
-  gap: 10px;
-  margin: 18px 0 22px;
-  padding: 16px 0;
-  border-top: 1px solid rgba(var(--ink), .1);
-}
-
-.native-house-cards h2,
-.native-load-policy h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 500;
-}
-
-.native-house-cards-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.native-house-cards-status {
-  flex: 1 1 auto;
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.native-house-cards-actions button {
-  padding: 7px 12px;
-  border-color: rgba(var(--ink), .24);
-  font-size: 13px;
-}
-
-.native-house-cards-actions button:disabled {
-  opacity: .4;
-  cursor: default;
-}
-
-/* Action buttons stack full-width like the landing page's quiet column. */
-.native-list-card > button {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.native-list-card > button + button,
-.native-list-card > button + form {
-  margin-top: 12px;
-}
-
-/* Signed out, the screen is the landing page itself — .landing-page,
-   .landing-brand, .landing-brand-intro all come from app/styles.css via the
-   @import at the top, so the door can never drift from the web's. The only
-   native deltas live here: safe-area-aware height and the icon row that
-   replaces the web's text links (touch needs bigger targets than a 17px
-   glyph inside an anchor). */
-.native-landing {
-  min-height: calc(100svh - var(--native-safe-top) - var(--native-safe-bottom));
-}
-
-.native-landing .native-account-header {
-  align-self: stretch;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-/* Wide split drops the brand block into the left column — keep the mark
-   (and any account slot under it) hugging the left edge with the copy. */
-@media (min-width: 820px) {
-  .native-landing .native-account-header {
-    justify-content: flex-start;
-  }
-}
-
 /* The signed-in account area: the owner's own rows plus whatever the Mac
    has published. Quiet labels, honest taps — rows without a public slug
    get no button, so nothing pretends to open what it cannot. */
 .native-account {
   margin-bottom: 22px;
-}
-
-.native-account-signout {
-  padding: 7px 12px;
-  border-color: rgba(var(--ink), .24);
-  font-size: 13px;
 }
 
 .native-account-note {
@@ -477,242 +286,25 @@ body:has(.native-diptych) {
   font-size: 11px;
 }
 
-.native-global-setting {
-  display: grid;
-  gap: 10px;
-  margin: 18px 0 22px;
-  padding: 16px 0;
-  border-top: 1px solid rgba(var(--ink), .1);
-  border-bottom: 1px solid rgba(var(--ink), .1);
-}
-
-.native-global-setting h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 500;
-}
-
-.native-global-setting label {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  font-size: 14px;
-  line-height: 1.35;
-}
-
-.native-global-setting input {
-  flex: 0 0 auto;
-  margin-top: 2px;
-}
-
-.native-global-setting button {
-  justify-self: start;
-}
-
-.native-account-rail {
-  width: 100%;
-  max-height: min(54dvh, 560px);
-  margin: 0 0 10px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  border-top: 1px solid rgba(var(--ink), .1);
-  border-bottom: 1px solid rgba(var(--ink), .1);
-  background: rgba(14, 17, 16, .42);
-  backdrop-filter: blur(38px) saturate(.45) brightness(.72);
-  -webkit-backdrop-filter: blur(38px) saturate(.45) brightness(.72);
-  scrollbar-width: thin;
-  overscroll-behavior: contain;
-}
-
-.native-account-editor-label {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 16px 0 8px;
-  color: rgba(var(--ink), .78);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.native-account-editor-label small {
-  color: rgba(var(--ink), .48);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.native-account-rail-track {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  align-content: flex-start;
-  justify-content: center;
-  width: 100%;
-  min-height: 0;
-  gap: 0;
-}
-
-.native-account-rail-item {
-  position: relative;
-  flex: 0 0 auto;
-  width: auto;
-  height: 12dvh;
-  min-height: 12dvh;
-  margin: 0;
-  outline: none;
-  cursor: grab;
-  user-select: none;
-}
-
-.native-account-rail-item:active {
-  cursor: grabbing;
-}
-
-.native-account-rail-item:focus-visible {
-  z-index: 1;
-  box-shadow: inset 0 0 0 2px #fc0fc0;
-}
-
-.native-account-rail-item img {
-  display: block;
-  width: auto;
-  height: 100%;
-  max-width: none;
-  object-fit: contain;
-  pointer-events: none;
-}
-
-.native-account-rail-handle {
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  z-index: 1;
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, .32);
-  border-radius: 999px;
-  background: rgba(10, 10, 10, .48);
-  color: rgba(255, 255, 255, .82);
-  font-size: 16px;
-  line-height: 1;
-  opacity: .45;
-  touch-action: none;
-  user-select: none;
-}
-
-.native-account-rail-item:hover .native-account-rail-handle,
-.native-account-rail-item:focus-visible .native-account-rail-handle {
-  opacity: 1;
-}
-
-/* The admin list's language: one ruled column of rows, separated by
+/* The admin list's language: one ruled column of gallery cards, separated by
    hairlines, with nothing boxing each gallery in. */
-.native-gallery-list,
-.native-device-list {
+.native-gallery-list {
   display: grid;
+  /* minmax(0, 1fr): without it the grid track grows to the rail's content
+     width and the rail can never scroll — the classic grid trap. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   margin: 0 0 22px;
   padding: 0;
   list-style: none;
-  border-top: 1px solid rgba(var(--ink), .1);
 }
 
-.native-gallery-list li,
-.native-device-list li {
-  border-bottom: 1px solid rgba(var(--ink), .1);
-}
-
-.native-gallery-list button,
-.native-device-list button,
-.native-gallery-row {
-  display: grid;
-  gap: 3px;
-  width: 100%;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: 0;
-  padding: 15px 2px;
-  text-align: left;
-}
-
-.native-gallery-title {
-  font-size: 17px;
-  letter-spacing: -.01em;
-  line-height: 1.35;
-}
-
-.native-gallery-meta {
-  color: rgba(var(--ink), .55);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: .06em;
-}
-
-/* The account's four questions are peers, so their headings are too. The device
-   catalogue used to shout its heading in tracked caps while the preferences
-   below it spoke in sentence case, which read as two different kinds of thing. */
-.native-device h2,
-.native-temporary-galleries h2 {
-  margin: 0 0 10px;
-  font-size: 17px;
-  font-weight: 500;
-}
-
-.native-another {
-  margin-top: 22px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(var(--ink), .1);
-}
-
-.native-another summary {
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.native-another form {
-  margin-top: 14px;
-}
-
-/* The signed-in phone view should get to the photographs quickly. Keep the
-   account copy intact, but reduce its display footprint so the first few
-   gallery rows are useful at a glance rather than below the fold. */
 /* The web stage deliberately locks body scrolling; an account is a document,
    not a stage. Without this reset the phone's preferences and secondary form
    can be clipped below the viewport with no way to reach them. */
 body.manorama-native:has(.native-account-shell) {
   overflow-y: auto;
   overflow-x: clip;
-}
-
-.native-gallery-import {
-  margin: 20px 0 28px;
-}
-.native-gallery-import h2 {
-  margin: 0 0 12px;
-  font-size: 17px;
-  font-weight: 500;
-}
-.native-gallery-import input {
-  font-size: 16px; /* iOS must not zoom the whole account on field focus. */
-  min-height: 44px;
-}
-.native-gallery-import label {
-  text-transform: none;
-  letter-spacing: 0;
-}
-.native-gallery-import button:disabled {
-  opacity: .5;
-  cursor: wait;
 }
 
 @media (max-width: 819px) {
@@ -724,27 +316,6 @@ body.manorama-native:has(.native-account-shell) {
   .native-account-shell {
     justify-content: start;
     gap: 12px;
-  }
-
-  .native-account-side .landing-brand-mark {
-    width: min(220px, 56vw);
-  }
-
-  .native-account-side .landing-brand-intro {
-    margin-top: 8px;
-    margin-bottom: 12px;
-    font-size: 12px;
-    line-height: 1.2;
-  }
-
-  .native-account-side .admin-greeting {
-    margin-top: 4px;
-  }
-
-  .native-account-side .admin-greeting p {
-    margin: 0 0 10px;
-    font-size: 15px;
-    line-height: 1.5;
   }
 
   .native-list-card h1 {
@@ -760,15 +331,6 @@ body.manorama-native:has(.native-account-shell) {
     line-height: 1.25;
   }
 
-  .native-gallery-list button,
-  .native-gallery-row {
-    padding-block: 10px;
-  }
-
-  .native-gallery-title {
-    font-size: 22px;
-    line-height: 1.15;
-  }
 }
 
 .native-paywall-shell {
@@ -871,117 +433,6 @@ body.manorama-native:has(.native-account-shell) {
   opacity: .5;
 }
 
-/* Mobile account catalogue: one calm column per gallery — a single cover,
-   then what it is, then where it lives. The web dashboard has a draggable
-   sequence strip; this is not that surface. */
-.native-gallery-list button.native-gallery-row-with-thumb {
-  display: grid;
-  align-items: start;
-  gap: 3px;
-  padding-block: 14px;
-}
-
-/* The first photograph gets a row of its own in the same 12dvh, aspect-true
-   language as the picker, without showing the rest of the sequence here. */
-.native-gallery-cover-row {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-}
-
-.native-gallery-heading {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  /* The count belongs to the title, not to the far edge of the row. */
-  justify-content: flex-start;
-  gap: 6px;
-}
-
-.native-gallery-title {
-  min-width: 0;
-  /* The account rows wear the web dashboard's type: the brand face for the
-     title, a quieter subtitle beneath. Only the public address truncates — a
-     long title wraps rather than losing its words. */
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 24px;
-  font-variation-settings: "wdth" 100, "wght" 500;
-  letter-spacing: -.04em;
-  line-height: 1.15;
-}
-
-/* One line, as on the web: the row never wraps as a whole, so a long title
-   wraps *inside* its own column and the count stays beside its first line
-   instead of being pushed onto a line of its own. */
-.native-gallery-heading { flex-wrap: nowrap; }
-
-.native-gallery-heading .native-gallery-title {
-  flex: 1 1 auto;
-  font-size: 22px;
-}
-
-/* The web sets the count at the title's own 24px because its card column is
-   wide. A phone card gives the copy column about half the screen, so the count
-   drops to a parenthetical in the same face — on the title's line, and no
-   longer stealing two thirds of it. */
-.native-gallery-heading .native-gallery-meta {
-  flex: 0 0 auto;
-  color: rgba(var(--ink), .6);
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 14px;
-  font-variation-settings: "wdth" 100, "wght" 500;
-  letter-spacing: -.01em;
-  line-height: 1.15;
-}
-
-.native-gallery-link {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.native-gallery-subtitle {
-  color: rgba(var(--ink), .58);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.native-gallery-link {
-  min-width: 0;
-  overflow: hidden;
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 13px;
-  letter-spacing: .04em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.native-gallery-thumb {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin: 0;
-  padding: 0;
-  background: rgba(255, 255, 255, .04);
-}
-
-/* Full width at the source's own proportions: the card never crops a cover. */
-.native-gallery-thumb img {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-width: 100%;
-  object-fit: contain;
-}
-
-.native-temporary-galleries {
-  margin-top: 22px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(var(--ink), .18);
-}
-
 /* The web app keeps its chrome out of the way until the gallery is entered, and
    the native shells should match: while the curtain is up the photograph and the
    title are the whole interface. `gallery-entered` is set on the body when the
@@ -1021,17 +472,6 @@ body.manorama-native:not(.gallery-entered) .stage-seq {
   }
 }
 
-/* The landing used to subtract both safe-area insets from its height. That made
-   it shorter than the viewport, so the strip it gave back showed the root
-   background instead of the landing's own — the black bar at the bottom of the
-   opening screen. Fill the viewport instead and move the safe-area spacing into
-   padding, where it keeps the content clear of the notch and the home indicator
-   without ever exposing a seam. */
-.native-landing {
-  min-height: 100svh;
-  box-sizing: border-box;
-  padding-bottom: var(--native-safe-bottom);
-}
 /* The title begins where the mark's half ends. The curtain's two halves are the
    grid's two rows, and the container centres each half's contents, so the title
    was being centred in the lower half — about a third of a screen below the
@@ -1069,283 +509,27 @@ body.manorama-native:not(.gallery-entered) .stage-seq {
    screen and wrong everywhere else: the opening screen and the account screen
    sit on `#111312`, and the mismatch read as a black bar across the top of
    them. Paint the body to match whichever surface is mounted. */
-body.manorama-native:has(.native-landing),
+body.manorama-native:has(.native-welcome),
 body.manorama-native:has(.native-list-shell) { background: #111312; }
-html.light body.manorama-native:has(.native-landing),
+html.light body.manorama-native:has(.native-welcome),
 html.light body.manorama-native:has(.native-list-shell) { background: var(--m-ground); }
 html.light body.manorama-native .native-list-shell,
-html.light body.manorama-native .native-account-edge-tab,
-html.light body.manorama-native .native-drawer-panel,
 html.light body.manorama-native .native-editor { background: var(--m-ground); color: var(--m-ink); }
-html.light body.manorama-native .native-drawer-close:hover,
-html.light body.manorama-native .native-drawer-close:focus-visible { color: var(--m-ink); }
-/* The account introduction: wordmark and menu share one row, and the greeting
-   reads as two short statements instead of one run-on paragraph. */
-.native-account-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.native-account-head .brand-mark-wrap { min-width: 0; }
 
-.native-account-menu {
-  flex: 0 0 auto;
-  display: grid;
-  width: 44px;
-  height: 44px;
-  place-items: center;
-  border: 1px solid rgba(var(--ink), .22);
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--ink));
-  cursor: pointer;
-}
-
-.native-account-menu:hover { border-color: rgba(var(--ink), .7); }
-
-.native-account-menu:focus-visible {
-  border-color: rgba(var(--ink), .7);
-  outline: 2px solid rgb(var(--ink));
-  outline-offset: 2px;
-}
-
-.native-account-menu-bars,
-.native-account-menu-bars::before,
-.native-account-menu-bars::after {
-  display: block;
-  width: 18px;
-  height: 1.5px;
-  background: currentColor;
-  content: '';
-}
-
-.native-account-menu-bars { position: relative; }
-.native-account-menu-bars::before { position: absolute; top: -5.5px; left: 0; }
-.native-account-menu-bars::after { position: absolute; top: 5.5px; left: 0; }
-
-.admin-greeting-hello { margin-top: 14px; }
-.admin-greeting-plan { color: rgba(var(--ink), .72); }
-
-/* The account drawer: a modal surface over the account page. The stage is never
-   involved, the panel owns the caret, and the scrim takes the dismissal. */
-.native-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; }
-.native-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .66); }
-
-.native-drawer-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: min(360px, 86vw);
-  height: 100%;
-  box-sizing: border-box;
-  padding: max(20px, var(--native-safe-top)) 24px max(20px, var(--native-safe-bottom));
-  border-left: 1px solid rgba(var(--ink), .14);
-  background: #151817;
-  color: rgb(var(--ink));
-  animation: native-drawer-in 220ms cubic-bezier(.22, 1, .36, 1);
-}
-
-@keyframes native-drawer-in {
-  from { transform: translateX(12px); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .native-drawer-panel { animation: none; }
-}
-
-.native-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.native-drawer-head h2 { margin: 0; font-size: 17px; font-weight: 500; }
-
-.native-drawer-close {
-  width: 44px;
-  height: 44px;
-  border: 0;
-  background: transparent;
-  color: rgba(var(--ink), .7);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.native-drawer-close:hover { color: #fff; }
-
-.native-drawer-close:focus-visible {
-  color: #fff;
-  outline: 2px solid rgb(var(--ink));
-  outline-offset: 2px;
-}
-
-.native-drawer-note {
-  margin: 0;
-  color: rgba(var(--ink), .5);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.native-drawer-action {
-  min-height: 48px;
-  border: 1px solid rgba(var(--ink), .2);
-  border-radius: 0;
-  background: transparent;
-  color: rgba(var(--ink), .82);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.native-drawer-action:hover { border-color: rgba(var(--ink), .72); color: #fff; }
-
-.native-drawer-action:focus-visible {
-  border-color: rgba(var(--ink), .72);
-  color: #fff;
-  outline: 2px solid rgb(var(--ink));
-  outline-offset: 2px;
-}
-
-/* Account overview: only the photographic list spans both top quadrants. */
+/* Account shell: one padded column. */
 .native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: max(20px, var(--native-safe-top)) 24px max(20px, var(--native-safe-bottom)) 24px; }
-.native-account-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; width: 100%; max-width: 1440px; margin-inline: auto; padding-bottom: 28px; }
-.native-account-overview .native-account-left { display: block; overflow: visible; min-width: 0; }
-.native-account-overview .native-account-side { width: 100%; margin: 0; }
-.native-account-overview .native-account-head { display: block; }
-.native-account-overview .brand-mark-wrap { display: block; width: min(300px, 100%); }
-.native-account-overview .landing-brand-mark { display: block; width: 100%; max-width: 100%; height: auto; }
-.native-account-overview .native-legal { display: none; }
-.native-account-overview .native-gallery-import { min-width: 0; margin: 0; }
-.native-account-overview .native-gallery-import form { display: grid; gap: 12px; }
-.native-account-overview .native-gallery-import input { width: 100%; min-width: 0; box-sizing: border-box; min-height: 48px; border: 1px solid rgba(var(--ink), .24); padding: 12px; background: rgba(var(--ink), .04); color: rgb(var(--ink)); font: inherit; font-size: 16px; }
-.native-account-overview .native-gallery-import label { color: rgba(var(--ink), .75); font-size: 12px; }
-.native-account-overview .native-gallery-import button { justify-self: start; border: 1px solid rgba(var(--ink), .25); min-height: 48px; padding: 12px 18px; background: transparent; color: rgb(var(--ink)); font: inherit; }
 .native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
-.native-account-edge-tab { position: fixed; z-index: 40; left: 0; top: 50%; transform: translateY(-50%); border-radius: 0 10px 10px 0; width: 44px; height: 110px; background: var(--gallery-canvas); }
-.native-account-edge-tab > span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
-.native-drawer { justify-content: flex-start; }
-.native-drawer-panel { border-left: 0; border-right: 1px solid rgba(var(--ink), .14); max-width: var(--admin-pane-limit, 100vw); }
-@keyframes native-drawer-in { from { transform: translateX(-100%); opacity: .8; } to { transform: none; opacity: 1; } }
-@media (min-width: 820px) {
-  .native-account-overview { grid-template-columns: minmax(0, calc(50% - 32px)) minmax(0, 1fr); column-gap: 32px; align-items: start; }
-  .native-account-overview .native-gallery-import { padding-left: 12px; }
-}
-@media (max-width: 819px) {
-  .native-account-overview .native-gallery-import button { justify-self: stretch; }
-}
-
-/* The --admin-* vars are viewport coordinates (the fold regions' rects), but
-   this grid's origin is the overview's own left edge: the shell's 24px
-   padding below ~1488px, the centring margin of the 1440px cap past it.
-   Measuring both edges back from the hinge by that inset keeps the left
-   column's end at left_end-56 and the right column's start at right_start
-   in viewport terms — before this, the padding alone pushed the import pane
-   32px into the hinge band. */
-.native-account-shell[data-admin-segmented] .native-account-overview { --admin-overview-inset: max(24px, (100vw - 1440px) / 2); grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px - var(--admin-overview-inset))) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end) + 56px); }
-
-/* Phone Account affordance; wide and segmented displays keep their edge tab. */
-.native-account-hamburger { display: none; }
-.native-drawer-panel .native-legal { margin-top: 28px; }
-.native-drawer-panel .native-load-policy,
-.native-drawer-panel .native-global-setting,
-.native-drawer-panel .native-house-cards,
-.native-drawer-panel .native-account-delete { margin-top: 24px; }
-.native-drawer-panel select { max-width: 100%; }
-@media (max-width: 819px) {
-  .native-account-edge-tab { top: calc(env(safe-area-inset-top, 0px) + 14px); right: 14px; left: auto; transform: none; width: 44px; height: 44px; border-radius: 50%; }
-  .native-account-edge-tab > .native-account-tab-label { display: none; }
-  .native-account-hamburger { display: block; width: 22px; height: 22px; }
-  .native-account-head { padding-right: 50px; }
-}
-
-/* A phone hamburger opens a full-screen top sheet, not a side drawer. */
-@keyframes account-phone-drop { from { transform: translateY(-100%); } to { transform: none; } }
-@media (max-width: 819px) {
-  .native-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--gallery-canvas); animation: account-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
-  .native-drawer-head { flex: 0 0 auto; }
-  .native-drawer-panel > * { flex-shrink: 0; }
-}
-@media (max-width: 819px) and (prefers-reduced-motion: reduce) { .native-drawer-panel { animation: none; } }
-.native-gallery-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 18px; }
-.native-gallery-actions button { min-width: 44px; min-height: 44px; padding: 8px 12px; font-size: 12px; }
 .native-gallery-remove-confirm { padding-bottom: 18px; }
-
-.native-gallery-list .native-gallery-actions button { display: inline-flex; width: auto; align-items: center; justify-content: center; border: 1px solid rgba(var(--ink), .22); }
 .native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }
 
-/* A tight phone screen cannot afford to stack a cover, its copy and four
-   actions. The cover holds one column across both text rows, the copy and its
-   actions take the other, and successive galleries swap edges so the list
-   zig-zags instead of leaning. */
-/* One column, in the order a gallery is managed: name and count, caption,
-   address, the photograph, then the actions. The web dashboard reads the same
-   way, and the photograph keeps its own proportions at full width. */
+/* The list is one column of ruled cards; each li wraps a .lib-card article. */
 .native-gallery-list li {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   row-gap: 6px;
   align-items: start;
 }
-.native-gallery-list li > .native-gallery-row { grid-row: 1; }
-.native-gallery-list li > .native-gallery-caption,
-.native-gallery-list li > .native-gallery-caption-edit { grid-row: 2; }
-.native-gallery-list li > .native-gallery-link { grid-row: 3; }
-.native-gallery-list li > .native-gallery-cover-open { grid-row: 4; }
-.native-gallery-list li > .native-gallery-actions { grid-row: 5; }
-.native-gallery-list li > .native-gallery-remove-confirm { grid-column: 1 / -1; grid-row: 6; }
-.native-gallery-list li.is-cover-right > .native-gallery-cover-open { grid-column: 2; }
-.native-gallery-list li.is-cover-right > .native-gallery-row,
-.native-gallery-list li.is-cover-right > .native-gallery-actions { grid-column: 1; }
 
-/* The cover button wears no chrome of its own; the photograph is the target. */
-.native-gallery-list li > .native-gallery-cover-open {
-  display: block;
-  width: auto;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-.native-gallery-list li > .native-gallery-cover-open:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-.native-gallery-list li > .native-gallery-cover-open .native-gallery-cover-row { margin-bottom: 0; }
-.native-gallery-list li > .native-gallery-actions { padding: 0 0 14px; }
-
-/* Four actions have to share a column that is only as wide as the copy beside
-   a cover, so they are chips rather than full-width rows. The 44px minimum
-   height stays: a chip is still a finger target. */
-.native-gallery-list .native-gallery-actions button {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  min-width: 0;
-  padding: 0;
-}
-.native-gallery-list .native-gallery-actions button svg {
-  width: 17px;
-  height: 17px;
-}
-
-
-/* ── Account page de-clutter ───────────────────────────────────────────────
-   Six fixes asked for after looking at the phone screen: the page no longer
-   reserves a gutter for a tab that moved to the top-right; the welcome block
-   keeps one leading from line to line; the gallery card carries title, caption,
-   address and the same four square actions the web dashboard uses; and the
-   menu opens with the brand in the page's own position, dismissed by a large
-   circled X where the hamburger sits. */
-
-/* The address line is a monospace block inside the greeting. The web's 3em
-   margin under it is what made the welcome block's rhythm change from line to
-   line; here it takes the same leading and the same gap as its neighbours, and
-   the highlighted name stops changing the height of the line it wraps onto. */
-.native-account-side .admin-greeting-url {
-  margin: 0 0 10px;
-  font-size: 15px;
-  line-height: 1.5;
-}
-.native-account-side .admin-greeting-hello { margin-top: 0; }
-.native-account-side .admin-greeting > :last-child { margin-bottom: 0; }
-.native-account-side .admin-greeting-name {
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
 
 .native-gallery-caption {
   display: block;
@@ -1366,108 +550,6 @@ html.light body.manorama-native .native-drawer-close:focus-visible { color: var(
 .native-gallery-caption:hover { color: rgba(var(--ink), .8); }
 .native-gallery-caption:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 .native-gallery-caption.is-empty { color: rgba(var(--ink), .34); font-style: italic; }
-.native-gallery-caption-edit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 2px 7px;
-}
-.native-gallery-caption-edit input {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 40px;
-  border: 1px solid rgba(var(--ink), .26);
-  border-radius: 0;
-  padding: 8px 10px;
-  background: rgba(var(--ink), .04);
-  color: rgb(var(--ink));
-  font: inherit;
-  font-size: 14px;
-}
-.native-gallery-caption-edit input::placeholder { color: rgba(var(--ink), .35); }
-.native-gallery-caption-edit button {
-  flex: 0 0 auto;
-  min-height: 40px;
-  margin: 0;
-  padding: 0 12px;
-  font-size: 13px;
-}
-
-.native-gallery-list .native-gallery-actions button {
-  border-radius: 10px;
-  color: rgba(var(--ink), .72);
-}
-.native-gallery-list .native-gallery-actions button:hover { color: rgb(var(--ink)); }
-.native-gallery-list .native-gallery-actions .native-gallery-action--delete { color: rgba(255, 122, 122, .8); }
-.native-gallery-list .native-gallery-actions .native-gallery-action--delete:hover { color: rgb(255, 122, 122); }
-
-/* The menu's head: brand first, in the page's own position, with the dismissal
-   pinned where the hamburger is. */
-.native-drawer-head {
-  /* The brand takes the panel's full width, exactly as it does on the account
-     page, so the tagline wraps at the same word; the dismissal is pinned over
-     the corner instead of taking a column out of the brand. */
-  display: block;
-  padding-right: 0;
-}
-/* The menu's brand carries `.native-account-side`, so the wordmark's cap and
-   the tagline's measure are the account page's own rules rather than numbers
-   copied here — the tagline wraps at the same word at every width. Only the
-   column is re-anchored: the menu's brand starts at the panel's edge and runs
-   its full width, instead of centring like the page's 460px column. */
-.native-drawer-brand {
-  display: block;
-  min-width: 0;
-  width: 100%;
-  margin-inline: 0;
-}
-/* On the account page the wordmark ends up as wide as its row minus the room
-   the hamburger reserves, because the overview's own rule outbids the phone
-   cap. The menu has no overview ancestor, so it states that same result here:
-   both wordmarks are the same size to the pixel, at every width. */
-.native-drawer-brand .brand-mark-wrap {
-  display: block;
-  width: min(300px, 100%);
-}
-.native-drawer-brand .landing-brand-mark {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-}
-.native-drawer-hint {
-  margin: 0;
-  color: rgba(var(--ink), .6);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.native-drawer-close {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 14px);
-  right: 14px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid rgba(var(--ink), .22);
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--ink));
-}
-.native-drawer-close svg {
-  width: 20px;
-  height: 20px;
-}
-.native-drawer-close:hover { border-color: rgba(var(--ink), .7); }
-.native-drawer-close:focus-visible {
-  border-color: rgba(var(--ink), .7);
-  color: rgb(var(--ink));
-  outline: 2px solid rgb(var(--ink));
-  outline-offset: 2px;
-}
 
 /* ── The gallery editor ────────────────────────────────────────────────────
    Full-screen owner surface: a TopBar (Close / Reorder / Reset), the gallery
@@ -1599,9 +681,13 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
    separate cards, nothing boxes them in. */
 .lib-card {
   display: block;
-  padding: 18px 0;
+  /* 40px between galleries: 20 of this card's top pad, 20 of the previous
+     card's bottom pad, with the li's hairline centred in the gap. */
+  padding: 20px 0;
 }
-.lib-card:first-child { padding-top: 0; }
+/* Each card is its li's only child, so scope the first-card reset to the
+   list's first li — the earlier :first-child rule zeroed every card. */
+.native-gallery-list > li:first-child > .lib-card { padding-top: 0; }
 
 /* The rail scrolls natively for touch, trackpad and wheel; the pointer
    handlers only step in for a mouse drag past 6px. Vertical travel falls
@@ -1609,7 +695,10 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 .lib-rail {
   display: flex;
   align-items: stretch;
-  height: min(34vh, 220px);
+  height: 148px;
+  /* The strip bleeds to the screen edges like the viewer it miniaturises;
+     the card's text keeps the shell's 24px inset. */
+  margin-inline: -24px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -1655,7 +744,7 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 .native-gallery-list .lib-card .lib-card-title,
 .lib-card-title {
@@ -1669,7 +758,8 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   border: 0;
   background: none;
   color: inherit;
-  font-size: 17px;
+  font-size: 19px;
+  font-weight: 650;
   letter-spacing: -.01em;
   line-height: 1.35;
   text-align: left;
@@ -1695,19 +785,22 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 .lib-card-title:focus-visible,
 .lib-card-menu:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 
-.lib-card-sub,
-.lib-card-device {
-  margin: 4px 0 0;
+.lib-card-sub {
+  margin: 2px 0 0;
   color: rgba(var(--ink), .55);
   font-family: 'DM Mono', ui-monospace, monospace;
   font-size: 13px;
   letter-spacing: .06em;
 }
+/* The card text column hugs its title: details sit 2px under, caption 6px. */
+.lib-card > .native-gallery-caption { margin-top: 6px; padding: 0; font-size: 15px; }
+/* One hairline marks where a gallery ends and the next begins. */
+.native-gallery-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
 .lib-card-meter {
   display: block;
-  width: 100%;
-  height: 2px;
-  margin-top: 6px;
+  width: 120px;
+  height: 3px;
+  margin-top: 8px;
   accent-color: rgb(var(--ink));
 }
 
@@ -1740,6 +833,34 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   margin-bottom: 8px;
 }
 .native-library-heading h1 { margin: 0; font-size: 28px; line-height: 1.2; }
+
+/* One status line under the title: vault activity first, then the kept
+   count. It keeps its line even when empty so the sponsored slot does not
+   jump. */
+.native-library-finding {
+  min-height: 1.6em;
+  margin: 0;
+  color: rgba(var(--ink), .55);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.native-library-finding b { color: rgb(var(--ink)); font-weight: 600; }
+
+/* The plan line: quiet usage normally, a warning sentence when the next
+   gallery would be temporary. */
+.native-lib-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 48px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(var(--ink), .1);
+  color: rgba(var(--ink), .55);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.native-lib-foot .num { color: rgb(var(--ink)); }
 
 /* Settings keeps the shared owner grammar while embedding the live vault
    controls rather than mounting a second settings shell. */

@@ -162,8 +162,21 @@ export const getSessionAppUserId = async (): Promise<string | undefined> => {
 
 export const beginProviderSignIn = async (provider: AuthProvider, apiBase: string, link = false): Promise<void> => {
   const url = new URL(`/auth/${provider}`, `${apiBase.replace(/\/+$/, '')}/`)
-  url.searchParams.set('native', '1')
-  if (link) url.searchParams.set('link', '1')
+  if (link) {
+    // The in-app browser holds no manorama cookie: mint the one-minute link
+    // handoff so the opened flow binds to this account without it.
+    const token = await getSessionToken()
+    const response = await fetch(`${apiBase.replace(/\/+$/, '')}/api/account/link-handoff`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const payload = (await response.json().catch(() => null)) as { linkToken?: string } | null
+    if (!response.ok || !payload?.linkToken) throw new Error('That sign-in method could not be connected.')
+    url.searchParams.set('link', payload.linkToken)
+    clearLinkResultClaims()
+  } else {
+    url.searchParams.set('native', '1')
+  }
   await Browser.open({ url: url.toString(), toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 
@@ -195,6 +208,49 @@ const releaseHandoff = (token: string): void => {
   } catch {
     // A missed release just leaves the token claimed; a fresh sign-in mints a new one.
   }
+}
+
+/** Link-result URLs carry no attempt token, so the full URL is the dedup key.
+ *  It needs the same sessionStorage backing as handoffs: after a `linked`
+ *  reload, getLaunchUrl replays the result URL and would reload forever.
+ *  Starting a new link clears the claim so a same-provider retry still lands. */
+const HANDLED_LINK_RESULT_KEY = 'manorama.native.link-result'
+const handledLinkResults = new Set<string>()
+
+const claimLinkResult = (url: string): boolean => {
+  if (handledLinkResults.has(url)) return false
+  try {
+    if (globalThis.sessionStorage?.getItem(HANDLED_LINK_RESULT_KEY) === url) return false
+    globalThis.sessionStorage?.setItem(HANDLED_LINK_RESULT_KEY, url)
+  } catch {
+    // Storage can be unavailable; the in-memory set still dedupes within this mount.
+  }
+  handledLinkResults.add(url)
+  return true
+}
+
+const clearLinkResultClaims = (): void => {
+  handledLinkResults.clear()
+  try {
+    globalThis.sessionStorage?.removeItem(HANDLED_LINK_RESULT_KEY)
+  } catch {
+    // A missed clear only means a redelivered result is deduped once too many.
+  }
+}
+
+/** Provider link callbacks return `?linked=…` or `?link=conflict` on the
+ *  native scheme instead of a sign-in handoff — both end the auth browser. */
+const linkResultFromUrl = (url: string): 'linked' | 'conflict' | null => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'in.thecontrarian.manorama:' || parsed.hostname !== 'auth') return null
+  if (parsed.searchParams.get('link') === 'conflict') return 'conflict'
+  if (parsed.searchParams.has('linked')) return 'linked'
+  return null
 }
 
 const exchangeHandoff = async (url: string, apiBase: string): Promise<boolean> => {
@@ -236,6 +292,7 @@ export const installNativeAuth = async (
   apiBase: string,
   onError?: (message: string) => void,
   onGalleryOpen?: (selection: NativeGallerySelection) => void,
+  onLinkConflict?: (message: string) => void,
 ): Promise<() => Promise<void>> => {
   const reportError = (reason: unknown) => onError?.(authErrorMessage(reason))
   const handleUrl = (url: string) => {
@@ -243,6 +300,23 @@ export const installNativeAuth = async (
     if (selection) {
       if ('kind' in selection && selection.kind === 'quick-add') void setPendingQuickAdd(selection.sourceUrl)
       onGalleryOpen?.(selection)
+      return
+    }
+    // Provider link callbacks return a result rather than a sign-in handoff:
+    // close the auth browser, refresh on success, surface the conflict.
+    const linkResult = linkResultFromUrl(url)
+    if (linkResult) {
+      if (!claimLinkResult(url)) return
+      void Browser.close().catch(() => undefined)
+      if (linkResult === 'conflict') {
+        // The user lands back on Settings, where linking was started — the
+        // conflict note belongs there, not on the Library's auth error line.
+        onLinkConflict?.('That identity is linked to a different account')
+        return
+      }
+      // Same refresh the sign-in handoff performs — a link return can
+      // also arrive from a system browser where no browserFinished fires.
+      if (typeof window !== 'undefined') window.location.reload()
       return
     }
     void exchangeHandoff(url, apiBase)
@@ -259,7 +333,10 @@ export const installNativeAuth = async (
 
 export const __private__ = {
   exchangeHandoff,
-  /** Clears the in-memory claim set so tests can simulate a page reload,
+  linkResultFromUrl,
+  claimLinkResult,
+  /** Clears the in-memory claim sets so tests can simulate a page reload,
    *  which wipes module state but preserves sessionStorage. */
   resetHandledHandoffs: () => handledHandoffs.clear(),
+  resetHandledLinkResults: () => handledLinkResults.clear(),
 }
