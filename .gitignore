@@ -23,6 +23,7 @@ src-tauri/gen/
 
 # Simulator derived data written by scripts/capture-screens.sh
 ios/build/
+ios/build-sim/
 
 # Per-run simulator ids
 .work/udid-*
