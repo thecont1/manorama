@@ -16,10 +16,12 @@ import { overlayDepth, releaseAllOverlays } from '../../lib/overlay-stack'
 const globals = globalThis as Record<string, unknown>
 let dom: Window
 let previousDocument: unknown
+let previousMutationObserver: unknown
 let container: HTMLDivElement
 beforeAll(() => {
   dom = new Window({ url: 'http://localhost/' })
   previousDocument = globals.document
+  previousMutationObserver = globals.MutationObserver
   globals.document = dom.document
   globals.window = dom
   globals.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0)
@@ -28,12 +30,14 @@ beforeAll(() => {
   globals.MouseEvent = dom.MouseEvent
   globals.HTMLElement = dom.HTMLElement
   globals.Element = dom.Element
+  globals.MutationObserver = dom.MutationObserver
   container = document.createElement('div')
   document.body.appendChild(container)
 })
 afterAll(() => {
   globals.document = previousDocument
   globals.window = undefined
+  globals.MutationObserver = previousMutationObserver
 })
 
 afterEach(async () => {
