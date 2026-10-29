@@ -13,7 +13,7 @@ Recorded on branch `feat/redesign-contracts-baseline`, worktree at commit
 | `bun run build` | PASS | client + worker bundles built |
 | `bun run build:native` | PASS | Vite-only SPA build — safe for CI |
 | `bun run build:desktop` | PASS | Vite-only SPA build — safe for CI |
-| `bun run vendo:check` | PASS | `git diff --exit-code` clean; **no tracked-file churn to revert** |
+| `bun run vendo:check` | PASS on 28 Oct | Historical only. Vendo is now disabled and is not a development or release gate. |
 | `.env.local` `MANORAMA_DEV_SOURCE_*` | present | all four (ICLOUD, MEGA, DROPBOX, GDRIVE) defined — presence only, values never printed |
 
 ## Playwright (default suite)

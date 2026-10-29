@@ -557,10 +557,9 @@ At affected bundle boundaries and the final RC:
 bun run build
 bun run build:native
 bun run build:desktop
-bun run vendo:check
 ```
 
-The Vendo contract check may regenerate tracked files; inspect any diff and never retain unrelated generation churn. It was not run during planning.
+Vendo is disabled and is not a verification gate. Do not run `vendo sync` or treat generated Vendo files as a release check.
 
 `playwright.config.ts` excludes evidence tests by default. Run the relevant evidence spec with `PW_EVIDENCE=1` and its configured `CAPTURE_URL` after preparing the fresh capture bundle. A green default suite does not mean captures were regenerated. Native ad specs fail if `NATIVE_GALLERY_URL` is missing; fold tests can skip, so check the actual executed cases.
 

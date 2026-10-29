@@ -258,7 +258,7 @@ The admin, galleries, and quick-add interstitials send `X-Robots-Tag: noindex, n
 | `migrations/` | D1 migrations 0001–0008 |
 | `submission/` | App Store submission evidence, review notes, Connect fields |
 | `demo-captures/` | Six-state screenshot matrix for iPhone/iPad/macOS |
-| `vendo/`, `app/vendo-client.tsx`, `.vendo/` | Vendo surface — **disabled platform-wide for now**: no route, no mount, no client bundle; code and `vendo:*` tooling retained for re-enable |
+| `vendo/`, `app/vendo-client.tsx`, `.vendo/` | Vendo is fully disabled and is not a development or release gate. No route, no mount, no client bundle, no `vendo:*` scripts, no CI sync. Do not consult it for product or verification decisions. |
 | `*.playwright.ts` | Playwright acceptance specs (`qa`, `vendo-surface`, `vendo-slot`, `doodle-background`, `fold`, `video-playback`, `video-size-cap`); `native/ads.playwright.ts`, `native/global-view.playwright.ts` |
 | `vite.config.ts` / `.native.ts` / `.desktop.ts` / `.native-fixture.ts` | The three build targets plus the native test fixture |
 | `scripts/test-mirror.sh` | Mirrors the worktree into a scratch root and runs the unit suite — `bun test` at repo root dies `EMFILE` on the `.worktrees/` checkouts |
@@ -281,7 +281,7 @@ Run the local acceptance suite against the seeded dev server (`bun run dev`). Th
 GALLERY_URL=http://localhost:5173 GALLERY_VIDEO_SLUG=mixed-album bunx playwright test
 ```
 
-The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, noindex privacy, the fold layout, and the native ad-plate/global-view specs. Contract drift is checked with `bun run vendo:check`.
+The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, noindex privacy, the fold layout, and the native ad-plate/global-view specs. Vendo is not part of this matrix and must not be run as a contract check.
 
 After any native or desktop presentation change, capture the six-state evidence matrix under `demo-captures/{ios,ipad,macos}/` — opening screen, gallery curtain, first image with controls, display-settings popover, signed-in account/admin surface, and Global View — from freshly built bundles.
 
