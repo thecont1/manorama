@@ -9,7 +9,7 @@ Implement the approved photography-first design across native, desktop, and web 
 
 ## 1. Status, authority, and objective
 
-**Status:** implementation proposal, grounded in source inspection on 28 October 2026; awaiting owner approval. No application files, git references, dependencies, or services were changed during planning. Builds, tests, browser comparisons, and physical-device measurements have not been run for this plan.
+**Status:** owner-approved 28 October 2026; implementation in progress. Grounded in source inspection on 28 October 2026. No application files, git references, dependencies, or services were changed during planning. Builds, tests, browser comparisons, and physical-device measurements had not been run when the plan was written.
 
 **Inspected checkout:** `feat/iphone-redesign` at `69e334ae302b8f71657f77549d17a480c1e30b75`. Local `main` and `origin/main` both resolve to `08409df65b3e453edf6627a958d65326cd99ce5b`. The working tree was clean. Recheck at implementation start.
 

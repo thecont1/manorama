@@ -2,7 +2,7 @@
 
 Read `manorama-redesign-handoff.md` first. It defines the screens, the behaviour contracts, the deliberate contract changes (C1 to C7) and the open questions (Q1 to Q7). This plan says in what order to build them and how to know each step is done.
 
-> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; its §7 phases (P0–P12) and dependency/ownership rules supersede the stages below wherever they disagree. Settled then: every surface in scope with one coordinated release — not native-first; both dark and light owner themes; temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX, not Preact; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs), not `redesign/true-black`; the confirmed code map is megaplan §4. Inline corrections are marked "(28 Oct 2026)".
+> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is the owner-approved plan of record; precedence follows its §1 authority order — owner decisions, then AGENTS.md invariants, then the redesign decisions, handoff, this plan, prototype, and spec/tests. Its §7 phases (P0–P12) and dependency/ownership rules supersede the stages below wherever they disagree. Settled then: every surface in scope with one coordinated release — not native-first; both dark and light owner themes; temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX, not Preact; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs), not `redesign/true-black`; the confirmed code map is megaplan §4. Inline corrections are marked "(28 Oct 2026)".
 
 Principles
 - *(28 Oct 2026: superseded)* ~~Native first (iOS is the shipping target). Web and desktop follow, reusing tokens, copy and shared logic.~~ Every surface ships in one coordinated release; phases still integrate in dependency order via `feat/iphone-redesign`.
@@ -91,7 +91,7 @@ Goal: the viewer chrome and behaviour of handoff sections 4 and 5, with every co
 2g. Spec and test pass (S)
 - Edit `TECH-SPEC.md` for C1 to C4. Remove or rewrite assertions that referenced the old chrome. Run the whole matrix at 375 x 812, 1440 x 900 and 2560 x 1440, including the video and fold specs.
 
-Exit criteria for Stage 2: viewer checks in the Definition of Done pass; video slides, Diptych and Global View still work; no photograph is overlapped by any control at any size; the strip arrow tests above are green.
+Exit criteria for Stage 2: viewer checks in the Definition of Done pass; video slides, Diptych and Global View still work; *(28 Oct 2026)* temporary viewer chrome may overlay photographs — the no-overlap requirement applies only to controls that must reserve space, and arrows still reserve the 64px bar; the strip arrow tests above are green.
 
 ## Stage 3: Library, Add, Details (L)
 
@@ -164,7 +164,7 @@ Exit criteria: everything in the handoff's Definition of Done.
 
 ## Dependencies and ordering
 
-- Stage 0 blocks everything. Stage 1 blocks 2 to 5. Stage 3a blocks 3b and 3d. Stage 5's shared privacy module is independent and can go early. Stage 6 waits for native.
+- Stage 0 blocks everything. Stage 1 blocks 2 to 5. Stage 3a blocks 3b and 3d. Stage 5's shared privacy module is independent and can go early. *(28 Oct 2026: superseded — "Stage 6 waits for native" is replaced by the coordinated-release decision: web and desktop work is scheduled from the shared Stage 0 contracts and proceeds alongside the later native stages.)*
 - Parallelisable after Stage 1: Stage 2 (viewer), Stage 3 (library and details), Stage 4 (reorder) and Stage 5 (welcome, settings, privacy) touch mostly different files. Run them as separate `feat/redesign-*` branches off `feat/iphone-redesign` and integrate in dependency order. *(28 Oct 2026: see the megaplan §7 phase graph P0–P12 for the authoritative ordering — and its warning that "mostly different files" is not permission for concurrent edits to the Viewer/GalleryShell and GalleryList monoliths; only one active lane edits each.)*
 
 ## Risk register

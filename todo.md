@@ -39,5 +39,5 @@
 - [x] Pull and reconcile all remote changes before modifying the viewer.
 - [x] Remove the consecutive-portrait pairing exception from Strip and Vertical Scroll.
 - [x] Make Vertical Scroll fit landscapes to viewport width and portraits to visible viewport height, with unchanged native aspect ratios.
-- [x] Change navigation arrows to make continuous advances of exactly one viewport width.
+- [x] Change navigation arrows to make continuous advances of at most one stage width, stopping sooner to dock the next frame.
 - [x] Verify image fidelity, complementary viewing-mode geometry, and arrow movement; commit logical batches and deploy.

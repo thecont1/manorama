@@ -235,7 +235,7 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 
 - The iOS keyboard will cover half-height sheets (Add, Name, Caption). They must resize or scroll with it.
 - Animating the curtain's backdrop blur can stutter on older iPhones. Fall back to a plain dark scrim with an opacity fade if frame time suffers (`native/lib/fps-probe.ts` measures it).
-- ~~`todo.md` line 42 says arrows advance "slightly shorter than the viewport width". The code advances one full width. Correct the line.~~ *(done 28 Oct 2026 — the line now reads exactly one viewport width)*
+- ~~`todo.md` line 42 says arrows advance "slightly shorter than the viewport width". The code advances one full width. Correct the line.~~ *(done 28 Oct 2026 — the line now reads "at most one stage width, stopping sooner to dock the next frame", matching the `Math.min` clamp in `advanceStripByViewport`)*
 - The prototype's photographs are low-resolution crops of iPhone screenshots, with declared dimensions scaled up by 4 to stand in for originals. Do not copy the scaling into production.
 - Ads: the AdMob provider must stay unwired until it can render without covering photographs; the Library slot does not change that.
 - Hash routing in the prototype is a stand-in. Use the app's real router.
