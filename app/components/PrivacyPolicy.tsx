@@ -4,9 +4,12 @@ import type { PrivacyInline } from '../../packages/core/privacy-policy'
 /**
  * The shared privacy-policy renderer. It is the document body only — the
  * surrounding chrome (page shell, native Back header) belongs to each
- * platform's view. Content comes from `PRIVACY_POLICY`, which transcribes
- * `app/routes/privacy.tsx` verbatim, so every section, link, and the
- * effective date render identically everywhere.
+ * platform's view. Content comes from `PRIVACY_POLICY`, so every section,
+ * link, and the effective date render identically everywhere.
+ *
+ * `PRIVACY_POLICY` lives in `packages/core/privacy-policy.ts` — that file
+ * is the single source of the wording, and both platforms render it
+ * through this component.
  *
  * Platform seams stay as optional callbacks:
  * - Without `onOpenExternal`, links are plain anchors (the web behavior).

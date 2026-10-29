@@ -94,6 +94,10 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
 
   const sectionRef = useRef<HTMLElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Settling reads must be synchronous: a back press between setSettling and
+  // the rerender would otherwise slip past both close guards.
+  const settlingRef = useRef(false)
+  const settleTimerRef = useRef<number | undefined>(undefined)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const onSavedRef = useRef(onSaved)
@@ -154,7 +158,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
    *  overlay stack) and the shell's Android back. Unsaved edits open the
    *  confirmation instead of closing. */
   const requestClose = () => {
-    if (confirmRef.current) return
+    if (confirmRef.current || settlingRef.current) return
     if (dirtyRef.current) setConfirmOpen(true)
     else onCloseRef.current()
   }
@@ -164,13 +168,17 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   /** The dirty guard the shell asks on Android back. True means the back press
    *  belongs to the editor and must be swallowed. */
   useEffect(() => installReorderCloseGuard(() => {
-    if (confirmRef.current) return true
+    if (confirmRef.current || settlingRef.current) return true
     if (dirtyRef.current) {
       setConfirmOpen(true)
       return true
     }
     return false
   }), [])
+
+  // The settle timer outlives a render; clear it if the editor unmounts first
+  // so a delayed onClose cannot fire after teardown.
+  useEffect(() => () => window.clearTimeout(settleTimerRef.current), [])
 
   /** The editor is itself a modal: focus lands on it, Tab is trapped inside
    *  by the overlay stack, and Escape goes through the same dirty guard. */
@@ -246,11 +254,15 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   const reset = () => {
     const current = sessionRef.current
     if (!current || busy || settling) return
+    settlingRef.current = true
     setSettling(true)
     setSession(discardReorder(current))
     setDropTarget(null)
     setNote('Back to the saved order.')
-    window.setTimeout(() => onCloseRef.current(), SETTLE_MS)
+    settleTimerRef.current = window.setTimeout(() => {
+      settlingRef.current = false
+      onCloseRef.current()
+    }, SETTLE_MS)
   }
 
   const layout = useMemo(() => {
@@ -298,6 +310,16 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     const movedAt = next.items.findIndex((item) => item.id === current.heldId)
     const moved = next.items[movedAt]
     if (moved) setNote(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`)
+    // Keep the held photograph visible and focused: the destination row can
+    // sit outside the mounted window, and a remounting row drops focus.
+    const nextLayout = layoutPhotoRows(next.items, viewport.width, rowHeight)
+    const targetRow = nextLayout.rows.find((row) => row.cells.some((cell) => cell.item.id === current.heldId))
+    requestAnimationFrame(() => {
+      if (targetRow && scrollRef.current) scrollRef.current.scrollTop = targetRow.top
+      requestAnimationFrame(() => {
+        sectionRef.current?.querySelector<HTMLElement>(`[data-photo="${current.heldId}"]`)?.focus({ preventScroll: true })
+      })
+    })
   }
 
   const dragStart = (photo: EditorPhoto) => (event: DragEvent) => {

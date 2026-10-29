@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   AUTH_PROVIDERS,
+  canRetainAnotherGallery,
   countRetainedGalleries,
   FREE_RETAINED_LIMIT,
   FREE_RETENTION_DISCLOSURE,
@@ -132,10 +133,16 @@ describe('retained-gallery caps', () => {
   })
 
   test('canRetainAnotherGallery agrees with nextGalleryRetentionFor', () => {
-    expect(nextGalleryRetentionFor('free', 2).allowed).toBe(true)
-    expect(nextGalleryRetentionFor('free', 3).allowed).toBe(true)
-    expect(nextGalleryRetentionFor('pro', 98).allowed).toBe(true)
-    expect(nextGalleryRetentionFor('pro', 99).allowed).toBe(false)
+    for (const tier of ['free', 'pro'] as const) {
+      for (const retained of [0, 1, 2, 3, 50, 98, 99, 100, 101]) {
+        const next = nextGalleryRetentionFor(tier, retained)
+        expect(canRetainAnotherGallery(tier, retained)).toBe(next.allowed && next.retention === 'retained')
+      }
+    }
+    // A free account past its retained limit can still add — the gallery
+    // becomes pipeline, which is not a retained slot.
+    expect(nextGalleryRetentionFor('free', FREE_RETAINED_LIMIT)).toEqual({ allowed: true, retention: 'pipeline' })
+    expect(canRetainAnotherGallery('free', FREE_RETAINED_LIMIT)).toBe(false)
   })
 
   test('countRetainedGalleries treats missing retention as retained', () => {

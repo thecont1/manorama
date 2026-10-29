@@ -165,7 +165,10 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
         setRowHeight(measuredHeight)
         return
       }
-      const viewport = rail.clientWidth || layout.totalWidth
+      // Before layout the rail measures zero; falling back to totalWidth
+      // would mount every cell. Bound the overscan to the device width until
+      // a real measurement arrives.
+      const viewport = rail.clientWidth || window.innerWidth
       const left = rail.scrollLeft
       const start = Math.max(0, firstOffsetAt(layout.offsets, left - viewport))
       const end = Math.min(images.length - 1, firstOffsetAt(layout.offsets, left + viewport * 2))

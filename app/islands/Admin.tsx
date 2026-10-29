@@ -617,7 +617,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         return
       }
       if (!response.ok || !payload.gallery) {
-        if (response.status === 403) { setAddError(payload.error || 'That gallery could not be added'); return }
+        if (response.status === 403) { announce(''); setAddError(payload.error || 'That gallery could not be added'); return }
         throw new Error(payload.error || 'That gallery could not be added')
       }
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
@@ -627,6 +627,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       scrollToGalleryCard(payload.gallery.slug)
       announce('Done! ' + payload.gallery.title + ' is at the top.')
     } catch (error) {
+      announce('')
       setAddError(friendlySourceError(error))
     } finally {
       setBusy(false)

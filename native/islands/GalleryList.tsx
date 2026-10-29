@@ -378,7 +378,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setQuickAddBusy(false)
         setAccountRevision((revision) => revision + 1)
       })
-  }, [base, pendingQuickAdd, signedIn])
+  }, [base, pendingQuickAdd, quickAddBusy, signedIn])
 
   useEffect(() => {
     if (!selection.owner || !selection.slug || loadPolicy === null || galleryPolicies === null) return
@@ -1433,7 +1433,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       globalViewEnabled={globalViewEnabled}
       globalViewBusy={globalViewSaving}
       onGlobalView={(enabled) => { void changeGlobalView(enabled) }}
-      onOpenPicker={() => setGlobalViewOpen(true)}
+      onOpenPicker={() => { dispatchNav({ type: 'back' }); setGlobalViewOpen(true) }}
       deviceGalleries={standaloneDeviceGalleries}
       onOpenDeviceGallery={(gallery) => {
         if (gallery.publicGallerySlug && ownerSlug) enterGallery({ owner: ownerSlug, slug: gallery.publicGallerySlug })

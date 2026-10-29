@@ -163,6 +163,7 @@ export default function LocalGalleryDetails({
         dismissible={!locked}
       >
         <p>This removes only the catalogue entry for “{record.title}”. The original files on the memory card or folder are untouched.</p>
+        {note ? <p class="m-note" role="alert">{note}</p> : null}
         <div class="m-form-inline">
           <Button variant="destructive" disabled={locked} onClick={() => void remove()}>
             {busy === 'remove' ? 'Removing…' : 'Remove from Library'}

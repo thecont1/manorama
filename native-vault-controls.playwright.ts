@@ -124,6 +124,20 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // orderKeys (ref ?? filename ?? id), which is what the recorded PATCH
     // must match.
     const orderBefore = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
+    // The PATCH writes the whole session order but the editor only mounts a
+    // window; walk the scroll container to collect every order key.
+    const orderAll: (string | null)[] = [...orderBefore]
+    const scroller = editor.locator('[data-editor-scroll]')
+    for (let guard = 0; guard < 40; guard += 1) {
+      const collected = orderAll.length
+      await scroller.evaluate((node) => { node.scrollTop += node.clientHeight })
+      await page.waitForTimeout(120)
+      const mounted = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
+      for (const key of mounted) if (!orderAll.includes(key)) orderAll.push(key)
+      if (orderAll.length === collected) break
+    }
+    await scroller.evaluate((node) => { node.scrollTop = 0 })
+    await expect(cells.first()).toBeVisible()
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-editor.png`, fullPage: false })
     await cells.nth(cellCount - 1).click()
     await expect(cells.nth(cellCount - 1)).toHaveClass(/is-active/)
@@ -142,10 +156,10 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     }).__capturePatch ?? [])
     const lastWrite = saved.at(-1)
     expect(lastWrite?.url).toContain('/api/galleries/')
-    expect(lastWrite?.body.order).toHaveLength(22)
-    expect(new Set(lastWrite?.body.order).size).toBe(22)
-    expect(lastWrite?.body.order?.[0]).toBe(orderBefore[cellCount - 1])
-    for (const key of orderBefore) expect(lastWrite?.body.order).toContain(key)
+    // The click-tap move lifted the last mounted cell to position 1; assert
+    // the complete saved sequence, not just its membership.
+    const heldKey = orderBefore[cellCount - 1]
+    expect(lastWrite?.body.order).toEqual([heldKey, ...orderAll.filter((key) => key !== heldKey)])
     await editor.locator('[aria-label="Close the editor"]').click()
     await expect(editor).toHaveCount(0)
 

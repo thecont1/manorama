@@ -1,9 +1,8 @@
 /**
  * The privacy policy as platform-free structured data. This is the single
- * source the web and native renderers share; `app/routes/privacy.tsx`
- * remains the source of truth for the wording, and this file transcribes it
- * verbatim — no invented text, no rephrasing. When the policy changes, edit
- * the route first and mirror the wording here.
+ * source of the policy wording. The web route (`app/routes/privacy.tsx`) and
+ * the native Privacy view both render it through `PrivacyPolicy`. When the
+ * policy changes, edit the wording here and update the `updated` value.
  */
 
 export type PrivacyInline =

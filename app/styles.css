@@ -808,6 +808,12 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .admin-page--selector .admin-gallery-strip-frame { width: 100%; margin-left: 0; }
 }
 
+/* The selector card is narrower than the viewport below 820px too: the
+   100vw bleed pushes the strip past the card's right edge there. */
+@media (max-width: 819.98px) {
+  .admin-page--selector .admin-gallery-strip-frame { width: 100%; margin-left: 0; }
+}
+
 /* The card no longer has a numbered index column. */
 .admin-gallery-card { grid-template-columns: minmax(0, 1fr) auto; }
 .admin-gallery-card-body { grid-column: 1; }
