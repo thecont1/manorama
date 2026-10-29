@@ -56,7 +56,7 @@ test('one-finger and two-finger touch pan without starting a reorder', async ({ 
   }
 })
 
-test('a stationary long-press arms touch reordering and saves on release', async ({ browser }) => {
+test('a stationary long-press on the preview strip does not reorder or save', async ({ browser }) => {
   const { context, page, card } = await openAdmin(browser, true)
   try {
     const frame = card.locator('.admin-gallery-strip-frame')
@@ -64,19 +64,15 @@ test('a stationary long-press arms touch reordering and saves on release', async
     const items = card.locator('.admin-gallery-strip-item')
     const before = await ids(card)
     const from = (await items.nth(1).boundingBox())!
-    const to = (await items.nth(0).boundingBox())!
     const start = { x: from.x + from.width / 2, y: from.y + from.height / 2 }
-    const target = { x: to.x + to.width / 2, y: to.y + to.height / 2 }
     const writes: string[] = []
     page.on('request', (request) => { if (request.method() === 'PATCH') writes.push(request.url()) })
     await items.nth(1).dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: start.x, clientY: start.y })
     await page.waitForTimeout(420)
-    await expect(items.nth(1)).toHaveClass(/is-reordering/)
-    await items.nth(1).dispatchEvent('pointermove', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: -100, clientY: target.y })
-    await expect.poll(() => ids(card)).not.toEqual(before)
-    await items.nth(1).dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: -100, clientY: target.y })
-    await expect.poll(() => writes.length).toBe(1)
-    await expect.poll(() => ids(card)).not.toEqual(before)
+    await expect(card.locator('.is-reordering')).toHaveCount(0)
+    await items.nth(1).dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: start.x, clientY: start.y })
+    expect(writes).toEqual([])
+    expect(await ids(card)).toEqual(before)
   } finally {
     await context.close()
   }

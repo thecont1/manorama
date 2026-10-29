@@ -18,7 +18,6 @@ Conventions
   - Unit: `bun run test:unit` (never bare `bun test`; it dies `EMFILE` on the worktrees)
   - Acceptance: `GALLERY_URL=http://localhost:5173 GALLERY_VIDEO_SLUG=mixed-album bunx playwright test` against `bun run dev`, with the `MANORAMA_DEV_SOURCE_*` variables set
   - Native specs: `native/ads.playwright.ts`, `native/global-view.playwright.ts`
-  - Contract drift: `bun run vendo:check` (Vendo is disabled, but the check is part of the verification list)
 - Screenshot parity: for each screen, capture the real build at 390 x 844 and compare it side by side with the prototype at the same size. Keep the pairs in `docs/redesign-parity/`.
 
 ## Stage 0: Recon and decisions (S)

@@ -657,6 +657,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // stays in the pan range for the ride so the strip travels back through
   // it smoothly; it disarms on landing, not at the click.
   const rewind = () => {
+    pendingEntryRef.current = null
     const disarmEndcap = () => {
       endcapRevealedRef.current = false
       setEndcapRevealed(false)
@@ -804,6 +805,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const destination = clamp(target, -bounds.max, 0)
     if (instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       renderX(destination, false)
+      // An instant dock is a landing, not a trip. A destination still in
+      // flight now resolves to where the strip actually sits, so the next
+      // viewport-page action measures from the re-docked position instead
+      // of the target the re-dock just abandoned.
+      if (navDestXRef.current !== null) navDestXRef.current = destination
       if (reportOnComplete) reportStripPosition()
       return
     }
@@ -851,6 +857,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   const goTo = (nextIndex: number, instant = false) => {
     const next = clamp(nextIndex, 0, images.length - 1)
+    // A later navigation retires the entry anchor. The entry call itself
+    // passes the pending target and must keep it.
+    if (pendingEntryRef.current !== null && pendingEntryRef.current !== next) pendingEntryRef.current = null
     cancelPositionReport()
     reportedIndexRef.current = next
     explicitIndexRef.current = next
@@ -935,6 +944,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }
 
   const advanceStripByViewport = (direction: -1 | 1) => {
+    pendingEntryRef.current = null
     if (foldActiveRef.current) { step(direction); return }
     if (mode !== 'strip') { step(direction); return }
     // Viewport paging is gesture-like: no single frame was requested,
@@ -1130,14 +1140,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     stageMeasurementsRef.current = measured
     setStageSize((previous) => previous.width === measured.width && previous.height === measured.height && previous.dpr === measured.dpr ? previous : measured)
     boundsDirtyRef.current = true
-    if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
+    if (modeRef.current === 'strip' && !foldActiveRef.current) {
+      const anchor = pendingEntryRef.current ?? indexRef.current
+      settleTo(-imageStart(anchor), true)
+    }
   }
 
   // Enter-at-frame: instant and pre-paint, so the curtain dissolves onto the
   // tapped photograph rather than the strip travelling to it in view.
   const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
-  // While the entry is re-anchoring, the index belongs to the target —
-  // position reports must not commit a frame inferred from stale offsets.
+  // While the entry is the active destination, a late decode or stage-metric
+  // change re-docks that frame. A frame-count heuristic retired too early and
+  // let a slow decode drift a nonzero initialIndex / ?photo= entry.
   const pendingEntryRef = useRef<number | null>(null)
   useLayoutEffect(() => {
     if (entryFrameRef.current === null) return
@@ -1145,33 +1159,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     entryFrameRef.current = null
     pendingEntryRef.current = target
     goTo(target, true)
-    // Frames are still at placeholder sizes when the entry anchors: as
-    // real images decode, offsets reflow and the stored X would sit over a
-    // different photograph. Keep the strip glued to the target frame until
-    // its offset repeats — then hand position reporting back.
-    let lastStart = Number.NaN
-    let stableFor = 0
-    let elapsed = 0
-    let frame = 0
-    const reseed = () => {
-      const pending = pendingEntryRef.current
-      if (pending === null) return
-      const start = imageStart(pending)
-      settleTo(-start, true)
-      stableFor = start === lastStart ? stableFor + 1 : 0
-      lastStart = start
-      elapsed += 1
-      if (stableFor >= 3 || elapsed > 150) {
-        pendingEntryRef.current = null
-        return
-      }
-      frame = requestAnimationFrame(reseed)
-    }
-    frame = requestAnimationFrame(reseed)
-    return () => {
-      cancelAnimationFrame(frame)
-      pendingEntryRef.current = null
-    }
+    return () => { pendingEntryRef.current = null }
   }, [])
 
   useLayoutEffect(() => {
@@ -1208,7 +1196,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     boundsDirtyRef.current = true
     if (modeRef.current !== 'strip' || foldActiveRef.current) return
-    const frame = requestAnimationFrame(() => settleTo(-imageStart(indexRef.current), true, true))
+    const frame = requestAnimationFrame(() => {
+      const anchor = pendingEntryRef.current ?? indexRef.current
+      settleTo(-imageStart(anchor), true, pendingEntryRef.current === null)
+    })
     return () => cancelAnimationFrame(frame)
   }, [stageSize, foldActive])
 
@@ -2422,6 +2413,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                             // stage's left edge.
                             boundsDirtyRef.current = true
                             requestAnimationFrame(() => {
+                              // A decode width change is the reflow the entry
+                              // anchor follows. Re-dock before any shift-carry
+                              // that assumes the heuristic has already retired.
+                              if (pendingEntryRef.current !== null) {
+                                settleTo(-imageStart(pendingEntryRef.current), true)
+                                return
+                              }
                               const delta = frame.offsetWidth - oldWidth
                               if (delta !== 0 && momentumRef.current !== null && navDestXRef.current !== null && frame.offsetLeft < -navDestXRef.current) {
                                 navDestXRef.current -= delta
@@ -2438,11 +2436,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                               // gliding alike. A frame still ahead of the
                               // edge shifts nothing held.
                               if (delta === 0 || frame.offsetLeft >= -currentXRef.current) return
-                              // While the entry re-anchors, this report would
-                              // retire pendingEntryRef before the reseed loop's
-                              // offset stabilizes; the reseed itself keeps the
-                              // strip glued to the target every frame.
-                              if (pendingEntryRef.current !== null) return
                               renderX(currentXRef.current - delta)
                               if (draggingRef.current) dragTargetXRef.current -= delta
                             })

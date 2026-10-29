@@ -13,6 +13,7 @@ import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
+import { WebReorderView } from '../components/WebReorderView'
 import { copyText } from '../lib/gallery-share'
 
 type Props = {
@@ -27,17 +28,6 @@ type Props = {
 type EditableField = 'title' | 'caption' | 'slug'
 type Editing = { slug: string; field: EditableField } | null
 type ReorderableGalleryImage = GallerySummary['images'][number]
-type GalleryDrag = {
-  slug: string
-  pointerId: number
-  startX: number
-  startY: number
-  startIndex: number
-  currentIndex: number
-  images: GallerySummary['images']
-  activated: boolean
-  longPressTimer: ReturnType<typeof setTimeout> | null
-}
 type AccountIdentity = AccountIdentityWeb
 
 const SIGN_IN_METHODS: readonly { provider: AuthProvider; name: string }[] = [
@@ -108,8 +98,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [addName, setAddName] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
-  const [finePointer, setFinePointer] = useState(true)
+  const [reorderSlug, setReorderSlug] = useState<string | null>(null)
+  // A failed draft save stays visible inside the reorder overlay instead of
+  // only in the toast behind it.
+  const [reorderNote, setReorderNote] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
@@ -156,14 +148,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
-  }, [])
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia('(any-pointer: fine)')
-    const update = () => setFinePointer(query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
   }, [])
 
   const refreshIdentities = async () => {
@@ -332,7 +316,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // `?details=<slug>&photo=<id>` navigation needs no push — Back from there
   // falls through to the viewer page itself.
   const initialDetailsRef = useRef<string | null>(null)
-  const pendingReorderFocusRef = useRef<string | null>(null)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const slug = params.get('details')
@@ -356,17 +339,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         setDetailsSlug(null)
         setSettingsOpen(false)
         setShareOpen(false)
-      }
-      if (pendingReorderFocusRef.current) {
-        const slug = pendingReorderFocusRef.current
-        pendingReorderFocusRef.current = null
-        requestAnimationFrame(() => {
-          scrollToGalleryCard(slug)
-          requestAnimationFrame(() => {
-            const first = document.querySelector<HTMLElement>(`[data-gallery-card="${slug}"] .admin-gallery-strip-item`)
-            first?.focus()
-          })
-        })
       }
     }
     window.addEventListener('popstate', onPop)
@@ -401,7 +373,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
-  const galleryDrag = useRef<GalleryDrag | null>(null)
   const saveEditingInFlight = useRef(false)
 
   const galleryPath = (slug: string) => `/${owner}/${slug}`
@@ -443,9 +414,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
-  const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']) => {
-    if (blockPipelineEdit(gallery)) return
-    if (busy) return
+  // Resolves to the failure message so the open reorder view can show it
+  // beside its status line; null means the order was saved.
+  const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']): Promise<string | null> => {
+    if (blockPipelineEdit(gallery)) return PIPELINE_LOCK_MESSAGE
+    if (busy) return 'Still saving — try again in a moment.'
     setBusy(true)
     announce('Saving order…', true)
     try {
@@ -458,108 +431,29 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
       setGalleries((previous) => sortRecent(previous.map((item) => item.slug === payload.gallery!.slug ? payload.gallery! : item)))
       announce('Order saved')
+      return null
     } catch (error) {
       setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? gallery : item))
-      announce(error instanceof Error ? error.message : 'That order could not be saved')
+      const message = error instanceof Error ? error.message : 'That order could not be saved'
+      announce(message)
+      return message
     } finally {
       setBusy(false)
     }
   }
 
-  const reorderGallery = (gallery: GallerySummary, from: number, to: number) => {
-    if (blockPipelineEdit(gallery)) return
-    if (from === to || to < 0 || to >= gallery.images.length || busy) return
-    const images = [...gallery.images]
-    const [moved] = images.splice(from, 1)
-    if (!moved) return
-    images.splice(to, 0, moved)
-    setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? { ...item, images } : item))
-    void persistGalleryOrder(gallery, images)
-  }
-
-  const cancelPendingGalleryDrag = () => {
-    if (galleryDrag.current?.longPressTimer) clearTimeout(galleryDrag.current.longPressTimer)
-    galleryDrag.current = null
-  }
-
-  const startGalleryDrag = (gallery: GallerySummary, index: number, event: PointerEvent) => {
-    if (blockPipelineEdit(gallery)) { event.preventDefault(); return }
-    if (busy) return
-    // Fine pointers use native HTML5 drag and drop. Touch starts with an
-    // ordinary scroll; only a stationary long-press arms reordering.
-    if (event.pointerType !== 'touch') return
-    if (!event.isPrimary || activeTouchPointers.current.size > 1) {
-      cancelPendingGalleryDrag()
+  const saveDraftOrder = async (gallery: GallerySummary, orderKeys: readonly string[]) => {
+    const byKey = new Map(gallery.images.map((image) => [image.ref ?? image.filename, image]))
+    const images = orderKeys.map((key) => byKey.get(key)).filter((image): image is GallerySummary['images'][number] => image !== undefined)
+    if (images.length !== gallery.images.length) {
+      setReorderNote('That order could not be saved')
+      announce('That order could not be saved')
       return
     }
-    const item = event.currentTarget as HTMLElement
-    const drag: GalleryDrag = {
-      slug: gallery.slug,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startIndex: index,
-      currentIndex: index,
-      images: [...gallery.images],
-      activated: false,
-      longPressTimer: null,
-    }
-    drag.longPressTimer = setTimeout(() => {
-      if (galleryDrag.current !== drag || activeTouchPointers.current.size > 1) return
-      drag.activated = true
-      try { item.setPointerCapture(event.pointerId) } catch {}
-      item.classList.add('is-reordering')
-    }, 350)
-    galleryDrag.current = drag
-  }
-
-  const moveGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
-    const drag = galleryDrag.current
-    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
-    if (blockPipelineEdit(gallery)) return
-    if (!drag.activated) {
-      if (Math.max(Math.abs(event.clientX - drag.startX), Math.abs(event.clientY - drag.startY)) > 6) cancelPendingGalleryDrag()
-      return
-    }
-    const strip = (event.currentTarget as HTMLElement).parentElement
-    if (!strip) return
-    const items = Array.from(strip.children) as HTMLElement[]
-    if (items.length < 2 || Math.max(Math.abs(event.clientX - drag.startX), Math.abs(event.clientY - drag.startY)) < 8) return
-    let target = items.findIndex((item) => {
-      const rect = item.getBoundingClientRect()
-      return event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
-    })
-    if (target < 0) {
-      target = items.reduce((closest, item, itemIndex) => {
-        const rect = item.getBoundingClientRect()
-        const distance = Math.abs(event.clientX - (rect.left + rect.width / 2))
-        const closestRect = items[closest]!.getBoundingClientRect()
-        return distance < Math.abs(event.clientX - (closestRect.left + closestRect.width / 2)) ? itemIndex : closest
-      }, 0)
-    }
-    if (target === drag.currentIndex) return
-    const images = [...drag.images]
-    const [moved] = images.splice(drag.currentIndex, 1)
-    if (!moved) return
-    images.splice(target, 0, moved)
-    drag.images = images
-    drag.currentIndex = target
-    setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? { ...item, images } : item))
-    event.preventDefault()
-  }
-
-  const finishGalleryDrag = (gallery: GallerySummary, event: PointerEvent) => {
-    const drag = galleryDrag.current
-    if (!drag || drag.slug !== gallery.slug || drag.pointerId !== event.pointerId) return
-    if (drag.longPressTimer) clearTimeout(drag.longPressTimer)
-    ;(event.currentTarget as HTMLElement).classList.remove('is-reordering')
-    galleryDrag.current = null
-    if (!drag.activated || blockPipelineEdit(gallery)) return
-    if (event.type === 'pointercancel') {
-      setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? gallery : item))
-      return
-    }
-    if (drag.currentIndex !== drag.startIndex) void persistGalleryOrder(gallery, drag.images)
+    const failure = await persistGalleryOrder(gallery, images)
+    if (failure) { setReorderNote(failure); return }
+    setReorderNote(null)
+    setReorderSlug(null)
   }
 
   const trackTouchPointer = (event: PointerEvent) => {
@@ -569,7 +463,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const startStripPan = (event: PointerEvent) => {
     if (event.pointerType === 'touch') {
       if (activeTouchPointers.current.size < 2) return
-      cancelPendingGalleryDrag()
     } else if (event.target !== event.currentTarget) {
       return
     }
@@ -842,7 +735,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const reorderFromDetails = (gallery: GallerySummary) => {
-    pendingReorderFocusRef.current = gallery.slug
+    if (blockPipelineEdit(gallery)) return
+    setReorderNote(null)
+    setReorderSlug(gallery.slug)
     closeDetails()
   }
 
@@ -938,7 +833,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         </span>
         <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
         <p class="admin-profile-address">manorama.xyz/{owner}</p>
-        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Pro' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
+        <p class="admin-welcome-note">Hello, {ownerName || owner}. Welcome to manorama.xyz. You are a {tier === 'pro' ? 'Visionary' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
       </section>
       <section class="admin-add-gallery" aria-labelledby="add-heading">
         <div class="gallery-selector-heading"><h2 id="add-heading">Add a gallery</h2></div>
@@ -960,8 +855,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div> : null}
           <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
           <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
-            <div class="admin-gallery-strip" role="list" aria-label={`Reorder ${gallery.title} images`}>
-              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} draggable={!isLocked(gallery) && finePointer} aria-disabled={isLocked(gallery) ? 'true' : undefined} onDragStart={(event: DragEvent) => { if (blockPipelineEdit(gallery)) { event.preventDefault(); return } setDraggedIndex(imageIndex); event.dataTransfer?.setData('text/plain', image.id); if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move' }} onDragOver={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move' }} onDrop={(event: DragEvent) => { if (isLocked(gallery)) return; event.preventDefault(); if (draggedIndex !== null) reorderGallery(gallery, draggedIndex, imageIndex); setDraggedIndex(null) }} onDragEnd={() => setDraggedIndex(null)} onPointerDown={(event) => startGalleryDrag(gallery, imageIndex, event)} onPointerMove={(event) => moveGalleryDrag(gallery, event)} onPointerUp={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} onPointerCancel={(event) => { finishGalleryDrag(gallery, event); finishStripPan(event) }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'ArrowLeft') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex - 1) } if (event.key === 'ArrowRight') { event.preventDefault(); reorderGallery(gallery, imageIndex, imageIndex + 1) } }} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
+            <div class="admin-gallery-strip" role="list" aria-label={`${gallery.title} photographs`}>
+              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                 <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                 {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
               </figure>)}
@@ -1064,6 +959,27 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           ) : null}
         </>
       ) : null}
+      {(() => {
+        const reorderGallery = reorderSlug ? galleries.find((item) => item.slug === reorderSlug) : undefined
+        if (!reorderGallery) return null
+        return (
+          <WebReorderView
+            title={reorderGallery.title}
+            busy={busy}
+            note={reorderNote}
+            images={reorderGallery.images.map((image) => ({
+              id: image.id,
+              orderKey: image.ref ?? image.filename,
+              width: image.width,
+              height: image.height,
+              src: imagePreview(image),
+              label: image.filename,
+            }))}
+            onCancel={() => { setReorderNote(null); setReorderSlug(null) }}
+            onSave={(orderKeys) => { void saveDraftOrder(reorderGallery, orderKeys) }}
+          />
+        )
+      })()}
     </>
   )
 }

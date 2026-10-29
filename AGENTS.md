@@ -104,7 +104,6 @@ bunx tsc --noEmit            # typecheck — must be clean
 bun run test:unit            # unit tests — 1050 passing at time of writing
 bun run build                # client + worker production build
 bunx playwright test         # acceptance suite; needs a seeded dev server
-bun run vendo:check          # contract drift
 ```
 
 `bun test` does **not** work from the repository root in this checkout. The git worktrees

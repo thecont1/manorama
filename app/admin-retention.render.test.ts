@@ -120,7 +120,8 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-menu-bars')
     expect(html).not.toContain('admin-gallery-editor-label')
     expect(html).not.toContain('Photo Editor')
-    expect(html).toContain('aria-label="Reorder Locked images"')
+    expect(html).toContain('aria-label="Locked photographs"')
+    expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
 
   test('welcome and import share the top level with galleries below both', async () => {
@@ -143,9 +144,10 @@ describe('the dashboard renders retention state', () => {
     expect(settings).toContain('3 of 3')
 
     const card = cardSection(html, 'locked')
-    expect(card.match(/aria-disabled="true"/g)?.length).toBe(5)
+    expect(card.match(/aria-disabled="true"/g)?.length).toBe(4)
     expect(card.match(/aria-describedby="retention-locked"/g)?.length).toBe(4)
-    expect(card).toMatch(/<figure[^>]*draggable="false"/)
+    expect(card).not.toMatch(/<figure[^>]*draggable/)
+    expect(card).toContain('draggable="false"')
     expect(card).toContain(`id="retention-locked"`)
     expect(card).toContain('Temporary ·')
     expect(card).toContain('days left')
@@ -165,7 +167,8 @@ describe('the dashboard renders retention state', () => {
     const html = await renderDashboard(seedPipelineOwner)
     const card = cardSection(html, 'kept-0')
     expect(card).not.toContain('aria-disabled')
-    expect(card).toMatch(/<figure[^>]*draggable="true"/)
+    expect(card).not.toMatch(/<figure[^>]*draggable/)
+    expect(card).toContain('draggable="false"')
     expect(card).toContain('aria-label="Delete Kept 0"')
     expect(card).toContain('aria-label="Edit gallery title')
   })
