@@ -27,7 +27,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
         const input = page.getByLabel('Public Dropbox, Google Drive, iCloud, or MEGA link', { exact: true })
         await expect(input).toBeInViewport()
         await input.fill('https://mega.nz/folder/example#preserve-fragment')
-        await page.getByRole('button', { name: 'Manorama-fy it!' }).click()
+        await page.getByRole('button', { name: 'Add gallery', exact: true }).click()
         await expect(page.locator('[data-curtain]')).toBeVisible()
         expect(await page.evaluate(() => (window as unknown as { __captureImport: unknown }).__captureImport)).toEqual({ url: 'https://mega.nz/folder/example#preserve-fragment', quick: true })
       }

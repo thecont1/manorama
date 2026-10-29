@@ -198,11 +198,11 @@ test("curtain uses larger brand type without entry labels", async ({
   ).toHaveCount(0);
   await expect(page.locator("[data-curtain-title]")).toHaveCSS(
     "font-family",
-    /Bricolate Grotesque/i,
+    /Bricolage Grotesque/i,
   );
   await expect(page.locator("[data-curtain-caption]")).toHaveCSS(
     "font-family",
-    /Bricolate Grotesque/i,
+    /Bricolage Grotesque/i,
   );
 });
 
@@ -2396,7 +2396,7 @@ test("owner admin lists galleries without a selector and remains noindex", async
   // page's own h1 is now the galleries heading.
   await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Manorama-fy it!" }),
+    page.getByRole("button", { name: "Add gallery", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".admin-gallery-card").first()).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveCount(0);
@@ -2409,7 +2409,7 @@ test("owner admin lists galleries without a selector and remains noindex", async
   ).toHaveText(/\(\d+ photos\)/);
   await expect(page.locator(".admin-brand-title")).toHaveCSS(
     "font-family",
-    /Bricolate Grotesque/i,
+    /Bricolage Grotesque/i,
   );
   // The tagline's italic lives on the <em> inside .admin-intro.
   await expect(page.locator(".admin-intro em").first()).toHaveCSS(
@@ -2456,29 +2456,38 @@ test("owner admin lists galleries without a selector and remains noindex", async
     firstCard.getByRole("button", { name: /edit gallery slug/i }),
   ).toBeVisible();
 });
-test("admin gallery order persists through the 150px reorder rail", async ({
+test("admin gallery order is a draft until Save", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   const card = page.locator(".admin-gallery-card").first();
   const items = card.locator(".admin-gallery-strip-item");
-  // Item count comes from the seeded album — only ≥2 is required to
-  // prove a reorder.
   expect(await items.count()).toBeGreaterThan(1);
   const firstId = await items.nth(0).getAttribute("data-image-id");
   const secondId = await items.nth(1).getAttribute("data-image-id");
-  await items.nth(1).focus();
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PATCH") writes.push(request.url());
+  });
+  await items.nth(1).focus().catch(() => {});
   await page.keyboard.press("ArrowLeft");
+  expect(writes).toEqual([]);
+  await expect(items.nth(0)).toHaveAttribute("data-image-id", firstId!);
+  await card.getByRole("button", { name: /open details for/i }).click();
+  await page.getByRole("button", { name: "Reorder photographs", exact: true }).click();
+  const reorder = page.locator("[data-screen=\"reorder\"]");
+  await expect(reorder).toBeVisible();
+  await expect(reorder.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await reorder.locator(`[data-image-id="${secondId}"]`).click();
+  await reorder.locator(`[data-image-id="${firstId}"]`).click();
+  expect(writes).toEqual([]);
+  await reorder.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator(".admin-toast")).toHaveText("Order saved", { timeout: 20000 });
-  await expect(
-    card.locator(".admin-gallery-strip-item").nth(0),
-  ).toHaveAttribute("data-image-id", secondId!);
-  await expect(
-    card.locator(".admin-gallery-strip-item").nth(1),
-  ).toHaveAttribute("data-image-id", firstId!);
+  await expect(card.locator(".admin-gallery-strip-item").nth(0)).toHaveAttribute("data-image-id", secondId!);
+  await expect(card.locator(".admin-gallery-strip-item").nth(1)).toHaveAttribute("data-image-id", firstId!);
 });
 
-test("admin gallery images reorder with a real pointer drag", async ({
+test("admin gallery images do not reorder from a pointer drag on the preview strip", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
@@ -2486,43 +2495,27 @@ test("admin gallery images reorder with a real pointer drag", async ({
   const items = card.locator(".admin-gallery-strip-item");
   const firstId = await items.nth(0).getAttribute("data-image-id");
   const secondId = await items.nth(1).getAttribute("data-image-id");
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PATCH") writes.push(request.url());
+  });
   const frame = card.locator(".admin-gallery-strip-frame");
-  await frame.evaluate((element) =>
-    element.scrollIntoView({ block: "center", inline: "nearest" }),
-  );
-  await expect(frame).toBeInViewport();
   await frame.evaluate((element) => {
+    element.scrollIntoView({ block: "center", inline: "nearest" });
     element.scrollLeft = 0;
   });
-  await expect(items.nth(0)).toBeInViewport();
-  await expect(items.nth(1)).toBeInViewport();
-  // Item width comes from the decoded thumbnail's aspect — a lazy provider
-  // thumb that has not arrived yet leaves the figure 0px wide and the drag
-  // lands on the strip container instead of the item.
   await expect(items.nth(0).locator("img")).toHaveClass(/is-loaded/, { timeout: 30000 });
-  await expect(items.nth(1).locator("img")).toHaveClass(/is-loaded/, { timeout: 30000 });
   const sourceBox = await items.nth(1).boundingBox();
   const targetBox = await items.nth(0).boundingBox();
   expect(sourceBox).not.toBeNull();
   expect(targetBox).not.toBeNull();
-  await page.mouse.move(
-    sourceBox!.x + sourceBox!.width / 2,
-    sourceBox!.y + sourceBox!.height / 2,
-  );
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
   await page.mouse.down();
-  await page.mouse.move(
-    targetBox!.x + targetBox!.width / 2,
-    targetBox!.y + targetBox!.height / 2,
-    { steps: 8 },
-  );
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 8 });
   await page.mouse.up();
-  await expect(page.locator(".admin-toast")).toHaveText("Order saved", { timeout: 20000 });
-  await expect(
-    card.locator(".admin-gallery-strip-item").nth(0),
-  ).toHaveAttribute("data-image-id", secondId!);
-  await expect(
-    card.locator(".admin-gallery-strip-item").nth(1),
-  ).toHaveAttribute("data-image-id", firstId!);
+  expect(writes).toEqual([]);
+  await expect(items.nth(0)).toHaveAttribute("data-image-id", firstId!);
+  await expect(items.nth(1)).toHaveAttribute("data-image-id", secondId!);
 });
 
 test("admin gallery strip pans with wheel and touch-style pointer input", async ({
@@ -2825,10 +2818,12 @@ test("Manorama-fication adds a gallery directly without an intermediate preview"
     });
   });
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-  await page
+  await page.locator(".admin-add-gallery button").click();
+  const addDialog = page.getByRole("dialog", { name: "Add gallery", exact: true });
+  await addDialog
     .getByLabel(/public dropbox, google drive, icloud, or mega link/i)
     .fill("https://www.dropbox.com/scl/fo/example");
-  await page.getByRole("button", { name: "Manorama-fy it!" }).click();
+  await addDialog.getByRole("button", { name: "Add gallery", exact: true }).click();
   await expect(page.locator(".admin-toast")).toHaveText(
     "Done! Auto Gallery is at the top.",
   );
@@ -2836,9 +2831,8 @@ test("Manorama-fication adds a gallery directly without an intermediate preview"
     page.locator(".admin-gallery-title", { hasText: "Auto Gallery" }),
   ).toBeVisible();
   await expect(page.locator(".dropbox-scan")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Add gallery" })).toHaveCount(
-    0,
-  );
+  await expect(page.getByRole("dialog", { name: "Add gallery" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add gallery", exact: true })).toHaveCount(1);
 });
 
 
