@@ -209,6 +209,21 @@ const releaseHandoff = (token: string): void => {
   }
 }
 
+/** Provider link callbacks return `?linked=…` or `?link=conflict` on the
+ *  native scheme instead of a sign-in handoff — both end the auth browser. */
+const linkResultFromUrl = (url: string): 'linked' | 'conflict' | null => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'in.thecontrarian.manorama:' || parsed.hostname !== 'auth') return null
+  if (parsed.searchParams.get('link') === 'conflict') return 'conflict'
+  if (parsed.searchParams.has('linked')) return 'linked'
+  return null
+}
+
 const exchangeHandoff = async (url: string, apiBase: string): Promise<boolean> => {
   let parsed: URL
   try {
@@ -257,6 +272,21 @@ export const installNativeAuth = async (
       onGalleryOpen?.(selection)
       return
     }
+    // Provider link callbacks return a result rather than a sign-in handoff:
+    // close the auth browser, refresh on success, surface the conflict.
+    const linkResult = linkResultFromUrl(url)
+    if (linkResult === 'conflict') {
+      void Browser.close().catch(() => undefined)
+      reportError(new Error('That identity is linked to a different account'))
+      return
+    }
+    if (linkResult === 'linked') {
+      void Browser.close().catch(() => undefined)
+      // Same refresh the sign-in handoff performs — a link return can
+      // also arrive from a system browser where no browserFinished fires.
+      if (typeof window !== 'undefined') window.location.reload()
+      return
+    }
     void exchangeHandoff(url, apiBase)
       .then((handled) => {
         if (handled && typeof window !== 'undefined') window.location.reload()
@@ -271,6 +301,7 @@ export const installNativeAuth = async (
 
 export const __private__ = {
   exchangeHandoff,
+  linkResultFromUrl,
   /** Clears the in-memory claim set so tests can simulate a page reload,
    *  which wipes module state but preserves sessionStorage. */
   resetHandledHandoffs: () => handledHandoffs.clear(),

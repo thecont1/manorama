@@ -129,6 +129,15 @@ describe('native OAuth callback', () => {
     expect(url.searchParams.get('handoff')).toBe('abc')
   })
 
+  test('recognises provider link results on the native callback', () => {
+    expect(__private__.linkResultFromUrl(`${NATIVE_CALLBACK_URL}?linked=dropbox`)).toBe('linked')
+    expect(__private__.linkResultFromUrl(`${NATIVE_CALLBACK_URL}?link=conflict`)).toBe('conflict')
+    // A sign-in handoff is not a link result, and neither is a web URL.
+    expect(__private__.linkResultFromUrl(`${NATIVE_CALLBACK_URL}?handoff=abc`)).toBeNull()
+    expect(__private__.linkResultFromUrl('https://manorama.xyz/?linked=dropbox')).toBeNull()
+    expect(__private__.linkResultFromUrl('not a url')).toBeNull()
+  })
+
   test('ignores unrelated deep links before making a request', async () => {
     const fetcher = globalThis.fetch
     let called = false
