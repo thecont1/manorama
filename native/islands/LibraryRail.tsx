@@ -204,14 +204,24 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
     // The gate is constructed first so a callback can close over the cell
     // observer, and tests can tell the two apart by construction order.
     let observer!: IntersectionObserver
+    // Cell entries already queued when the rail leaves would land after the
+    // exit clears the set and reacquire media offscreen. The gate flag drops
+    // whatever is still in flight; takeRecords() empties the queue it can.
+    let gateOpen = false
     const gate = new IntersectionObserver((entries) => {
       // Batches arrive oldest-first — the last entry is the rail's state
       // now, so a rapid exit-and-return re-watches its cells.
-      if (entries.at(-1)?.isIntersecting) for (const cell of cells) observer.observe(cell)
-      else { observer.disconnect(); setVisible(new Set()) }
+      gateOpen = Boolean(entries.at(-1)?.isIntersecting)
+      if (gateOpen) for (const cell of cells) observer.observe(cell)
+      else {
+        observer.takeRecords()
+        observer.disconnect()
+        setVisible(new Set())
+      }
     })
     observer = new IntersectionObserver(
       (entries) => {
+        if (!gateOpen) return
         setVisible((previous) => {
           let next: Set<number> | undefined
           for (const entry of entries) {

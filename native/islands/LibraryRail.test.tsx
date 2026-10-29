@@ -224,6 +224,10 @@ describe('LibraryRail', () => {
       observe(el: unknown) { this.targets.add(el) }
       unobserve(el: unknown) { this.targets.delete(el) }
       disconnect() { this.targets.clear() }
+      takeRecords() { return [] }
+      emit(entries: unknown[]) {
+        this.callback(entries as IntersectionObserverEntry[], this as unknown as IntersectionObserver)
+      }
       fire(visible: unknown[]) {
         const entries = [...this.targets].map((target) => ({
           target,
@@ -268,9 +272,12 @@ describe('LibraryRail', () => {
     await settle()
     expect(recorded.releases).toBe(1)
     expect(cellObserver!.targets.size).toBe(0)
-    cellObserver!.fire([cells[0], cells[2]])
+    // Entries queued while the rail was leaving are delivered anyway — the
+    // closed gate must drop them instead of re-marking cells visible.
+    cellObserver!.emit(cells.map((target) => ({ target, isIntersecting: true })))
     await settle()
     expect(recorded.cells).toHaveLength(1)
+    expect(recorded.releases).toBe(1)
 
     // Coming back re-watches, and a later cell intersection acquires again.
     pageGate!.fire([rail])
@@ -343,6 +350,7 @@ describe('LibraryRail', () => {
       observe(el: unknown) { this.targets.add(el) }
       unobserve(el: unknown) { this.targets.delete(el) }
       disconnect() { this.targets.clear() }
+      takeRecords() { return [] }
       fireBatch(entries: Array<{ target: unknown; isIntersecting: boolean }>) {
         this.callback(entries as IntersectionObserverEntry[], this as unknown as IntersectionObserver)
       }
