@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
+import { applyTheme, readStoredTheme, storeTheme, themeControlLabel, oppositeTheme, type Theme } from '../lib/owner-theme'
 import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
@@ -29,7 +30,6 @@ type GalleryDrag = {
   currentIndex: number
   images: GallerySummary['images']
 }
-type Theme = 'light' | 'dark'
 type AccountIdentity = { provider: AuthProvider; displayName?: string; email?: string }
 
 const SIGN_IN_METHODS: readonly { provider: AuthProvider; name: string }[] = [
@@ -39,9 +39,6 @@ const SIGN_IN_METHODS: readonly { provider: AuthProvider; name: string }[] = [
 ]
 const signInMethodName = (provider: string) =>
   SIGN_IN_METHODS.find((method) => method.provider === provider)?.name ?? provider
-
-const THEME_KEY = 'manorama:theme'
-const themeControlLabel = (theme: Theme) => theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
 
 const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
 
@@ -199,14 +196,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof localStorage === 'undefined') return 'dark'
-    try {
-      return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
-    } catch {
-      return 'dark'
-    }
-  })
+  const [theme, setTheme] = useState<Theme>(() =>
+    readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
 
   // Quick-add resume. The `manorama_oauth_next` cookie is the real record
   // of an interrupted /<share-url> flow; this is the fallback for when it
@@ -228,12 +219,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }, [])
 
   useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'light') root.classList.add('light')
-    else root.classList.remove('light')
-    try {
-      localStorage.setItem(THEME_KEY, theme)
-    } catch { /* private browsing */ }
+    applyTheme(theme, document.documentElement)
+    storeTheme(localStorage, theme)
   }, [theme])
 
   // The account lives in a slide-out pane so the galleries can use the page's
@@ -749,7 +736,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
         <p class="admin-privacy-note">Manorama reads only public shared folders and albums. Removing a gallery removes Manorama’s reference; it does not delete anything from Dropbox, Google Drive, iCloud, or MEGA.</p>
       <div class="admin-drawer-actions">
-        <button type="button" class="admin-drawer-action" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-pressed={theme === 'light'}>{themeControlLabel(theme)}</button>
+        <button type="button" class="admin-drawer-action" onClick={() => setTheme(oppositeTheme(theme))} aria-pressed={theme === 'light'}>{themeControlLabel(theme)}</button>
         <form method="post" action="/auth/logout" class="admin-signout-form"><button type="submit" class="admin-drawer-action">Sign out</button></form>
       </div>
       </aside>

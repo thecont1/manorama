@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feat/iphone-redesign]
+
+permissions:
+  contents: read
 
 jobs:
   verify:
@@ -16,17 +19,17 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
       - name: Unit tests
         run: bun test
 
-      - name: Sync Vendo knowledge (docs changed only)
-        if: hashFiles('docs/**') != ''
-        env:
-          VENDO_API_KEY: ${{ secrets.VENDO_API_KEY }}
-        run: bunx vendo knowledge sync
-
-      - name: Generated Vendo tools are in sync with the OpenAPI contract
-        run: bun run vendo:check
-
       - name: Build
         run: bun run build
+
+      - name: Build native bundle
+        run: bun run build:native
+
+      - name: Build desktop bundle
+        run: bun run build:desktop

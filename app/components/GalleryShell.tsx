@@ -2,6 +2,10 @@ import type { Child } from 'hono/jsx'
 import type { GallerySettings } from '../lib/gallery-settings'
 
 type Props = {
+  /** Who is looking (owner/member/visitor) and where their library lives —
+   *  surfaced as data attributes so the seam is observable in SSR tests. */
+  viewerRole?: 'owner' | 'member' | 'visitor'
+  libraryHref?: string
   settings: Pick<GallerySettings, 'title' | 'caption'>
   status?: string
   children: Child
@@ -15,9 +19,9 @@ const escapeHtml = (value: string): string => value
   .replaceAll("'", '&#39;')
 
 /** Shared public gallery chrome for SSR and the native client. */
-export default function GalleryShell({ settings, status, children }: Props) {
+export default function GalleryShell({ settings, status, viewerRole, libraryHref, children }: Props) {
   return (
-    <main class="gallery-shell">
+    <main class="gallery-shell" data-viewer-role={viewerRole} data-library-href={libraryHref}>
       <h1 class="sr-only" dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
       <section
         class="curtain"

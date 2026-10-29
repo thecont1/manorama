@@ -42,6 +42,19 @@ type Props = {
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
   alwaysShowNavigation?: boolean
+  /** Reports the committed photograph (never an ad plate or the end card):
+   *  once after mount and whenever a glide settles on a new index. */
+  onPositionChange?: (position: { imageId: string; index: number }) => void
+  /** Mounts the stage inert and aria-hidden for a session suspended under
+   *  another surface — no keyboard, pointer or wheel input, no modal, the
+   *  active video pauses; layout and decode state are untouched so a resume
+   *  shows the identical frame. */
+  suspended?: boolean
+  /** Who is looking, resolved by the route — stored for later phases. */
+  viewerRole?: 'owner' | 'member' | 'visitor'
+  /** Where the owner's library lives, resolved by the route — stored for
+   *  later phases. */
+  libraryHref?: string
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -155,7 +168,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -230,6 +243,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // curtain (or never start after entry, depending on mount timing).
   const [galleryEntered, setGalleryEntered] = useState(() =>
     typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
+  const suspendedRef = useRef(suspended)
+  suspendedRef.current = suspended
+  // Stored for later phases (P6+): the route resolves who is looking and
+  // where their library lives; the viewer does not consume them yet.
+  void viewerRole
+  void libraryHref
   const magnifierRef = useRef<MagnifierHandle | null>(null)
   const magnifierKeyRef = useRef<((event: KeyboardEvent) => void) | null>(null)
   const heicPendingRef = useRef(new Set<string>())
@@ -583,7 +602,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       const nearest = max > 0 && x >= max - 1
         ? (explicit !== null && frameOnStage(explicit, x) ? explicit : images.length - 1)
         : leftmostFrameIndex(x)
-      if (reportedIndexRef.current !== nearest) {
+      if (pendingEntryRef.current === null && reportedIndexRef.current !== nearest) {
         reportedIndexRef.current = nearest
         setIndex(nearest)
       }
@@ -623,7 +642,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // Input-driven motion (drag, wheel, momentum) retires any pending
       // explicit destination: the strip now reports where it landed. A
       // report that moved nothing — an idle tap on the stage — must not.
-      if (moved) explicitIndexRef.current = null
+      if (moved) {
+        explicitIndexRef.current = null
+        pendingEntryRef.current = null
+      }
       reportStripPosition()
     }
     return value
@@ -841,7 +863,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
-    if (!curtain) return
+    // No curtain — or one already lifted — means the gallery is entered:
+    // nothing will ever fire the dismiss path that gates video playback.
+    if (!curtain || curtain.hidden) {
+      document.body.classList.add('gallery-entered')
+      setGalleryEntered(true)
+      return
+    }
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
@@ -942,11 +970,42 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // Enter-at-frame: instant and pre-paint, so the curtain lifts onto the
   // tapped photograph rather than the strip travelling to it in view.
   const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
+  // While the entry is re-anchoring, the index belongs to the target —
+  // position reports must not commit a frame inferred from stale offsets.
+  const pendingEntryRef = useRef<number | null>(null)
   useLayoutEffect(() => {
     if (entryFrameRef.current === null) return
     const target = entryFrameRef.current
     entryFrameRef.current = null
+    pendingEntryRef.current = target
     goTo(target, true)
+    // Frames are still at placeholder sizes when the entry anchors: as
+    // real images decode, offsets reflow and the stored X would sit over a
+    // different photograph. Keep the strip glued to the target frame until
+    // its offset repeats — then hand position reporting back.
+    let lastStart = Number.NaN
+    let stableFor = 0
+    let elapsed = 0
+    let frame = 0
+    const reseed = () => {
+      const pending = pendingEntryRef.current
+      if (pending === null) return
+      const start = imageStart(pending)
+      settleTo(-start, true)
+      stableFor = start === lastStart ? stableFor + 1 : 0
+      lastStart = start
+      elapsed += 1
+      if (stableFor >= 3 || elapsed > 150) {
+        pendingEntryRef.current = null
+        return
+      }
+      frame = requestAnimationFrame(reseed)
+    }
+    frame = requestAnimationFrame(reseed)
+    return () => {
+      cancelAnimationFrame(frame)
+      pendingEntryRef.current = null
+    }
   }, [])
 
   useLayoutEffect(() => {
@@ -999,7 +1058,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
-      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -1025,7 +1084,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       }
       if (event.key === 'Escape' && gridOpenRef.current) { event.preventDefault(); actions.requestCloseModals(); return }
       if (event.key !== 'g' && event.key !== 'G') return
-      if (!document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       if (gridOpenRef.current) actions.requestCloseModals()
       else if (!anyModalOpenRef.current) actions.openGrid()
@@ -1223,7 +1282,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (event.key !== 'm' && event.key !== 'M') return
-      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       const handle = magnifierRef.current
       if (!handle) return
@@ -1249,7 +1308,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       const target = event.target as HTMLElement | null
       if (isTypingTarget(target)) return
       if (event.key !== 'i' && event.key !== 'I') return
-      if (anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
       event.preventDefault()
       // I opens the in-gallery info sheet directly; ⇧I jumps to the
       // standalone C2PA viewer instead (falling back to the sheet for
@@ -1875,6 +1934,28 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
   }
 
+  // Suspending freezes the session in place: modals close, keyboard is
+  // gated by suspendedRef, pointer/wheel input dies with the inert root,
+  // and the active video pauses — nothing about index, offset or decode
+  // state is touched, so un-suspending resumes the identical frame.
+  // Suspension freezes the session in place: modals close, keyboard is
+  // gated by suspendedRef, pointer/wheel input dies with the inert root,
+  // and VideoSlide treats suspended as an autoplay-disallowed input —
+  // nothing about index, offset or decode state is touched, so
+  // un-suspending resumes the identical frame.
+  useEffect(() => {
+    if (!suspended) return
+    requestCloseModals()
+  }, [suspended])
+
+  // Committed-position reporting: the index state only advances on a
+  // settled glide, never mid-drag, and ad plates/the end card are not real
+  // indices — so every fire names a real photograph.
+  useEffect(() => {
+    const image = images[index]
+    if (image && onPositionChange) onPositionChange({ imageId: image.id, index })
+  }, [index])
+
   const foldStartIndex = Math.min(index % 2 === 0 ? index : index - 1, Math.max(0, images.length - 2))
   // Resolve displayable sources here — heicSrc lives in this component, so
   // the renderer receives frames it can paint without knowing about HEIC.
@@ -1886,8 +1967,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       : image)
   const foldActiveIndex = Math.max(0, index - foldStartIndex)
 
+  // Suspension must make the WHOLE viewer subtree unreachable — the pill,
+  // arrows, bubble and modals render outside the stage, so inerting only
+  // the stage would leave them keyboard- and reader-reachable behind the
+  // details layer. The wrapper is display:contents so layout and sibling
+  // selectors are unchanged.
   return (
-    <>
+    <div style="display:contents" inert={suspended || undefined} aria-hidden={suspended ? 'true' : undefined}>
       {/* Behind everything, inert: a deterministic field keyed to this
           gallery's URL. Sits outside the stage so it stays put while the
           track scrolls. */}
@@ -2024,6 +2110,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                         isActive={imageIndex === index}
                         soundOn={soundOn}
                         prefersReducedMotion={reducedMotion}
+                        suspended={suspended}
                         onToggleSound={setSoundOn}
                         boxStyle={cappedMediaStyle}
                       />
@@ -2125,6 +2212,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                               // gliding alike. A frame still ahead of the
                               // edge shifts nothing held.
                               if (delta === 0 || frame.offsetLeft >= -currentXRef.current) return
+                              // While the entry re-anchors, this report would
+                              // retire pendingEntryRef before the reseed loop's
+                              // offset stabilizes; the reseed itself keeps the
+                              // strip glued to the target every frame.
+                              if (pendingEntryRef.current !== null) return
                               renderX(currentXRef.current - delta)
                               if (draggingRef.current) dragTargetXRef.current -= delta
                             })
@@ -2400,6 +2492,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           </section>
         </div>
       </div>
-    </>
+    </div>
   )
 }

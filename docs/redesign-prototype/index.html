@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>manorama — redesigned from the viewer out</title>
+<meta name="description" content="A clickable iPhone prototype of manorama, rebuilt in three layers: viewing, galleries, upkeep.">
+<link rel="preload" href="fonts/bricolage-grotesque-variable.ttf?v=20261028w" as="font" type="font/ttf" crossorigin>
+<link rel="icon" href="img/logo.png">
+<meta http-equiv="Cache-Control" content="no-cache">
+<link rel="stylesheet" href="app.css?v=20261028w">
+</head>
+<body>
+<div class="proposal">
+
+  <aside class="side left" aria-label="Screens">
+    <h1>manorama, viewer first</h1>
+    <p class="lede">A working iPhone prototype. Every screen belongs to one of three layers, and each layer is quieter than the one above it in the product, louder than the one below it on screen.</p>
+    <nav class="layers" id="index">
+      <section class="layer">
+        <h2>Looking</h2>
+        <p>The photographs and nothing else.</p>
+        <ul>
+          <li><button data-go="viewer">Viewer</button></li>
+          <li><button data-go="viewer" data-then="view">Display settings</button></li>
+        </ul>
+      </section>
+      <section class="layer">
+        <h2>Galleries</h2>
+        <p>Choosing, opening, adding, sharing.</p>
+        <ul>
+          <li><button data-go="welcome">Welcome and sign-in</button></li>
+          <li><button data-go="library">Library</button></li>
+          <li><button data-go="library" data-then="add">Add a gallery</button></li>
+          <li><button data-go="details">Gallery details</button></li>
+        </ul>
+      </section>
+      <section class="layer">
+        <h2>Upkeep</h2>
+        <p>Order, storage, plan, account.</p>
+        <ul>
+          <li><button data-go="reorder">Reorder</button></li>
+          <li><button data-go="settings">Settings</button></li>
+          <li><button data-go="privacy">Privacy policy</button></li>
+        </ul>
+      </section>
+    </nav>
+  </aside>
+
+  <div class="phone-col">
+    <div class="device" id="device">
+      <div class="app" id="app">
+        <div class="statusbar" aria-hidden="true"><span>21:54</span><span class="island"></span><span class="batt">75%</span></div>
+
+        <!-- Welcome -->
+        <section class="screen welcome" id="s-welcome" hidden aria-label="Welcome">
+          <img class="logo" src="img/logo.png" alt="manorama" width="900" height="305">
+          <div class="copy">
+            <h2>Your shared folders, shown properly</h2>
+            <p>Paste a Dropbox, Google Drive, iCloud or MEGA link, or pick a folder on this iPhone. manorama turns it into a quiet, full-screen gallery at your own address.</p>
+          </div>
+          <div class="auth">
+            <button class="btn btn-primary btn-block" data-signin>Continue with Apple</button>
+            <button class="btn btn-secondary btn-block" data-signin>Continue with Google</button>
+            <button class="btn btn-secondary btn-block" data-signin>Continue with Dropbox</button>
+            <p class="legal"><button class="textlink" data-privacy>Privacy policy</button></p>
+          </div>
+        </section>
+
+        <!-- Library -->
+        <section class="screen" id="s-library" hidden aria-label="Library">
+          <div class="topbar">
+            <span aria-hidden="true"></span>
+            <img class="wordmark" src="img/logo.png" alt="manorama" width="900" height="305">
+            <button class="iconbtn" data-go="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+          </div>
+          <div class="titlerow">
+            <h2 class="title">Library</h2>
+            <button class="btn btn-primary" data-open="add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add</button>
+          </div>
+          <p class="finding" id="lib-finding"></p>
+          <aside class="sponsored" aria-label="Sponsored">
+            <div class="lbl">Sponsored</div>
+            <div class="slot">
+              <div class="frame">Vertical photograph, fit to height</div>
+              <div class="copy"><b>More photographs, quietly shared.</b><span>A placeholder until sponsored photographs arrive.</span><a href="https://manorama.xyz">Explore manorama</a></div>
+            </div>
+          </aside>
+          <div class="lib-list" id="lib-list"></div>
+          <div class="lib-foot" id="lib-foot"></div>
+        </section>
+
+        <!-- Viewer -->
+        <section class="screen viewer" id="s-viewer" hidden aria-label="Viewer" data-bg="none" data-arrows="false">
+          <div class="stage strip-mode" id="stage" tabindex="0" aria-label="Photographs"></div>
+          <div class="navbar" aria-label="Previous and next">
+            <button class="arrow" id="prev" aria-label="Previous photograph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <span class="cluster"><span class="count" id="nav-count"></span><button class="arrow" id="next" aria-label="Next photograph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"/></svg></button></span>
+          </div>
+          <button class="curtain" id="curtain" aria-label="Open the gallery">
+            <span class="mark"><img src="img/logo.png" alt="manorama" width="900" height="305"></span>
+            <h2 id="c-title"></h2>
+            <p id="c-cap"></p>
+            <span class="count" id="c-count"></span>
+            <span class="hint">Tap to open</span>
+          </button>
+          <div class="chrome" id="chrome">
+            <div class="bar top">
+              <button class="chip" data-go="library" aria-label="Back to the library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>Library</button>
+              <span class="spacer" aria-hidden="true" style="flex:1"></span>
+              <span class="chip pos" id="v-pos"></span>
+            </div>
+            <div class="bar bottom">
+              <button class="chip" data-open="view">Display</button>
+              <button class="chip" data-open="info" aria-label="About this photograph">Info</button>
+              <button class="chip" data-details id="v-details" aria-label="Gallery details">Details</button>
+            </div>
+          </div>
+          <div class="bubble" id="bubble" aria-hidden="true"></div>
+        </section>
+
+        <!-- Gallery details -->
+        <section class="screen" id="s-details" hidden aria-label="Gallery details">
+          <div class="topbar back">
+            <button class="backbtn" id="d-back" data-go="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg><span id="d-back-l">Library</span></button>
+            <img class="wordmark" src="img/logo.png" alt="manorama" width="900" height="305">
+            <span aria-hidden="true" style="width:44px"></span>
+          </div>
+          <div id="details-body"></div>
+        </section>
+
+        <!-- Reorder -->
+        <section class="screen reorder" id="s-reorder" hidden aria-label="Reorder">
+          <div class="r-head">
+          <div class="topbar">
+            <button class="btn btn-secondary" id="r-cancel">Cancel</button>
+            <h2 id="r-title">Reorder</h2>
+            <button class="btn btn-primary" id="r-save" disabled>Save</button>
+          </div>
+          <p class="status-line" id="r-status">Tap a photograph to pick it up, then tap where it goes.</p>
+          </div>
+          <div class="grid3" id="r-grid"></div>
+          <div class="sizer">
+            <svg class="s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+            <input type="range" id="r-size" min="56" max="248" step="4" value="88" aria-label="Photograph size">
+            <svg class="l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
+          </div>
+          <p class="sr-only" id="r-announce" aria-live="polite"></p>
+        </section>
+
+        <!-- Settings -->
+        <!-- Privacy policy: inside the app, never a jump to the browser -->
+        <section class="screen" id="s-privacy" hidden aria-label="Privacy policy">
+          <div class="topbar back">
+            <button class="backbtn" id="p-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg><span id="p-back-l">Settings</span></button>
+            <img class="wordmark" src="img/logo.png" alt="manorama" width="900" height="305">
+          </div>
+          <div class="titlerow"><h2 class="title">Privacy policy</h2></div>
+          <article class="policy" id="privacy-body"></article>
+        </section>
+
+        <section class="screen" id="s-settings" hidden aria-label="Settings">
+          <div class="topbar back">
+            <button class="backbtn" data-go="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>Library</button>
+            <img class="wordmark" src="img/logo.png" alt="manorama" width="900" height="305">
+          </div>
+          <div class="titlerow"><h2 class="title">Settings</h2></div>
+          <div id="settings-body"></div>
+        </section>
+
+        <!-- Floating layer -->
+        <div class="scrim" id="scrim"></div>
+
+        <div class="sheet" id="sh-add" role="dialog" aria-modal="true" aria-labelledby="add-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="add-h">Add a gallery</h3><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div class="field">
+            <label for="add-url">Shared folder or album link</label>
+            <div class="input-wrap">
+              <input class="input" id="add-url" type="url" inputmode="url" autocomplete="off" placeholder="https://www.dropbox.com/scl/fo/…">
+              <button class="paste" id="add-paste">Paste</button>
+            </div>
+            <p class="status-line" id="add-status" aria-live="polite"></p>
+          </div>
+          <div id="add-scan" hidden>
+            <div class="scan-strip" id="add-strip"></div>
+            <div class="field">
+              <label for="add-name">Name</label>
+              <input class="input" id="add-name" autocomplete="off">
+              <p class="help" id="add-addr"></p>
+            </div>
+            <div class="sheet-foot"><button class="btn btn-primary btn-block" id="add-go">Add gallery</button></div>
+          </div>
+          <div class="or" id="add-or">or</div>
+          <div class="device-path" id="add-device">
+            <button class="btn btn-secondary btn-block" data-toast="The Files picker opens here"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Choose a folder on this iPhone</button>
+            <button class="btn btn-secondary btn-block" data-toast="The photo picker opens here"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>Choose photographs</button>
+            <p>Originals stay encrypted on this iPhone; the gallery link still works for anyone.</p>
+          </div>
+        </div>
+
+        <div class="sheet" id="sh-view" role="dialog" aria-modal="true" aria-labelledby="view-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="view-h">Display</h3><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div class="opt">
+            <div class="lbl">Layout <span id="mode-hint"></span></div>
+            <div class="seg" id="seg-mode">
+              <button data-mode="strip" aria-pressed="true">Strip</button>
+              <button data-mode="scroll" aria-pressed="false">Scroll</button>
+              <button data-mode="one" aria-pressed="false">One by one</button>
+            </div>
+          </div>
+          <div class="opt">
+            <div class="lbl">Canvas <span id="bg-hint"></span></div>
+            <div class="seg" id="seg-bg">
+              <button data-bg="none" aria-pressed="true">Black</button>
+              <button data-bg="dark" aria-pressed="false">Dark</button>
+              <button data-bg="light" aria-pressed="false">Light</button>
+            </div>
+          </div>
+          <div class="switchrow" style="margin-top:8px">
+            <div class="t"><b>Arrows</b><span>Show next and previous buttons on the photographs</span></div>
+            <button class="switch" role="switch" aria-checked="false" id="sw-arrows" aria-label="Arrows"></button>
+          </div>
+        </div>
+
+        <div class="sheet" id="sh-more" role="dialog" aria-modal="true" aria-labelledby="more-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="more-h"></h3></div>
+          <div class="actions">
+            <button data-share><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share link</button>
+            <button data-go="details"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg>Gallery details</button>
+            <button data-go="reorder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 4v16M4 7l3-3 3 3M17 20V4M14 17l3 3 3-3"/></svg>Reorder photographs</button>
+            <button data-refresh><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Read the folder again</button>
+            <button class="danger" data-delete><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Remove gallery</button>
+          </div>
+        </div>
+
+
+        <!-- Share: only when the platform share sheet is unavailable (Web Share missing or refused) -->
+        <div class="sheet" id="sh-share" role="dialog" aria-modal="true" aria-labelledby="share-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="share-h">Share</h3><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <p class="share-addr" id="share-addr"></p>
+          <div class="actions share-acts">
+            <button data-share-to="copy">Copy link</button>
+            <button data-share-to="whatsapp">WhatsApp</button>
+            <button data-share-to="sms">Messages</button>
+            <button data-share-to="email">Email</button>
+          </div>
+        </div>
+
+        <div class="sheet" id="sh-edit" role="dialog" aria-modal="true" aria-labelledby="edit-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="edit-h"></h3><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div class="field" style="margin-top:8px"><label for="edit-in" id="edit-lbl"></label><input class="input" id="edit-in" autocomplete="off"><p class="help" id="edit-help"></p></div>
+          <div class="sheet-foot"><button class="btn btn-primary btn-block" id="edit-save">Save</button></div>
+        </div>
+
+                <div class="sheet" id="sh-info" role="dialog" aria-modal="true" aria-labelledby="info-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="info-h"></h3><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <div id="info-body"></div>
+        </div>
+        <div class="sheet" id="sh-pro" role="dialog" aria-modal="true" aria-labelledby="pro-h">
+          <div class="grab"></div>
+          <div class="sheet-head"><h3 id="pro-h">manorama Visionary</h3><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+          <dl class="kv" style="grid-template-columns:1fr auto;margin-top:6px">
+            <dt>Galleries kept</dt><dd>3 → 99</dd>
+            <dt>Room on this iPhone</dt><dd>256 MB → larger</dd>
+            <dt>Galleries over the limit</dt><dd>Kept, not for 30 days</dd>
+          </dl>
+          <p class="note" style="margin-top:14px;color:var(--muted);font-size:13px">An annual subscription, billed by the App Store. Your galleries and photographs are the same on either plan.</p>
+          <button class="btn btn-primary btn-block" style="margin-top:20px" data-toast="The App Store sheet opens here">See price in the App Store</button>
+        </div>
+
+        <div class="dialog" id="dlg-delete" role="alertdialog" aria-modal="true" aria-labelledby="del-h">
+          <h3 id="del-h">Remove this gallery?</h3>
+          <p id="del-p"></p>
+          <div class="row"><button class="btn btn-secondary" data-close>Keep</button><button class="btn btn-danger" id="del-go">Remove</button></div>
+        </div>
+
+        <div class="toast" id="toast" role="status"></div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="side notes" id="notes" aria-live="polite"></aside>
+</div>
+<script src="data.js?v=20261028w"></script>
+<script src="app.js?v=20261028w"></script>
+</body>
+</html>

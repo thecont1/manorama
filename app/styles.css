@@ -29,6 +29,300 @@
   text-rendering: optimizeLegibility;
 }
 
+/* ───────── Redesign tokens (P1) ─────────
+   The redesign's shared visual foundation. Everything is prefixed --m- and
+   scoped behind the .m-owner class: nothing here applies to body, the viewer,
+   or any existing screen until a phase opts in. Light values live under the
+   same html.light class the owner theme already writes; the viewer never keys
+   off html.light (see megaplan §5.1). */
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  src: url('/fonts/bricolage-grotesque-variable.ttf') format('truetype');
+  font-weight: 200 800;
+  font-stretch: 75% 100%;
+  font-display: swap;
+}
+
+:root {
+  /* Dark owner theme */
+  --m-ground: #0a0a0a;
+  --m-surface: #161616;
+  --m-raised: #262626;
+  --m-active: #303030;
+  --m-rule: #1d1d1d;
+  --m-control: #4a4a4a;
+  --m-ink: #f3f0e8;
+  --m-secondary: #b8b4ab;
+  --m-meta: #98948c;
+  --m-primary: #f3f0e8;
+  --m-on-primary: #0a0a0a;
+  --m-data: #fc0fc0;
+  --m-data-outline: transparent;
+  --m-negative: #f0687a;
+  --m-focus: var(--m-ink);
+  --m-scrim: rgba(0, 0, 0, .55);
+
+  /* Shared scale */
+  --m-font: 'Bricolage Grotesque', system-ui, sans-serif;
+  --m-fs-title: 28px;
+  --m-fs-section: 17px;
+  --m-fs-body: 16px;
+  --m-fs-small: 13px;
+  --m-radius-card: 14px;
+  --m-radius-sheet: 22px;
+  --m-pill: 999px;
+  --m-pad: 20px;
+  --m-touch: 44px;
+  --m-row: 56px;
+  --m-bar-h: 52px;
+  --m-logo-w: 140px;
+  --m-logo-h: 47px;
+  --m-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+html.light {
+  /* Light owner theme — pink never carries state alone here: the data fill
+     and selection outlines get an ink outline via --m-data-outline. */
+  --m-ground: #f3f0e8;
+  --m-surface: #e9e5dc;
+  --m-raised: #ddd8cd;
+  --m-active: #d2ccc0;
+  --m-rule: #d8d2c6;
+  --m-control: #8a857b;
+  --m-ink: #171715;
+  --m-secondary: #49473f;
+  --m-meta: #5a574f;
+  --m-primary: #171715;
+  --m-on-primary: #f3f0e8;
+  --m-negative: #b3261e;
+  --m-scrim: rgba(23, 23, 21, .35);
+}
+
+.m-owner {
+  font-family: var(--m-font);
+  font-size: var(--m-fs-body);
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: var(--m-ink);
+  background: var(--m-ground);
+  -webkit-font-smoothing: antialiased;
+}
+
+.m-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Primitive styles for app/components/ui — scoped so they cannot leak onto
+   existing screens. */
+.m-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--m-touch);
+  min-width: var(--m-touch);
+  padding: 10px 18px;
+  border: 0;
+  border-radius: var(--m-pill);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.m-btn:disabled { opacity: .45; cursor: default; }
+.m-btn:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; }
+.m-btn--primary { background: var(--m-primary); color: var(--m-on-primary); }
+.m-btn--secondary { background: var(--m-raised); color: var(--m-ink); }
+.m-btn--quiet { background: transparent; color: var(--m-ink); }
+.m-btn--destructive { background: transparent; color: var(--m-negative); }
+.m-btn--block { display: flex; width: 100%; }
+
+.m-topbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--m-logo-w) minmax(0, 1fr);
+  align-items: center;
+  height: calc(var(--m-bar-h) + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  padding-inline: var(--m-pad);
+}
+.m-topbar-slot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.m-topbar-slot--end { justify-content: flex-end; }
+.m-topbar-slot > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-topbar-logo { display: block; width: var(--m-logo-w); height: var(--m-logo-h); object-fit: contain; }
+.m-topbar-title { font-size: var(--m-fs-section); font-weight: 650; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.m-panel { background: var(--m-surface); border-radius: var(--m-radius-card); }
+.m-actiongroup { overflow: hidden; }
+.m-actiongroup-label {
+  margin: 0 0 6px 4px;
+  font-size: var(--m-fs-small);
+  color: var(--m-meta);
+}
+.m-actionrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--m-row);
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--m-ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: default;
+}
+a.m-actionrow, button.m-actionrow { cursor: pointer; }
+.m-actionrow + .m-actionrow { border-top: 1px solid var(--m-rule); }
+.m-actionrow:focus-visible { outline: 2px solid var(--m-focus); outline-offset: -2px; }
+.m-actionrow:disabled { opacity: .45; }
+.m-actionrow-label { flex: 1; min-width: 0; }
+.m-actionrow-value { color: var(--m-secondary); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.m-actionrow-chevron { color: var(--m-meta); flex: none; }
+.m-actionrow--destructive .m-actionrow-label { color: var(--m-negative); }
+.m-actionrow-control { flex: none; }
+
+.m-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--m-touch);
+  min-width: var(--m-touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--m-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.m-switch-track {
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--m-pill);
+  background: var(--m-control);
+  transition: background .15s;
+}
+.m-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--m-ink);
+  transition: transform .15s var(--m-ease);
+}
+.m-switch[aria-checked='true'] .m-switch-track { background: var(--m-primary); }
+.m-switch[aria-checked='true'] .m-switch-track::after { transform: translateX(18px); background: var(--m-on-primary); }
+.m-switch:disabled { opacity: .45; cursor: default; }
+.m-switch:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; border-radius: var(--m-pill); }
+
+.m-segmented {
+  display: inline-flex;
+  min-height: var(--m-touch);
+  padding: 3px;
+  border-radius: var(--m-pill);
+  background: var(--m-raised);
+}
+.m-segmented-option {
+  min-height: var(--m-touch);
+  padding: 6px 16px;
+  border: 0;
+  border-radius: var(--m-pill);
+  background: transparent;
+  color: var(--m-secondary);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.m-segmented-option[aria-checked='true'] { background: var(--m-primary); color: var(--m-on-primary); }
+.m-segmented-option:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; }
+
+.m-meter-track {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--m-pill);
+  background: var(--m-raised);
+  overflow: hidden;
+}
+.m-meter-fill {
+  height: 100%;
+  border-radius: var(--m-pill);
+  background: var(--m-data);
+  outline: 1px solid var(--m-data-outline);
+}
+
+.m-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--m-scrim);
+  opacity: 0;
+  transition: opacity .2s;
+}
+.m-scrim--open { opacity: 1; }
+.m-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  max-width: 560px;
+  max-height: calc(var(--m-vvh, 100dvh) - 24px);
+  background: var(--m-surface);
+  border-radius: var(--m-radius-sheet) var(--m-radius-sheet) 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: translateY(0);
+  transition: transform .24s var(--m-ease), opacity .2s;
+}
+.m-sheet--half { max-height: calc(var(--m-vvh, 100dvh) * .5); }
+.m-sheet--kb {
+  /* With the keyboard open a half sheet may grow into what the visual
+     viewport actually offers so its pinned footer stays reachable. */
+  max-height: calc(var(--m-vvh, 100dvh) - 24px);
+}
+.m-sheet--entering { transform: translateY(100%); }
+.m-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px var(--m-pad) 8px;
+}
+.m-sheet-title { flex: 1; margin: 0; font-size: var(--m-fs-section); font-weight: 650; }
+.m-sheet-body { overflow: auto; overscroll-behavior: contain; padding: 0 var(--m-pad) var(--m-pad); }
+.m-sheet-foot { padding: 8px var(--m-pad) calc(12px + env(safe-area-inset-bottom)); }
+@media (min-width: 720px) {
+  .m-sheet { left: 50%; right: auto; bottom: 50%; transform: translate(-50%, 50%); border-radius: var(--m-radius-sheet); width: min(560px, calc(100vw - 48px)); }
+  .m-sheet--entering { transform: translate(-50%, calc(50% + 24px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-sheet { transition: opacity .2s; }
+  .m-sheet--entering { transform: translate(-50%, 50%); opacity: 0; }
+  @media (max-width: 719.98px) {
+    .m-sheet--entering { transform: translateY(0); opacity: 0; }
+  }
+}
+
 * { box-sizing: border-box; }
 html, body { width: 100%; min-height: 100%; margin: 0; background: #0a0a0a; }
 body { overflow: hidden; }

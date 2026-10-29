@@ -28,6 +28,9 @@ type Props = {
   prefersReducedMotion: boolean
   onToggleSound: (soundOn: boolean) => void
   onPlaybackEvent?: (event: 'playing' | 'paused' | 'error' | 'blocked') => void
+  /** The whole viewer suspended under another surface — behaves like a
+   *  disallowed-autoplay input: pauses and never restarts while held. */
+  suspended?: boolean
   /** Explicit media box, set when the desktop video size cap applies. The
    *  slide and its `<video>` must match the poster exactly, so the parent
    *  hands the same dimensions to both. Undefined means "fill the frame". */
@@ -43,7 +46,7 @@ export const formatDuration = (seconds: number | undefined) => {
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
-export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, onToggleSound, onPlaybackEvent, boxStyle }: Props) {
+export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, suspended = false, onToggleSound, onPlaybackEvent, boxStyle }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   // Whether the clip was actually running when the document last became
   // hidden — visibilitychange resumes only what was playing, never a
@@ -88,21 +91,32 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
   // never autoplays — the poster plus an explicit Play control stand in.
   // `isActive` is deliberately absent from the deps: stepping onto a
   // slide must not restart a clip that has been looping all along.
+  const wasPlayingBeforeSuspendRef = useRef(false)
+  const suspendedPlayRef = useRef(false)
+  const suspendedSoundRef = useRef(false)
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     video.muted = !videoAudibleFor({ isActive, soundOn })
-    const autoplay = shouldAutoplayVideo({
+    const autoplay = !suspended && shouldAutoplayVideo({
       prefersReducedMotion,
       connection: connectionOf(typeof navigator === 'undefined' ? null : navigator),
       documentHidden: typeof document !== 'undefined' && document.hidden,
     })
+    // The suspend edge records what was actually running; a re-run that
+    // is still suspended must not overwrite it with the suspension pause.
+    if (suspended && !suspendedPlayRef.current) wasPlayingBeforeSuspendRef.current = !video.paused
+    const released = suspendedPlayRef.current && !suspended
+    suspendedPlayRef.current = suspended
     // Autoplay being disallowed — including the moment reduced motion
-    // turns on mid-session — must also stop any playback already running,
-    // not merely skip the play attempt.
+    // turns on mid-session or the stage suspends — must also stop any
+    // playback already running, not merely skip the play attempt.
     if (!autoplay) { video.pause(); return }
+    // Releasing suspension restarts only what was playing when it held:
+    // a clip the viewer paused by hand stays paused.
+    if (released && !wasPlayingBeforeSuspendRef.current) return
     void attemptPlay()
-  }, [prefersReducedMotion])
+  }, [prefersReducedMotion, suspended])
 
   // Sound follows the active slide. A neighbour that is already looping
   // must drop to muted the moment it stops being the one on screen, so
@@ -112,8 +126,12 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
     if (!video) return
     const audible = videoAudibleFor({ isActive, soundOn })
     video.muted = !audible
-    if (audible && video.paused && !prefersReducedMotion) void attemptPlay()
-  }, [soundOn, isActive])
+    const released = suspendedSoundRef.current && !suspended
+    suspendedSoundRef.current = suspended
+    if (audible && video.paused && !prefersReducedMotion && !suspended) {
+      if (!released || wasPlayingBeforeSuspendRef.current) void attemptPlay()
+    }
+  }, [soundOn, isActive, suspended])
 
   // A backgrounded tab must not keep decoding video.
   useEffect(() => {
