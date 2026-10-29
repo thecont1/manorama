@@ -281,7 +281,7 @@ Run the local acceptance suite against the seeded dev server (`bun run dev`). Th
 GALLERY_URL=http://localhost:5173 GALLERY_VIDEO_SLUG=mixed-album bunx playwright test
 ```
 
-The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, noindex privacy, the fold layout, and the native ad-plate/global-view specs. Vendo is not part of this matrix and must not be run as a contract check.
+The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, noindex privacy, the fold layout, and the native ad-plate/global-view specs. `bunx playwright test` also discovers `vendo-surface.playwright.ts` and `vendo-slot.playwright.ts`; both assert only that the Vendo surface stays unmounted. They are disabled-state absence smoke, not a contract check, and never a reason to restore the surface or run `vendo sync`.
 
 After any native or desktop presentation change, capture the six-state evidence matrix under `demo-captures/{ios,ipad,macos}/` — opening screen, gallery curtain, first image with controls, display-settings popover, signed-in account/admin surface, and Global View — from freshly built bundles.
 

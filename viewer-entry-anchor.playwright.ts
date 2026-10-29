@@ -38,11 +38,22 @@ test('a slow decode after the old reseed cap still docks the entered photograph'
   await dismissCurtain(page)
   const sequence = page.locator('.stage-seq')
   await expect(sequence).toBeVisible({ timeout: 15_000 })
-  await expect(sequence).toContainText('3')
+  await expect(page.locator('.stage-seq-num')).toHaveText('3')
   // Longer than the retired 150-frame cap, while the earlier frames are still withheld.
   await page.waitForTimeout(4_000)
-  await expect(sequence).toContainText('3')
+  await expect(page.locator('.stage-seq-num')).toHaveText('3')
   release()
-  await expect(page.locator(`[data-image-id="${entry}"]`).first()).toBeVisible({ timeout: 20_000 })
-  await expect(sequence).toContainText('3')
+  const entryFrame = page.locator(`.viewer-frame[data-image-id="${entry}"]`).first()
+  await expect(entryFrame).toBeVisible({ timeout: 20_000 })
+  // The anchor follows the decode, not the sequence text: wait for the real
+  // image, then prove the frame is still docked to the stage's left edge.
+  await expect.poll(async () => entryFrame.locator('img.frame-img').first().evaluate(
+    (img) => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0,
+  ), { timeout: 20_000 }).toBe(true)
+  await expect(page.locator('.stage-seq-num')).toHaveText('3')
+  await expect.poll(async () => {
+    const [frameBox, stageBox] = await Promise.all([entryFrame.boundingBox(), page.locator('[data-stage]').boundingBox()])
+    if (!frameBox || !stageBox) return Number.POSITIVE_INFINITY
+    return Math.abs(frameBox.x - stageBox.x)
+  }, { timeout: 20_000, message: 'the entered frame must sit on the stage edge after decode' }).toBeLessThan(3)
 })
