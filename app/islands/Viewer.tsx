@@ -805,6 +805,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const destination = clamp(target, -bounds.max, 0)
     if (instant || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       renderX(destination, false)
+      // An instant dock is a landing, not a trip. A destination still in
+      // flight now resolves to where the strip actually sits, so the next
+      // viewport-page action measures from the re-docked position instead
+      // of the target the re-dock just abandoned.
+      if (navDestXRef.current !== null) navDestXRef.current = destination
       if (reportOnComplete) reportStripPosition()
       return
     }
