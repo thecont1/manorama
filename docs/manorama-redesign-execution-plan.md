@@ -31,7 +31,7 @@ Tasks
 1. Create the worktree and branch. Run the full check list on the untouched branch and record the baseline (which specs pass, which are flaky).
 2. Read and note, per file, the exports and tests that touch the redesign: `app/islands/Viewer.tsx`, `app/islands/Admin.tsx`, `native/islands/{GalleryList,VaultSettings,Paywall}.tsx`, `native/lib/{thumbs,vault,offline-gallery,vault-settings,billing,ads}.ts`, `packages/core/{imagesource,image-staging,adframe}.ts`, `app/styles.css`, `app/routes/privacy.tsx`, and every `*.playwright.ts`.
 3. Update the "Where it lands" table in the handoff with the confirmed paths. List every Playwright locator that will break (start with the label changes in the handoff).
-4. Check that the gallery manifest can carry per-item width, height and an average colour (Q3). If not, specify the smallest addition to the manifest and the vault thumbnail record.
+4. ~~Check that the gallery manifest can carry per-item width, height and an average colour (Q3). If not, specify the smallest addition to the manifest and the vault thumbnail record.~~ *(28 Oct 2026: superseded — per-item width and height already ship in the manifest and gallery summary; no colour field is added to either. The rail shows the existing item placeholder; any optional colour derives only from bytes already fetched.)*
 5. Pull the real Visionary figures from `native/lib/billing.ts` and the retention code (Q6).
 6. Take the open questions to the owner: Q1 (ad slot), Q2 (web and desktop scope), Q4 (shortcuts help, Global View entry, fold layout). Record answers in the handoff.
 
@@ -97,7 +97,7 @@ Exit criteria for Stage 2: viewer checks in the Definition of Done pass; video s
 
 Goal: handoff section 4 for Library, Add sheet and Gallery details.
 
-3a. Thumbnail data path (M). Depends on Stage 0 task 4.
+3a. Thumbnail data path (M). Depends on the remaining Stage 0 work — the recorded baseline and fixtures (task 4 is superseded; no colour field is added).
 - The existing gallery summary already carries what the rail needs: per-item width and height and a thumbnail source — the existing thumbnail URL for streamed galleries, the vault key for kept ones. No average-colour metadata: do not add a manifest or vault-record colour field or migrate existing records for this rail.
 - Kept galleries: read thumbnails from the vault, switching each to its local copy as it lands. Streamed galleries: show the existing item placeholder first, IntersectionObserver near-view loading, fade-in on decode; bounded concurrency (reuse the `thumbs.ts` limits). An optional locally derived colour may only come from bytes already fetched — never another media fetch.
 
