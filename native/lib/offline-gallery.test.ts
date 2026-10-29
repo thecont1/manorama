@@ -236,6 +236,24 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
 
+  test('a repeat fill reuses vaulted bytes instead of re-downloading every image', async () => {
+    const { requested, store } = makeHarness()
+    const first = await store.cache(selection, gallery)
+    expect(first).toMatchObject({ status: 'complete' })
+    expect(requested).toEqual([
+      'https://provider.test/original-one.jpg',
+      'https://provider.test/original-two.png',
+    ])
+    requested.length = 0
+    const ready: string[] = []
+    const second = await store.cache(selection, gallery, undefined, undefined, (item) => ready.push(item.id))
+    expect(second).toMatchObject({ status: 'complete' })
+    // Every still was already in the vault — the fill publishes each item
+    // from cache and the network is never touched.
+    expect(requested).toEqual([])
+    expect(ready).toEqual(['stable-one', 'stable-two'])
+  })
+
   test('detects complete caches and refuses a missing image entry', async () => {
     const { store, vault } = makeHarness()
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })

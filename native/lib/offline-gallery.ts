@@ -325,6 +325,21 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     onProgress?.({ completed: 0, total: stillImages.length })
     for (const [index, image] of stillImages.entries()) {
       throwIfAborted(signal)
+      const entryId = thumbnailEntryId(image.id)
+      // A fill runs on every online open: bytes already in the vault are
+      // reused instead of re-downloaded, and the metadata commit below still
+      // refreshes the manifest and settings from the network answer.
+      const existing = await this.vault.read(galleryId, entryId, { touch: false })
+      if (existing) {
+        existing.fill(0)
+        const mimeType = mimeFromFilename(image.filename) ?? 'application/octet-stream'
+        cachedImages.push({ id: image.id, entryId, mimeType })
+        const item: OfflineCacheItemReady = { id: image.id, entryId, mimeType, index }
+        cacheFillRegistry.publish({ galleryId, item })
+        onItemReady?.(item)
+        onProgress?.({ completed: cachedImages.length, total: stillImages.length })
+        continue
+      }
       const selected = offlineSourceFor(image)
       const response = await this.fetchImage(selected.src, { signal })
       if (!response.ok) throw new Error(`Offline image request failed (${response.status})`)
@@ -333,7 +348,6 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       try {
         throwIfAborted(signal)
         if (bytes.length === 0) throw new Error('Offline image response was empty')
-        const entryId = thumbnailEntryId(image.id)
         await this.vault.write(galleryId, entryId, bytes, guard)
         // A stable thumbnail entry can now contain different bytes. Do not
         // let a version/image-ID-only feature record survive that replacement.
