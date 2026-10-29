@@ -532,22 +532,21 @@ describe('signed-in account area', () => {
 
     const html = container.innerHTML
     expect(html).toContain('Library')
-    const overview = container.querySelector('.native-account-overview')
-    expect(overview?.querySelector('.native-gallery-import')).toBeNull()
-    expect(overview?.querySelector('.native-account-left')).not.toBeNull()
-    expect(container.querySelector('.native-list-card .native-gallery-import')).toBeNull()
-    expect(html.indexOf('native-account-overview')).toBeLessThan(html.indexOf('Library'))
-    // The address lives in the greeting's editable URL field — the same
-    // `manorama.xyz/` + slug the web dashboard renders.
-    expect(html).toContain('manorama.xyz/')
-    expect((container.querySelector('.admin-owner-slug-input') as HTMLInputElement)?.value).toBe('quiet-owner')
+    // The account workbench is gone: no overview, no inline address field —
+    // Settings › Account owns the URL, the quiet foot line owns the plan.
+    expect(container.querySelector('.native-account-overview')).toBeNull()
+    expect(container.querySelector('.native-account-left')).toBeNull()
+    expect(container.querySelector('.admin-owner-slug-input')).toBeNull()
+    expect(container.querySelector('.native-list-card')).not.toBeNull()
+    expect(html).not.toContain('Hello,')
+    expect(html).not.toContain('You are a Free User')
+    // The status line under the heading reports vault state first.
+    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 1 kept on this iPhone.')
     expect(html).toContain('Kashmir')
     expect(html).toContain('A winter album')
     expect(html).toContain('manorama.xyz/quiet-owner/kashmir')
     expect(html).toContain('kashmir')
     expect(html).toContain('12 photographs')
-    expect(html).toContain('Hello, <mark class="admin-greeting-name">quiet-owner</mark>. Welcome to manorama.xyz.')
-    expect(html).toContain('You are a Free User. You have used 1 of your 3 gallery limit.')
     // The account menu is the only account affordance on the page, and the
     // drawer it opens is closed until asked for.
     expect(html).toContain('aria-label="Account menu"')
@@ -619,7 +618,7 @@ describe('signed-in account area', () => {
     expect(settingsHtml).not.toContain('Open photo picker')
   })
 
-  test('greets by the provider name and PATCHes an edited URL name', async () => {
+  test('names the account in the drawer and PATCHes an edited URL from Settings', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({
@@ -639,20 +638,19 @@ describe('signed-in account area', () => {
     await settle()
 
     const html = container.innerHTML
-    expect(html).toContain('Hello, <mark class="admin-greeting-name">Mahesh Shantaram</mark>. Welcome to manorama.xyz.')
-    expect(html).toContain('You are a Free User. You have used 1 of your 3 gallery limit.')
-    // The account menu is the only account affordance on the page, and the
-    // drawer it opens is closed until asked for.
+    // The greeting is gone from the Library — the name reaches the drawer.
+    expect(html).not.toContain('Hello,')
+    expect(html).not.toContain('You are a Free User')
     expect(html).toContain('aria-label="Account menu"')
     expect(html).not.toContain('data-account-drawer')
-    expect(html).toContain('Mahesh Shantaram')
     expect(html).not.toContain('This is your manoramic world')
     ;(container.querySelector('[aria-label="Account menu"]') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('Privacy Policy')
     expect(container.querySelector('[data-account-drawer]')?.textContent).toContain('© 2026 Mahesh Shantaram')
 
-    const input = container.querySelector('.admin-owner-slug-input') as HTMLInputElement | null
+    await openSettings(container)
+    const input = container.querySelector('#settings-owner-address') as HTMLInputElement | null
     expect(input).not.toBeNull()
     expect(input!.value).toBe('quiet-owner')
     input!.value = 'fieldnotes'
@@ -871,11 +869,13 @@ describe('signed-in account area', () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ galleries: Array.from({ length: 5 }, (_, index) => accountSummary({ slug: `album-${index}`, title: `Album ${index}` })) }) })
-    const { container } = mountAccount()
+    const { container } = mountAccount({ billing: entitlement('free') })
     await settle()
     expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
-    expect(container.textContent).toContain('You have 5 retained galleries')
-    expect(container.textContent).toContain('3 editable gallery slots')
+    // The plan line at the foot is the warning now — every gallery still lists.
+    const foot = container.querySelector('.native-lib-foot')
+    expect(foot?.textContent).toContain('All 5 of 3 free galleries used.')
+    expect(foot?.textContent).toContain('Go Visionary')
     expect(container.querySelectorAll('.lib-th.is-active')).toHaveLength(0)
     expect(container.querySelector('main .native-account-delete')).toBeNull()
   })

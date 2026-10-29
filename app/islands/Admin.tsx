@@ -838,52 +838,28 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
-      {/* Only the continuous photographic rails span the centre. Account copy
-          and the add control each fit inside one half of the top workbench. */}
-      <div class="admin-overview">
-      <section class="admin-welcome" aria-label="Welcome to manorama">
-        <span class="admin-welcome-brand brand-mark-wrap">
-          <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
-          <span class="brand-tld" aria-hidden="true">.xyz</span>
-        </span>
-        <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <div class="admin-greeting">
-          <p class="admin-greeting-url">manorama.xyz/<input
-            class="admin-owner-slug-input"
-            type="text"
-            value={ownerSlugDraft}
-            aria-label="Your URL — edit to change your address"
-            spellcheck={false}
-            autoCapitalize="none"
-            autoCorrect="off"
-            onInput={(event) => { setSettingsNote(''); setOwnerSlugDraft((event.currentTarget as HTMLInputElement).value) }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') cancelOwnerSlugEditing()
-              if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
-            }}
-            onBlur={() => { void saveOwnerSlug() }}
-          /></p>
-          <p class="admin-greeting-hello">Hello, <mark class="admin-greeting-name">{ownerName || owner}</mark>. Welcome to manorama.xyz.</p>
-          <p class="admin-greeting-plan">You are a {tier === 'pro' ? 'Visionary' : 'Free'} User. {retainedCount <= retainedLimit ? `You have used ${retainedCount} of your ${retainedLimit} gallery limit.` : `You have ${retainedCount} retained galleries. Your plan includes ${retainedLimit} editable gallery slots; all your galleries are listed below.`}</p>
-          {settingsNote ? <p class="admin-welcome-note" role="status">{settingsNote}</p> : null}
-        </div>
-      </section>
-      {adsShow ? (
-        /* The sponsored slot sits opposite the welcome — the same house
-           creative and header placement the native account surface uses. */
-        <aside class="account-ad" aria-label="Sponsored: manorama">
-          <span class="account-ad-badge">Sponsored</span>
-          <strong class="account-ad-headline">More photographs, quietly shared.</strong>
-          <a class="account-ad-cta" href="https://manorama.xyz" target="_blank" rel="noopener">Explore manorama</a>
-        </aside>
-      ) : null}
-      </div>
-
       <section class="gallery-list" aria-labelledby="galleries-heading">
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
           <button type="button" class="admin-button admin-button--solid" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add</button>
         </div>
+        {adsShow ? (
+          /* The sponsored panel sits between the Library heading and the
+             cards — the same portrait-shaped house slot as native. */
+          <aside class="account-ad" aria-label="Sponsored: manorama">
+            <span class="account-ad-badge">Sponsored</span>
+            <div class="account-ad-slot">
+              <div class="account-ad-frame">
+                <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
+              </div>
+              <div class="account-ad-copy">
+                <strong class="account-ad-headline">More photographs, quietly shared.</strong>
+                <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
+                <a class="account-ad-cta" href="https://manorama.xyz" target="_blank" rel="noopener">Explore manorama</a>
+              </div>
+            </div>
+          </aside>
+        ) : null}
         {liveGalleries.length ? <div class="admin-gallery-list">{liveGalleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
           <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
           {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
@@ -906,6 +882,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <div class="gallery-card-actions"><button type="button" class="admin-button admin-button--secondary admin-details-button" aria-label={`Open details for ${gallery.title}`} onClick={() => openDetails(gallery.slug)} disabled={busy}>Details</button><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from its source link`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}<button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button></div>
         </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
       </section>
+      {/* The plan line is the only account copy on the Library — quiet
+          normally; Settings › Plan carries the detail. */}
+      <footer class="admin-lib-foot">
+        <span>{retainedCount <= retainedLimit ? `${retainedCount} of ${retainedLimit} galleries` : `${retainedCount} galleries`} · {tier === 'pro' ? 'Visionary' : 'Free'}</span>
+        <button type="button" class="admin-button admin-button--secondary" onClick={openSettings}>Plan</button>
+      </footer>
       </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}

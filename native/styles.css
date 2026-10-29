@@ -1741,6 +1741,34 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 }
 .native-library-heading h1 { margin: 0; font-size: 28px; line-height: 1.2; }
 
+/* One status line under the title: vault activity first, then the kept
+   count. It keeps its line even when empty so the sponsored slot does not
+   jump. */
+.native-library-finding {
+  min-height: 1.6em;
+  margin: 0;
+  color: rgba(var(--ink), .55);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.native-library-finding b { color: rgb(var(--ink)); font-weight: 600; }
+
+/* The plan line: quiet usage normally, a warning sentence when the next
+   gallery would be temporary. */
+.native-lib-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 48px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(var(--ink), .1);
+  color: rgba(var(--ink), .55);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.native-lib-foot .num { color: rgb(var(--ink)); }
+
 /* Settings keeps the shared owner grammar while embedding the live vault
    controls rather than mounting a second settings shell. */
 .native-settings { background: var(--m-ground); color: var(--m-ink); }

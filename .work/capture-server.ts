@@ -60,6 +60,7 @@ const DEVICE_LABEL = 'iPhone 17 Pro Max'
 type Json = Record<string, unknown>
 
 let state = 0
+let requestTier: 'free' | 'pro' | null = null
 let generation = 0
 let report: Json | null = null
 let fixture: { gallery: Json; galleries: Json; deviceGalleries: Json } | null = null
@@ -790,6 +791,9 @@ const server = Bun.serve({
   idleTimeout: 255,
   async fetch(request) {
     const url = new URL(request.url)
+    // A browser preview has no RevenueCat: ?tier=free|pro stands the account
+    // surface in a billing state so the sponsored slot and plan line render.
+    requestTier = url.searchParams.get('tier') === 'pro' ? 'pro' : url.searchParams.get('tier') === 'free' ? 'free' : null
 
     // The calling script picks the state before each launch.
     const stateMatch = url.pathname.match(/^\/state\/(\d+)$/)
@@ -915,6 +919,7 @@ const server = Bun.serve({
 async function html(source: string) {
   const setup = `<script>
     window.__captureGeneration = ${generation};
+    ${requestTier ? `window.__demoBilling = { tier: '${requestTier}', isPro: ${requestTier === 'pro'}, customerInfo: { entitlements: { active: {} } } };` : ''}
     window.__captureErrors = [];
     window.addEventListener('error', (event) => window.__captureErrors.push(event.message));
     window.addEventListener('unhandledrejection', (event) => window.__captureErrors.push(String(event.reason)));

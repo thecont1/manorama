@@ -38,6 +38,7 @@ import { cacheFillRegistry } from '../lib/cache-fill'
 import { copyText, type GallerySharePayload } from '../../app/lib/gallery-share'
 import { shareGalleryNative } from '../lib/gallery-share'
 import { LibraryRail } from './LibraryRail'
+import { TopBar } from '../../app/components/ui/TopBar'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
@@ -192,7 +193,11 @@ export const regionName = (code: string | null | undefined): string => {
 
 /** Opens native galleries from the network or local vault and presents eligible
  *  photo pairs in the fold layout when the device has two usable segments. */
-export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState, ownerTheme = 'dark', onOwnerThemeChange = () => {}, accountAdLoader = adFrameFor, offlineStore = productionOfflineGalleryStore }: Props) {
+export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState: liveBilling, ownerTheme = 'dark', onOwnerThemeChange = () => {}, accountAdLoader = adFrameFor, offlineStore = productionOfflineGalleryStore }: Props) {
+  // Browser previews have no RevenueCat to configure. The capture harness
+  // can stand the account surface in a billing state through
+  // window.__demoBilling so every tier-bearing element can be reviewed.
+  const billingState = liveBilling ?? (globalThis as { __demoBilling?: BillingState }).__demoBilling
   const initial = selectionFromLocation()
   const initialSelection = { owner: owner ?? initial.owner, slug: slug ?? initial.slug }
   const [selection, setSelection] = useState<Selection>(initialSelection)
@@ -1386,29 +1391,57 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // rect, so it has to exist before the fill is asked for. Until a rented
   // rectangle paints over it, the reserve carries the house creative.
   const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
+  // The status line under the title reports vault activity first, then how
+  // many galleries live on this iPhone. Stream-only flags count as not kept;
+  // an unset policy follows the vault default.
+  const keptOnDevice = ownerSlug
+    ? accountGalleries?.filter((gallery) => galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] !== true).length ?? 0
+    : 0
+  const libraryFinding = vaultProgress && vaultProgress.total > 0
+    ? `${selection.slug} is saving to this iPhone, ${vaultProgress.completed} of ${vaultProgress.total}.`
+    : retainedAccountGalleries.length > 0
+      ? `${retainedAccountGalleries.length} ${retainedAccountGalleries.length === 1 ? 'gallery' : 'galleries'}, ${keptOnDevice} kept on this iPhone.`
+      : ''
+
   const accountAdAside = billingState?.tier && visibility?.show !== false ? (
+    /* Its own surface panel — a vertical photograph slot beside the copy —
+       so it reads as a sponsored plate, not the first gallery. */
     <aside
       class={`native-account-ad${accountAdFrame?.provider === 'admob-banner' ? ' native-account-ad--live' : ''}`}
       data-account-ad
       aria-label={`${accountAdCreative.badge}: ${accountAdCreative.advertiser}`}
     >
       <span class="native-account-ad-badge">{accountAdCreative.badge}</span>
-      <strong class="native-account-ad-headline">
-        {accountAdCreative.headline ?? accountAdCreative.advertiser}
-      </strong>
-      {accountAdCreative.cta ? (
-        // The account page has no strip in motion, so the same CTA the
-        // viewer renders is always actionable here; _blank keeps the
-        // tap out of the app's own webview.
-        <a
-          class="native-account-ad-cta"
-          href={accountAdCreative.cta.url}
-          target="_blank"
-          rel="noopener"
-        >
-          {accountAdCreative.cta.label}
-        </a>
-      ) : null}
+      <div class="native-account-ad-slot">
+        <div class="native-account-ad-frame">
+          {accountAdCreative.image ? (
+            <img src={accountAdCreative.image.src} width={accountAdCreative.image.width} height={accountAdCreative.image.height} alt="" />
+          ) : (
+            <span class="native-account-ad-placeholder">Vertical photograph, fit to height</span>
+          )}
+        </div>
+        <div class="native-account-ad-copy">
+          <strong class="native-account-ad-headline">
+            {accountAdCreative.headline ?? accountAdCreative.advertiser}
+          </strong>
+          {accountAdCreative.provider === 'manorama-house' ? (
+            <span class="native-account-ad-sub">A placeholder until sponsored photographs arrive.</span>
+          ) : null}
+          {accountAdCreative.cta ? (
+            // The account page has no strip in motion, so the same CTA the
+            // viewer renders is always actionable here; _blank keeps the
+            // tap out of the app's own webview.
+            <a
+              class="native-account-ad-cta"
+              href={accountAdCreative.cta.url}
+              target="_blank"
+              rel="noopener"
+            >
+              {accountAdCreative.cta.label}
+            </a>
+          ) : null}
+        </div>
+      </div>
     </aside>
   ) : null
 
@@ -1509,57 +1542,28 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             <svg class="native-account-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
           </button>
 
-      <div class="native-account-overview" aria-label="Account overview">
-      {/* The brand column — same classes as the web's landing and dashboard,
-          so logo, tagline, greeting and footer can't drift between platforms.
-          Wide screens pin it left beside the account card; narrow screens
-          stack it above. */}
-      <div class="native-account-left">
-      <div class="native-account-side">
-        {/* The wordmark and the account menu share one row: the mark is the
-            quiet opening gesture, the menu holds the account actions. */}
-        <div class="native-account-head">
-          <span class="brand-mark-wrap">
-            <img
-              src="/manorama-merged-logo.png"
-              alt="manorama"
-              class="landing-brand-mark"
-            />
-            <span class="brand-tld" aria-hidden="true">.xyz</span>
-          </span>
-        </div>
-        <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-        <div class="admin-greeting">
-          <p class="admin-greeting-url">manorama.xyz/<input
-            class="admin-owner-slug-input"
-            type="text"
-            value={ownerSlugDraft}
-            aria-label="Your URL — edit to change your address"
-            spellcheck={false}
-            autoCapitalize="none"
-            autoCorrect="off"
-            onInput={(event) => {
-              setSlugNote(null)
-              setOwnerSlugDraft((event.currentTarget as HTMLInputElement).value)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') setOwnerSlugDraft(ownerSlug ?? '')
-              if (event.key === 'Enter') { event.preventDefault(); void saveOwnerSlug() }
-            }}
-            onBlur={() => { void saveOwnerSlug() }}
-          /></p>
-          <p class="admin-greeting-hello">Hello, <mark class="admin-greeting-name">{accountName}</mark>. Welcome to manorama.xyz.</p>
-          <p class="admin-greeting-plan">You are a {userType} User. {retainedAccountGalleries.length <= galleryLimit ? `You have used ${retainedAccountGalleries.length} of your ${galleryLimit} gallery limit.` : `You have ${retainedAccountGalleries.length} retained galleries. Your plan includes ${galleryLimit} editable gallery slots; all your galleries are listed below.`}</p>
-          {slugNote ? <p class="native-account-note">{slugNote}</p> : null}
-        </div>
-      </div>
-      </div>
-      </div>
+      {/* The top bar is the mark plus one deliberate surface for everything
+          account-shaped — Settings carries address, plan, this device,
+          appearance, sign-out and delete, so none of it lives on the
+          Library (megaplan 5.4: title + Add, no account workbench). */}
+      <TopBar
+        end={(
+          <button
+            type="button"
+            class="m-btn m-btn--quiet"
+            aria-label="Settings"
+            onClick={() => dispatchNav({ type: 'open-settings' })}
+          >⚙</button>
+        )}
+      />
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <div class="native-library-heading">
           <h1>Library</h1>
           <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}>Add</button>
         </div>
+        {/* The status line under the title reports vault activity first,
+            then how many galleries live on this iPhone. */}
+        <p class="native-library-finding">{libraryFinding}</p>
         {galleryActionNote ? <p role="status">{galleryActionNote}</p> : null}
         {authError ? <p role="alert">{authError}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
@@ -1600,6 +1604,29 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           </div>
         ) : null}
       </section>
+      {/* The plan line is the only account copy on the Library: quiet
+          normally, a warning sentence when the next gallery would be
+          temporary. Settings › Plan carries the detail. */}
+      {signedIn && billingState?.tier ? (
+        <footer class="native-lib-foot">
+          {billingState.isPro ? (
+            <>
+              <span><span class="num">{retainedAccountGalleries.length}</span> galleries · Visionary</span>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Plan</button>
+            </>
+          ) : retainedAccountGalleries.length < galleryLimit ? (
+            <>
+              <span><span class="num">{retainedAccountGalleries.length} of {galleryLimit}</span> free galleries</span>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Plan</button>
+            </>
+          ) : (
+            <>
+              <span>All <span class="num">{retainedAccountGalleries.length} of {galleryLimit}</span> free galleries used. A new one would last 30 days.</span>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-visionary', from: 'library' })}>Go Visionary</button>
+            </>
+          )}
+        </footer>
+      ) : null}
     </main>
     {detailsView}
     <AddGallerySheet

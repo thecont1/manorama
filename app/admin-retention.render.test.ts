@@ -124,14 +124,17 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
 
-  test('welcome and the sponsored slot share the top level with galleries below both', async () => {
+  test('the Library leads with its heading and ends on the plan line', async () => {
     const html = await renderDashboard(seedPipelineOwner)
-    expect(html).toContain('class="admin-overview"')
-    expect(html).toContain('aria-label="Welcome to manorama"')
-    expect(html).toContain('You are a Free User. You have used 3 of your 3 gallery limit.')
-    expect(html.indexOf('class="admin-welcome"')).toBeLessThan(html.indexOf('class="admin-library-heading"'))
+    // The account workbench moved off the Library: address lives in
+    // Settings › Account, the plan summary in the quiet foot line.
+    expect(html).not.toContain('class="admin-overview"')
+    expect(html).not.toContain('aria-label="Welcome to manorama"')
+    expect(html).not.toContain('admin-owner-slug-input')
     expect(html.indexOf('class="admin-library-heading"')).toBeLessThan(html.indexOf('class="admin-gallery-list"'))
+    expect(html.indexOf('class="admin-gallery-list"')).toBeLessThan(html.indexOf('class="admin-lib-foot"'))
     expect(html).toContain('aria-labelledby="galleries-heading"')
+    expect(html).toContain('3 of 3 galleries · Free')
   })
 
   test('a pipeline card locks every edit surface and explains the deadline', async () => {

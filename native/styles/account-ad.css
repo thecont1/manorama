@@ -1,8 +1,7 @@
-/* Account surface house slot (#21): one labelled slot in the card header,
-   opposite the logo, in normal document flow so it can never sit over the
-   sign-in, subscription or open-gallery controls. The header wraps when the
-   card is narrow — portrait phones drop the slot onto its own line, right
-   aligned under the logo, instead of squeezing the brand mark. */
+/* Account surface house slot (#21): one labelled slot in the Library,
+   directly under the title/status line and above every gallery. It is its
+   own surface panel shaped for a vertical photograph — never the first
+   gallery, never inside a card. */
 
 .native-account-header {
   display: flex;
@@ -13,15 +12,13 @@
 }
 
 .native-account-ad {
-  flex: 1 1 96px;
-  max-width: 240px;
-  margin-left: auto;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   align-content: start;
-  padding: 12px 14px;
-  border: 1px solid rgba(var(--ink), .18);
-  background: rgba(0, 0, 0, .18);
+  max-width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(var(--ink), .06);
 }
 
 .native-account-ad-badge {
@@ -33,15 +30,58 @@
   text-transform: uppercase;
 }
 
+.native-account-ad-slot {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* The plate is a vertical photograph shown fit to height; until a rented
+   creative supplies art the placeholder keeps the same 2:3 frame. */
+.native-account-ad-frame {
+  width: 112px;
+  height: 168px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(var(--ink), .12);
+}
+.native-account-ad-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.native-account-ad-placeholder {
+  padding: 10px;
+  color: rgba(var(--ink), .45);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.native-account-ad-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
 .native-account-ad-headline {
   color: rgb(var(--ink));
   font-size: 15px;
   font-weight: 400;
   line-height: 1.35;
 }
-
+.native-account-ad-sub {
+  margin-top: 4px;
+  color: rgba(var(--ink), .55);
+  font-size: 13px;
+  line-height: 1.45;
+}
 .native-account-ad-cta {
+  margin-top: 8px;
   color: rgb(var(--ink));
   font-size: 14px;
   line-height: 1.2;
+  text-underline-offset: 3px;
 }
+
+/* A surface panel never straddles the hinge — the slot stays inside the
+   leading segment's padded column. */
+.native-account-shell[data-admin-segmented] .native-account-ad { width: min(480px, calc(var(--admin-left-end) - 64px)); }
