@@ -123,14 +123,27 @@ test('html.light is applied by theme-init.js before first paint', async ({ brows
   const context = await browser.newContext()
   await context.addInitScript(() => {
     try { localStorage.setItem('manorama:theme', 'light') } catch { /* ignore */ }
-    ;(window as unknown as { __themeAtDCL: unknown }).__themeAtDCL = null
-    document.addEventListener('DOMContentLoaded', () => {
-      (window as unknown as { __themeAtDCL: unknown }).__themeAtDCL = document.documentElement.classList.contains('light')
+    ;(window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule = null
+    // DOMContentLoaded is too late to isolate theme-init.js — by then the
+    // specimen's module bundle has run and could have applied the class
+    // itself. theme-init.js is a classic script, so it executes at its
+    // document position; the type="module" bundle that follows it cannot
+    // run before parsing ends. When the module script element exists,
+    // theme-init has run and the bundle has not — that state is what
+    // "before first paint" means here.
+    const observer = new MutationObserver(() => {
+      if (!document.querySelector('script[type="module"]')) return
+      ;(window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule =
+        document.documentElement.classList.contains('light')
+      observer.disconnect()
     })
+    // documentElement does not exist yet when init scripts run — observe
+    // the document, which does.
+    observer.observe(document, { childList: true, subtree: true })
   })
   const page = await context.newPage()
   await page.goto(specimen, { waitUntil: 'domcontentloaded' })
-  expect(await page.evaluate(() => (window as unknown as { __themeAtDCL: unknown }).__themeAtDCL)).toBe(true)
+  expect(await page.evaluate(() => (window as unknown as { __themeBeforeModule: unknown }).__themeBeforeModule)).toBe(true)
   await context.close()
 })
 test('sheet input typing keeps focus, one overlay, Escape returns to opener', async ({ page }) => {
