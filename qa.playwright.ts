@@ -6,7 +6,7 @@
 // The stage carries no info button: `I` opens the in-gallery sheet, while
 // `⇧I` deep-links into the standalone C2PA viewer (falling back to the
 // in-gallery sheet for sources the viewer can't fetch).
-// The info modal has aria-label "Image information and Content Credentials".
+// The info sheet's accessible name is its title — "Photograph N of M".
 //
 // The admin surface requires a Manorama session — Dropbox sign-in mints an
 // HS256 `manorama_session` cookie (app/lib/session.ts). Every context
@@ -18,6 +18,7 @@
 // no such user and refuses the admin tests loudly.
 
 import { test as base, expect } from "@playwright/test";
+import { showChrome } from "./playwright-helpers";
 import type { APIRequestContext, PlaywrightWorkerArgs } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
@@ -68,7 +69,7 @@ const BASE = process.env.GALLERY_URL ?? "http://localhost:8787";
 const OWNER = process.env.GALLERY_OWNER ?? "thecontrarian";
 const SLUG = process.env.GALLERY_SLUG ?? "dev-dropbox";
 const GALLERY = `${BASE}/${OWNER}/${SLUG}`;
-const CONTROL_NAME = /image information and content credentials/i;
+const CONTROL_NAME = /^(photograph|video) \d+ of \d+$/i;
 
 const viewports = [
   { name: "phone", width: 375, height: 812, hasTouch: true },
@@ -92,9 +93,9 @@ async function dismissCurtain(
 // state so a case's outcome never depends on what ran before it.
 test.beforeEach(async ({ request, page }) => {
   // Reduced motion keeps animated chrome click-stable for every spec.
-  // RULE: a spec that asserts an animation mid-flight (is-lifting, the
-  // logo bob, sweeps) must re-emulate no-preference first — under reduce
-  // the transition is ~0ms and intermediate states die in one frame.
+  // RULE: a spec that asserts an animation mid-flight (curtain fading,
+  // the logo bob, sweeps) must re-emulate no-preference first — under
+  // reduce the transitions collapse and intermediate states die fast.
   await page.emulateMedia({ reducedMotion: "reduce" });
   const reset = await request.post(`${BASE}/.dev-seed/reset`);
   expect(reset.status(), "dev seed reset — is this `bun run dev`?").toBe(204);
@@ -120,15 +121,21 @@ async function openInfoDialog(page: import("@playwright/test").Page) {
   await page.keyboard.press("i");
 }
 
-/** Enables navigation arrows through display settings when they are hidden. */
 async function ensureNavArrows(page: import("@playwright/test").Page) {
   if ((await page.locator("[data-nav-arrow]").count()) === 0) {
+    await showChrome(page);
     await page
-      .getByRole("button", { name: "Gallery controls", exact: true })
+      .getByRole("button", { name: "Display", exact: true })
       .click();
     await page
-      .getByRole("button", { name: /show navigation arrows/i })
+      .getByRole("switch", { name: /^arrows$/i })
       .click();
+    // The sheet stays open on a change — dismiss it before the stage is
+    // needed, or the scrim eats the next click. Waiting for the scrim to
+    // actually clear matters under load: Escape can land before the
+    // sheet finishes mounting.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".m-scrim--open")).toHaveCount(0);
   }
 }
 
@@ -199,38 +206,52 @@ test("curtain uses larger brand type without entry labels", async ({
   );
 });
 
-test("curtain lifts upward before it hides", async ({ page }) => {
-  // This spec asserts the lift itself — under the suite-wide reduced
-  // motion emulation the transition is ~0ms and is-lifting only exists
-  // for a frame, so run it with motion on.
+test("curtain is a frosted veil, not an opaque page", async ({ page }) => {
+  await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
+  const curtain = page.locator("[data-curtain]");
+  // The first photograph sits behind a 28px frost plus scrim — a veil
+  // the photograph reads through, never a solid page in front of it.
+  await expect(curtain).toHaveCSS("backdrop-filter", /blur\(28px\)/);
+  // Reduced motion (the suite default) is a plain 0.2s fade.
+  await expect(curtain).toHaveCSS("transition-duration", /0\.2s/);
+});
+
+test("curtain dissolves in place — nothing moves — before it hides", async ({
+  page,
+}) => {
+  // The dissolve itself is asserted — under the suite-wide reduced
+  // motion emulation the fade is 0.2s and `fading` is hard to catch,
+  // so run it with motion on.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
-  await expect(curtain).toHaveClass(/is-lifting/);
-  await page.waitForTimeout(150);
-  await expect(curtain).not.toHaveCSS("transform", "none");
+  await expect(curtain).toHaveClass(/fading/);
+  // The veil fades where it stands — no lift, no translate, ever.
+  await expect(curtain).toHaveCSS("transform", "none");
   await expect(curtain).toBeHidden();
 });
 
-test("curtain reveal remains visible through a calmer lift before it hides", async ({
+test("curtain words fade first while the frost keeps dissolving", async ({
   page,
 }) => {
-  // Lift duration is asserted — motion required (see the spec above).
+  // The 0.35s/1.1s split is asserted — motion required (see above).
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
   await curtain.click();
-  await page.waitForTimeout(650);
-  await expect(curtain).toHaveClass(/is-lifting/);
+  // Words take 0.35s; the veil takes 1.1s — once the copy is gone the
+  // frost must still be mid-flight, then the whole curtain hides.
+  await expect(curtain.locator(".curtain-content")).toHaveCSS("opacity", "0");
+  await expect(curtain).toHaveClass(/fading/);
   await expect(curtain).not.toHaveAttribute("hidden");
   await expect(curtain).toBeHidden();
 });
 
-test("curtain accepts an upward swipe before it lifts away", async ({
+test("curtain accepts an upward swipe before it dissolves", async ({
   page,
 }) => {
-  // Lift class asserted — motion required.
+  // Fading class asserted — motion required.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
   const curtain = page.locator("[data-curtain]");
@@ -238,7 +259,7 @@ test("curtain accepts an upward swipe before it lifts away", async ({
   await page.mouse.down();
   await page.mouse.move(300, 360, { steps: 4 });
   await page.mouse.up();
-  await expect(curtain).toHaveClass(/is-lifting/);
+  await expect(curtain).toHaveClass(/fading/);
   await expect(curtain).toBeHidden();
 });
 
@@ -333,19 +354,23 @@ for (const vp of viewports) {
 
     test("exactly one visible control during viewing", async ({ page }) => {
       await dismissCurtain(page);
-      const visible = await page.evaluate(() => {
-        const stage = document
-          .querySelector("[data-stage]")!
-          .getBoundingClientRect();
-        return [...document.querySelectorAll("body *")]
+      // The chrome's 3s window must lapse before the rest state counts —
+      // wait for the bars to actually report hidden, not a fixed sleep.
+      await expect(page.locator("[data-chrome-bottom]")).not.toHaveClass(/is-visible/, { timeout: 8000 });
+      // The 200ms fade must finish too — hidden pills still carry opacity.
+      await page.waitForTimeout(300);
+      const audit = await page.evaluate(() => {
+        const stage = document.querySelector("[data-stage]")!;
+        const rect = stage.getBoundingClientRect();
+        const visible = [...document.querySelectorAll("body *")]
           .filter((el) => {
             const r = el.getBoundingClientRect();
             const s = getComputedStyle(el);
             const overStage =
-              r.left < stage.right &&
-              r.right > stage.left &&
-              r.top < stage.bottom &&
-              r.bottom > stage.top;
+              r.left < rect.right &&
+              r.right > rect.left &&
+              r.top < rect.bottom &&
+              r.bottom > rect.top;
             return (
               overStage &&
               !el.closest("[data-stage]") &&
@@ -357,130 +382,174 @@ for (const vp of viewports) {
             );
           })
           .map((el) => el.getAttribute("aria-label") ?? el.tagName);
+        return { visible, arrowBar: stage.classList.contains("has-arrow-bar") };
       });
-      expect(visible).toEqual(["Gallery controls"]); // design rules, Rule 1
+      // Rule 1: nothing floats on the photograph. With arrows on, the
+      // controls live in their own bar beneath the stage — zero overlap;
+      // with them off, only the position count rides the corner.
+      expect(audit.visible).toHaveLength(audit.arrowBar ? 0 : 1);
+      if (!audit.arrowBar) expect(audit.visible[0]).toMatch(/^Photograph 1 of \d+/);
+      await expect(page.locator(".stage-seq")).toBeVisible();
+      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
     });
 
-    test("logo tab peeks centred below the stage edge and opens its panels", async ({
+    test("chrome bars dock top and bottom and open their panels", async ({
       page,
     }) => {
-      // Freeze the bob and skip the reveal intro so the resting state is
-      // deterministic — this spec asserts the settled contract, not the
-      // 4.5s fade-in.
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      await page.addInitScript(() => {
-        addEventListener("DOMContentLoaded", () => {
-          const style = document.createElement("style");
-          style.textContent =
-            ".control-logo .brand-mark-wrap { animation: none !important; }";
-          document.head.appendChild(style);
-        });
-      });
       await dismissCurtain(page);
-      const geometry = await page
-        .getByRole("button", { name: "Gallery controls", exact: true })
-        .evaluate((button) => {
-          // The button is the static in-viewport hit area; the painted
-          // card inside it does the peeking below the fold.
-          const hit = button.getBoundingClientRect();
-          const card = button
-            .querySelector(".brand-mark-wrap")!
-            .getBoundingClientRect();
-          const stage = document
-            .querySelector("[data-stage]")!
-            .getBoundingClientRect();
-          return {
-            belowFold: card.bottom - stage.bottom,
-            centreDelta: Math.abs(
-              card.left + card.width / 2 - (stage.left + stage.width / 2),
-            ),
-            visibleFraction: (stage.bottom - card.top) / card.height,
-            hitHeight: hit.height,
-            hitBelowFold: hit.bottom - stage.bottom,
-          };
-        });
-      // The card sits centred on the stage's bottom edge, ~60% hidden
-      // below the fold — only the top ~40% of the wordmark shows at rest —
-      // while the button itself keeps a full 44px+ hit area on screen.
-      expect(geometry.centreDelta).toBeLessThanOrEqual(1);
-      expect(geometry.belowFold).toBeGreaterThan(0);
-      expect(geometry.visibleFraction).toBeGreaterThanOrEqual(0.3);
-      expect(geometry.visibleFraction).toBeLessThanOrEqual(0.5);
-      expect(geometry.hitHeight).toBeGreaterThanOrEqual(44);
-      expect(geometry.hitBelowFold).toBeLessThanOrEqual(0);
-      // The pill is nearly invisible at rest: low wrap opacity, no chrome
-      // painted by the button itself (the ::before pill carries it).
-      const rest = await page
-        .getByRole("button", { name: "Gallery controls", exact: true })
-        .evaluate((button) => {
-          const wrap = button.querySelector(".brand-mark-wrap")!;
-          const wrapCss = getComputedStyle(wrap);
-          const pill = getComputedStyle(wrap, "::before");
-          return {
-            opacity: parseFloat(wrapCss.opacity),
-            pillRadius: pill.borderTopLeftRadius,
-            buttonBg: getComputedStyle(button).backgroundColor,
-          };
-        });
-      expect(rest.opacity).toBeLessThanOrEqual(0.4);
-      expect(rest.pillRadius).toBe("999px");
-      expect(rest.buttonBg).toBe("rgba(0, 0, 0, 0)");
-      // Pointer approaching the fold — within ~100px of the strip —
-      // makes the pill jump up clear of the viewport bottom and
-      // brighten; a pointermove listener toggles .is-near, so the button's
-      // hit box stays exactly its visible strip.
-      const card = page.locator(".control-logo .brand-mark-wrap");
-      const resting = await card.boundingBox();
-      const stageBottom = (await page.locator("[data-stage]").boundingBox())!.y +
-        (await page.locator("[data-stage]").boundingBox())!.height;
-      await page.mouse.move(
-        (resting!.x + resting!.width / 2),
-        stageBottom - 110,
-      );
-      await page.waitForTimeout(500);
-      const raised = await card.boundingBox();
-      const raisedOpacity = await card.evaluate(
-        (el) => parseFloat(getComputedStyle(el).opacity),
-      );
-      // Clear of the fold: the raised pill's bottom edge floats above
-      // the viewport bottom, well clear of its resting depth.
-      expect(raised!.y).toBeLessThan(resting!.y - 20);
-      expect(raised!.y + raised!.height).toBeLessThanOrEqual(stageBottom + 1);
-      expect(raisedOpacity).toBeGreaterThanOrEqual(0.9);
-      // The centred logo opens display settings; the info sheet answers
-      // plain `I` (⇧I fetches the external C2PA viewer instead).
-      await page.mouse.move(200, 200);
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+      await showChrome(page);
+      const stage = await page
+        .locator("[data-stage]")
+        .evaluate((el) => el.getBoundingClientRect());
+      const top = await page
+        .locator("[data-chrome-top]")
+        .evaluate((el) => el.getBoundingClientRect());
+      const bottom = await page
+        .locator("[data-chrome-bottom]")
+        .evaluate((el) => el.getBoundingClientRect());
+      // Top bar inside the stage's top edge; bottom row inside the bottom.
+      expect(top.top).toBeGreaterThanOrEqual(stage.top - 1);
+      expect(top.top).toBeLessThan(stage.top + 40);
+      expect(bottom.bottom).toBeLessThanOrEqual(stage.bottom + 1);
+      expect(bottom.bottom).toBeGreaterThan(stage.bottom - 60);
+      // The owner session renders Library as a link back to the
+      // dashboard; Details still waits for P7.
       await expect(
-        page.getByRole("dialog", { name: /display settings/i }),
+        page.locator("[data-chrome-library]"),
+      ).toHaveAttribute("href", /\//);
+      await expect(
+        page.locator("[data-chrome-bottom]").getByRole("button", { name: "Details" }),
+      ).toHaveCount(0);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await expect(
+        page.getByRole("dialog", { name: "Display" }),
       ).toBeVisible();
-      // Vertical scroll fills the width edge-to-edge — the pill docks at
-      // the bottom-left corner, the spot least likely to cover a photo.
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      // Vertical scroll keeps the bars working in their docks.
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
-      const docked = await page
-        .getByRole("button", { name: "Gallery controls", exact: true })
-        .evaluate((button) => {
-          const hit = button.getBoundingClientRect();
-          const stage = document
-            .querySelector("[data-stage]")!
-            .getBoundingClientRect();
-          return {
-            leftDelta: hit.left - stage.left,
-            centreDelta: Math.abs(
-              hit.left + hit.width / 2 - (stage.left + stage.width / 2),
-            ),
-          };
-        });
-      expect(docked.leftDelta).toBeLessThan(32);
-      expect(docked.centreDelta).toBeGreaterThan(60);
       await page.keyboard.press("Escape");
       await openInfoDialog(page);
       const info = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(info).toBeVisible();
       await expect(info.locator("[data-c2pa-panel]")).toBeInViewport();
+    });
+
+    test("controls surface when the curtain clears, then tuck away", async ({
+      page,
+    }) => {
+      await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
+      const bottom = page.locator("[data-chrome-bottom]");
+      // No controls while the veil is up — only the curtain.
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      await page.locator("[data-curtain]").click();
+      await expect(page.locator("[data-curtain]")).toBeHidden();
+      // The bars reveal themselves once the photograph is clear — the
+      // visitor is not asked to discover the tap.
+      await expect(bottom).toHaveClass(/is-visible/);
+      await expect(page.locator("[data-chrome-top]")).toHaveClass(
+        /is-visible/,
+      );
+      // Three idle seconds later they tuck away again.
+      await expect(bottom).not.toHaveClass(/is-visible/, {
+        timeout: 8000,
+      });
+      // Hidden bars are inert — nothing inside can take focus or a tap.
+      await expect(bottom).toHaveAttribute("inert", "");
+      await expect(bottom).toHaveAttribute("aria-hidden", "true");
+      await expect(page.locator("[data-chrome-top]")).toHaveAttribute(
+        "inert",
+        "",
+      );
+    });
+
+    test("tap toggles chrome while wheel and drag never summon it", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const bottom = page.locator("[data-chrome-bottom]");
+      const stage = page.locator("[data-stage]");
+      await expect(bottom).not.toHaveClass(/is-visible/, { timeout: 8000 });
+      const box = (await stage.boundingBox())!;
+      // A wheel gesture moves photographs, not chrome.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel(0, 320);
+      await page.waitForTimeout(300);
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      // A tap toggles it on, a second tap toggles it off.
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(bottom).toHaveClass(/is-visible/);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      // And a drag is travel, not a tap — it must not leave the bars on.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      await expect(bottom).not.toHaveClass(/is-visible/);
+    });
+
+    test("the skip button summons controls and focus holds them open", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const bottom = page.locator("[data-chrome-bottom]");
+      await expect(bottom).not.toHaveClass(/is-visible/, { timeout: 8000 });
+      // Tab is itself a reveal cue — the bars answer the keyboard before
+      // any tab stop is reached.
+      await page.keyboard.press("Tab");
+      await expect(bottom).toHaveClass(/is-visible/);
+      // Any other key sends them away again.
+      await page.keyboard.press("Escape");
+      await expect(bottom).not.toHaveClass(/is-visible/);
+      // The skip button is the tab-order entry point: off-viewport until
+      // focused, so activation is the DOM click a keyboard Enter sends.
+      await page
+        .getByRole("button", { name: "Show controls" })
+        .dispatchEvent("click");
+      await expect(bottom).toHaveClass(/is-visible/);
+      await expect(
+        page.getByRole("button", { name: "Display", exact: true }),
+      ).toBeFocused();
+      // Focus inside the chrome pauses the auto-hide — past three
+      // seconds the bars are still up while a pill is focused.
+      await page.waitForTimeout(3400);
+      await expect(bottom).toHaveClass(/is-visible/);
+    });
+
+    test("a signed-out visitor gets neither Library nor Details", async ({
+      browser,
+    }) => {
+      // No session cookie — the public-link visitor sees Display, Info
+      // and the position count, and nothing that exits or edits.
+      const context = await browser.newContext({
+        viewport: { width: vp.width, height: vp.height },
+        hasTouch: vp.hasTouch,
+      });
+      const page = await context.newPage();
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
+      await page.locator("[data-curtain]").click();
+      const bottom = page.locator("[data-chrome-bottom]");
+      await expect(bottom).toHaveClass(/is-visible/);
+      await expect(page.locator("[data-chrome-library]")).toHaveCount(0);
+      await expect(
+        bottom.getByRole("button", { name: "Details" }),
+      ).toHaveCount(0);
+      await expect(
+        bottom.getByRole("button", { name: "Display", exact: true }),
+      ).toBeVisible();
+      await expect(
+        bottom.getByRole("button", { name: "Info", exact: true }),
+      ).toBeVisible();
+      // Position still opens the picker; no Share control exists.
+      await expect(
+        page.locator("[data-chrome-position]"),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: /^share$/i }),
+      ).toHaveCount(0);
+      await context.close();
     });
 
     test("keyboard navigation preserves a clean URL and refresh returns to the first image", async ({
@@ -503,18 +572,18 @@ for (const vp of viewports) {
         .locator("[aria-current='true']")
         .getAttribute("data-index");
       await openInfoDialog(page);
-      await expect(page.locator(".position-value")).toHaveText(
-        `${docked} / ${await imageCount(page)}`,
-      );
+      await expect(
+        page.getByRole("dialog", { name: `Photograph ${docked} of ${await imageCount(page)}` }),
+      ).toBeVisible();
       await page.keyboard.press("Escape");
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(GALLERY);
       await page.locator("[data-curtain]").click();
       await expect(page.locator("[data-curtain]")).toBeHidden();
       await openInfoDialog(page);
-      await expect(page.locator(".position-value")).toHaveText(
-        `1 / ${await imageCount(page)}`,
-      );
+      await expect(
+        page.getByRole("dialog", { name: `Photograph 1 of ${await imageCount(page)}` }),
+      ).toBeVisible();
       await page.keyboard.press("Escape");
       await page.keyboard.press("Home");
       await expect(page).toHaveURL(GALLERY);
@@ -615,11 +684,14 @@ for (const vp of viewports) {
           innerHeight: window.innerHeight,
           stageHeight: stageRect.height,
           visualHeight: window.visualViewport?.height ?? window.innerHeight,
+          // The arrow bar is a deliberate reservation, not a viewport
+          // change: the stage (and so the image) is exactly 64px shorter.
+          barOffset: stage.classList.contains("has-arrow-bar") ? 64 : 0,
         };
       });
       expect(geometry.cssHeight).toBe(`${Math.round(geometry.visualHeight)}px`);
       expect(
-        Math.abs(geometry.stageHeight - geometry.visualHeight),
+        Math.abs(geometry.stageHeight - (geometry.visualHeight - geometry.barOffset)),
       ).toBeLessThanOrEqual(1);
       expect(
         Math.abs(geometry.imageHeight - geometry.stageHeight),
@@ -629,9 +701,9 @@ for (const vp of viewports) {
       );
     });
 
-    test("touch upward swipe lifts the opening curtain", async ({ page }) => {
+    test("touch upward swipe dissolves the opening curtain", async ({ page }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
-      // Lift class asserted — motion required.
+      // Fading class asserted — motion required.
       await page.emulateMedia({ reducedMotion: "no-preference" });
       await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
       const client = await page.context().newCDPSession(page);
@@ -648,7 +720,7 @@ for (const vp of viewports) {
         type: "touchEnd",
         touchPoints: [],
       });
-      await expect(curtain).toHaveClass(/is-lifting/);
+      await expect(curtain).toHaveClass(/fading/);
       await expect(curtain).toBeHidden();
     });
 
@@ -681,67 +753,45 @@ for (const vp of viewports) {
       expect(xAfterRelease - xDuringDrag).toBeGreaterThanOrEqual(-160);
     });
 
-    test("the pill's wake zone neither swallows drags nor clicks", async ({
+    test("the rest bubble neither swallows drags nor opens on a drag", async ({
       page,
     }) => {
       await dismissCurtain(page);
-      // The brand pill's ~100px wake radius is measured in JS — the
-      // stage underneath must still drag and click honestly. Guards the
-      // regression where an invisible ::before hit-extender on the
-      // button ate pointerdown and opened settings on plain clicks.
-      const button = page.getByRole("button", {
-        name: "Gallery controls",
-        exact: true,
-      });
-      const box = (await button.boundingBox())!;
-      // Inside the ~100px wake radius but beside the pill — the risen
-      // pill itself is a real click target, so the honest stage test is
-      // the zone around it, not on it.
-      const zoneX = box.x - 60;
-      const zoneY = box.y + box.height / 2;
+      // Wait out the chrome's 3s window so the bubble is the only control.
+      await page.waitForTimeout(3300);
+      const bubble = page.locator(".stage-seq");
+      const box = (await bubble.boundingBox())!;
+      // A drag starting ON the bubble pans the strip — the press replay
+      // means the counter rides the stage instead of eating the gesture.
       const trackLeft = () =>
         page.evaluate(
           () =>
             document.querySelector("[data-track]")!.getBoundingClientRect().left,
         );
       const x0 = await trackLeft();
-      await page.mouse.move(zoneX, zoneY);
+      const bx = box.x + box.width / 2;
+      const by = box.y + box.height / 2;
+      await page.mouse.move(bx, by);
       await page.mouse.down();
-      await page.mouse.move(zoneX - 140, zoneY, { steps: 8 });
+      await page.mouse.move(bx - 140, by, { steps: 8 });
       expect(Math.abs((await trackLeft()) - x0 + 140)).toBeLessThanOrEqual(3);
       await page.mouse.up();
-      await page.mouse.click(zoneX, zoneY);
-      await expect(page.locator(".controls-modal:visible")).toHaveCount(0);
-      // The risen pill is drag-transparent: pressing it and moving pans
-      // the strip, while a press released in place opens settings.
-      await page.mouse.move(box.x + box.width / 2, box.y - 40);
-      await page.waitForTimeout(500);
-      const pill = await page
-        .locator(".control-logo .brand-mark-wrap")
-        .boundingBox();
-      const px = pill!.x + pill!.width / 2;
-      const py = pill!.y + pill!.height / 2;
-      const x2 = await trackLeft();
-      await page.mouse.move(px, py);
-      await page.mouse.down();
-      await page.mouse.move(px - 120, py, { steps: 6 });
-      expect(Math.abs((await trackLeft()) - x2 + 120)).toBeLessThanOrEqual(3);
-      await page.mouse.up();
-      await page.mouse.move(px, py);
-      await page.mouse.down();
-      await page.mouse.up();
-      await expect(page.locator(".controls-modal:visible")).toHaveCount(1);
+      await page.waitForTimeout(300);
+      // That drag did not open the picker.
+      await expect(page.locator(".viewer-filmstrip:visible")).toHaveCount(0);
+      // An honest tap on the bubble opens it.
+      await bubble.click();
+      await expect(page.locator(".viewer-filmstrip:visible")).toHaveCount(1);
+      await page.keyboard.press("Escape");
     });
 
     test("vertical scroll answers a mouse drag", async ({ page }) => {
       await dismissCurtain(page);
-      await page
-        .getByRole("button", { name: "Gallery controls", exact: true })
-        .click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
       const stage = page.locator("[data-stage]");
       await page.mouse.move(vp.width / 2, vp.height - 200);
       await page.mouse.down();
@@ -1038,37 +1088,35 @@ for (const vp of viewports) {
       page,
     }) => {
       await dismissCurtain(page);
-      const settingsButton = page.getByRole("button", {
-        name: "Gallery controls",
-        exact: true,
-      });
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
       // the focus-restore path is exercised the way a keyboard user hits
-      // it: focus the logo, open the info sheet with I, then dismiss.
-      await settingsButton.focus();
+      // it: focus the rest bubble, open the info sheet with I, then
+      // dismiss — focus returns to the control that opened the chain.
+      await page.waitForTimeout(3300);
+      await page.locator(".stage-seq").focus();
       await page.keyboard.press("i");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
-      // The provenance dialog carries the frame's own sections; view modes
-      // and shortcuts live in the display-settings panel instead.
-      for (const label of [/position/i, /info|exif/i, /credentials/i]) {
+      // The provenance sheet carries the frame's own rows; view modes
+      // and shortcuts live in the Display sheet instead.
+      for (const label of [/file/i, /size/i, /content credentials/i]) {
         await expect(modal.getByText(label).first()).toBeVisible();
       }
       await page.keyboard.press("Escape");
       await expect(modal).not.toBeVisible();
       // focus returns to the stage control that opened the chain
-      await expect(settingsButton).toBeFocused();
+      await expect(page.locator(".stage-seq")).toBeFocused();
       // Second dismissal path: the panel's close control.
       await openInfoDialog(page);
       await expect(modal).toBeVisible();
       await modal
-        .getByRole("button", { name: /close image information/i })
+        .getByRole("button", { name: "Close", exact: true })
         .click();
       await expect(modal).not.toBeVisible();
-      // Third: the backdrop itself (target === currentTarget).
+      // Third: the sheet's scrim.
       await openInfoDialog(page);
       await expect(modal).toBeVisible();
-      await modal.click({ position: { x: 4, y: 4 } });
+      await page.locator(".m-scrim").click({ position: { x: 4, y: 4 } });
       await expect(modal).not.toBeVisible();
     });
 
@@ -1084,9 +1132,10 @@ for (const vp of viewports) {
         ),
       );
       // Fullscreen lives in the display-settings panel.
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
       await expect(
-        page.getByRole("button", { name: /enter fullscreen/i }),
+        page.getByRole("switch", { name: /fullscreen/i }),
       ).toHaveCount(supported ? 1 : 0);
     });
 
@@ -1098,29 +1147,36 @@ for (const vp of viewports) {
       // toggle in display settings brings them back.
       await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /hide navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+      await page.keyboard.press("Escape");
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /show navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+      await page.keyboard.press("Escape");
       // Vertical keeps the toggle but defaults arrows off — the feed
       // scrolls natively, so they appear only on request.
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+      await page.keyboard.press("Escape");
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /show navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
+      await page.keyboard.press("Escape");
       // Enabled vertical arrows stack ↑ over ↓ at the bottom-right.
       await expect(page.locator("[data-nav-arrow]").first()).toHaveText("↑");
       await expect(page.locator("[data-nav-arrow]").last()).toHaveText("↓");
@@ -1170,23 +1226,37 @@ for (const vp of viewports) {
         })
         .toBeLessThan(24);
       // Hiding again restores the quiet default.
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: /hide navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
+      await page.keyboard.press("Escape");
       // Single mode brings them back, stepping one image at a time.
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /one at a time/i })
-        .click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("radio", { name: "One by one" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      await page.keyboard.press("Escape");
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await page.getByRole("button", { name: /next photograph/i }).click();
+      // The two-beat fade commits the index after the out-fade + decode
+      // — poll for the dock instead of reading the same frame.
+      let docked = "1";
+      await expect
+        .poll(async () => {
+          docked =
+            (await page
+              .locator("[data-stage] [aria-current='true']")
+              .getAttribute("data-index")) ?? "1";
+          return Number(docked);
+        })
+        .toBeGreaterThan(1);
       await openInfoDialog(page);
-      await expect(page.locator(".position-value")).toHaveText(
-        `2 / ${await imageCount(page)}`,
-      );
+      await expect(
+        page.getByRole("dialog", { name: `Photograph ${docked} of ${await imageCount(page)}` }),
+      ).toBeVisible();
     });
 
     test("touch pointers start without nav buttons; enabled arrows dock at the bottom corners", async ({
@@ -1295,18 +1365,22 @@ for (const vp of viewports) {
       const nextBox = await nextArrow.boundingBox();
       expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
       if (!coarse) {
-        // Fine pointers cluster ← → together — the bubble precedes both.
+        // In the reserved bar ← owns the far corner — the bubble rides
+        // with → on the right, so it only has to precede the forward
+        // arrow (asserted above).
         const prevBox = await page
           .getByRole("button", { name: /previous photograph/i })
           .boundingBox();
-        expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(prevBox!.x + 1);
+        const stageRect = await page
+          .locator("[data-stage]")
+          .evaluate((el) => el.getBoundingClientRect());
+        expect(prevBox!.x).toBeLessThan(stageRect.left + stageRect.width * 0.3);
       }
 
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
       await page
-        .getByRole("button", { name: "Gallery controls", exact: true })
-        .click();
-      await page
-        .getByRole("button", { name: /hide navigation arrows/i })
+        .getByRole("switch", { name: /^arrows$/i })
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await expect(seq).toBeVisible();
@@ -1318,10 +1392,10 @@ for (const vp of viewports) {
       expect(bare!.y + bare!.height).toBeGreaterThan(stage.bottom - 80);
     });
 
-    test("one-at-a-time steps sweep the next photograph over the current one", async ({
+    test("one-at-a-time steps dissolve the next photograph in over the current one", async ({
       page,
     }) => {
-      // The sweep is motion — opt back out of the suite-wide
+      // The fade is motion — opt back out of the suite-wide
       // reduced-motion emulation so the transition actually runs. The
       // mode comes from persisted prefs, not the bobbing settings tab,
       // which is intentionally click-unstable under no-preference.
@@ -1337,17 +1411,15 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
       await page.keyboard.press("ArrowRight");
-      // Mid-sweep the outgoing frame is still mounted and fully painted
-      // while the incoming one wipes in behind an opaque canvas card —
-      // nothing translucent ever sits over the field's stripes.
-      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
+      // Two beats: the outgoing frame fades out in 90ms, then the
+      // incoming one fades in over 160ms once decoded — a guarded fade,
+      // never a directional wipe (clip-path stays 'none' the whole way).
+      // Assert the leaver first: it unmounts ~170ms after the incoming
+      // frame commits.
       await expect(page.locator(".viewer-frame--leaving")).toHaveCount(1);
-      await expect(page.locator(".viewer-frame--leaving")).toHaveCSS("opacity", "1");
-      const cardOpaque = await page
-        .locator(".viewer-frame--entering")
-        .evaluate((el) => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)");
-      expect(cardOpaque).toBe(true);
-      await expect(page.locator("[data-track]")).toHaveAttribute("data-sweep-dir", "fwd");
+      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
+      const entering = page.locator(".viewer-frame--entering");
+      expect(await entering.evaluate((el) => getComputedStyle(el).clipPath)).toBe("none");
       // Settles back into one clean frame on the new index.
       await expect(page.locator(".viewer-frame--leaving")).toHaveCount(0, { timeout: 3000 });
       await expect(page.locator(".viewer-frame--entering")).toHaveCount(0);
@@ -1364,11 +1436,11 @@ for (const vp of viewports) {
       await expect(page.locator('[data-portrait-pair="true"]')).toHaveCount(0);
       // The radios are visually hidden inside their labels — drive the
       // label, the element a pointer actually hits.
-      await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+      await page.keyboard.press("Escape");
       // Vertical mode mounts .frame-img only for the ACTIVE frame, so the
       // spec walks the sequence and samples each orientation the first
       // time a frame of that kind activates — real album order decides
@@ -1577,9 +1649,9 @@ for (const vp of viewports) {
         Math.abs(shown!.x + shown!.width - (stageBox!.x + stageBox!.width)),
       ).toBeLessThan(2);
 
-      // The card carries a quiet "Back to Start" link that rewinds the
-      // strip to the first photograph and re-arms the reveal.
-      const reset = endcap.getByRole("button", { name: /back to start/i });
+      // The card carries a quiet Rewind that runs the strip home in a
+      // fixed 0.75s ease-in-out and re-arms the reveal.
+      const reset = endcap.getByRole("button", { name: /^rewind$/i });
       await expect(reset).toBeVisible();
       await reset.click();
       await waitForTrackSettled(page);
@@ -1616,15 +1688,150 @@ for (const vp of viewports) {
         page.locator("[aria-current='true']"),
       ).not.toHaveAttribute("data-index", "1");
 
-      // The card belongs to the strip alone.
-      await page
-        .getByRole("button", { name: "Gallery controls", exact: true })
-        .click();
-      await page
-        .locator(".mode-options label", { hasText: /vertical scroll/i })
-        .click();
+      // The card ends every layout — in Scroll it is a footer frame in
+      // the feed itself rather than a slid-in faux frame.
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
-      await expect(endcap).toHaveCount(0);
+      const feedCard = page.locator(".viewer-endcap--feed");
+      await expect(feedCard).toHaveCount(1);
+      await expect(feedCard).toHaveText(/The\s*End\./);
+      await expect(feedCard.getByRole("button", { name: /^rewind$/i })).toBeAttached();
+    });
+
+    test("enabled arrows live in a reserved 64px bar beneath the photographs", async ({
+      page,
+    }) => {
+      await dismissCurtain(page);
+      const stage = page.locator("[data-stage]");
+      await ensureNavArrows(page);
+      await expect(stage).toHaveClass(/has-arrow-bar/);
+      // The stage cedes exactly the bar: viewport minus 64px (plus any
+      // safe-area inset, which is 0 in every matrix viewport).
+      const geo = await page.evaluate(() => {
+        const s = document.querySelector("[data-stage]")!.getBoundingClientRect();
+        return {
+          stageBottom: s.bottom,
+          stageHeight: s.height,
+          stageRight: s.right,
+          viewportH: window.innerHeight,
+          viewportW: window.innerWidth,
+        };
+      });
+      expect(Math.abs(geo.stageBottom - (geo.viewportH - 64))).toBeLessThan(2);
+      expect(Math.abs(geo.stageHeight - (geo.viewportH - 64))).toBeLessThan(2);
+      // Both buttons sit inside the bar — below the stage, never on a
+      // photograph — with ← at the left corner and → at the right.
+      const bar = page.locator(".stage-arrows");
+      const barBox = await bar.boundingBox();
+      expect(Math.abs(barBox!.height - 64)).toBeLessThan(2);
+      expect(barBox!.y).toBeGreaterThanOrEqual(geo.stageBottom - 1);
+      const [prevBox, nextBox] = await page.locator("[data-nav-arrow]").evaluateAll(
+        (els) => els.map((el) => el.getBoundingClientRect()),
+      );
+      expect(prevBox.top).toBeGreaterThanOrEqual(geo.stageBottom - 1);
+      expect(nextBox.top).toBeGreaterThanOrEqual(geo.stageBottom - 1);
+      expect(prevBox.left).toBeLessThan(geo.viewportW * 0.3);
+      expect(nextBox.right).toBeGreaterThan(geo.viewportW * 0.7);
+      // Turning arrows off hands the height straight back to the stage.
+      await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+      await page.getByRole("switch", { name: /^arrows$/i }).click();
+      await expect(stage).not.toHaveClass(/has-arrow-bar/);
+      const restored = await page.evaluate(
+        () => document.querySelector("[data-stage]")!.getBoundingClientRect().height,
+      );
+      expect(Math.abs(restored - geo.viewportH)).toBeLessThan(2);
+    });
+
+    test("one-by-one ends on the end card as an overlay; prev closes it", async ({
+      page,
+    }) => {
+      await page.context().addInitScript(
+        (slug) =>
+          window.localStorage.setItem(
+            `manorama:view:${slug}`,
+            JSON.stringify({ mode: "single" }),
+          ),
+        SLUG,
+      );
+      await dismissCurtain(page);
+      await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      const card = page.locator(".viewer-endcap--single");
+      await expect(card).not.toHaveClass(/is-open/);
+      await expect(card).toBeHidden();
+      await page.keyboard.press("End");
+      // Next on the last photograph fades the card in over it.
+      await page.keyboard.press("ArrowRight");
+      await expect(card).toHaveClass(/is-open/);
+      await expect(card).toHaveText(/The\s*End\./);
+      await expect(card.getByRole("button", { name: /^rewind$/i })).toBeVisible();
+      // The signed-in owner also gets the Library exit.
+      await expect(
+        card.getByRole("button", { name: /^library$/i }).or(card.getByRole("link", { name: /^library$/i })),
+      ).toBeVisible();
+      // Prev simply closes the card — the last photograph is still live.
+      await page.keyboard.press("ArrowLeft");
+      await expect(card).not.toHaveClass(/is-open/);
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute(
+        "data-index",
+        `${await imageCount(page)}`,
+      );
+      // Rewind from a fresh reveal lands on the first photograph.
+      await page.keyboard.press("ArrowRight");
+      await card.getByRole("button", { name: /^rewind$/i }).click();
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "1");
+    });
+
+    test("rewind is a fixed 0.75s ride home, or an instant jump under reduced motion", async ({
+      page,
+    }) => {
+      const trackX = () =>
+        page.locator("[data-track]").evaluate((el) => {
+          const t = getComputedStyle(el).transform;
+          return t === "none" ? 0 : new DOMMatrixReadOnly(t).e;
+        });
+      // Motion on first: the ride takes real time but lands inside a
+      // bounded window — a deliberate return, never a wrap-jump.
+      const rewindBtn = () =>
+        page.locator("[data-endcard]").getByRole("button", { name: /^rewind$/i });
+      const revealEndcard = async () => {
+        // A narrow stage needs two presses: the first only end-docks the
+        // last photograph, the second reveals the card. Wide stages do
+        // it in one — the loop covers both without pressing past.
+        const next = page.getByRole("button", { name: /next photograph/i });
+        for (let i = 0; i < 8; i++) {
+          await next.click();
+          await waitForTrackSettled(page);
+          const box = await rewindBtn().boundingBox();
+          if (box && box.x + box.width / 2 < page.viewportSize()!.width) return;
+        }
+        throw new Error("endcard never slid on stage");
+      };
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await dismissCurtain(page);
+      await ensureNavArrows(page);
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      await revealEndcard();
+      await rewindBtn().click();
+      // Still travelling well after the click — not an instant snap.
+      await page.waitForTimeout(300);
+      expect(await trackX()).toBeLessThan(-1);
+      // And it lands inside the fixed-duration ride, on the first photo.
+      await expect.poll(trackX, { timeout: 2500 }).toBe(0);
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "1");
+      // Reduced motion lands immediately — far inside the 750ms ride.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.keyboard.press("End");
+      await waitForTrackSettled(page);
+      await revealEndcard();
+      const quickStart = Date.now();
+      await rewindBtn().click();
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "1");
+      expect(await trackX()).toBe(0);
+      expect(Date.now() - quickStart).toBeLessThan(500);
     });
 
     test("dragging past the last photograph reveals the endcard", async ({
@@ -1723,21 +1930,25 @@ test("alternate modes switch instantly and preserve the current image", async ({
   const total = await imageCount(page);
   // Mode radios live in the display-settings panel and are visually
   // hidden — drive their labels. Position reports through the info dialog.
-  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+  await showChrome(page);
+  await page.getByRole("button", { name: "Display", exact: true }).click();
   await page
-    .locator(".mode-options label", { hasText: /vertical scroll/i })
+    .getByRole("radio", { name: "Scroll" })
     .click();
   await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
-  await openInfoDialog(page);
-  await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+  await openInfoDialog(page);
+  await expect(page.getByRole("dialog", { name: `Photograph 2 of ${total}` })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await showChrome(page);
+  await page.getByRole("button", { name: "Display", exact: true }).click();
   await page
-    .locator(".mode-options label", { hasText: /one at a time/i })
+    .getByRole("radio", { name: "One by one" })
     .click();
   await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+  await page.keyboard.press("Escape");
   await openInfoDialog(page);
-  await expect(page.locator(".position-value")).toHaveText(`2 / ${total}`);
+  await expect(page.getByRole("dialog", { name: `Photograph 2 of ${total}` })).toBeVisible();
   await expect(page).toHaveURL(GALLERY);
 });
 
@@ -1884,6 +2095,180 @@ test("the info sheet shows the photograph's caption", async ({
   ).toHaveCount(0);
 });
 
+test.describe("display and info sheets", () => {
+  test("layout and canvas segments apply live, stay open, and persist", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Display" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("radio", { name: "Scroll" }).click();
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole("radio", { name: "Dark" }).click();
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(1);
+    await expect(dialog).toBeVisible();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await dismissCurtain(page);
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(1);
+
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await dialog.getByRole("radio", { name: "Strip" }).click();
+    await dialog.getByRole("radio", { name: "Black" }).click();
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await dismissCurtain(page);
+    await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
+    await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
+  });
+
+  test("escape closes the display sheet once and returns focus to its pill", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    const pill = page.getByRole("button", { name: "Display", exact: true });
+    await pill.click();
+    const dialog = page.getByRole("dialog", { name: "Display" });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(pill).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test("keyboard shortcuts render only where a fine pointer exists", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    const fine = await page.evaluate(() => matchMedia("(pointer: fine)").matches);
+    await expect(
+      page.getByRole("dialog", { name: "Display" }).getByText("Keyboard shortcuts"),
+    ).toHaveCount(fine ? 1 : 0);
+  });
+
+  test("axe is clean with the display sheet and the info sheet open", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Display" })).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.keyboard.press("Escape");
+    await openInfoDialog(page);
+    await expect(page.getByRole("dialog", { name: CONTROL_NAME })).toBeVisible();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  });
+});
+
+test("credentials queue: one check per flagged still, retry re-enqueues", async ({
+  page,
+  request,
+}) => {
+  const spawn = await request.post(`${BASE}/.dev-seed/spawn`, {
+    data: {
+      accountId: "dbid:AAATESTretention",
+      galleries: [
+        {
+          slug: "c2pa-queue-qa",
+          images: [
+            { id: "q-flag", filename: "flagged.png", src: "/c2pa-flagged.png", width: 800, height: 600, alt: "flagged", c2pa: true },
+            { id: "q-plain", filename: "plain.png", src: "/c2pa-plain.png", width: 800, height: 600, alt: "plain" },
+          ],
+        },
+      ],
+    },
+  });
+  expect(spawn.ok()).toBe(true);
+
+  let flaggedRequests = 0;
+  let plainRequests = 0;
+  await page.route("**/c2pa-flagged.png", (route) => {
+    flaggedRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "cache-control": "no-store" },
+      body: Buffer.from(testPng(4, 4).split(",")[1], "base64"),
+    });
+  });
+  await page.route("**/c2pa-plain.png", (route) => {
+    plainRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "cache-control": "no-store" },
+      body: Buffer.from(testPng(4, 4).split(",")[1], "base64"),
+    });
+  });
+
+  await dismissCurtain(page, `${BASE}/retention-qa/c2pa-queue-qa`);
+  // The display fetch of the first frame may be in flight — wait for it
+  // to settle so the deltas below isolate the credential checks.
+  await expect.poll(() => flaggedRequests, { timeout: 15000 }).toBeGreaterThanOrEqual(1);
+  const docked = () => page.locator("[data-stage] [aria-current='true']").getAttribute("data-index");
+  await expect.poll(docked).toBe("1");
+  const panel = page.locator("[data-c2pa-panel]");
+  const dialog = page.getByRole("dialog", { name: CONTROL_NAME });
+  // Keyboard arrows ride the strip glide, which coalesces on narrow
+  // viewports — the picker's thumbnails commit the frame directly.
+  const goToFrame = async (itemIndex: number, dockedIndex: string) => {
+    // G opens the picker — the chrome pill is inert at rest, so the
+    // keyboard path is the deterministic way in.
+    await page.keyboard.press("g");
+    await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+    await page.locator(".viewer-filmstrip-item").nth(itemIndex).click();
+    await expect.poll(docked).toBe(dockedIndex);
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+  };
+
+  // Flagged still: open Info → exactly one fetch of its source.
+  const beforeFlag = flaggedRequests;
+  await openInfoDialog(page);
+  await expect(
+    panel,
+  ).toContainText(/checking content credentials|verified|could not be checked/i, { timeout: 30000 });
+  await expect.poll(() => flaggedRequests - beforeFlag).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+
+  // The unflagged still next door never triggers a check — its panel is
+  // the quiet no-credentials line, not the first photo's pending state.
+  await goToFrame(1, "2");
+  const beforePlain = flaggedRequests + plainRequests;
+  await openInfoDialog(page);
+  await expect(panel).toContainText(/carries no content credentials/i);
+  await page.waitForTimeout(400);
+  expect(flaggedRequests + plainRequests).toBe(beforePlain);
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+
+  // Back on the flagged still: a settled check dedupes the repeat open;
+  // when the outcome is unavailable the retry affordance re-enqueues it.
+  await goToFrame(0, "1");
+  const beforeRetry = flaggedRequests;
+  await openInfoDialog(page);
+  const retry = panel.getByRole("button", { name: /try again|verify on this device/i });
+  if (await retry.count()) {
+    await retry.click();
+    await expect.poll(() => flaggedRequests - beforeRetry, { timeout: 15000 }).toBe(1);
+  } else {
+    expect(flaggedRequests).toBe(beforeRetry);
+  }
+});
+
 test("a stalled image re-requests itself instead of staying blank", async ({
   page,
   request,
@@ -1928,70 +2313,24 @@ test("a stalled image re-requests itself instead of staying blank", async ({
   ).not.toHaveAttribute("src", /mreload/);
 });
 
-test("the logo tab bobs subtly at rest (no-preference motion)", async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-  await dismissCurtain(page);
-  const card = page.locator(".control-logo .brand-mark-wrap");
-  const anim = await card.evaluate(
-    (el) => getComputedStyle(el).animationName,
-  );
-  expect(anim).toContain("logo-tab-bob");
-  // The card's bob is a gentle ~10px swell — present, never a
-  // distraction — and the button's own box stays put so the control is
-  // always click-stable.
-  const buttonBox = await page
-    .getByRole("button", { name: "Gallery controls", exact: true })
-    .boundingBox();
-  const before = await card.boundingBox();
-  await page.waitForTimeout(900);
-  const after = await card.boundingBox();
-  const buttonBox2 = await page
-    .getByRole("button", { name: "Gallery controls", exact: true })
-    .boundingBox();
-  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(14);
-  expect(buttonBox2?.y).toBe(buttonBox?.y);
-});
-
-test("the pill still rises under the resting bob (no-preference motion)", async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: "no-preference" });
-  await dismissCurtain(page);
-  // Wait past the bob's 4.9s delay: once it runs, its keyframe transform
-  // competes with the raise — the raise rule must cancel it (animation:
-  // none) or the pill only ever rose during the intro's first seconds.
-  await page.waitForTimeout(5600);
-  const card = page.locator(".control-logo .brand-mark-wrap");
-  const stageBox = (await page.locator("[data-stage]").boundingBox())!;
-  await page.mouse.move(
-    stageBox.x + stageBox.width / 2,
-    stageBox.y + stageBox.height - 110,
-  );
-  const read = () =>
-    card.evaluate((el) => {
-      const css = getComputedStyle(el);
-      return {
-        translateY: new DOMMatrixReadOnly(css.transform).m42,
-        opacity: parseFloat(css.opacity),
-        animation: css.animationName,
-      };
-    });
-  // Opacity is the last transition to settle — waiting on it means the
-  // raise is fully applied.
-  await expect.poll(async () => (await read()).opacity).toBeGreaterThanOrEqual(0.9);
-  const raised = await read();
-  expect(raised.translateY).toBeLessThan(0);
-  expect(raised.animation).toBe("none");
-});
-
 test("credentialed image validates through the browser reader", async ({
   page,
 }) => {
   await dismissCurtain(page);
   const total = await imageCount(page);
   const panel = page.locator("[data-c2pa-panel]");
+  const dialog = page.getByRole("dialog", { name: CONTROL_NAME });
+  // Keyboard arrows ride the strip glide, which coalesces on narrow
+  // viewports — the picker's thumbnails commit the frame directly.
+  const goToFrame = async (itemIndex: number, dockedIndex: string) => {
+    // G opens the picker — the chrome pill is inert at rest, so the
+    // keyboard path is the deterministic way in.
+    await page.keyboard.press("g");
+    await expect(page.locator(".viewer-filmstrip")).toBeVisible();
+    await page.locator(".viewer-filmstrip-item").nth(itemIndex).click();
+    await expect.poll(docked).toBe(dockedIndex);
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+  };
   // Credentialed coverage is a property of the seeded album — iCloud
   // derivatives carry none, Dropbox/Drive/MEGA originals keep them — so
   // the spec walks forward to the first credentialed frame instead of
@@ -2007,11 +2346,11 @@ test("credentialed image validates through the browser reader", async ({
     // Credentialed frames auto-verify when the panel opens; the explicit
     // button only survives if auto-verification hasn't started yet.
     const verify = panel.getByRole("button", {
-      name: /verify in this browser/i,
+      name: /verify on this device/i,
     });
     if (await verify.count()) await verify.click();
     await expect(panel).toContainText(
-      /content credentials verified in this browser/i,
+      /content credentials verified on this device/i,
       { timeout: 30000 },
     );
     return;
@@ -2368,7 +2707,7 @@ test.describe("privacy policy page", () => {
     await expect(
       page.locator(".policy-personas > section.policy-card"),
     ).toHaveCount(3);
-    for (const name of ["Just looking", "Making galleries", "Pro or Forever"]) {
+    for (const name of ["Just looking", "Making galleries", "Pro"]) {
       await expect(page.getByRole("region", { name })).toBeVisible();
     }
     for (const name of [
@@ -2646,12 +2985,9 @@ test.describe("M magnifier (desktop only)", () => {
     });
     const page = await context.newPage();
     await dismissCurtain(page);
-    await page
-      .getByRole("button", { name: "Gallery controls", exact: true })
-      .click();
-    await page
-      .locator(".mode-options label", { hasText: /vertical scroll/i })
-      .click();
+    await showChrome(page);
+      await page.getByRole("button", { name: "Display", exact: true }).click();
+    await page.getByRole("radio", { name: "Scroll" }).click();
     await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
     await page.keyboard.press("Escape");
 
@@ -2704,7 +3040,8 @@ test.describe("M magnifier (desktop only)", () => {
     await page.mouse.move(700, 450);
     await page.keyboard.press("m");
     await expect(page.locator(".magnifier-lens")).toBeVisible();
-    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
     await expect(page.locator(".magnifier-lens")).toBeHidden();
   });
 
@@ -2724,8 +3061,9 @@ test.describe("M magnifier (desktop only)", () => {
 
   test("the shortcut row appears only where the key works", async ({ page }) => {
     await dismissCurtain(page);
-    await page.getByRole("button", { name: "Gallery controls", exact: true }).click();
-    await expect(page.locator(".shortcuts", { hasText: "magnify" })).toBeVisible();
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await expect(page.locator(".m-shortcut-list", { hasText: "magnify" })).toBeVisible();
   });
 });
 
@@ -2734,7 +3072,7 @@ test.describe("video slides", () => {
 
   const videoGallery = () => `${BASE}/${OWNER}/${VIDEO_SLUG}`;
 
-  test("no media element mounts before the curtain lifts, or under a modal", async ({ page }) => {
+  test("no media element mounts before the curtain dissolves, or under a modal", async ({ page }) => {
     // The gating that SSR and source-text tests cannot prove: a video-first
     // gallery stays fully inert behind the curtain, and opening a panel
     // releases the media element rather than leaving it playing underneath.
@@ -2746,8 +3084,9 @@ test.describe("video slides", () => {
     await dismissCurtain(page, videoGallery());
     await expect(videos).toHaveCount(1);
 
-    await page.getByRole("button", { name: "Gallery controls" }).click();
-    await expect(page.getByRole("dialog", { name: "Display settings" })).toBeVisible();
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Display" })).toBeVisible();
     await expect(videos).toHaveCount(0);
   });
 
@@ -3089,14 +3428,12 @@ test.describe("density-aware staging", () => {
       { id: "sq", w: 1600, h: 1600 },
     ]);
     // The photostrip fills height-first only while the source has the
-    // pixels for it at this density: 2400×1600 can feed 900 CSS px at
-    // DPR 1 but not DPR 2 (needs 1800 natural px), so it lands at 800 —
-    // every displayed pixel is real. DPR 3 caps to 2, so it matches.
-    const cases = [
-      { dpr: 1, w: 1350, h: 900 },
-      { dpr: 2, w: 1200, h: 800 },
-      { dpr: 3, w: 1200, h: 800 },
-    ];
+    // pixels for it at this density: 2400×1600 can feed the full stage
+    // height at DPR 1 but not DPR 2 (needs ~1700 natural px), so it lands
+    // at 800 — every displayed pixel is real. DPR 3 caps to 2, so it
+    // matches. Expectations derive from the measured stage: with arrows
+    // on, the stage is the viewport minus the reserved 64px bar.
+    const cases = [{ dpr: 1 }, { dpr: 2 }, { dpr: 3 }];
     for (const expected of cases) {
       const context = await browser.newContext({
         viewport: { width: 1440, height: 900 },
@@ -3104,18 +3441,25 @@ test.describe("density-aware staging", () => {
       });
       const page = await context.newPage();
       await dismissCurtain(page, url);
+      const stageHeight = await page
+        .locator("[data-stage]")
+        .evaluate((el) => el.getBoundingClientRect().height);
+      // effectiveImageDpr caps the density ask at 2 — anything past
+      // retina stages exactly like DPR 2.
+      const wantH = Math.min(stageHeight, 1600 / Math.min(expected.dpr, 2));
+      const wantW = wantH * 1.5;
       const img = page.locator("[aria-current='true'] .frame-img");
       await expect(img).toBeVisible();
       const box = await img.boundingBox();
-      expect(Math.abs(box!.width - expected.w)).toBeLessThan(2);
-      expect(Math.abs(box!.height - expected.h)).toBeLessThan(2);
+      expect(Math.abs(box!.width - wantW)).toBeLessThan(2);
+      expect(Math.abs(box!.height - wantH)).toBeLessThan(2);
       // A source with enough pixels still fills the stage — mixed-res
-      // folders blend: 1600×2400 has 2400 px for the 1800 DPR-2 asks.
+      // folders blend: 1600×2400 has 2400 px for the ~1700 DPR-2 asks.
       if (expected.dpr === 2) {
         const tall = page.locator("[data-image-id='tall'] .frame-img");
         await expect(tall).toBeVisible();
         const tallBox = await tall.boundingBox();
-        expect(Math.abs(tallBox!.height - 900)).toBeLessThan(2);
+        expect(Math.abs(tallBox!.height - stageHeight)).toBeLessThan(2);
       }
       await context.close();
     }
@@ -3248,6 +3592,7 @@ test.describe("PR #48 review fixes — touch counter", () => {
 
   test("dragging from the sequence counter pans the strip instead of opening the selector", async ({ page }) => {
     await dismissCurtain(page);
+    await page.waitForTimeout(3300);
     await ensureStripSettled(page);
     const x0 = await currentTrackX(page);
     const seq = page.locator(".stage-seq");
@@ -3264,8 +3609,9 @@ test.describe("PR #48 review fixes — touch counter", () => {
     expect(x1, `strip should pan from the counter drag (${x0} -> ${x1})`).not.toBe(x0);
   });
 
-  test("tapping the sequence counter opens the selector instead of the brand pill", async ({ page }) => {
+  test("tapping the sequence counter opens the selector", async ({ page }) => {
     await dismissCurtain(page);
+    await page.waitForTimeout(3300);
     const seq = page.locator(".stage-seq");
     const box = await seq.boundingBox();
     expect(box, "counter visible").not.toBeNull();

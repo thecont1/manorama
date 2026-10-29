@@ -59,8 +59,18 @@ const openFixture = async (
 
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
+// The count affordance exists twice — the rest bubble and the chrome's
+// position pill share one aria-label, and each is inert while the other is
+// live — so pick by which bar state is actually showing.
 const enableGlobalView = async (page: Page) => {
-  await page.getByRole('button', { name: /open global fixture/i }).click()
+  const chromeUp = await page
+    .locator('[data-chrome-bottom]')
+    .evaluate((el) => el.classList.contains('is-visible'))
+    .catch(() => false)
+  await (chromeUp
+    ? page.locator('[data-chrome-position]')
+    : page.locator('.stage-seq')
+  ).click()
 }
 
 test.beforeEach(() => {

@@ -22,9 +22,11 @@ type Props = {
   footer?: Child
   size?: 'auto' | 'half'
   dismissible?: boolean
+  /** Fold shells confine the panel to one segment (foldPanelStyle). */
+  panelStyle?: Record<string, string | undefined> | undefined
 }
 
-export function Sheet({ open, onClose, title, children, footer, size = 'auto', dismissible = true }: Props) {
+export function Sheet({ open, onClose, title, children, footer, size = 'auto', dismissible = true, panelStyle }: Props) {
   const headingId = `m-sheet-title-${useId()}`
   const hostRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -98,7 +100,7 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
         class={`m-scrim ${entered ? 'm-scrim--open' : ''}`}
         onClick={() => { if (dismissible) onCloseRef.current() }}
       />
-      <div class={sheetClasses} role="dialog" aria-modal="true" aria-labelledby={headingId}>
+      <div class={sheetClasses} style={panelStyle} role="dialog" aria-modal="true" aria-labelledby={headingId}>
         <div class="m-sheet-head">
           <h2 class="m-sheet-title" id={headingId} tabIndex={-1} ref={headingRef}>{title}</h2>
           {dismissible ? <Button variant="quiet" onClick={() => onCloseRef.current()} aria-label="Close">Close</Button> : null}

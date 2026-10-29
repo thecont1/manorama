@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { showChrome } from './playwright-helpers'
 const base = process.env.CAPTURE_URL ?? 'http://localhost:4182'
 test.describe.configure({ mode: 'serial' })
 for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032 }, { width: 1440, height: 900 }]) {
@@ -157,42 +158,19 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       await curtain.click({ timeout: 2000 }).catch(() => {})
       return curtain.isHidden()
     }, { timeout: 20000 }).toBe(true)
-    // The in-gallery control is the web's control: it rests quiet and bobs,
-    // which is what keeps it discoverable without floating over a photograph.
-    const pill = page.locator('button.control-logo .brand-mark-wrap')
-    await expect(pill).toHaveCSS('opacity', '0.45')
-    expect(await pill.evaluate((node) => {
-      const style = getComputedStyle(node)
-      return [style.animationName, style.animationDuration, style.animationTimingFunction, style.animationIterationCount].join(' ')
-    })).toBe('native-logo-bob 5.6s ease-in-out infinite')
-    // The bob waits a beat before it starts, so the check reads the running
-    // animation rather than waiting out its delay: armed, named, and counting.
-    const bob = await pill.evaluate(async (node) => {
-      const animation = node.getAnimations()[0] as CSSAnimation | undefined
-      if (!animation) return null
-      const before = Number(animation.currentTime)
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      return {
-        name: animation.animationName,
-        playState: animation.playState,
-        delay: getComputedStyle(node).animationDelay,
-        advanced: Number(animation.currentTime) - before,
-      }
-    })
-    expect(bob).not.toBeNull()
-    expect(bob!.name).toBe('native-logo-bob')
-    expect(bob!.playState).toBe('running')
-    expect(bob!.delay).toBe('4.9s')
-    expect(bob!.advanced).toBeGreaterThan(200)
-    await page.locator('button.control-logo').click()
-    const dialog = page.getByRole('dialog', { name: 'Display settings' })
+    // The temporary chrome is the web's control set: a quiet rest bubble
+    // at rest, bars on demand — nothing floats over a photograph for long.
+    await expect(page.locator('.stage-seq')).toBeVisible()
+    await showChrome(page)
+    await page.getByRole('button', { name: 'Display', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Display' })
     await expect(dialog).toBeVisible()
     const stream = page.getByLabel('Don’t download this gallery', { exact: true })
     await expect(stream).not.toBeChecked()
     await stream.check()
     await expect(stream).toBeChecked()
     await expect(page.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
-    await page.getByRole('button', { name: 'Close display settings', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await page.keyboard.press('g')
     const picker = page.locator('[data-global-view]')
     await expect(picker).toBeVisible()
@@ -201,8 +179,8 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(picker.locator('[data-grid-frame]').first()).toBeVisible({ timeout: 20000 })
     await expect(picker).not.toContainText('still settling')
     await page.getByRole('button', { name: 'Close photo picker', exact: true }).click()
-    await page.locator('button.control-logo').click()
-    await page.getByRole('button', { name: 'Back to your galleries', exact: true }).click()
+    await showChrome(page)
+    await page.locator('[data-chrome-library]').click()
     await expect(page.locator('.native-account-overview')).toBeVisible()
     await expect(page.locator('[data-stage]')).toHaveCount(0)
     expect(errors).toEqual([])
@@ -227,9 +205,9 @@ test('375: a viewer that asks for less motion gets a still pill', async ({ brows
     await curtain.click({ timeout: 2000 }).catch(() => {})
     return curtain.isHidden()
   }, { timeout: 20000 }).toBe(true)
-  const pill = page.locator('button.control-logo .brand-mark-wrap')
-  await expect(pill).toHaveCSS('opacity', '0.45')
+  const bubble = page.locator('.stage-seq')
+  await expect(bubble).toHaveCSS('opacity', '1')
   // The web's fade-in may still run; what must not run is the drift.
-  expect(await pill.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')
+  expect(await bubble.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')
   await context.close()
 })

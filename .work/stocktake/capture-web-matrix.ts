@@ -119,7 +119,7 @@ for (const engine of engines) {
         }
       }
 
-      const controls = () => page.locator('[aria-label="Gallery controls"]').count()
+      const controls = () => page.locator('[data-chrome-bottom].is-visible').count()
       const paneOpen = async () => page.locator('[data-account-drawer]:not([hidden])').count()
 
       // Vite compiles a route's SSR graph on first request, and a cold compile
@@ -154,18 +154,24 @@ for (const engine of engines) {
         // `force` skips the actionability probe the curtain's content fails.
         await until(
           page,
-          'the curtain never lifted',
+          'the curtain never dissolved',
           () => page.locator('[aria-label="Enter gallery"]').click({ position: { x: 6, y: 6 }, timeout: 5_000, force: true }),
           async () => (await controls()) > 0 && await page.evaluate(() => document.body.classList.contains('gallery-entered')),
           12,
         )
-        await page.waitForTimeout(900)
+        // The 1.1s dissolve must land before the shutter fires — the veil
+        // is what this evidence is about.
+        await page.waitForTimeout(1_300)
       }
 
       await shoot('01-landing', async () => {
         await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 30_000 })
         await page.waitForSelector('body', { timeout: 15_000 })
       })
+
+      // Sign in before the gallery states so the chrome shows the owner's
+      // full row — Library up top, Details when it ships.
+      await signIn(page)
 
       await shoot('02-gallery-curtain', async () => { await openGallery() })
 
@@ -177,14 +183,18 @@ for (const engine of engines) {
       await shoot('04-controls', async () => {
         await until(
           page,
-          'the controls modal never opened',
-          () => page.getByLabel('Gallery controls').click({ timeout: 5_000 }),
-          async () => (await page.locator('.controls-modal').count()) > 0,
+          'the display sheet never opened',
+          async () => {
+            await page.locator('.m-chrome-skip').evaluate((el: HTMLElement) => el.click()).catch(() => undefined)
+            await page.getByRole('button', { name: 'Display', exact: true }).click({ timeout: 3_000 }).catch(() => undefined)
+          },
+          async () => (await page.getByRole('dialog', { name: 'Display' }).count()) > 0,
         )
         await page.waitForTimeout(700)
       })
-
-      await signIn(page)
+      // The account states live on the dashboard — the gallery states
+      // left the page inside a gallery.
+      await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await shoot('05-account-admin', async () => {
         await page.waitForSelector('[aria-label="Account menu"]', { timeout: 25_000 })
         // Wait for the island to answer a click before trusting the page.
@@ -201,7 +211,7 @@ for (const engine of engines) {
         await until(
           page,
           'the account pane never opened',
-          () => page.getByLabel('Account menu').click({ timeout: 5_000 }),
+          () => page.getByRole('button', { name: 'Account menu', exact: true }).click({ timeout: 5_000 }),
           async () => (await paneOpen()) > 0,
         )
         await page.waitForTimeout(500)
@@ -211,7 +221,7 @@ for (const engine of engines) {
         await until(
           page,
           'the account pane never closed',
-          () => page.getByLabel('Close account menu').click({ timeout: 5_000 }),
+          () => page.getByRole('button', { name: 'Close account menu', exact: true }).click({ timeout: 5_000 }),
           async () => (await paneOpen()) === 0,
         )
         await page.waitForTimeout(400)

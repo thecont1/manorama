@@ -137,7 +137,7 @@ describe('the gallery page advertises a per-gallery OG card', () => {
 })
 
 describe('video frames render as posters on the server', () => {
-  test('a video-first gallery ships no media element until the curtain lifts', async () => {
+  test('a video-first gallery ships no media element until the curtain dissolves', async () => {
     // The lifecycle boundary SSR cannot show: nothing is active before
     // hydration. The browser-side gating (curtain entry, open modals) is
     // asserted against a real video gallery in the Playwright suite —

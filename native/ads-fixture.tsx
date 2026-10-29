@@ -12,7 +12,7 @@
 import { render } from 'hono/jsx/dom'
 import GalleryShell from '../app/components/GalleryShell'
 import Viewer from '../app/islands/Viewer'
-import { BundledSource } from '../app/lib/imagesource'
+import { BundledSource, mediaCountOf } from '../app/lib/imagesource'
 import type { GalleryManifest } from '../app/lib/imagesource'
 
 import { adFrameFor } from './lib/ads'
@@ -45,7 +45,7 @@ window.__MANORAMA_AD_FIXTURE_STATE__ = {
 }
 
 render(
-  <GalleryShell settings={gallery.settings}>
+  <GalleryShell settings={gallery.settings} mediaCount={mediaCountOf(source.list())}>
     <Viewer slug={manifest.slug} images={source.list()} settings={gallery.settings} plate={plate} />
   </GalleryShell>,
   root,

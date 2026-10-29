@@ -3,7 +3,7 @@ import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from 
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { decideBack } from '../lib/back-decision'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
-import { isVideoItem } from '../../app/lib/imagesource'
+import { isVideoItem, mediaCountOf } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
@@ -564,14 +564,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     void App.addListener('backButton', () => {
       const decision = decideBack({
         globalViewOpen,
-        viewerModalOpen: document.querySelector('.controls-modal:not([hidden]), .info-sheet:not([hidden])') !== null,
+        viewerModalOpen: document.querySelector('.m-sheet-host') !== null,
         overlayDepth: overlayDepth(),
         nav: navRef.current,
         accountMenuOpen,
       })
       if (decision === 'close-global') { setGlobalViewOpen(false); return }
       if (decision === 'close-viewer-modal') {
-        document.querySelector<HTMLElement>('.controls-modal:not([hidden]), .info-sheet:not([hidden])')
+        document.querySelector<HTMLElement>('.m-sheet-host')
           ?.querySelector<HTMLButtonElement>('button[data-close], button[aria-label^="Close"]')?.click()
         return
       }
@@ -644,7 +644,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
     return (
       <>
-        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined}>
+        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined} mediaCount={mediaCountOf(source.list())}>
           <Viewer
             key={`${manifest.slug}:${frameKick.nonce}`}
             slug={manifest.slug}
@@ -653,13 +653,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             settings={settings}
             plate={plate}
             onReturnToGalleries={returnToGalleries}
-            deviceControls={<section class="panel-section" aria-label="On this device">
-              <h3>On this device</h3>
+            deviceControls={<>
               <label><input type="checkbox" checked={streamOnly} onChange={(event) => { void changeGalleryStreamOnly((event.currentTarget as HTMLInputElement).checked) }} /> Don’t download this gallery</label>
               <p class="quiet-copy">Existing saved photos are kept. This choice applies only to this gallery on this device.</p>
               <p class="quiet-copy" role="status" aria-live="polite">{vaultNote}</p>
               {vaultProgress && !streamOnly ? <progress value={vaultProgress.completed} max={vaultProgress.total} aria-label="Photos saved to encrypted vault" /> : null}
-            </section>}
+            </>}
             suspended={suspendedViewer}
             onPositionChange={(position) => { positionRef.current = position }}
             onOpenGlobalView={(index = 0) => {

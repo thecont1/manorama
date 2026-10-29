@@ -120,7 +120,7 @@ describe('which frames own a video element', () => {
     expect(videoMountsFor({ imageIndex: 5, index: 4, frameActive: false })).toBe(false)
   })
 
-  test('nothing mounts before the curtain lifts or while a modal is up', () => {
+  test('nothing mounts before the curtain dissolves or while a modal is up', () => {
     expect(videoMountsFor({ imageIndex: 4, index: 4, frameActive: true, galleryEntered: false })).toBe(false)
     expect(videoMountsFor({ imageIndex: 4, index: 4, frameActive: true, blocked: true })).toBe(false)
   })

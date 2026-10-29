@@ -6,6 +6,8 @@ type Props = {
    *  surfaced as data attributes so the seam is observable in SSR tests. */
   viewerRole?: 'owner' | 'member' | 'visitor'
   libraryHref?: string
+  /** The curtain's count line: stills and videos from the manifest. */
+  mediaCount?: { stills: number; videos: number }
   settings: Pick<GallerySettings, 'title' | 'caption'>
   status?: string
   children: Child
@@ -19,7 +21,13 @@ const escapeHtml = (value: string): string => value
   .replaceAll("'", '&#39;')
 
 /** Shared public gallery chrome for SSR and the native client. */
-export default function GalleryShell({ settings, status, viewerRole, libraryHref, children }: Props) {
+export default function GalleryShell({ settings, status, viewerRole, libraryHref, mediaCount, children }: Props) {
+  const countLine = mediaCount
+    ? [
+        mediaCount.stills ? `${mediaCount.stills} photograph${mediaCount.stills === 1 ? '' : 's'}` : null,
+        mediaCount.videos ? `${mediaCount.videos} video${mediaCount.videos === 1 ? '' : 's'}` : null,
+      ].filter(Boolean).join(' · ')
+    : ''
   return (
     <main class="gallery-shell" data-viewer-role={viewerRole} data-library-href={libraryHref}>
       <h1 class="sr-only" dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
@@ -42,6 +50,9 @@ export default function GalleryShell({ settings, status, viewerRole, libraryHref
             <span class="brand-tld" aria-hidden="true">.xyz</span>
           </span>
           <div class="curtain-details">
+            {countLine ? (
+              <p class="curtain-count" data-curtain-count>{countLine}</p>
+            ) : null}
             <h1 data-curtain-title dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
             <p class="curtain-caption" data-curtain-caption dangerouslySetInnerHTML={{ __html: escapeHtml(settings.caption) }} />
             {status && <p id="gallery-curtain-status" class="curtain-status" role="status">{status}</p>}

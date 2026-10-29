@@ -1,10 +1,14 @@
-import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState } from 'hono/jsx'
+import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
+import ViewerChrome from '../components/viewer/ViewerChrome'
+import DisplaySheet from '../components/viewer/DisplaySheet'
+import InfoSheet from '../components/viewer/InfoSheet'
+import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
 import { platePositionsFor, type AdFrame } from '../lib/adframe'
@@ -34,14 +38,13 @@ type Props = {
   onOpenGlobalView?: (index: number) => void
   /** Native-only actions remain in the controls panel, never on the stage. */
   onReturnToGalleries?: () => void
-  deviceControls?: unknown
+  deviceControls?: Child
   /** Mount-time frame entry — the global grid lands the stage on the tapped
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
   initialIndex?: number
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
-  alwaysShowNavigation?: boolean
   /** Reports the committed photograph (never an ad plate or the end card):
    *  once after mount and whenever a glide settles on a new index. */
   onPositionChange?: (position: { imageId: string; index: number }) => void
@@ -168,7 +171,7 @@ const readViewPrefs = (slug: string): ViewPrefs => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, alwaysShowNavigation = false, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, initialIndex = 0, suspended = false, onPositionChange, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -197,12 +200,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
-  // One-at-a-time sweep: the outgoing frame stays mounted and fully
-  // opaque while the incoming frame wipes over it behind an opaque
-  // canvas card — no transparency ever lands on the background field.
+  // One-at-a-time fade: the outgoing frame stays mounted and fully
+  // opaque through its 90ms out-fade so no transparency ever lands on
+  // the background field behind the incoming photograph.
   const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
-  const [sweepDir, setSweepDir] = useState<'fwd' | 'back'>('fwd')
-  const sweepTimerRef = useRef<number | null>(null)
+  const leavingTimerRef = useRef<number | null>(null)
+  const singleFadeSeqRef = useRef(0)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
   // style.cssText on every render — an imperative aspectRatio write gets
@@ -245,10 +248,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
   const suspendedRef = useRef(suspended)
   suspendedRef.current = suspended
-  // Stored for later phases (P6+): the route resolves who is looking and
-  // where their library lives; the viewer does not consume them yet.
-  void viewerRole
-  void libraryHref
   const magnifierRef = useRef<MagnifierHandle | null>(null)
   const magnifierKeyRef = useRef<((event: KeyboardEvent) => void) | null>(null)
   const heicPendingRef = useRef(new Set<string>())
@@ -264,7 +263,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const scrollTopAtDownRef = useRef(0)
   const gridSuppressClickRef = useRef(false)
   const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dotRef = useRef<HTMLButtonElement | null>(null)
   const seqRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -274,8 +272,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
-  const openDisplaySettings = () => { anyModalOpenRef.current = true; setModalOpen(true) }
-  const openImageInfo = () => { anyModalOpenRef.current = true; setInfoOpen(true) }
+  const openDisplaySettings = () => {
+    previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
+    anyModalOpenRef.current = true
+    setModalOpen(true)
+  }
+  const openImageInfo = () => {
+    // Settings → info is a nested open: keep the first invoker so closing
+    // the sheet returns focus to what opened the chain, not a panel control.
+    if (previousFocusRef.current === null) previousFocusRef.current = document.activeElement as HTMLElement | null
+    anyModalOpenRef.current = true
+    setInfoOpen(true)
+  }
   const openGrid = () => {
     if (onOpenGlobalView) {
       onOpenGlobalView(indexRef.current)
@@ -298,6 +306,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setInfoOpen(false)
     setGridOpen(false)
     setGridClosing(false)
+    scheduleChromeHide()
   }
   const requestCloseModals = () => {
     if (!gridOpenRef.current) { closeModals(); return }
@@ -307,6 +316,48 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       gridCloseTimerRef.current = null
       closeModals()
     }, 180)
+  }
+  // Temporary chrome: bars reveal on tap, a fine-pointer nudge, Tab or
+  // focus, and fade out after 3s of disinterest. A viewer sheet or the
+  // picker pauses the timer — closeModals restarts it — and navigation
+  // (drag, wheel, arrow keys) always tucks the bars away.
+  const [chromeVisible, setChromeVisible] = useState(false)
+  const chromeVisibleRef = useRef(false)
+  chromeVisibleRef.current = chromeVisible
+  const chromeTimerRef = useRef<number | null>(null)
+  const displayButtonRef = useRef<HTMLButtonElement | null>(null)
+  const clearChromeTimer = () => {
+    if (chromeTimerRef.current === null) return
+    window.clearTimeout(chromeTimerRef.current)
+    chromeTimerRef.current = null
+  }
+  const scheduleChromeHide = () => {
+    clearChromeTimer()
+    chromeTimerRef.current = window.setTimeout(() => {
+      chromeTimerRef.current = null
+      if (anyModalOpenRef.current || suspendedRef.current) return
+      setChromeVisible(false)
+    }, 3000)
+  }
+  const showChrome = () => {
+    if (suspendedRef.current || !document.body.classList.contains('gallery-entered')) return
+    chromeVisibleRef.current = true
+    setChromeVisible(true)
+    scheduleChromeHide()
+  }
+  const hideChrome = () => {
+    clearChromeTimer()
+    chromeVisibleRef.current = false
+    setChromeVisible(false)
+    const active = document.activeElement as HTMLElement | null
+    if (active?.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
+      stageRef.current?.focus({ preventScroll: true })
+    }
+  }
+  const pauseChrome = () => { clearChromeTimer() }
+  const requestShowChrome = () => {
+    showChrome()
+    requestAnimationFrame(() => displayButtonRef.current?.focus())
   }
   const draggingRef = useRef(false)
   const lastPointerRef = useRef({ x: 0, y: 0 })
@@ -352,10 +403,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // pan range until the visitor pushes past the last photograph — then
   // it joins the bounds and stays reachable for the session.
   const endcapRevealedRef = useRef(false)
-  // Mirrored into state purely so the card's "Back to Start" link can
+  // Mirrored into state purely so the card's Rewind and Library links
   // join the tab order only while it is on screen — bounds math keeps
   // reading the ref synchronously.
   const [endcapRevealed, setEndcapRevealed] = useState(false)
+  // One-by-one has no pan range for the card to join: stepping next on the
+  // last photograph fades the card in over the current slide instead.
+  const singleEndcapRef = useRef(false)
+  const [singleEndcap, setSingleEndcap] = useState(false)
   const [armedPlatePos, setArmedPlatePos] = useState<number | null>(null)
 
   const currentImage = images[index] ?? images[0]
@@ -375,6 +430,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     top: `${foldControlRegion.y + foldControlRegion.height - 62}px`,
     bottom: 'auto',
     transform: 'translateX(-50%)',
+  } : undefined
+  const foldChromeStyle = foldControlRegion ? {
+    left: `${foldControlRegion.x}px`,
+    width: `${foldControlRegion.width}px`,
   } : undefined
   const foldPanelStyle = foldControlRegion ? {
     position: 'absolute',
@@ -522,7 +581,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }, [])
 
   const hasMultiple = images.length > 1
-  const arrowsOn = alwaysShowNavigation || (mode === 'vertical' ? showArrowsVertical : showArrows)
+  const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
+  // The end card's Library exit follows the chrome's rule exactly:
+  // signed-out visitors keep Rewind only.
+  const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -568,8 +630,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }
 
   // The endcard joins the pan range the first time a gesture pushes past
-  // the last photograph, and is disarmed by its own "Back to Start" link
-  // so a return visit earns the reveal again.
+  // the last photograph, and is disarmed by its own Rewind so a return
+  // visit earns the reveal again.
   const revealEndcap = () => {
     if (endcapRevealedRef.current) return
     endcapRevealedRef.current = true
@@ -577,11 +639,62 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     boundsDirtyRef.current = true
   }
 
-  const backToStart = () => {
-    endcapRevealedRef.current = false
-    setEndcapRevealed(false)
-    boundsDirtyRef.current = true
-    goTo(0)
+  const easeInOutCubic = (t: number) =>
+    t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+
+  // Rewind runs home in a fixed 0.75s ease-in-out whatever the distance —
+  // a deliberate return, not a jump; reduced motion jumps. The endcard
+  // stays in the pan range for the ride so the strip travels back through
+  // it smoothly; it disarms on landing, not at the click.
+  const rewind = () => {
+    const disarmEndcap = () => {
+      endcapRevealedRef.current = false
+      setEndcapRevealed(false)
+      boundsDirtyRef.current = true
+    }
+    singleEndcapRef.current = false
+    setSingleEndcap(false)
+    const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (mode === 'single') { disarmEndcap(); goTo(0); return }
+    if (mode === 'vertical') {
+      const stage = stageRef.current
+      reportedIndexRef.current = 0
+      explicitIndexRef.current = 0
+      setIndex(0)
+      disarmEndcap()
+      if (!stage || reduced) { if (stage) stage.scrollTop = 0; return }
+      const from = stage.scrollTop
+      const started = performance.now()
+      const tick = (now: number) => {
+        const k = Math.min(1, (now - started) / 750)
+        stage.scrollTop = from * (1 - easeInOutCubic(k))
+        if (k < 1) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+      return
+    }
+    stopMomentum()
+    cancelPositionReport()
+    reportedIndexRef.current = 0
+    explicitIndexRef.current = 0
+    setIndex(0)
+    if (reduced) { disarmEndcap(); navDestXRef.current = null; renderX(0, false); return }
+    navDestXRef.current = 0
+    const from = currentXRef.current
+    const started = performance.now()
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - started) / 750)
+      renderX(from * (1 - easeInOutCubic(k)), false)
+      if (k < 1) momentumRef.current = requestAnimationFrame(tick)
+      else {
+        momentumRef.current = null
+        navDestXRef.current = null
+        disarmEndcap()
+        queuePlateActionability()
+        reportStripPosition()
+      }
+    }
+    momentumRef.current = requestAnimationFrame(tick)
   }
 
   const reportStripPosition = () => {
@@ -731,25 +844,26 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     cancelPositionReport()
     reportedIndexRef.current = next
     explicitIndexRef.current = next
+    singleEndcapRef.current = false
+    setSingleEndcap(false)
     if (mode === 'single' && next !== index && !instant) {
-      const dir = next > index ? 'fwd' : 'back'
-      const beginSweep = () => {
-        if (unmountedRef.current) return
-        setLeavingIndex(index)
+      // Two beats, never a wipe: the current photograph fades out in
+      // 90ms, then the next fades in over 160ms once it has decoded —
+      // decode is awaited in parallel with the out-fade, capped so a
+      // stalled fetch cannot freeze stepping. Rapid presses collapse
+      // onto the latest destination via the sequence guard.
+      const targetImg = trackRef.current?.querySelector<HTMLImageElement>(`[data-index="${next + 1}"] img`)
+      const decoded = targetImg?.decode ? targetImg.decode().catch(() => {}) : Promise.resolve()
+      const cap = new Promise<void>((resolve) => window.setTimeout(resolve, 800))
+      const ready = Promise.all([Promise.race([decoded, cap]), new Promise<void>((resolve) => window.setTimeout(resolve, 90))])
+      const seq = ++singleFadeSeqRef.current
+      setLeavingIndex(indexRef.current)
+      ready.then(() => {
+        if (seq !== singleFadeSeqRef.current || unmountedRef.current) return
         setIndex(next)
-        if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
-        sweepTimerRef.current = window.setTimeout(() => { sweepTimerRef.current = null; setLeavingIndex(null) }, 800)
-      }
-      if (dir !== sweepDir) {
-        // Hidden frames carry the sweep's start clip. A direction change
-        // must reach the DOM a commit before the entering frame begins
-        // its transition — transitions interpolate from the previously
-        // resolved style, so a same-commit flip would wipe backwards.
-        setSweepDir(dir)
-        requestAnimationFrame(beginSweep)
-      } else {
-        beginSweep()
-      }
+        if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
+        leavingTimerRef.current = window.setTimeout(() => { leavingTimerRef.current = null; setLeavingIndex(null) }, 170)
+      })
     } else {
       setIndex(next)
     }
@@ -768,13 +882,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // straddling frame (or the one before it when already aligned).
   const verticalStep = (direction: -1 | 1) => {
     const stageTop = stageRef.current?.getBoundingClientRect().top ?? 0
-    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index]') ?? [])]
+    // The end card is a feed frame too — down on the last photograph
+    // scrolls it into view rather than stopping at the photo.
+    const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-endcard]') ?? [])]
     if (direction === 1) {
       const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
-      goTo(next ? Number(next.dataset.index) - 1 : images.length - 1)
+      if (!next) return
+      if (next.dataset.endcard !== undefined) { next.scrollIntoView({ block: 'start', behavior: 'smooth' }); return }
+      goTo(Number(next.dataset.index) - 1)
       return
     }
-    const above = frames.filter((f) => f.getBoundingClientRect().top < stageTop - 8)
+    const above = frames.filter((f) => f.getBoundingClientRect().top < stageTop - 8 && f.dataset.index !== undefined)
     goTo(above.length ? Number(above[above.length - 1].dataset.index) - 1 : 0)
   }
 
@@ -790,6 +908,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     } else if (mode === 'vertical') {
       verticalStep(direction)
     } else {
+      // One-by-one has no pan range: next on the last photograph fades
+      // the end card in over it, prev while the card is open simply
+      // closes it — Rewind inside the card handles the jump home.
+      if (singleEndcapRef.current) {
+        if (direction === -1) { singleEndcapRef.current = false; setSingleEndcap(false) }
+        return
+      }
+      if (direction === 1 && index === images.length - 1) {
+        singleEndcapRef.current = true
+        setSingleEndcap(true)
+        return
+      }
       goTo(index + direction)
     }
   }
@@ -846,6 +976,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         frame = frame.previousElementSibling as HTMLElement | null
         remaining = frame ? base - frame.offsetLeft : 0
       }
+      // Walking off the front of the track leaves `frame` null: the only
+      // distance left is the canvas margin itself, so the advance docks
+      // at zero rather than parking on a leading offset.
+      if (!frame) remaining = base
       advance = Math.min(viewportWidth, Math.max(0, remaining))
     }
     navDestXRef.current = clamp(-(base + direction * advance), -bounds.max, 0)
@@ -863,35 +997,57 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
-    // No curtain — or one already lifted — means the gallery is entered:
-    // nothing will ever fire the dismiss path that gates video playback.
-    if (!curtain || curtain.hidden) {
+    const entered = () => {
       document.body.classList.add('gallery-entered')
       setGalleryEntered(true)
+    }
+    // No curtain — or one already dissolved — means the gallery is entered:
+    // nothing will ever fire the dismiss path that gates video playback.
+    if (!curtain || curtain.hidden) {
+      entered()
+      return
+    }
+    // A remount landing mid-dissolve finishes instantly — the veil would
+    // otherwise hang transparent over an entered gallery forever.
+    if (curtain.classList.contains('fading')) {
+      curtain.classList.remove('fading')
+      curtain.hidden = true
+      entered()
       return
     }
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
     const dismiss = () => {
-      if (curtain.hidden || curtain.classList.contains('is-lifting')) return
+      if (curtain.hidden || curtain.classList.contains('fading')) return
+      // Drop focus before aria-hidden so a focused node never sits inside
+      // a hidden subtree; the stage receives it below, at the tap — the
+      // one thing that changes while the veil dissolves.
+      if (document.activeElement === curtain) curtain.blur()
       curtain.setAttribute('aria-hidden', 'true')
-      curtain.classList.add('is-lifting')
+      curtain.classList.add('fading')
+      // gallery-entered opens the input gates immediately: a key or tap
+      // landing mid-dissolve still reaches the viewer. The React twin
+      // waits for finish() — it is what reveals the chrome and mounts
+      // ambient media, and those belong to the photograph being clear.
       document.body.classList.add('gallery-entered')
-      setGalleryEntered(true)
-      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : dotRef.current
+      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
       focusTarget?.focus({ preventScroll: true })
       const finish = () => {
-        curtain.removeEventListener('transitionend', onLiftEnd)
+        curtain.removeEventListener('transitionend', onFadeEnd)
         if (finishTimer) window.clearTimeout(finishTimer)
-        curtain.classList.remove('is-lifting')
+        curtain.classList.remove('fading')
         curtain.hidden = true
+        // The viewer controls appear once the photograph is clear.
+        setGalleryEntered(true)
       }
-      const onLiftEnd = (event: TransitionEvent) => {
-        if (event.target === curtain && event.propertyName === 'transform') finish()
+      const onFadeEnd = (event: TransitionEvent) => {
+        if (event.target === curtain && event.propertyName === 'opacity') finish()
       }
-      curtain.addEventListener('transitionend', onLiftEnd)
-      finishTimer = window.setTimeout(finish, 980)
+      curtain.addEventListener('transitionend', onFadeEnd)
+      // The dissolve is 1.1s — the timer is only a backstop for engines
+      // that drop transitionend on an interrupted backdrop-filter.
+      finishTimer = window.setTimeout(finish, 1400)
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -967,7 +1123,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     if (modeRef.current === 'strip' && !foldActiveRef.current) settleTo(-imageStart(indexRef.current), true)
   }
 
-  // Enter-at-frame: instant and pre-paint, so the curtain lifts onto the
+  // Enter-at-frame: instant and pre-paint, so the curtain dissolves onto the
   // tapped photograph rather than the strip travelling to it in view.
   const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
   // While the entry is re-anchoring, the index belongs to the target —
@@ -1058,7 +1214,24 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         return
       }
       if (isTypingTarget(event.target as HTMLElement | null)) return
+      if (event.key === 'Tab') {
+        if (!suspendedRef.current && !anyModalOpenRef.current) chromeActionsRef.current.show()
+        return
+      }
       if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      // The overlay stack marks the Escape it consumed — the same keydown
+      // must not fall through and also tuck the bars away.
+      if (event.defaultPrevented) return
+      // A modifier alone, or a key handled inside the chrome or the rest
+      // bubble, is interaction — not a cue to hide the bars. Navigation
+      // keys still fall through: arrows must reach the strip even while
+      // focus sits on a control.
+      if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
+      // Combos belong to the browser — Alt+Left is history-back, not a
+      // strip move — so they neither hide the chrome nor navigate.
+      if (event.altKey || event.ctrlKey || event.metaKey) return
+      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, .stage-seq')
+      if (!inChrome) chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -1190,6 +1363,30 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const gridActionsRef = useRef({ openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel })
   gridActionsRef.current = { openGrid, closeModals, requestCloseModals, stepGridSel, commitGridSel }
 
+  const chromeActionsRef = useRef({ show: () => {}, hide: () => {}, toggle: () => {}, pause: () => {} })
+  chromeActionsRef.current = {
+    show: showChrome,
+    hide: hideChrome,
+    toggle: () => { if (chromeVisibleRef.current) hideChrome(); else showChrome() },
+    pause: pauseChrome,
+  }
+
+  // The `i`/`I` key handler subscribes once and reaches these through a ref —
+  // deps like [index] would unplug it for a few frames on every commit
+  // (hono/jsx re-arms passive effects asynchronously) and swallow a fast I.
+  const infoActionsRef = useRef({ provenance: () => {}, external: () => {} })
+
+  // Lifting the curtain is the first reveal cue. The ref guard matters:
+  // hono re-invokes effects on later renders, and every state churn would
+  // otherwise restart the auto-hide window and pin the bars open.
+  const chromeShownForEntryRef = useRef(false)
+  useEffect(() => {
+    if (!galleryEntered) { chromeShownForEntryRef.current = false; return }
+    if (chromeShownForEntryRef.current) return
+    chromeShownForEntryRef.current = true
+    showChrome()
+  }, [galleryEntered])
+
   // Magnifier availability is a media-query question, answered on the
   // client only: the server cannot know the pointer type, so the shortcut
   // row and the key binding appear after mount.
@@ -1313,12 +1510,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // I opens the in-gallery info sheet directly; ⇧I jumps to the
       // standalone C2PA viewer instead (falling back to the sheet for
       // sources it cannot fetch).
-      if (event.shiftKey) openCurrentImageInfo()
-      else openImageProvenance()
+      if (event.shiftKey) infoActionsRef.current.external()
+      else infoActionsRef.current.provenance()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, images.length])
+  }, [])
 
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -1414,16 +1611,56 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const stage = stageRef.current
-    const logo = dotRef.current
+    if (!stage) return
+    let tap: { x: number; y: number; t: number; chromeWasVisible: boolean } | null = null
+    let lastFine: { x: number; y: number } | null = null
+    const onTapDown = (event: PointerEvent) => {
+      if (!event.isPrimary) return
+      const el = event.target as HTMLElement
+      if (el.closest('button, a, video, input, select, textarea, [data-nav-arrow], .viewer-filmstrip, .m-sheet-host')) return
+      tap = { x: event.clientX, y: event.clientY, t: performance.now(), chromeWasVisible: chromeVisibleRef.current }
+    }
+    const onTapUp = (event: PointerEvent) => {
+      if (!tap) return
+      const held = tap
+      tap = null
+      if (event.type !== 'pointerup') return
+      if (Math.hypot(event.clientX - held.x, event.clientY - held.y) < 6 && performance.now() - held.t < 400) {
+        // The tap means flip the chrome from where it was at pointerdown —
+        // a show/hide that landed mid-press must not invert the intent.
+        if (held.chromeWasVisible) chromeActionsRef.current.hide(); else chromeActionsRef.current.show()
+      }
+    }
+    const onFineMove = (event: PointerEvent) => {
+      if (event.pointerType === 'touch' || event.buttons !== 0) return
+      const last = lastFine ?? { x: event.clientX, y: event.clientY }
+      lastFine = { x: event.clientX, y: event.clientY }
+      if (Math.hypot(event.clientX - last.x, event.clientY - last.y) > 4) chromeActionsRef.current.show()
+    }
+    const onWheel = () => chromeActionsRef.current.hide()
+    stage.addEventListener('pointerdown', onTapDown)
+    stage.addEventListener('pointerup', onTapUp)
+    stage.addEventListener('pointercancel', onTapUp)
+    stage.addEventListener('pointermove', onFineMove, { passive: true })
+    stage.addEventListener('wheel', onWheel, { passive: true })
+    return () => {
+      stage.removeEventListener('pointerdown', onTapDown)
+      stage.removeEventListener('pointerup', onTapUp)
+      stage.removeEventListener('pointercancel', onTapUp)
+      stage.removeEventListener('pointermove', onFineMove)
+      stage.removeEventListener('wheel', onWheel)
+    }
+  }, [])
+
+  useEffect(() => {
+    const stage = stageRef.current
     const seq = seqRef.current
     if (!stage) return
-    // A press landing on the brand pill or sequence counter is a drag
-    // candidate: the pill floats over the stage, and the counter lives
-    // inside the stage's control cluster. Both capture the pointer onto
-    // the stage and pan with the strip. A release that never travelled
-    // still counts as the button's own click (pointer capture suppresses
-    // the native click event, so each press is replayed here).
-    let logoPress: { x: number; y: number } | null = null
+    // A press landing on the sequence counter is a drag candidate: the
+    // counter floats over the stage and captures the pointer onto it,
+    // panning with the strip. A release that never travelled still counts
+    // as the button's own click (pointer capture suppresses the native
+    // click event, so each press is replayed here).
     let seqPress: { x: number; y: number } | null = null
     // The ad CTA gets the same replay: capturing the pointer onto the stage
     // suppresses the anchor's native click, so an untravelled release opens
@@ -1432,6 +1669,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // inert even though it is what stops the motion.
     let adPress: { x: number; y: number; href: string; armed: boolean } | null = null
     const beginDrag = (event: PointerEvent) => {
+      chromeActionsRef.current.hide()
       stopMomentum()
       setPlateActionability(null)
       draggingRef.current = true
@@ -1453,11 +1691,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           armed: plateMountCentered(adFrame) && !draggingRef.current && momentumRef.current === null,
         }
       }
-      beginDrag(event)
-    }
-    const onLogoDown = (event: PointerEvent) => {
-      if (mode !== 'strip') return
-      logoPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onSeqDown = (event: PointerEvent) => {
@@ -1496,12 +1729,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         queuePlateActionability()
         return
       }
-      if (logoPress) {
-        const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
-        logoPress = null
-        if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
-        return
-      }
       if (seqPress) {
         const travelled = Math.hypot(event.clientX - seqPress.x, event.clientY - seqPress.y)
         seqPress = null
@@ -1537,59 +1764,29 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
-    logo?.addEventListener('pointerdown', onLogoDown)
     seq?.addEventListener('pointerdown', onSeqDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
-      logo?.removeEventListener('pointerdown', onLogoDown)
       seq?.removeEventListener('pointerdown', onSeqDown)
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
   }, [mode])
 
-  // Pointer proximity wakes the brand pill — a ~100px box around the
-  // strip measured on pointermove, toggled as a class. Deliberately not
-  // a CSS hit-extender: inflating the button's box would swallow stage
-  // drags and clicks that should belong to the photographs.
-  useEffect(() => {
-    const button = dotRef.current
-    if (!button) return
-    const RANGE = 100
-    const onMove = (event: PointerEvent) => {
-      const r = button.getBoundingClientRect()
-      button.classList.toggle(
-        'is-near',
-        event.clientX > r.left - RANGE && event.clientX < r.right + RANGE &&
-        event.clientY > r.top - RANGE && event.clientY < r.bottom + RANGE,
-      )
-    }
-    const off = () => button.classList.remove('is-near')
-    window.addEventListener('pointermove', onMove, { passive: true })
-    document.documentElement.addEventListener('mouseleave', off)
-    window.addEventListener('blur', off)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      document.documentElement.removeEventListener('mouseleave', off)
-      window.removeEventListener('blur', off)
-    }
-  }, [])
-
   // Vertical mode scrolls natively for touch and wheel; map a mouse or
-  // pen drag onto scrollTop so the feed answers a grabbed drag too. The
-  // brand pill plays along — a press on it drags the feed, and a
-  // release without travel still lands as its click.
+  // pen drag onto scrollTop so the feed answers a grabbed drag too.
+  // Presses that land on a control are left to the control, never
+  // turned into a drag.
   useEffect(() => {
     const stage = stageRef.current
-    const logo = dotRef.current
     if (!stage || mode !== 'vertical') return
     let dragging = false
     let lastY = 0
-    let logoPress: { x: number; y: number } | null = null
     const beginDrag = (event: PointerEvent) => {
+      chromeActionsRef.current.hide()
       dragging = true
       lastY = event.clientY
       stage.setPointerCapture(event.pointerId)
@@ -1599,11 +1796,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const onPointerDown = (event: PointerEvent) => {
       if (event.pointerType === 'touch') return
       if ((event.target as HTMLElement).closest('button')) return
-      beginDrag(event)
-    }
-    const onLogoDown = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return
-      logoPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onPointerMove = (event: PointerEvent) => {
@@ -1616,23 +1808,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       dragging = false
       stage.releasePointerCapture?.(event.pointerId)
       stage.classList.remove('is-dragging')
-      if (logoPress) {
-        const travelled = Math.hypot(event.clientX - logoPress.x, event.clientY - logoPress.y)
-        logoPress = null
-        if (event.type === 'pointerup' && travelled < 6) openDisplaySettings()
-      }
     }
     stage.addEventListener('pointerdown', onPointerDown)
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
-    logo?.addEventListener('pointerdown', onLogoDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
-      logo?.removeEventListener('pointerdown', onLogoDown)
     }
   }, [mode])
 
@@ -1656,52 +1841,81 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     if (!modalOpen && !infoOpen) return
     const modal = modalOpen ? modalRef.current : infoModalRef.current
-    // Settings → info is a nested open: keep the first invoker so closing
-    // the sheet returns focus to the logo, not a now-hidden panel button.
-    if (previousFocusRef.current === null) previousFocusRef.current = document.activeElement as HTMLElement
     requestAnimationFrame(() => {
       modal?.querySelector<HTMLElement>('[data-c2pa-panel]')?.scrollIntoView({ block: 'start' })
-      modal?.querySelector<HTMLElement>('[data-close]')?.focus({ preventScroll: true })
     })
   }, [modalOpen, infoOpen])
 
   useEffect(() => {
     if (modalOpen || infoOpen) return
     if (previousFocusRef.current) {
-      previousFocusRef.current.focus({ preventScroll: true })
+      // The overlay stack restores focus to whatever was focused before
+      // the sheet pushed — the rAF lands after that synchronous restore
+      // so the sheet's actual invoker wins.
+      const target = previousFocusRef.current
       previousFocusRef.current = null
+      // A chrome pill is inert while the bars hide — reveal them long
+      // enough for the focus restore to land, then the 3s window tucks
+      // them away again (hideChrome returns the focus to the stage).
+      if (target.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
+        setChromeVisible(true)
+        scheduleChromeHide()
+      }
+      requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
   }, [modalOpen, infoOpen])
 
-  const openCredentials = async () => {
+  // Content Credential checks run through a serial queue: one check in
+  // flight keyed by image id, the newest queued request supersedes a
+  // still-waiting one, and results land in per-id state so a settled
+  // check can never surface against another photograph.
+  const credentialQueueRef = useRef<ReturnType<typeof createCredentialQueue> | null>(null)
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  const credentialChecker = async (imageId: string): Promise<'verified' | 'unavailable'> => {
+    const image = imagesRef.current.find((item) => item.id === imageId)
+    if (!image?.c2pa || isVideoItem(image)) return 'unavailable'
+    const [{ createC2pa }, _webComponents] = await Promise.all([
+      import('@contentauth/c2pa-web') as Promise<{ createC2pa: (config: { wasmSrc: string }) => Promise<any> }>,
+      import('c2pa-wc'),
+    ])
+    if (!c2paRef.current) c2paRef.current = await createC2pa({ wasmSrc: '/vendor/c2pa_bg.wasm' })
+    const response = await fetch(image.src, { cache: 'force-cache' })
+    const blob = await response.blob()
+    const c2paReader = await c2paRef.current.reader.fromBlob(blob.type, blob)
+    try {
+      const store = await c2paReader.manifestStore()
+      const hasManifest = Boolean(store && JSON.stringify(store).length > 2)
+      if (hasManifest) setCredentialStores((previous) => ({ ...previous, [imageId]: store }))
+      return hasManifest ? 'verified' : 'unavailable'
+    } finally {
+      await c2paReader.free()
+    }
+  }
+  if (!credentialQueueRef.current) credentialQueueRef.current = createCredentialQueue(credentialChecker)
+
+  const openCredentials = () => {
     if (!currentImage) return
     if (!currentImage.c2pa) {
       setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'unavailable' }))
       return
     }
-    setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'loading' }))
-    try {
-      const [{ createC2pa }, _webComponents] = await Promise.all([
-        import('@contentauth/c2pa-web') as Promise<{ createC2pa: (config: { wasmSrc: string }) => Promise<any> }>,
-        import('c2pa-wc'),
-      ])
-      if (!c2paRef.current) c2paRef.current = await createC2pa({ wasmSrc: '/vendor/c2pa_bg.wasm' })
-      const response = await fetch(currentImage.src, { cache: 'force-cache' })
-      const blob = await response.blob()
-      const c2paReader = await c2paRef.current.reader.fromBlob(blob.type, blob)
-      const store = await c2paReader.manifestStore()
-      const hasManifest = Boolean(store && JSON.stringify(store).length > 2)
-      await c2paReader.free()
-      if (hasManifest) setCredentialStores((previous) => ({ ...previous, [currentImage.id]: store }))
-      setCredentialState((previous) => ({ ...previous, [currentImage.id]: hasManifest ? 'verified' : 'unavailable' }))
-    } catch {
-      setCredentialState((previous) => ({ ...previous, [currentImage.id]: 'unavailable' }))
-    }
+    const imageId = currentImage.id
+    setCredentialState((previous) => ({ ...previous, [imageId]: 'loading' }))
+    void credentialQueueRef.current!.enqueue(imageId).then((result) => {
+      // A request superseded while still queued resolves 'unavailable'
+      // without ever running — its queue status stays idle, and idle
+      // must not surface as a failed check.
+      const settled = credentialQueueRef.current!.statusOf(imageId)
+      setCredentialState((previous) => ({ ...previous, [imageId]: settled === 'idle' ? 'idle' : result }))
+    })
   }
 
   const openImageProvenance = () => {
     openImageInfo()
-    if (currentImage?.c2pa && credentialState[currentImage.id] === 'idle') void openCredentials()
+    // Unset counts as idle: the check fires the first time Info opens on
+    // a flagged still, then dedupes while it is loading or settled.
+    if (currentImage?.c2pa && !currentIsVideo && (credentialState[currentImage.id] ?? 'idle') === 'idle') openCredentials()
   }
 
   /** The external viewer fetches the file itself, so only absolute http(s)
@@ -1713,6 +1927,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     if (currentIsVideo || !/^https?:/i.test(absolute)) { openImageProvenance(); return }
     window.open(`${C2PA_VIEWER_URL}?uri=${encodeURIComponent(absolute)}`, '_blank', 'noopener')
   }
+  infoActionsRef.current = { provenance: openImageProvenance, external: openCurrentImageInfo }
 
   // HEIC originals can't render in a browser, so decode them at full
   // resolution via libheif WASM — lazily, only when a frame enters the
@@ -1861,7 +2076,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => () => {
     unmountedRef.current = true
-    if (sweepTimerRef.current !== null) window.clearTimeout(sweepTimerRef.current)
+    if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
@@ -1946,6 +2161,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     if (!suspended) return
     requestCloseModals()
+    clearChromeTimer()
+    setChromeVisible(false)
   }, [suspended])
 
   // Committed-position reporting: the index state only advances on a
@@ -1979,7 +2196,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} bg-${background}`}
+        class={`viewer-stage mode-${mode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -1998,13 +2215,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
-          data-sweep-dir={mode === 'single' ? sweepDir : undefined}
         >
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
             // Single mode also keeps the outgoing frame's media mounted
-            // through the sweep, and pre-mounts the immediate neighbours
-            // so a step starts from decoded pixels, not a fetch.
+            // through its out-fade, and pre-mounts the immediate
+            // neighbours so a step starts from decoded pixels, not a fetch.
             const mountsMedia = isActive || (mode === 'single' && (imageIndex === leavingIndex || Math.abs(imageIndex - index) <= 1))
             const healed = healedDims[image.id]
             const frameW = healed?.w ?? image.width
@@ -2267,41 +2483,95 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               that slides in behind the last photograph, so reaching the
               end reads as an ending instead of a jarring wrap to the
               start. `inert` until revealed — it sits past the pan bound
-              before then, so its link must not take focus or announce. */}
+              before then, so its links must not take focus or announce. */}
           {mode === 'strip' ? (
             <div class="viewer-endcap" data-endcard inert={!endcapRevealed}>
               <span>The</span>
               <span>End.</span>
-              <button class="endcap-reset" onClick={backToStart}>Back to Start</button>
+              <div class="endcap-actions">
+                <button class="endcap-reset" onClick={rewind}>Rewind</button>
+                {showLibraryExit ? (
+                  onReturnToGalleries
+                    ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
+                    : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          {/* The same card ends the vertical feed — a footer frame in the
+              scroll, always revealed, since the feed has no pan bound to
+              keep it out of. */}
+          {mode === 'vertical' ? (
+            <div class="viewer-endcap viewer-endcap--feed" data-endcard>
+              <span>The</span>
+              <span>End.</span>
+              <div class="endcap-actions">
+                <button class="endcap-reset" onClick={rewind}>Rewind</button>
+                {showLibraryExit ? (
+                  onReturnToGalleries
+                    ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
+                    : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>}
+        {/* One-by-one: the same card fades in over the last photograph —
+            no pan range exists to hold it, so it mounts as a stage overlay. */}
+        {mode === 'single' ? (
+          <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap}>
+            <span>The</span>
+            <span>End.</span>
+            <div class="endcap-actions">
+              <button class="endcap-reset" onClick={rewind}>Rewind</button>
+              {showLibraryExit ? (
+                onReturnToGalleries
+                  ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
+                  : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {/* data-magnifier-ignore: the lens mirrors photographs, not the
             page's own controls. The container always renders so the
             sequence bubble keeps its dock when arrows are opted out. */}
         <div class={`stage-arrows ${mode === 'vertical' ? 'stage-arrows--vertical' : ''} ${arrowsVisible ? '' : 'stage-arrows--bare'}`} data-magnifier-ignore role="group" aria-label="Image navigation">
-            <button ref={seqRef} type="button" class="stage-seq" aria-label={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`} onClick={openGrid}>
-            <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
-            <span class="stage-seq-detail" aria-hidden="true">
-              <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
-              <span class="stage-seq-hint">open picker</span>
-            </span>
-          </button>
           {arrowsVisible ? (
             <>
-              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0}>{mode === 'vertical' ? '↑' : '←'}</button>
-              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && index === images.length - 1}>{mode === 'vertical' ? '↓' : '→'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--previous" data-nav-arrow aria-label="Previous photograph" onClick={() => advanceStripByViewport(-1)} disabled={mode === 'single' && index === 0 && !singleEndcap}>{mode === 'vertical' ? '↑' : '←'}</button>
+              <button class="stage-nav-arrow stage-nav-arrow--next" ref={nextArrowRef} data-nav-arrow aria-label="Next photograph" onClick={() => advanceStripByViewport(1)} disabled={mode === 'single' && singleEndcap}>{mode === 'vertical' ? '↓' : '→'}</button>
             </>
           ) : null}
         </div>
       </div>
 
-      <button ref={dotRef} class="control-logo" style={foldControlStyle} aria-label="Gallery controls" title="Gallery controls" onClick={openDisplaySettings}>
-        <span class="brand-mark-wrap" aria-hidden="true">
-          <img src="/manorama-merged-logo.png" alt="" />
-          <span class="brand-tld">.xyz</span>
+      {/* Rest bubble — keeps the stage-seq aria-label contract. A 36px
+          circle docked bottom-right; while the chrome shows, its N-of-M
+          pill takes over and the bubble goes inert and transparent. */}
+      <button ref={seqRef} type="button" class={`stage-seq ${chromeVisible ? 'is-chrome-showing' : ''}`} inert={chromeVisible ? true : undefined} aria-label={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`} onClick={openGrid}>
+        <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
+        <span class="stage-seq-detail" aria-hidden="true">
+          <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
+          <span class="stage-seq-hint">open picker</span>
         </span>
       </button>
+
+      <ViewerChrome
+        visible={chromeVisible && !suspended}
+        position={{ index, total: images.length }}
+        onReturnToGalleries={onReturnToGalleries}
+        libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
+        onOpenDisplay={openDisplaySettings}
+        onOpenInfo={openImageProvenance}
+        onOpenPicker={openGrid}
+        pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`}
+        onRequestShow={requestShowChrome}
+        onActivity={pauseChrome}
+        onIdle={scheduleChromeHide}
+        displayRef={(el) => { displayButtonRef.current = el }}
+        topStyle={foldChromeStyle}
+        bottomStyle={foldChromeStyle}
+      />
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
@@ -2354,143 +2624,46 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         </div>
       </> : null}
 
-      <div
-        ref={modalRef}
-        class="controls-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Display settings"
-        hidden={!modalOpen}
-        onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
-        onKeyDown={onModalKeyDown}
-      >
-        <div class="controls-panel" style={foldPanelStyle}>
-          <div class="controls-panel-topbar">
-            <div class="controls-panel-brand brand-mark-wrap" aria-hidden="true">
-              <img src="/manorama-merged-logo.png" alt="" />
-              <span class="brand-tld">.xyz</span>
-            </div>
-            <button data-close class="quiet-button panel-close" aria-label="Close display settings" onClick={() => closeModals()}>
-              <span class="panel-close-mark" aria-hidden="true">×</span>
-              <span>Close</span>
-            </button>
-          </div>
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>Display settings</h2>
-            </div>
-          </div>
-
-          {onReturnToGalleries ? <section class="panel-section"><button type="button" class="panel-action" onClick={onReturnToGalleries}>Back to your galleries</button></section> : null}
-          {deviceControls}
-
-          <section class="panel-section" aria-labelledby="view-mode-heading">
-            <h3 id="view-mode-heading">View mode</h3>
-            <div class="mode-options" role="radiogroup" aria-label="View mode">
-              <label><input type="radio" name="view-mode" value="strip" checked={mode === 'strip'} onChange={() => { setMode('strip'); closeModals() }} /> <span>Horizontal Strip</span><small>full-height, continuous</small></label>
-              <label><input type="radio" name="view-mode" value="vertical" checked={mode === 'vertical'} onChange={() => { setMode('vertical'); closeModals() }} /> <span>Vertical scroll</span><small>landscapes to width, portraits to height</small></label>
-              <label><input type="radio" name="view-mode" value="single" checked={mode === 'single'} onChange={() => { setMode('single'); closeModals() }} /> <span>One at a time</span><small>advance per gesture</small></label>
-            </div>
-          </section>
-
-          <section class="panel-section" aria-labelledby="background-heading">
-            <h3 id="background-heading">Background</h3>
-            {/* 'none' leaves photographs abutting on the bare dark canvas;
-                Light and Dark wake the doodle field — keyed to this
-                gallery's URL, so the same album always wears the same
-                pattern — and give every image a 10px margin on the
-                trailing side. */}
-            <div class="mode-options" role="radiogroup" aria-label="Background behind photographs">
-              <label><input type="radio" name="background-mode" value="none" checked={background === 'none'} onChange={() => { setBackground('none'); saveBackgroundPreference('none'); closeModals() }} /> <span>None</span><small>photographs abut on the dark canvas</small></label>
-              <label><input type="radio" name="background-mode" value="dark" checked={background === 'dark'} onChange={() => { setBackground('dark'); saveBackgroundPreference('dark'); closeModals() }} /> <span>Dark</span><small>light ink doodles, 10px margins</small></label>
-              <label><input type="radio" name="background-mode" value="light" checked={background === 'light'} onChange={() => { setBackground('light'); saveBackgroundPreference('light'); closeModals() }} /> <span>Light</span><small>dark ink doodles, 10px margins</small></label>
-            </div>
-          </section>
-
-          <section class="panel-section compact-section" aria-label="Display options">
-            <div class="panel-actions">
-              <button type="button" class="panel-action" onClick={() => { if (mode === 'vertical') setShowArrowsVertical(!showArrowsVertical); else setShowArrows(!showArrows); closeModals() }}>{arrowsOn ? 'Hide navigation arrows' : 'Show navigation arrows'}</button>
-              {fullscreenAvailable ? <button type="button" class="panel-action" onClick={() => { toggleFullscreen(); closeModals() }}>{fullscreenActive ? 'Exit fullscreen' : 'Enter fullscreen'}</button> : null}
-            </div>
-          </section>
-
-          <section class="panel-section" aria-labelledby="about-heading" hidden>
-            <h3 id="about-heading">About this gallery</h3>
-            <p class="about-copy">This single-album gallery is shared as one quiet sequence. Its images are served as originals where possible; non-credentialed responsive derivatives preserve the embedded colour profile.</p>
-          </section>
-
-          <section class="panel-section shortcuts" aria-labelledby="shortcuts-heading">
-            <h3 id="shortcuts-heading">Keyboard shortcuts</h3>
-            <p><kbd>G</kbd> photograph selector</p>
-            <p><kbd>←</kbd><kbd>→</kbd> move between photographs</p>
-            <p><kbd>Home</kbd><kbd>End</kbd> jump to the ends</p>
-            {/* Pointer-gated: a loupe replacing the cursor means nothing
-                on a touch device, so the row only exists where the key
-                actually works. */}
-            {magnifierAvailable ? <p><kbd>M</kbd> magnify under the cursor{magnifierActive ? ' (on)' : ''}</p> : null}
-            <p><kbd>I</kbd> image info</p>
-            <p><kbd>⇧I</kbd> standalone c2pa viewer (new tab)</p>
-            <p><kbd>Esc</kbd> close controls</p>
-          </section>
-
-          {/* The one bit of chrome every gallery carries: the privacy
-              policy and the copyright line. Docked at the bottom of the
-              brand popover — present without ever interrupting the
-              photographs. Opens in a new tab so the gallery keeps its
-              place. */}
-          <footer class="panel-legal">
-            <a href="/privacy" target="_blank" rel="noopener" onClick={() => closeModals()}>Privacy policy</a>
-            <span aria-hidden="true"> · </span>© 2026 manorama
-          </footer>
-        </div>
+      <div ref={modalRef}>
+        <DisplaySheet
+          open={modalOpen}
+          onClose={requestCloseModals}
+          mode={mode}
+          onMode={setMode}
+          background={background}
+          onBackground={(next) => { setBackground(next); saveBackgroundPreference(next) }}
+          arrowsOn={arrowsOn}
+          onArrows={(on) => { if (mode === 'vertical') setShowArrowsVertical(on); else setShowArrows(on) }}
+          fullscreenAvailable={fullscreenAvailable}
+          fullscreenActive={fullscreenActive}
+          onFullscreen={() => { void toggleFullscreen() }}
+          showShortcuts={magnifierAvailable}
+          magnifierAvailable={magnifierAvailable}
+          magnifierActive={magnifierActive}
+          deviceControls={deviceControls}
+          privacyHref="/privacy"
+          panelStyle={foldPanelStyle}
+        />
       </div>
 
-      <div
-        ref={infoModalRef}
-        class="controls-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Image information and Content Credentials"
-        hidden={!infoOpen}
-        onClick={(event) => { if (event.target === event.currentTarget) closeModals() }}
-        onKeyDown={onModalKeyDown}
-      >
-        <div class="controls-panel" style={foldPanelStyle}>
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">{slug.replaceAll('-', ' ')}</p>
-              <h2>{currentIsVideo ? 'Current video' : 'Current photograph'}</h2>
-            </div>
-            <button data-close class="quiet-button" aria-label="Close image information" onClick={() => closeModals()}>Close</button>
-          </div>
-
-          <section class="panel-section" aria-labelledby="position-heading">
-            <div class="section-heading"><h3 id="position-heading">Position</h3><span class="position-value">{index + 1} / {images.length}</span></div>
-            <p class="quiet-copy">{currentIsVideo ? 'Video' : 'Photograph'} {index + 1} of {images.length}</p>
-          </section>
-
-          <section class="panel-section" aria-labelledby="info-heading">
-            <h3 id="info-heading">{currentIsVideo ? 'Video info' : 'Image info'}</h3>
-            <dl class="info-grid">
-              <div><dt>File</dt><dd>{currentImage?.filename}</dd></div>
-              <div><dt>Dimensions</dt><dd>{currentImage?.width} × {currentImage?.height}</dd></div>
-              {currentImage?.caption ? <div><dt>Caption</dt><dd>{currentImage.caption}</dd></div> : null}
-              {currentVideo ? <div><dt>Type</dt><dd>Video ({currentVideo.mimeType})</dd></div> : null}
-              {currentVideo?.durationSeconds ? <div><dt>Duration</dt><dd>{formatDuration(currentVideo.durationSeconds)}</dd></div> : null}
-              {currentExif?.camera ? <div><dt>Camera</dt><dd>{currentExif.camera}</dd></div> : null}
-              {currentExif?.lens ? <div><dt>Lens</dt><dd>{currentExif.lens}</dd></div> : null}
-              {currentExif?.aperture ? <div><dt>Aperture</dt><dd>{currentExif.aperture}</dd></div> : null}
-              {currentExif?.iso ? <div><dt>ISO</dt><dd>{currentExif.iso}</dd></div> : null}
-              {currentExif?.dateOriginal ? <div><dt>Captured</dt><dd>{currentExif.dateOriginal}</dd></div> : null}
-            </dl>
-          </section>
-
-          <section class="panel-section" data-c2pa-panel aria-labelledby="credentials-heading">
-            <div class="section-heading"><h3 id="credentials-heading">Content Credentials</h3><span class="credential-mark" aria-hidden="true">C2PA</span></div>
-            {!currentImage?.c2pa ? <p class="quiet-copy">{currentIsVideo ? 'This video carries no Content Credentials.' : 'This photograph carries no Content Credentials.'}</p> : credentialState[currentImage.id] === 'loading' ? <p class="quiet-copy">Checking Content Credentials locally…</p> : credentialState[currentImage.id] === 'verified' ? <><p class="quiet-copy credential-success">Content Credentials verified in this browser.</p><cai-manifest-summary manifestStore={credentialStores[currentImage.id]}></cai-manifest-summary></> : credentialState[currentImage.id] === 'unavailable' ? <><p class="quiet-copy">Content Credentials are present, but could not be validated in this browser session.</p><button class="text-button" onClick={openCredentials}>Try verification again</button></> : <><p class="quiet-copy">This photograph carries embedded Content Credentials.</p><button class="text-button" onClick={openCredentials}>Verify in this browser</button></>}
-          </section>
-        </div>
+      <div ref={infoModalRef}>
+        <InfoSheet
+          open={infoOpen}
+          onClose={requestCloseModals}
+          index={index}
+          total={images.length}
+          image={currentImage}
+          isVideo={currentIsVideo}
+          mimeType={currentVideo?.mimeType}
+          durationSeconds={currentVideo?.durationSeconds}
+          caption={currentImage?.caption}
+          camera={[currentExif?.camera, currentExif?.lens, currentExif?.aperture, currentExif?.iso].filter(Boolean) as string[]}
+          captured={currentExif?.dateOriginal}
+          credentialState={currentImage ? credentialState[currentImage.id] : undefined}
+          credentialStore={currentImage ? credentialStores[currentImage.id] : undefined}
+          onRetryCredentials={openCredentials}
+          panelStyle={foldPanelStyle}
+        />
       </div>
     </div>
   )

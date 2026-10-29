@@ -38,9 +38,8 @@
     "engine": "chromium",
     "viewport": "iphone",
     "state": "05-account-pane",
-    "file": null,
-    "ok": false,
-    "note": "the account pane never opened (at http://localhost:5175/thecontrarian)"
+    "file": "chromium-iphone-05-account-pane.png",
+    "ok": true
   },
   {
     "engine": "chromium",
@@ -53,9 +52,8 @@
     "engine": "chromium",
     "viewport": "iphone",
     "state": "06-selector",
-    "file": null,
-    "ok": false,
-    "note": "the curtain never lifted (at http://localhost:5175/thecontrarian/mixed-album)"
+    "file": "chromium-iphone-06-selector.png",
+    "ok": true
   },
   {
     "engine": "chromium",
@@ -96,9 +94,8 @@
     "engine": "chromium",
     "viewport": "ipad",
     "state": "05-account-pane",
-    "file": null,
-    "ok": false,
-    "note": "the account pane never opened (at http://localhost:5175/thecontrarian)"
+    "file": "chromium-ipad-05-account-pane.png",
+    "ok": true
   },
   {
     "engine": "chromium",
@@ -111,9 +108,8 @@
     "engine": "chromium",
     "viewport": "ipad",
     "state": "06-selector",
-    "file": null,
-    "ok": false,
-    "note": "the curtain never lifted (at http://localhost:5175/thecontrarian/mixed-album)"
+    "file": "chromium-ipad-06-selector.png",
+    "ok": true
   },
   {
     "engine": "chromium",

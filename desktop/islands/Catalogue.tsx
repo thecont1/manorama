@@ -400,17 +400,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             images={manifest.images}
             settings={settings}
             initialIndex={viewerState?.index ?? 0}
-            alwaysShowNavigation
+            onReturnToGalleries={() => setViewerState(null)}
           />
         </GalleryShell>
-        <button
-          type="button"
-          class="desktop-back"
-          onClick={() => setViewerState(null)}
-          aria-label="Back to the catalogue"
-        >
-          ← Catalogue
-        </button>
       </>
     )
   }

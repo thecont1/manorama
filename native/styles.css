@@ -31,7 +31,7 @@ body.manorama-native .curtain-caption { margin: 0 auto; }
 
 /* Native gallery chrome is a single reachable row. Every control shares the
    same dynamic height; the photograph remains untouched above it. */
-body.manorama-native .stage-arrows {
+body.manorama-native .stage-arrows:not(.stage-arrows--bare) {
   z-index: 21;
   left: max(12px, var(--native-safe-left));
   right: max(12px, var(--native-safe-right));
@@ -54,8 +54,15 @@ body.manorama-native .stage-arrows--vertical { flex-direction: initial; align-it
     justify-content: space-between;
   }
 }
-body.manorama-native .stage-arrows > button,
-body.manorama-native .control-logo {
+/* The native bottom row is its own control strip — reserve exactly its
+   footprint (row height plus the 12px float and safe inset) beneath the
+   stage so the controls never sit on a photograph. Applies in every
+   mode: the native ↑/↓ pair is the same docked row, not a floating
+   stack. */
+body.manorama-native .viewer-stage.has-arrow-bar {
+  --viewer-arrows-bar: calc(var(--native-chrome-height) + 12px + var(--native-safe-bottom));
+}
+body.manorama-native .stage-arrows > button {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -69,14 +76,6 @@ body.manorama-native .control-logo {
   color: rgba(var(--ink), .9);
   pointer-events: auto;
 }
-body.manorama-native .stage-arrows .stage-seq {
-  grid-column: 3;
-  grid-row: 1;
-  order: initial;
-  min-width: 0;
-  padding: 0 8px;
-  border-radius: 999px;
-}
 body.manorama-native .stage-arrows .stage-nav-arrow--previous {
   grid-column: 1;
   grid-row: 1;
@@ -88,58 +87,6 @@ body.manorama-native .stage-arrows .stage-nav-arrow--next {
 body.manorama-native .stage-arrows .stage-nav-arrow {
   font-size: clamp(16px, 2.8svh, 24px);
 }
-body.manorama-native .stage-arrows .stage-seq-detail { gap: 2px; }
-body.manorama-native .stage-arrows .stage-seq-hint { display: none; }
-body.manorama-native .control-logo {
-  z-index: 22;
-  left: 50%;
-  bottom: max(12px, var(--native-safe-bottom));
-  /* This button is `position: fixed`, so the `height: 100%` it shares with the
-     row's buttons above resolved against the viewport, not the row: the
-     wordmark and its pill painted at viewport scale and floated behind the
-     photographs. Pin it to the row height instead. */
-  height: var(--native-chrome-height);
-  width: calc((100vw - (2 * max(12px, var(--native-safe-left))) - (2 * max(12px, var(--native-safe-right))) - 18px) / 4);
-  display: grid;
-  place-items: center;
-  padding: 0;
-  transform: translateX(-50%);
-  opacity: 1;
-  overflow: visible;
-}
-body.manorama-native .control-logo:hover { transform: translateX(-50%); }
-body.manorama-native .control-logo .brand-mark-wrap {
-  width: auto;
-  /* A percentage height is no safer here than on the button: the wrap's
-     containing block is a fixed-position element, so 78% resolved against the
-     viewport and the wordmark painted at viewport scale. Derive it instead. */
-  height: calc(var(--native-chrome-height) * .78);
-  margin: 0 auto;
-  /* The web's pill rests quiet at .3 and peeks from the fold. The native row
-     sits inside the safe area rather than under the screen edge, so it rests
-     quiet at a slightly firmer .45 and keeps its whole wordmark on screen. */
-  opacity: .45;
-  transform: none;
-  transition: transform 320ms cubic-bezier(.3, 1.45, .5, 1), opacity 220ms ease;
-}
-/* The same cadence as the web's logo-tab-bob, at the native row's smaller
-   travel: the pill drifts a few percent and never leaves its row. */
-@keyframes native-logo-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-13%); }
-}
-@media (prefers-reduced-motion: no-preference) {
-  body.gallery-entered.manorama-native .control-logo .brand-mark-wrap {
-    animation: native-logo-bob 5.6s ease-in-out 4.9s infinite;
-  }
-}
-body.manorama-native .control-logo:is(:hover, :focus-visible) .brand-mark-wrap {
-  opacity: 1;
-  transform: translateY(-6%);
-  animation: none;
-}
-body.manorama-native .control-logo .brand-mark-wrap::before { inset: -5px -12px; }
-
 @media (orientation: landscape) {
   /* One centred group, exactly as in portrait: the mark above the title, then
      the caption. The two-column spread gave the title a column of its own at
@@ -165,17 +112,7 @@ body.manorama-native .control-logo .brand-mark-wrap::before { inset: -5px -12px;
 }
 
 @media (pointer: coarse) {
-  /* A touch tap keeps the position legible while the vault picker opens. */
-  body.manorama-native .stage-seq:focus {
-    opacity: 1;
-    border-color: rgba(var(--ink), .8);
-    background: rgba(10, 10, 10, .82);
-    min-width: clamp(126px, 18svh, 168px);
-    height: clamp(52px, 7.4svh, 66px);
   }
-  body.manorama-native .stage-seq:focus .stage-seq-num { opacity: 0; }
-  body.manorama-native .stage-seq:focus .stage-seq-detail { opacity: 1; }
-}
 
 :root {
   --native-safe-top: env(safe-area-inset-top, 0px);
@@ -1048,22 +985,14 @@ body.manorama-native:has(.native-account-shell) {
 /* The web app keeps its chrome out of the way until the gallery is entered, and
    the native shells should match: while the curtain is up the photograph and the
    title are the whole interface. `gallery-entered` is set on the body when the
-   curtain lifts, so nothing else has to know about this. */
+   curtain dissolves, so nothing else has to know about this. */
 body.manorama-native:not(.gallery-entered) .stage-arrows,
-body.manorama-native:not(.gallery-entered) .control-logo {
+body.manorama-native:not(.gallery-entered) .stage-seq {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
 }
 
-/* The settings topbar reads as one line: the wordmark sets the height and the
-   Close control matches it, so neither sits proud of the other. */
-body.manorama-native .controls-panel-topbar { align-items: center; }
-body.manorama-native .controls-panel-topbar .controls-panel-brand,
-body.manorama-native .controls-panel-topbar .panel-close {
-  box-sizing: border-box;
-  height: var(--native-chrome-height);
-}
 /* Four controls do not fit across a phone: the previous arrow was encroaching on
    the sequence readout, and three equal pills wasted the fact that the index is
    always a circle. On narrow viewports the row carries three controls — the
@@ -1082,49 +1011,16 @@ body.manorama-native .controls-panel-topbar .panel-close {
     gap: 8px;
   }
   body.manorama-native .stage-arrows .stage-nav-arrow--previous { display: none; }
-  body.manorama-native .stage-arrows .stage-seq,
   body.manorama-native .stage-arrows .stage-nav-arrow--next {
     width: var(--native-chrome-height);
     min-width: var(--native-chrome-height);
     aspect-ratio: 1 / 1;
     padding: 0;
     border-radius: 50%;
-  }
-  body.manorama-native .stage-arrows .stage-seq { grid-column: 2; }
-  body.manorama-native .stage-arrows .stage-nav-arrow--next { grid-column: 3; }
-
-  /* The pill is centred rather than anchored to the row's leading edge.
-     Anchored left it read as a pill, a wide void, and then two buttons — three
-     unrelated things in a row.
-     Centring is done with `left: 0; right: 0; margin-inline: auto` and a
-     `fit-content` width, not with `left: 50%` and a transform: the box has to
-     keep hugging the wordmark, because this button paints its own bar and a
-     stretched box turns that bar into a full-width rule across the bottom of
-     the stage. It also leaves `transform` free for the press states. */
-  body.manorama-native .control-logo {
-    left: 0;
-    right: 0;
-    width: fit-content;
-    margin-inline: auto;
-    /* The pill hugs the wordmark instead of spanning the free space. */
-    /* The wordmark's ink frame is drawn by ::before at inset -5px -12px. While
-       the pill was wide that frame sat inside it; hugging the wordmark left it
-       hanging outside, which reads as a second button tucked behind this one.
-       The padding gives the frame somewhere to live. */
-    padding: 0 14px;
-    transform: none;
-  }
-  body.manorama-native .control-logo:hover { transform: none; }
-  /* With no arrows shown the circles leave the stage's centre free, so the pill
-     takes it — the composition the web uses at this width, wordmark centred
-     with the position at the corner. With arrows shown the trailing cluster is
-     twice as wide and a stage-centred pill would run its bar into the position
-     circle, so there the pill centres in the room they leave. Only `right`
-     changes; the auto margins re-centre inside whatever box is left. */
-  body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .control-logo {
-    right: calc((2 * var(--native-chrome-height)) + 8px);
+    grid-column: 3;
   }
 }
+
 /* The landing used to subtract both safe-area insets from its height. That made
    it shorter than the viewport, so the strip it gave back showed the root
    background instead of the landing's own — the black bar at the bottom of the
@@ -1166,25 +1062,6 @@ body.manorama-native .controls-panel-topbar .panel-close {
     align-self: start;
     margin-top: 0;
   }
-}
-/* The Close control is a square with a thin X in it, and no word. The wordmark
-   on the other side already names the panel, so "Close" was repeating it, and a
-   square matching the round controls the rest of the viewer uses keeps the panel
-   reading as the same family. */
-body.manorama-native .controls-panel-topbar .panel-close {
-  display: grid;
-  place-items: center;
-  gap: 0;
-  padding: 0;
-  width: var(--native-chrome-height);
-  height: var(--native-chrome-height);
-  border-radius: 0;
-}
-body.manorama-native .controls-panel-topbar .panel-close > span:last-child { display: none; }
-body.manorama-native .controls-panel-topbar .panel-close-mark {
-  font-size: calc(var(--native-chrome-height) * .52);
-  font-weight: 200;
-  line-height: 1;
 }
 /* The WebView paints under the status bar now, and the body reserves the notch
    as padding — so the strip above a surface is the *body's* own background.
@@ -1687,4 +1564,13 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
   .native-editor-head { padding: max(28px, var(--native-safe-top)) 80px 14px 40px; }
   .native-editor-note { padding-inline: 40px; }
   .native-editor-actions { padding-inline: 40px; }
+}
+
+/* The rest bubble docks left of the forward arrow, same as the web. */
+body.manorama-native .stage-seq {
+  right: max(12px, var(--native-safe-right, 0px));
+  bottom: max(12px, var(--native-safe-bottom, 0px));
+}
+body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
+  right: calc(max(12px, var(--native-safe-right, 0px)) + var(--native-chrome-height, 56px) + 10px);
 }

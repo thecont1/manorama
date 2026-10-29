@@ -88,16 +88,16 @@ describe('gallery route viewer role and photo intent', () => {
     const res = await get(`/${ownerSlug}/role-gallery?photo=r2`)
     expect(res.status).toBe(200)
     const html = await res.text()
-    // The committed position is SSR-observable through the info modal's
-    // position value rather than serialized island props.
+    // The committed position is SSR-observable through the rest bubble's
+    // aria-label rather than serialized island props.
     expect(html).toContain('data-image-id="r2"')
-    expect(html).toContain('<span class="position-value">2 / 3</span>')
+    expect(html).toContain('Photograph 2 of 3 — open')
   })
 
   test('an unknown ?photo= is ignored but the URL still gets cleaned', async () => {
     const res = await get(`/${ownerSlug}/role-gallery?photo=nope`)
     expect(res.status).toBe(200)
     const html = await res.text()
-    expect(html).toContain('<span class="position-value">1 / 3</span>')
+    expect(html).toContain('Photograph 1 of 3 — open')
   })
 })
