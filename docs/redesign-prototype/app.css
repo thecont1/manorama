@@ -312,11 +312,15 @@ img { display: block; }
 .chrome { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
 .chrome .bar {
   position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px;
-  opacity: 0; transition: opacity .25s, transform .3s var(--ease);
+  opacity: 0; visibility: hidden;
+  transition: opacity .25s, transform .3s var(--ease), visibility 0s .3s;
 }
 .chrome .top { top: 50px; height: 56px; transform: translateY(-8px); }
 .chrome .bottom { bottom: 26px; height: 56px; justify-content: center; transform: translateY(8px); }
-.chrome.on .bar { opacity: 1; transform: none; pointer-events: auto; }
+.chrome.on .bar {
+  opacity: 1; transform: none; pointer-events: auto; visibility: visible;
+  transition: opacity .25s, transform .3s var(--ease), visibility 0s;
+}
 .chip {
   height: 40px; padding: 0 14px; border-radius: var(--pill); background: rgba(10,10,10,.82); color: var(--text);
   display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600;

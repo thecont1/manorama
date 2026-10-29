@@ -98,8 +98,8 @@ Exit criteria for Stage 2: viewer checks in the Definition of Done pass; video s
 Goal: handoff section 4 for Library, Add sheet and Gallery details.
 
 3a. Thumbnail data path (M). Depends on Stage 0 task 4.
-- Ensure each library item exposes thumbnail URL or vault key, width, height and average colour. Add the smallest manifest or vault-record extension needed and migrate existing records lazily.
-- Kept galleries: read thumbnails from the vault, switching each to its local copy as it lands. Streamed galleries: placeholder colour, IntersectionObserver near-view loading, fade-in on decode; bounded concurrency (reuse the `thumbs.ts` limits).
+- The existing gallery summary already carries what the rail needs: per-item width and height and a thumbnail source — the existing thumbnail URL for streamed galleries, the vault key for kept ones. No average-colour metadata: do not add a manifest or vault-record colour field or migrate existing records for this rail.
+- Kept galleries: read thumbnails from the vault, switching each to its local copy as it lands. Streamed galleries: show the existing item placeholder first, IntersectionObserver near-view loading, fade-in on decode; bounded concurrency (reuse the `thumbs.ts` limits). An optional locally derived colour may only come from bytes already fetched — never another media fetch.
 
 3b. Library (M)
 - Layout: top bar with Settings gear, title and Add pill, status line, sponsored slot (behind the Q1 flag, hidden when off), gallery cards.
