@@ -53,6 +53,11 @@ beforeAll(() => {
   // hono's JSX renderer checks `instanceof SVGElement` for the provider
   // glyphs — another global happy-dom keeps on the window.
   globals.SVGElement = dom.SVGElement
+  // The overlay stack checks `instanceof HTMLElement` when it inerts a
+  // sheet's sibling chain — the card menu opens one.
+  globals.HTMLElement = dom.HTMLElement
+  // Sheets also observe their host leaving the document.
+  globals.MutationObserver = dom.MutationObserver
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback })
@@ -495,14 +500,15 @@ describe('signed-in account area', () => {
     expect(html).toContain('A winter album')
     expect(html).toContain('manorama.xyz/quiet-owner/kashmir')
     expect(html).toContain('kashmir')
-    expect(html).toContain('12 items')
+    expect(html).toContain('12 photographs')
     expect(html).toContain('Hello, <mark class="admin-greeting-name">quiet-owner</mark>. Welcome to manorama.xyz.')
     expect(html).toContain('You are a Free User. You have used 1 of your 3 gallery limit.')
     // The account menu is the only account affordance on the page, and the
     // drawer it opens is closed until asked for.
     expect(html).toContain('aria-label="Account menu"')
     expect(html).not.toContain('data-account-drawer')
-    expect(container.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
+    // Both fixture images ride the rail — every photograph, not a cover.
+    expect(container.querySelectorAll('.lib-rail .lib-th')).toHaveLength(2)
     expect(html).not.toContain('sequence only')
     // Sign out waits behind the account menu now, so the drawer has to be
     // opened before it exists.
@@ -522,35 +528,28 @@ describe('signed-in account area', () => {
     const listCall = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries')
     expect((listCall?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
 
-    // The cover is its own opener, holding one column of the card across every
-    // text row, so the four actions can sit beside the photograph instead of
-    // under the whole card. The second fixture image proves mobile still does
-    // not render the web's sequencing strip.
-    const coverButton = container.querySelector('.native-gallery-cover-open') as HTMLButtonElement | null
-    expect(coverButton).not.toBeNull()
-    expect(coverButton!.querySelectorAll('.native-gallery-thumb img')).toHaveLength(1)
-    expect(coverButton!.querySelector('img')?.getAttribute('src')).toBe('https://cdn.example/first.jpg')
-    expect([...coverButton!.querySelectorAll('.native-gallery-thumb')].map((thumb) => thumb.className)).toEqual([
-      'native-gallery-thumb',
-    ])
-    expect(coverButton!.getAttribute('aria-label')).toBe('Open Kashmir')
-    // Name with its count, then the caption line, then the address, then the
-    // photograph, then the actions: the order the owner asked for, in one
-    // column.
-    const card = coverButton!.closest('li') as HTMLElement
-    expect([...(card.children as unknown as Element[])].map((child) => child.className)).toEqual([
-      'native-gallery-row native-gallery-row-with-thumb',
-      'native-gallery-caption',
-      'native-gallery-link',
-      'native-gallery-cover-open',
-      'native-gallery-actions',
-    ])
-    expect(card.querySelector('.native-gallery-heading .native-gallery-meta')?.textContent).toBe('(12 items)')
+    // The rail is the card's opener: every thumbnail leads to the viewer at
+    // its own position. The vault is absent in this DOM, so the cells fall
+    // back to the provider previews the summary already carries.
+    const rail = container.querySelector('.lib-rail') as HTMLElement | null
+    expect(rail).not.toBeNull()
+    const thumbs = [...rail!.querySelectorAll<HTMLButtonElement>('.lib-th')]
+    expect(thumbs.map((thumb) => thumb.querySelector('img')?.getAttribute('src')))
+      .toEqual(['https://cdn.example/first.jpg', 'https://cdn.example/second.jpg'])
+    // One article per gallery: rail, title row, metadata, caption, address.
+    const card = rail!.closest('.lib-card') as HTMLElement
+    const order = [...card.children].map((child) => child.className.split(' ')[0])
+    expect(order).toEqual(['lib-rail', 'lib-card-head', 'lib-card-sub', 'native-gallery-caption', 'native-gallery-link'])
+    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('12 photographs')
+    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('gallery')
     expect(card.querySelector('.native-gallery-caption')?.textContent).toBe('A winter album')
     expect(card.querySelector('.native-gallery-link')?.textContent).toBe('manorama.xyz/quiet-owner/kashmir')
 
-    // The running-order action is what opens the editor for this gallery.
-    ;(container.querySelector('[aria-label="Edit the running order of Kashmir"]') as HTMLButtonElement).click()
+    // Reorder lives in the card's ··· menu now, behind its own sheet.
+    ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
+    await settle()
+    const menu = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
+    ;(menu.find((item) => item.textContent === 'Reorder photographs'))!.click()
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
@@ -558,11 +557,10 @@ describe('signed-in account area', () => {
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).toBeNull()
 
-    // The cover opens the gallery on the stage — the card's most obvious
-    // affordance has to lead to the viewer. The title row shares the same
-    // handler; it cannot be exercised afterwards because the stage replaces
-    // the list.
-    coverButton!.click()
+    // The title opens the gallery on the stage — the card's most obvious
+    // affordance has to lead to the viewer. It cannot be exercised afterwards
+    // because the stage replaces the list.
+    ;(card.querySelector('.lib-card-title') as HTMLButtonElement).click()
     await settle()
     expect(galleryCalls().filter((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir').length)
       .toBeGreaterThanOrEqual(2)
@@ -725,38 +723,41 @@ describe('signed-in account area', () => {
     ] }) })
     const { container } = mountAccount()
     await settle()
-    const cards = [...container.querySelectorAll('.native-gallery-list > li')]
+    const cards = [...container.querySelectorAll('.native-gallery-list > li .lib-card')]
     expect(cards.length).toBe(2)
     for (const card of cards) {
-      // Name and count share the first line, then the caption, then the
-      // address, then the photograph, then the actions — one column, the same
-      // order the web dashboard reads in.
-      const heading = card.querySelector('.native-gallery-heading')
-      expect(heading?.querySelector('.native-gallery-title')).not.toBeNull()
-      expect(heading?.querySelector('.native-gallery-meta')).not.toBeNull()
-      const order = [...card.children].map((child) => child.className)
-      const at = (needle: string) => order.findIndex((name) => name.includes(needle))
-      expect(at('native-gallery-link')).toBeGreaterThan(at('native-gallery-row'))
-      expect(at('native-gallery-cover-open')).toBeGreaterThan(at('native-gallery-link'))
-      expect(at('native-gallery-actions')).toBeGreaterThan(at('native-gallery-cover-open'))
-      // The photograph spans the card, so the actions cannot sit beside it.
-      expect(card.querySelector('.native-gallery-row button')).toBeNull()
-      expect(card.querySelector('.native-gallery-actions')).not.toBeNull()
-      expect(card.querySelector('.native-gallery-row .native-gallery-actions')).toBeNull()
+      // The photographs lead, then the title row with its ··· menu, then the
+      // count·source metadata, caption and address — one column, top-down.
+      const order = [...card.children].map((child) => child.className.split(' ')[0])
+      const at = (needle: string) => order.findIndex((name) => name === needle || name.startsWith(needle))
+      expect(at('lib-rail')).toBe(0)
+      expect(at('lib-card-head')).toBeGreaterThan(at('lib-rail'))
+      expect(at('lib-card-sub')).toBeGreaterThan(at('lib-card-head'))
+      expect(at('native-gallery-link')).toBeGreaterThan(at('lib-card-sub'))
+      // Every photograph rides the rail — not a single cover.
+      expect(card.querySelectorAll('.lib-rail .lib-th')).toHaveLength(1)
+      // One menu button per card; the per-action buttons live in its sheet.
+      expect(card.querySelectorAll('.lib-card-menu')).toHaveLength(1)
+      expect(card.querySelector('.native-gallery-actions')).toBeNull()
     }
   })
 
-  test('gallery actions stay outside the card opener and deletion waits for confirmation', async () => {
+  test('gallery actions live in the card menu and deletion waits for confirmation', async () => {
     installLocalStorage()
     signInStorage()
     stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://dropbox.com/scl/fo/example' })] }) })
     const { container } = mountAccount()
     await settle()
-    expect(container.querySelector('.native-gallery-row button')).toBeNull()
-    expect(container.querySelector('[aria-label="Copy Kashmir link"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Open Kashmir source"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="Refresh Kashmir from source"]')).not.toBeNull()
-    ;(container.querySelector('[aria-label="Delete Kashmir"]') as HTMLButtonElement).click()
+    // The card shows no action row — only the ··· affordance.
+    expect(container.querySelector('.native-gallery-actions')).toBeNull()
+    expect(container.querySelector('[role="menuitem"]')).toBeNull()
+    ;(container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
+    await settle()
+    const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
+    ])
+    ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
     await settle()
     expect(container.textContent).toContain('This cannot be undone')
     expect(calls.some((call) => call.init?.method === 'DELETE')).toBe(false)
@@ -773,12 +774,21 @@ describe('signed-in account area', () => {
       fallback: (url) => url.includes('/api/galleries/kashmir') ? json({ ok: true }) : new Response('{}', { status: 404 }) })
     const { container } = mountAccount()
     await settle()
-    ;(container.querySelector('[aria-label="Refresh Kashmir from source"]') as HTMLButtonElement).click()
+    const openMenu = () => {
+      (container.querySelector('[aria-label="Kashmir actions"]') as HTMLButtonElement).click()
+    }
+    const menuItem = (label: string) =>
+      [...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLButtonElement
+    openMenu()
+    await settle()
+    menuItem('Read the folder again').click()
     await settle()
     const refresh = calls.find((call) => call.url.endsWith('/api/galleries/kashmir/refresh'))
     expect(refresh?.init?.method).toBe('POST')
     expect((refresh?.init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
-    ;(container.querySelector('[aria-label="Delete Kashmir"]') as HTMLButtonElement).click()
+    openMenu()
+    await settle()
+    menuItem('Remove gallery').click()
     await settle()
     const confirm = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Remove gallery') as HTMLButtonElement
     confirm.click()
@@ -798,7 +808,7 @@ describe('signed-in account area', () => {
     expect(container.querySelectorAll('.native-gallery-list > li')).toHaveLength(5)
     expect(container.textContent).toContain('You have 5 retained galleries')
     expect(container.textContent).toContain('3 editable gallery slots')
-    expect(container.querySelectorAll('.native-gallery-thumb.is-active')).toHaveLength(0)
+    expect(container.querySelectorAll('.lib-th.is-active')).toHaveLength(0)
     expect(container.querySelector('main .native-account-delete')).toBeNull()
   })
 
@@ -1224,26 +1234,42 @@ describe('signed-in account area', () => {
     expect(container.querySelector('.native-gallery-caption-edit')).toBeNull()
   })
 
-  test('the card offers the web actions plus the running-order editor as square icons', async () => {
+  test('the card menu reads in the contract order, with pipeline items disabled', async () => {
     installLocalStorage()
     signInStorage()
-    stubFetch({ galleries: json({ galleries: [accountSummary({ sourceUrl: 'https://www.dropbox.com/sh/example' })] }) })
+    stubFetch({ galleries: json({ galleries: [
+      accountSummary({ slug: 'kashmir', title: 'Kashmir', sourceUrl: 'https://www.dropbox.com/sh/example' }),
+      accountSummary({ slug: 'temp', title: 'Temp', retention: 'pipeline', expiresAt: '2026-10-30T00:00:00Z' }),
+    ] }) })
     const { container } = mountAccount()
     await settle()
 
-    const actions = container.querySelector('.native-gallery-actions') as HTMLElement
-    const buttons = [...actions.querySelectorAll('button')] as HTMLButtonElement[]
-    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      'Edit the running order of Kashmir',
-      'Copy Kashmir link',
-      'Open Kashmir source',
-      'Refresh Kashmir from source',
-      'Delete Kashmir',
+    // One menu per card; nothing else exposes actions.
+    expect(container.querySelectorAll('.lib-card-menu')).toHaveLength(2)
+    expect(container.querySelector('.native-gallery-actions')).toBeNull()
+
+    ;([...container.querySelectorAll('.lib-card-menu')] as HTMLButtonElement[])[0].click()
+    await settle()
+    const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
     ])
-    // Drawings, not words — the web dashboard's four controls plus the
-    // editor that only exists native-side.
-    expect(buttons.every((button) => button.querySelector('svg') !== null)).toBe(true)
-    expect(actions.textContent).toBe('')
+    // Words, not drawings — the sheet is a list of sentences.
+    expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
+    ;(container.querySelector('.m-scrim') as HTMLElement).click()
+    await settle()
+
+    // A pipeline gallery cannot be reordered or refreshed — both menuitems
+    // are disabled with the plan's reason on them.
+    ;([...container.querySelectorAll('.lib-card-menu')] as HTMLButtonElement[])[1].click()
+    await settle()
+    const pipelineItems = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
+    const reorder = pipelineItems.find((item) => item.textContent === 'Reorder photographs')!
+    const refresh = pipelineItems.find((item) => item.textContent === 'Read the folder again')!
+    expect(reorder.disabled).toBe(true)
+    expect(refresh.disabled).toBe(true)
+    expect(reorder.title).toBe('Temporary galleries cannot be edited on this plan')
+    expect(pipelineItems.find((item) => item.textContent === 'Share link')!.disabled).toBe(false)
   })
 
   test('the menu leads with the brand and closes with a circled X', async () => {

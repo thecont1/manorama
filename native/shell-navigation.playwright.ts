@@ -87,9 +87,10 @@ test('the reorder editor opens and closes back onto the library', async ({ page 
   await page.route('**/api/galleries', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ galleries: [{ slug: 'nav-fixture', title: 'Nav fixture', caption: '', date: '2026-10-28', imageCount: 30, images: [photo(0)] }] }) }))
   await page.route('**/api/device-galleries', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.goto(`${nativeUrl}/`, { waitUntil: 'domcontentloaded' })
-  const editorButton = page.getByRole('button', { name: /Edit the running order/ })
-  await expect(editorButton).toBeVisible()
-  await editorButton.click()
+  // The card menu holds the reorder action — a signed-in fixture makes it
+  // reachable, so this test exercises the editor instead of skipping.
+  await page.locator('.lib-card-menu').first().click()
+  await page.getByRole('menuitem', { name: 'Reorder photographs' }).click()
   const editor = page.locator('[data-gallery-editor]')
   await expect(editor).toBeVisible()
   await editor.locator('[aria-label="Close the editor"]').click()

@@ -11,40 +11,37 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto(base, { waitUntil: 'domcontentloaded' })
-    await expect(page.locator('.native-gallery-row-with-thumb').first()).toBeVisible({ timeout: 30000 })
+    await expect(page.locator('.lib-card').first()).toBeVisible({ timeout: 30000 })
     await expect(page.locator('main .native-load-policy')).toHaveCount(0)
     await expect(page.locator('main .native-house-cards')).toHaveCount(0)
-    await expect(page.locator('.native-gallery-thumb.is-active')).toHaveCount(0)
+    await expect(page.locator('.lib-th.is-active')).toHaveCount(0)
     const menu = page.getByRole('button', { name: 'Account menu', exact: true })
     if (viewport.width < 820) await expect(menu.locator('.native-account-hamburger')).toBeVisible()
-    await expect.poll(() => page.locator('.native-gallery-thumb img').first().evaluate((node) => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0), { timeout: 15000 }).toBe(true)
-    // A gallery card reads in one column, in the order it is managed: name and
-    // count on one line, caption, address, the photograph at full width, then
-    // the square actions beneath it.
-    const cards = page.locator('.native-gallery-list > li')
+    await expect.poll(() => page.locator('.lib-th img').first().evaluate((node) => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0), { timeout: 15000 }).toBe(true)
+    // A gallery card reads top-down: the rail of every photograph, then the
+    // title row with its ··· menu, then metadata, caption and address.
+    const cards = page.locator('.lib-card')
     const cardCount = await cards.count()
     expect(cardCount).toBeGreaterThan(0)
     for (let index = 0; index < cardCount; index += 1) {
       const card = cards.nth(index)
       const box = async (selector: string) => (await card.locator(selector).first().boundingBox())!
-      const heading = await box('.native-gallery-heading')
-      const caption = await card.locator('.native-gallery-caption').first().boundingBox()
+      const rail = await box('.lib-rail')
+      const head = await box('.lib-card-head')
+      const sub = await box('.lib-card-sub')
       const link = await box('.native-gallery-link')
-      const cover = await box('.native-gallery-cover-row')
-      const actions = await box('.native-gallery-actions')
-      expect(heading.y + heading.height, `card ${index} keeps its caption under the title`).toBeLessThanOrEqual((caption ?? link).y + 4)
-      expect(link.y, `card ${index} puts its address under the caption`).toBeLessThanOrEqual(cover.y)
-      expect(cover.y + cover.height, `card ${index} puts its photograph above the actions`).toBeLessThanOrEqual(actions.y + 4)
-      // The count shares the title's line, and the photograph spans the card.
-      const title = await box('.native-gallery-title')
-      const count = await box('.native-gallery-meta')
-      // Baseline alignment drops the smaller count a few pixels down, so the
-      // test is whether it starts before the title's *second* line.
-      const titleLine = await card.locator('.native-gallery-title').first()
-        .evaluate((node) => parseFloat(getComputedStyle(node).lineHeight))
-      expect(count.y - title.y, `card ${index} keeps its count on the title's line`).toBeLessThan(titleLine)
-      expect(count.x, `card ${index} keeps its count after the title`).toBeGreaterThan(title.x)
-      expect(Math.abs(cover.width - heading.width), `card ${index} spans its cover across the card`).toBeLessThanOrEqual(8)
+      expect(rail.y + rail.height, `card ${index} keeps its rail above the title`).toBeLessThanOrEqual(head.y + 4)
+      expect(head.y + head.height, `card ${index} keeps its metadata under the title`).toBeLessThanOrEqual(sub.y + 4)
+      expect(sub.y + sub.height, `card ${index} puts its address under the metadata`).toBeLessThanOrEqual(link.y + 4)
+      // The rail spans the card and carries a cell per photograph.
+      const cardBox = (await card.boundingBox())!
+      expect(Math.abs(rail.width - cardBox.width), `card ${index} spans its rail across the card`).toBeLessThanOrEqual(8)
+      expect(await card.locator('.lib-th').count(), `card ${index} carries at least one rail cell`).toBeGreaterThan(0)
+      // The title and its ··· affordance share the head row.
+      const title = await box('.lib-card-title')
+      const menuButton = await box('.lib-card-menu')
+      expect(Math.abs(menuButton.y - title.y), `card ${index} keeps its menu on the title's line`).toBeLessThanOrEqual(title.height)
+      expect(menuButton.x, `card ${index} keeps its menu right of the title`).toBeGreaterThan(title.x)
     }
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-admin.png`, fullPage: true })
 
@@ -53,17 +50,18 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       .evaluate((node) => getComputedStyle(node).paddingLeft)
     if (viewport.width < 820) expect(shellPadding).toBe('24px')
 
-    // The card reads title, caption, address — and the web's square actions
-    // plus the native-only running-order editor. Drawings, not words.
+    // The card's only chrome is its ··· affordance — the actions live in a
+    // sheet of word rows, opened on demand.
     const firstCard = cards.first()
-    const firstActions = firstCard.locator('.native-gallery-actions')
-    const actionLabels = await firstActions.locator('button')
-      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')))
-    expect(actionLabels.length).toBeGreaterThanOrEqual(2)
-    expect(await firstActions.evaluate((node) => node.textContent)).toBe('')
-    expect(await firstActions.locator('button svg').count()).toBe(actionLabels.length)
-    const actionBox = (await firstActions.locator('button').first().boundingBox())!
-    expect(Math.abs(actionBox.width - actionBox.height)).toBeLessThanOrEqual(1)
+    await expect(firstCard.locator('.native-gallery-actions')).toHaveCount(0)
+    await firstCard.locator('.lib-card-menu').click()
+    const cardMenu = page.getByRole('menu')
+    await expect(cardMenu).toBeVisible()
+    await expect(cardMenu.getByRole('menuitem')).toHaveText([
+      'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
+    ])
+    await page.keyboard.press('Escape')
+    await expect(cardMenu).toHaveCount(0)
 
     // The caption line edits in place; a gallery without one is invited to add
     // it rather than left blank.
@@ -75,11 +73,12 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       await page.keyboard.press('Escape')
     }
 
-    // The running-order action opens this gallery's editor: the picker's
-    // matrix, in order. One photograph is picked up and put down, and only
-    // that order is saved. (The cover itself opens the gallery — exercised
-    // below as the viewer-entry path.)
-    await firstCard.getByRole('button', { name: /Edit the running order/ }).click()
+    // Reorder lives in the card's ··· menu: the picker's matrix, in order.
+    // One photograph is picked up and put down, and only that order is
+    // saved. (The rail itself opens the gallery — exercised below as the
+    // viewer-entry path.)
+    await firstCard.locator('.lib-card-menu').click()
+    await page.getByRole('menuitem', { name: 'Reorder photographs', exact: true }).click()
     const editor = page.locator('[data-gallery-editor]')
     await expect(editor).toBeVisible()
     const cells = editor.locator('.native-global-grid .native-global-cell')
@@ -148,9 +147,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect.poll(async () => (await account.boundingBox())?.x ?? -999).toBeGreaterThanOrEqual(0)
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
     await page.getByRole('button', { name: 'Close account menu', exact: true }).click()
-    // The cover is the card's most obvious affordance, so it opens the
-    // gallery — the editor lives on the action row, exercised above.
-    await page.locator('.native-gallery-cover-open').first().click()
+    // The rail is the card's most obvious affordance, so it opens the
+    // gallery — the editor lives on the card menu, exercised above.
+    await page.locator('.lib-card .lib-th').first().click()
     const curtain = page.locator('[data-curtain]')
     await expect(curtain).toBeVisible()
     await expect.poll(async () => {
@@ -180,6 +179,10 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(picker).not.toContainText('still settling')
     await page.getByRole('button', { name: 'Close photo picker', exact: true }).click()
     await showChrome(page)
+    await page.getByRole('button', { name: 'Display', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Display' }).getByRole('button', { name: 'Close', exact: true }).click()
+    // The chrome's Library pill is the exit; the endcard carries a second
+    // Library control that stays behind the track until it is revealed.
     await page.locator('[data-chrome-library]').click()
     await expect(page.locator('.native-account-overview')).toBeVisible()
     await expect(page.locator('[data-stage]')).toHaveCount(0)
@@ -196,8 +199,8 @@ test('375: a viewer that asks for less motion gets a still pill', async ({ brows
   await request.get(`${base}/state/3`)
   const page = await context.newPage()
   await page.goto(base, { waitUntil: 'domcontentloaded' })
-  await page.waitForSelector('.native-gallery-row-with-thumb', { timeout: 30000 })
-  await page.locator('.native-gallery-row-with-thumb').first().click()
+  await page.waitForSelector('.lib-card', { timeout: 30000 })
+  await page.locator('.lib-card .lib-card-title').first().click()
   const curtain = page.locator('[data-curtain]')
   await expect(curtain).toBeVisible()
   await expect.poll(async () => {

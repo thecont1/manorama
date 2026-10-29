@@ -7,6 +7,8 @@ import { thumbnailEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
+import type { CacheFillItem } from './cache-fill'
+import { cacheFillRegistry } from './cache-fill'
 
 const METADATA_VERSION = 1
 const METADATA_ENTRY_ID = 'offline-gallery:metadata:v1'
@@ -20,6 +22,11 @@ export type OfflineCacheResult =
   | { status: 'over-cap'; images: number }
 
 export type OfflineCacheProgress = { completed: number; total: number }
+
+/** Per-item fill descriptor, emitted right after each successful vault write
+ *  so Library rail cells can trade a provider preview for saved bytes as they
+ *  land rather than waiting for the whole gallery to commit. */
+export type OfflineCacheItemReady = CacheFillItem
 
 export type OfflineCacheInspection =
   | { status: 'complete'; images: number }
@@ -58,7 +65,7 @@ export type OfflineGridGallery = {
 }
 
 export interface OfflineGalleryStore {
-  cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void): Promise<OfflineCacheResult>
+  cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void): Promise<OfflineCacheResult>
   inspect(selection: GallerySelection): Promise<OfflineCacheInspection>
   open(selection: GallerySelection): Promise<OfflineGalleryLease | undefined>
   invalidate(selection: GallerySelection): Promise<void>
@@ -295,7 +302,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     }
   }
 
-  async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void): Promise<OfflineCacheResult> {
+  async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void): Promise<OfflineCacheResult> {
     // Captured synchronously at call time, before the gallery ID resolves: a
     // purge bumps the vault's mutation epoch inside its serialized boundary,
     // and every write below hands back the epoch this fill started under. A
@@ -316,7 +323,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
 
     const cachedImages: CachedImage[] = []
     onProgress?.({ completed: 0, total: stillImages.length })
-    for (const image of stillImages) {
+    for (const [index, image] of stillImages.entries()) {
       throwIfAborted(signal)
       const selected = offlineSourceFor(image)
       const response = await this.fetchImage(selected.src, { signal })
@@ -332,6 +339,12 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         // let a version/image-ID-only feature record survive that replacement.
         await this.vault.remove(galleryId, localComputeEntryId(image.id))
         cachedImages.push({ id: image.id, entryId, mimeType })
+        const item: OfflineCacheItemReady = { id: image.id, entryId, mimeType, index }
+        // The registry feeds waiting Library cells unconditionally; the
+        // per-call callback stays the optional seam for whoever started the
+        // fill.
+        cacheFillRegistry.publish({ galleryId, item })
+        onItemReady?.(item)
         onProgress?.({ completed: cachedImages.length, total: stillImages.length })
       } finally {
         bytes.fill(0)
@@ -547,13 +560,14 @@ export const openGalleryNetworkFirst = async (options: {
    * cache fill, but existing complete vault copies remain available offline. */
   cachePolicy?: VaultLoadPolicy
   onProgress?: (progress: OfflineCacheProgress) => void
+  onItemReady?: (item: OfflineCacheItemReady) => void
   signal?: AbortSignal
 }): Promise<NetworkFirstGallery> => {
   try {
     const gallery = await options.fetchOnline(options.signal)
     const cacheFill = options.cachePolicy === 'stream'
       ? undefined
-      : options.store.cache(options.selection, gallery, options.signal, options.onProgress)
+      : options.store.cache(options.selection, gallery, options.signal, options.onProgress, options.onItemReady)
     return { ...gallery, source: 'online', cacheFill }
   } catch (networkError) {
     throwIfAborted(options.signal)

@@ -1574,3 +1574,138 @@ body.manorama-native .stage-seq {
 body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   right: calc(max(12px, var(--native-safe-right, 0px)) + var(--native-chrome-height, 56px) + 10px);
 }
+
+/* ── P6: Library cards ─────────────────────────────────────────────────
+   A card is one gallery: a rail of every photograph at its own
+   proportions, then title, count·source·device metadata, the caption, and
+   one overflow menu. The ruled-column list language stays — hairlines
+   separate cards, nothing boxes them in. */
+.lib-card {
+  display: block;
+  padding: 18px 0;
+}
+.lib-card:first-child { padding-top: 0; }
+
+/* The rail scrolls natively for touch, trackpad and wheel; the pointer
+   handlers only step in for a mouse drag past 6px. Vertical travel falls
+   through to the page because the rail has nothing to scroll that way. */
+.lib-rail {
+  display: flex;
+  align-items: stretch;
+  height: min(34vh, 220px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.lib-rail::-webkit-scrollbar { display: none; }
+.lib-rail--dragging { cursor: grabbing; }
+.lib-rail--dragging .lib-th { pointer-events: none; }
+
+/* Cells size from the photograph's own aspect ratio; the stored
+   placeholder paints the space until real bytes land. */
+.native-gallery-list .lib-card .lib-th,
+.lib-th {
+  flex: none;
+  display: block;
+  width: auto;
+  height: 100%;
+  aspect-ratio: var(--ar, auto);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(var(--ink), .07) center / cover no-repeat;
+  overflow: hidden;
+  cursor: pointer;
+}
+.lib-th img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.lib-th img.on { opacity: 1; }
+.lib-th:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -2px; }
+
+/* Title leads the card; the ··· button is the card's only chrome. */
+.lib-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.native-gallery-list .lib-card .lib-card-title,
+.lib-card-title {
+  display: inline;
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 17px;
+  letter-spacing: -.01em;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.native-gallery-list .lib-card .lib-card-menu,
+.lib-card-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 32px;
+  margin: -4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(var(--ink), .6);
+  font-size: 18px;
+  letter-spacing: .12em;
+  cursor: pointer;
+}
+.lib-card-menu:hover { color: rgb(var(--ink)); }
+.lib-card-title:focus-visible,
+.lib-card-menu:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+
+.lib-card-sub,
+.lib-card-device {
+  margin: 4px 0 0;
+  color: rgba(var(--ink), .55);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .06em;
+}
+.lib-card-meter {
+  display: block;
+  width: 100%;
+  height: 2px;
+  margin-top: 6px;
+  accent-color: rgb(var(--ink));
+}
+
+/* The card menu is a sheet of rows, each a finger-sized target. */
+.lib-menu { display: grid; gap: 2px; }
+.lib-menu [role='menuitem'] {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+.lib-menu [role='menuitem']:disabled { color: rgba(var(--ink), .35); cursor: default; }
+.lib-menu .lib-menu-danger:not(:disabled) { color: rgb(214, 88, 88); }
+
+/* Sponsored placement cadence: 24px under the Library status block,
+   40px before the first card. */
+.native-list-card > .native-account-ad { margin: 24px 0 40px; }
