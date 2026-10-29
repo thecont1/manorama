@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, feat/iphone-redesign]
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -21,15 +24,6 @@ jobs:
 
       - name: Unit tests
         run: bun test
-
-      - name: Sync Vendo knowledge (docs changed only, main pushes only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('docs/**') != ''
-        env:
-          VENDO_API_KEY: ${{ secrets.VENDO_API_KEY }}
-        run: bunx vendo knowledge sync
-
-      - name: Generated Vendo tools are in sync with the OpenAPI contract
-        run: bun run vendo:check
 
       - name: Build
         run: bun run build

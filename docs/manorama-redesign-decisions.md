@@ -2,7 +2,7 @@
 
 This answers the fresh-start brief and the one-page memo. The clickable prototype that goes with it is in `docs/redesign-prototype/index.html`. Open it at desktop width to see the design notes for each screen beside the phone, or at phone width to use it as the app.
 
-> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; where this document disagrees with it, the megaplan wins. Settled then: every surface in scope (iPhone, iPad, Android shell, desktop, public web, owner dashboard, Welcome, quick-add, privacy, operations UI); release-ready, phased PRs into `feat/iphone-redesign`; iPhone folder/photo import deferred (Add is paste-link only); temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only (restyle of the existing account placement, no live AdMob); picker/fold access preserved (count button and `G`); both dark and light owner themes; web Photo Editor keeps its horizontal row, native Reorder stays a vertical matrix; signed-out visitors get Display, Info, picker and Rewind only — no Library or Details; one coordinated release, not native-first. Inline corrections below are marked "(28 Oct 2026)".
+> **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is the owner-approved plan of record; precedence follows its §1 authority order — owner decisions, then AGENTS.md invariants, then this document, then the handoff, execution plan, prototype, and spec/tests. Settled then: every surface in scope (iPhone, iPad, Android shell, desktop, public web, owner dashboard, Welcome, quick-add, privacy, operations UI); release-ready, phased PRs into `feat/iphone-redesign`; iPhone folder/photo import deferred (Add is paste-link only); temporary viewer chrome overlays allowed, arrows still reserve a 64px bar; Library sponsored slot is house-only (restyle of the existing account placement, no live AdMob); picker/fold access preserved (count button and `G`); both dark and light owner themes; web Photo Editor keeps its horizontal row, native Reorder stays a vertical matrix; signed-out visitors get Display, Info, picker and Rewind only — no Library or Details; one coordinated release, not native-first. Inline corrections below are marked "(28 Oct 2026)".
 
 ## The product in one sentence
 
@@ -12,7 +12,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 
 | Layer | Screens | Rule |
 |---|---|---|
-| Looking | Viewer, View options | Photographs and nothing else. No brand, plan, storage or editing. A visitor with a shared link sees only this layer. |
+| Looking | Viewer, View options | Photographs and nothing else — except the curtain, a temporary orientation overlay that may show the mark, title, caption, and count before dissolving. Otherwise no brand, plan, storage or editing. A visitor with a shared link sees only this layer. |
 | Galleries | Welcome, Library, Add a gallery, Gallery details | One task per screen. Each gallery is shown by its own photographs. |
 | Upkeep | Reorder, Settings, Visionary | Explicit and confident. Reached on purpose, never shown in passing. |
 
@@ -29,7 +29,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 11. **Sponsored photographs:** two labelled placeholders, both shaped for a vertical photograph shown fit to height. One sits at the top of the Library, directly under the title and above every gallery. The other is an `AdFrame` plate in the viewer, following the spec: mid-sequence on the seeded cadence, never first or last, not counted in the position readout, suppressed in short galleries. The prototype shortens the cadence so one plate appears in a 13-photograph gallery. *(28 Oct 2026: the Library slot is house creative only — a restyle of the existing account placement, preserving eligibility and the master `/api/ads/visibility` suppression. No live AdMob adapter is wired in the redesigned Library.)*
 11b. **Sponsored slot spacing:** the Library slot is its own surface panel, 24px under the title line and 40px above the first gallery (the same gap as between galleries), so it never reads as the first gallery.
 12. **The mark:** one size and one place. 140 × 47px (`--logo-w`, `--logo-h`), centred horizontally in the 52px top bar (`--bar-h`), which starts at the top safe area (`--bar-top`), so its top edge is `bar-top + 2.5px`. Library, Gallery details, Settings and the curtain all resolve to the same box (on a 390px phone: x 125, y 16.5 below the safe area), so the mark never moves between them. Centre is the only position that works everywhere, because Gallery details and Settings need the left of the bar for Back. Welcome keeps the same size, centred lower down as the opening screen's hero, since nothing is on screen before it to jump from.
-13. **Rewind:** the end card has two one-word buttons, Rewind and Library. Rewind glides the strip (or scroll) home in 0.75s with an ease-in-out curve, whatever the distance. One-by-one returns to the first photograph. Reduced motion jumps.
+13. **Rewind:** the end card has two one-word buttons, Rewind and Library *(28 Oct 2026: Library only when that destination exists — signed-out visitors have none)*. Rewind glides the strip (or scroll) home in 0.75s with an ease-in-out curve, whatever the distance. One-by-one returns to the first photograph. Reduced motion jumps.
 9. **One shell for owners and viewers?** One visual family, two behaviours. The viewer is the black canvas with chrome that hides itself. Owner screens are flat app screens on the same ground, using the same type. Owner tools never appear inside the viewer apart from the one Details button.
 10. **Minimum interface to open a gallery:** sign in once, tap a strip.
 
@@ -38,7 +38,7 @@ manorama turns a folder you already share into a quiet, full-screen gallery at y
 | Was | Now |
 |---|---|
 | Sign-in: dictionary tagline, "WOW-est" line, CONTINUE WITH label, icon orbs | One sentence and three full-width sign-in buttons, Apple first. No photographs: nobody has signed in yet. Big logo only here. |
-| Home: sponsored card | A sponsored slot at the top of the Library, above the galleries, shaped for a vertical photograph; a second one in the viewer strip after the last photograph |
+| Home: sponsored card | A sponsored slot at the top of the Library, above the galleries, shaped for a vertical photograph; a second one in the viewer strip at seeded in-sequence positions, never first or last |
 | Home: owner path field `manorama.xyz/[vidya-rao-2]` | Settings › Account › Address |
 | Home: greeting and "You are a Free User…" | The Library foot line; Settings › Plan |
 | Home: inline paste field and "Manorama-fy it!" | The Add sheet behind the Library's Add button: a bottom sheet like Display, at most half the screen, with Add gallery pinned to its bottom edge so a long scan never pushes it out of reach. One path: paste a link. *(28 Oct 2026: choosing a folder or photographs on this iPhone is deferred; those buttons and their copy are omitted.)* The button says "Add gallery". The per-provider description list is gone. |
@@ -82,7 +82,7 @@ The header is the Library card again, so the same gallery looks the same in both
 
 1. Open gallery, Share link
 2. Name, Caption, Reorder photographs
-3. Keep on this iPhone (switch), Read the folder again
+3. Keep a copy (switch), Read the folder again
 4. Remove gallery, in red, with "Removing it leaves every photograph in Dropbox." under it
 
 Name and Caption each open a small sheet with one field and Save. The ··· menu is gone from this page's top bar, since every action is already on the page.
@@ -109,7 +109,7 @@ Privacy policy, on the welcome screen and under Settings › About, opens a Priv
 Every gallery in the Library, and the Sequence panel in Gallery details, carries a rail of all its thumbnails at their own proportions. You can pan it by touch, trackpad or mouse drag, as in the dashboard contract. A drag only captures after 6px, so a plain tap still opens the gallery, and tapping a thumbnail opens the viewer at that photograph, through the curtain.
 
 - **Kept on this iPhone:** thumbnails come out of the vault, so the rail is fully there at once. While a gallery is still saving, each photograph's thumbnail switches to its local copy the moment it lands.
-- **Streamed:** the rail pans just the same. Each thumbnail shows its average colour (the item placeholder) and fetches only when it scrolls near view, then fades in. This is slower and patchier than on-device, but costs nothing until someone looks along it. The prototype adds 0.35–1.1s of fake latency per streamed thumbnail. *(28 Oct 2026 correction: the existing item placeholder is not a verified average colour — megaplan §4. Show the existing placeholder first; an optional locally derived colour may only come from bytes already fetched, never an extra fetch.)*
+- **Streamed:** the rail pans just the same. Each thumbnail shows the existing item placeholder first and fetches only when it scrolls near view, then fades in. An optional locally derived colour may only come from bytes already fetched, never an extra media fetch. This is slower and patchier than on-device, but costs nothing until someone looks along it. The prototype adds 0.35–1.1s of fake latency per streamed thumbnail. *(28 Oct 2026)*
 
 Why the rail had stopped scrolling: a CSS grid item defaults to `min-width: auto`, so each gallery card grew to the full width of its thumbnails (1,332px) and the rail never had anything to scroll. The fix is `min-width: 0` on the card and `minmax(0, 1fr)` on the column; the real dashboard should be checked for the same trap.
 
@@ -121,7 +121,7 @@ Fit to width on a vertical screen, fit to height on a horizontal one. If the fit
 
 Strip uses `advanceStripByViewport` in `app/islands/Viewer.tsx` for the arrow buttons and the ←/→ keys, and the prototype now ports it line for line. Each press travels one stage width at most. If the current photograph ends sooner, the strip travels only that far, and the next photograph docks exactly at the left edge. A photograph wider than the stage is paged through in stage-width chunks, with the final press docking the next one. Back travels the lesser of one stage width or what is still hidden of the current photograph. Rapid presses accumulate from the pending destination. Ad plates and the end card count as frames. Back at the very start jumps to the last photograph.
 
-One prototype-only adjustment: on a Dark or Light canvas, docking the first photograph returns to 0 rather than parking at the 10px canvas margin, where a further back press would otherwise do nothing. `todo.md` line 42 still describes arrows advancing "slightly shorter than the viewport width"; the code advances exactly one width, so that line is stale.
+One prototype-only adjustment: on a Dark or Light canvas, docking the first photograph returns to 0 rather than parking at the 10px canvas margin, where a further back press would otherwise do nothing. *(28 Oct 2026: `todo.md` line 42 said "slightly shorter than the viewport width" — corrected; the code advances at most one stage width, stopping sooner to dock the next frame.)*
 
 ### Arrows and the bubble
 
@@ -144,7 +144,7 @@ Per the viewer contract, arrows are off by default on touch. Enabled, they dock 
 | Tokens | `app/styles.css` (replace `--admin-*`, drop the monospace and script faces) |
 | Ad plate | `packages/core/adframe.ts`, `native/lib/ads.ts` (placement rules unchanged; plate dressed for a vertical photograph) |
 
-Playwright labels that change: `Manorama-fy it!` → `Add gallery`; the dialog `Display settings` → `Display`; `Don't download this gallery` → the switch `Keep a copy on this iPhone` (inverted meaning); `Horizontal Strip` → `Strip`.
+Playwright labels that change: `Manorama-fy it!` → `Add gallery`; the dialog `Display settings` → `Display`; `Don't download this gallery` → the switch `Keep a copy` (inverted meaning); `Horizontal Strip` → `Strip`.
 
 ## Sample content in the prototype
 

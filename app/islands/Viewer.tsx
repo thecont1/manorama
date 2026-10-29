@@ -341,11 +341,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }
   const showChrome = () => {
     if (suspendedRef.current || !document.body.classList.contains('gallery-entered')) return
+    chromeVisibleRef.current = true
     setChromeVisible(true)
     scheduleChromeHide()
   }
   const hideChrome = () => {
     clearChromeTimer()
+    chromeVisibleRef.current = false
     setChromeVisible(false)
     const active = document.activeElement as HTMLElement | null
     if (active?.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
@@ -1140,6 +1142,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     let lastStart = Number.NaN
     let stableFor = 0
     let elapsed = 0
+    let frame = 0
     const reseed = () => {
       const pending = pendingEntryRef.current
       if (pending === null) return
@@ -1152,9 +1155,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         pendingEntryRef.current = null
         return
       }
-      requestAnimationFrame(reseed)
+      frame = requestAnimationFrame(reseed)
     }
-    requestAnimationFrame(reseed)
+    frame = requestAnimationFrame(reseed)
+    return () => {
+      cancelAnimationFrame(frame)
+      pendingEntryRef.current = null
+    }
   }, [])
 
   useLayoutEffect(() => {
@@ -1215,7 +1222,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // The overlay stack marks the Escape it consumed — the same keydown
       // must not fall through and also tuck the bars away.
       if (event.defaultPrevented) return
-      chromeActionsRef.current.hide()
+      // A modifier alone, or a key handled inside the chrome or the rest
+      // bubble, is interaction — not a cue to hide the bars. Navigation
+      // keys still fall through: arrows must reach the strip even while
+      // focus sits on a control.
+      if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
+      // Combos belong to the browser — Alt+Left is history-back, not a
+      // strip move — so they neither hide the chrome nor navigate.
+      if (event.altKey || event.ctrlKey || event.metaKey) return
+      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, .stage-seq')
+      if (!inChrome) chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
       if (event.key === 'Home') { event.preventDefault(); goTo(0, true) }
@@ -1596,13 +1612,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    let tap: { x: number; y: number; t: number } | null = null
+    let tap: { x: number; y: number; t: number; chromeWasVisible: boolean } | null = null
     let lastFine: { x: number; y: number } | null = null
     const onTapDown = (event: PointerEvent) => {
       if (!event.isPrimary) return
       const el = event.target as HTMLElement
       if (el.closest('button, a, video, input, select, textarea, [data-nav-arrow], .viewer-filmstrip, .m-sheet-host')) return
-      tap = { x: event.clientX, y: event.clientY, t: performance.now() }
+      tap = { x: event.clientX, y: event.clientY, t: performance.now(), chromeWasVisible: chromeVisibleRef.current }
     }
     const onTapUp = (event: PointerEvent) => {
       if (!tap) return
@@ -1610,7 +1626,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       tap = null
       if (event.type !== 'pointerup') return
       if (Math.hypot(event.clientX - held.x, event.clientY - held.y) < 6 && performance.now() - held.t < 400) {
-        chromeActionsRef.current.toggle()
+        // The tap means flip the chrome from where it was at pointerdown —
+        // a show/hide that landed mid-press must not invert the intent.
+        if (held.chromeWasVisible) chromeActionsRef.current.hide(); else chromeActionsRef.current.show()
       }
     }
     const onFineMove = (event: PointerEvent) => {
@@ -1885,7 +1903,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const imageId = currentImage.id
     setCredentialState((previous) => ({ ...previous, [imageId]: 'loading' }))
     void credentialQueueRef.current!.enqueue(imageId).then((result) => {
-      setCredentialState((previous) => ({ ...previous, [imageId]: result }))
+      // A request superseded while still queued resolves 'unavailable'
+      // without ever running — its queue status stays idle, and idle
+      // must not surface as a failed check.
+      const settled = credentialQueueRef.current!.statusOf(imageId)
+      setCredentialState((previous) => ({ ...previous, [imageId]: settled === 'idle' ? 'idle' : result }))
     })
   }
 
@@ -2406,6 +2428,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                               // gliding alike. A frame still ahead of the
                               // edge shifts nothing held.
                               if (delta === 0 || frame.offsetLeft >= -currentXRef.current) return
+                              // While the entry re-anchors, this report would
+                              // retire pendingEntryRef before the reseed loop's
+                              // offset stabilizes; the reseed itself keeps the
+                              // strip glued to the target every frame.
+                              if (pendingEntryRef.current !== null) return
                               renderX(currentXRef.current - delta)
                               if (draggingRef.current) dragTargetXRef.current -= delta
                             })

@@ -75,20 +75,25 @@ test('a Global View same-gallery jump remounts the Viewer exactly once', async (
 
 test('the reorder editor opens and closes back onto the library', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
-  // The editor is opened from a gallery card — a signed-out library has
-  // none, so this needs a signed-in session fixture. Drive the editor
-  // through the gallery list route if the fixture exposes one; otherwise
-  // the unit suite covers the reducer transition.
+  // SecureStorage's web fallback reads prefixed localStorage keys — the same
+  // shape the unit suite seeds — so the shell boots signed-in with an owner
+  // slug and the gallery card exposes its reorder button.
+  await page.addInitScript(() => {
+    localStorage.setItem('capacitor-storage_manorama.session-token', 'session-token-1')
+    localStorage.setItem('capacitor-storage_manorama.owner-slug', 'fixture')
+  })
   await page.route(apiPattern, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: payload }))
   await page.route('**/manorama.xyz*', (route) => route.fulfill({ status: 200, body: 'ok' }))
-  await page.route('**/api/galleries', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ galleries: [{ slug: 'nav-fixture', title: 'Nav fixture', imageCount: 30 }] }) }))
+  await page.route('**/api/galleries', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ galleries: [{ slug: 'nav-fixture', title: 'Nav fixture', caption: '', date: '2026-10-28', imageCount: 30, images: [photo(0)] }] }) }))
   await page.route('**/api/device-galleries', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
   await page.goto(`${nativeUrl}/`, { waitUntil: 'domcontentloaded' })
-  // A signed-out library shows the landing/quick-add surface rather than
-  // gallery cards — the editor menu only exists with a session.
-  const menuButton = page.locator('.lib-card-menu').first()
-  test.skip((await menuButton.count()) === 0, 'editor requires a signed-in gallery list fixture')
-  await menuButton.click()
-  const editorButton = page.getByRole('menuitem', { name: 'Reorder photographs' })
-  test.skip((await editorButton.count()) === 0, 'editor requires a signed-in gallery list fixture')
+  // The card menu holds the reorder action — a signed-in fixture makes it
+  // reachable, so this test exercises the editor instead of skipping.
+  await page.locator('.lib-card-menu').first().click()
+  await page.getByRole('menuitem', { name: 'Reorder photographs' }).click()
+  const editor = page.locator('[data-gallery-editor]')
+  await expect(editor).toBeVisible()
+  await editor.locator('[aria-label="Close the editor"]').click()
+  await expect(editor).toHaveCount(0)
+  await expect(page.locator('.native-gallery-list')).toBeVisible()
 })

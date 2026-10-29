@@ -82,7 +82,7 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
   })
 
   useEffect(() => {
-    if (!open) setEntered(false)
+    if (!open) { setEntered(false); setKb(false) }
   }, [open])
 
   if (!open) return null

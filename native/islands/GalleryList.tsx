@@ -3,7 +3,7 @@ import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from 
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { decideBack } from '../lib/back-decision'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
-import { isVideoItem } from '../../app/lib/imagesource'
+import { isVideoItem, mediaCountOf } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
@@ -167,10 +167,8 @@ export const regionName = (code: string | null | undefined): string => {
  *  photo pairs in the fold layout when the device has two usable segments. */
 export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, onSignIn, authError, billing, billingState, accountAdLoader = adFrameFor }: Props) {
   const initial = selectionFromLocation()
-  const [selection, setSelection] = useState<Selection>({
-    owner: owner ?? initial.owner,
-    slug: slug ?? initial.slug,
-  })
+  const initialSelection = { owner: owner ?? initial.owner, slug: slug ?? initial.slug }
+  const [selection, setSelection] = useState<Selection>(initialSelection)
   const [loadPolicy, setLoadPolicy] = useState<VaultLoadPolicy | null>(null)
   const [policySaving, setPolicySaving] = useState(false)
   const [galleryPolicies, setGalleryPolicies] = useState<Record<string, boolean> | null>(null)
@@ -200,7 +198,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [foldLayout, setFoldLayout] = useState<FoldLayout | null>(null)
   const [status, setStatus] = useState<GalleryStatus>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [nav, dispatchNav] = useReducer(ownerNavReducer, initialOwnerNav(true))
+  // A gallery already open at mount (props or a restored URL selection)
+  // must sit on the nav stack too — otherwise the first hardware back
+  // press sees library at top and exits the app instead of returning.
+  const [nav, dispatchNav] = useReducer(ownerNavReducer, initialOwnerNav(true), (base) =>
+    initialSelection.owner && initialSelection.slug
+      ? ownerNavReducer(base, { type: 'open-gallery', gallery: { kind: 'published', owner: initialSelection.owner, slug: initialSelection.slug } })
+      : base)
   const [globalViewOpen, setGlobalViewOpen] = useState(false)
   // null while secure storage is still being asked; sign-in completes with a
   // full reload, so by the first paint the token is already on the device.
@@ -720,7 +724,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
     return (
       <>
-        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
+        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined} mediaCount={mediaCountOf(source.list())}>
           <Viewer
             key={`${manifest.slug}:${frameKick.nonce}`}
             slug={manifest.slug}
@@ -935,7 +939,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       return
     }
     setFrameKick({ index: 0, nonce: 0 })
-    setSelection(next)
+    enterGallery(next)
   }
 
   const readInput = (event: Event) => (event.currentTarget as HTMLInputElement).value

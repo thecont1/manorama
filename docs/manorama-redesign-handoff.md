@@ -2,7 +2,9 @@
 
 Audience: the engineer or coding agent who will port the approved redesign into the manorama repository. You have not seen the design conversation. This document is everything you need to start. The companion file, `manorama-redesign-execution-plan.md`, says in what order to do it and how to know each step is done.
 
-Status: design approved by the product owner. Nothing has been implemented in the repository.
+Status: this branch implements the P0–P2 slice — the contracts, tokens, theme, overlay primitives, and the navigation seam the later phases build on. Subsequent work should extend the completed discovery below, not repeat it.
+
+Historical note: the design itself was approved by the product owner before implementation began.
 
 > **Owner decisions, 28 Oct 2026 — superseding notes.** `docs/manorama-redesign-megaplan.md` is now the plan of record; where this document disagrees with it, the megaplan wins. Settled then: every surface in scope (not native-first — one coordinated release); both dark and light owner themes; temporary viewer chrome overlays allowed (arrows still reserve a 64px bar); Library sponsored slot is house-only with no live AdMob; iPhone folder/photo import deferred; UI runtime is Hono JSX; branches are `feat/iphone-redesign` (integration) + `feat/redesign-*` (PRs); the confirmed code map is megaplan §4, replacing the "likely home" guesses in §8 below. The open questions in §9 are answered. Inline corrections are marked "(28 Oct 2026)".
 
@@ -79,11 +81,11 @@ Logo in the same 140 x 47 box as every other screen, centred lower as the openin
 - Top bar: logo centred, Settings gear at the right.
 - Title "Library" (28px) and an Add pill at the right.
 - One status line under it, for example "cinder-fen-fall is saving to this iPhone, 9 of 13."
-- Sponsored slot at the top, above every gallery: its own surface panel, a vertical placeholder (fit to height) with a headline, one line, one link. Placeholder content only; no ad network is wired.
+- Sponsored slot at the top, above every gallery: the existing account placement restyled — its own surface panel, a vertical photograph (fit to height) with a headline, one line, one link, using real house creative. Existing eligibility and the `/api/ads/visibility` master suppression still apply; the slot is never unconditional and there is no live AdMob path. *(28 Oct 2026)*
 - Each gallery is a card: a full-bleed horizontal rail of every thumbnail at its own proportions, then name, "13 photographs · Dropbox · Saving 9 of 13", a magenta progress line while saving, the caption if there is one, and a ··· button.
 - The rail pans by touch, trackpad or mouse drag. Tapping a thumbnail opens the viewer at that photograph through the curtain. Tapping elsewhere on the card opens the gallery at the first photograph.
 - On-device (kept) galleries: thumbnails come from the vault, instant. While a gallery is still saving, each thumbnail switches to its local copy as it lands.
-- Streamed galleries: the rail pans the same. Each thumbnail shows its average colour placeholder, loads only when scrolled near view (IntersectionObserver), then fades in. Slower and patchier than on-device by design.
+- Streamed galleries: the rail pans the same. Each thumbnail shows the existing placeholder, loads only when scrolled near view (IntersectionObserver), then fades in. Any optional locally derived colour comes from bytes already fetched — never another media fetch. Slower and patchier than on-device by design. *(28 Oct 2026)*
 - The ··· menu: Share link, Gallery details, Reorder, Read the folder again, Remove (red, last).
 - Pitfall found in the prototype: a CSS grid item defaults to `min-width: auto`, so a card grew to its thumbnails' full width and the rail had nothing to scroll. Fix: `min-width: 0` on the card and `minmax(0, 1fr)` on the column. Check the real layout for the same trap.
 
@@ -95,7 +97,7 @@ A bottom sheet, at most half the screen, like the Display sheet. Fields: "Shared
 - Then only action rows, each 56px, with an icon, label, current value and a chevron or switch, in four groups:
   1. Open gallery, Share link
   2. Name, Caption, Reorder photographs
-  3. Keep on this iPhone (switch), Read the folder again
+  3. Keep a copy (switch), Read the folder again
   4. Remove gallery (red), with "Removing it leaves every photograph in Dropbox." beneath
 - Name and Caption each open a small sheet with one field and Save.
 - The back button reads Library when you arrive from the Library. When you arrive from the viewer it reads Back and returns to the same photograph, skipping the curtain.
@@ -108,7 +110,7 @@ A bottom sheet, at most half the screen, like the Display sheet. Fields: "Shared
 - No Share button in the viewer.
 - Display sheet: Layout (Strip, Scroll, One by one), Canvas (Black, Dark, Light), Arrows (switch).
 - Info sheet: position, file, size, camera, and Content Credentials for this photograph (see section 5).
-- End card (after the last photograph): Rewind and Library.
+- End card (after the last photograph): Rewind; Library only when that destination exists *(28 Oct 2026 — signed-out public-link visitors have no Library)*.
 - Arrows sit in their own 64px bar below the photographs and never overlap one. In Scroll mode they stack as up and down arrows at the bottom right. The sequence bubble rides left of the arrows, or in the arrows' corner when arrows are off.
 - Ad plate: a vertical placeholder fit to height, mid-sequence only, following the existing `AdFrame` rules.
 
@@ -170,10 +172,10 @@ These conflict with the current `TECH-SPEC.md` or with existing Playwright specs
 | C3 | Arrows dock at the viewport's bottom corners | Arrows live in a 64px bar below the photographs, which the stage gives up | Stage height changes when arrows are on; check strip fit and CLS. |
 | C4 | Curtain behaviour per the existing `qa` spec | Frosted veil that dissolves; can open on any photograph | Re-baseline the curtain tests. |
 | C5 | House-campaign ad plates appear only inside the viewer; `native/lib/ads.ts` is narrow by design | A sponsored slot at the top of the Library | *(28 Oct 2026: resolved — house creative only, restyling the existing account placement. Preserve eligibility and the `/api/ads/visibility` master suppression; no new placement API and no live AdMob adapter in the redesigned Library.)* |
-| C6 | "Don't download this gallery" (a negative switch) | "Keep on this iPhone" (positive) | UI inversion only. Do not rename or flip the stored preference in `vault-settings.ts`; invert at the view layer. |
+| C6 | "Don't download this gallery" (a negative switch) | "Keep a copy" (positive) | UI inversion only. Do not rename or flip the stored preference in `vault-settings.ts`; invert at the view layer. |
 | C7 | Store text and review notes name "View subscription options" and the product as Pro in places | "Go Visionary" | Update `submission/01-app-store-listing.md`, `submission/02-app-review-notes.md`, `submission/06-app-store-connect-fields.md` and the Playwright labels. Do not change the RevenueCat product id. |
 
-Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`; the dialog `Display settings` becomes `Display`; `Don't download this gallery` becomes the switch `Keep a copy on this iPhone` (inverted meaning); `Horizontal Strip` becomes `Strip`; `Vertical scroll` becomes `Scroll`; `One at a time` becomes `One by one`; `Back to your galleries` becomes `Library`; `Back to start` becomes `Rewind`.
+Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`; the dialog `Display settings` becomes `Display`; `Don't download this gallery` becomes the switch `Keep a copy` (inverted meaning); `Horizontal Strip` becomes `Strip`; `Vertical scroll` becomes `Scroll`; `One at a time` becomes `One by one`; `Back to your galleries` becomes `Library`; `Back to start` becomes `Rewind`.
 
 ## 7. Copy deck (final strings)
 
@@ -187,7 +189,7 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 | End card | Rewind, Library |
 | Layout options | Strip, Scroll, One by one |
 | Canvas options | Black, Dark, Light |
-| Gallery details rows | Open gallery, Share link, Name, Caption, Reorder photographs, Keep on this iPhone, Read the folder again, Remove gallery |
+| Gallery details rows | Open gallery, Share link, Name, Caption, Reorder photographs, Keep a copy, Read the folder again, Remove gallery |
 | Remove footnote | Removing it leaves every photograph in Dropbox. |
 | Add sheet | Add a gallery; Shared folder or album link; Paste; Name; Add gallery *(28 Oct 2026: "Choose a folder on this iPhone" and "Choose photographs" removed — import deferred)* |
 | Share fallback | Copy link, WhatsApp, Messages, Email |
@@ -233,7 +235,7 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 
 - The iOS keyboard will cover half-height sheets (Add, Name, Caption). They must resize or scroll with it.
 - Animating the curtain's backdrop blur can stutter on older iPhones. Fall back to a plain dark scrim with an opacity fade if frame time suffers (`native/lib/fps-probe.ts` measures it).
-- `todo.md` line 42 says arrows advance "slightly shorter than the viewport width". The code advances one full width. Correct the line.
+- ~~`todo.md` line 42 says arrows advance "slightly shorter than the viewport width". The code advances one full width. Correct the line.~~ *(done 28 Oct 2026 — the line now reads "at most one stage width, stopping sooner to dock the next frame", matching the `Math.min` clamp in `advanceStripByViewport`)*
 - The prototype's photographs are low-resolution crops of iPhone screenshots, with declared dimensions scaled up by 4 to stand in for originals. Do not copy the scaling into production.
 - Ads: the AdMob provider must stay unwired until it can render without covering photographs; the Library slot does not change that.
 - Hash routing in the prototype is a stand-in. Use the app's real router.

@@ -57,9 +57,24 @@ for (const vp of viewports) {
   const dir = join(OUT, vp.name)
   mkdirSync(dir, { recursive: true })
   const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 2 })
+  // The prototype simulates vault progress on an interval and loads rail
+  // thumbnails after a random delay — both make captures nondeterministic.
+  // Freeze the delay and kill the ticker before any app script runs.
+  await page.addInitScript(() => {
+    window.setInterval = () => 0
+    Math.random = () => 0.5
+  })
   const go = async (hash) => {
     await page.goto(`${base}/#${hash}`, { waitUntil: 'domcontentloaded' })
-    await page.waitForTimeout(300)
+    // Every thumbnail inside the IO margin must have started and finished
+    // loading; cells beyond it legitimately keep data-src.
+    await page.waitForFunction(() => [...document.querySelectorAll('.th img')].every((img) => {
+      if (img.dataset.src) {
+        const r = img.getBoundingClientRect()
+        return r.bottom < -240 || r.top > innerHeight + 240
+      }
+      return img.complete
+    }), null, { timeout: 15000 }).catch(() => {})
   }
   console.log(`${vp.name}:`)
 

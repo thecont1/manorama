@@ -1,7 +1,7 @@
 import { createRoute } from 'honox/factory'
 import Viewer from '../../islands/Viewer'
 import GalleryShell from '../../components/GalleryShell'
-import { BundledSource } from '../../lib/imagesource'
+import { BundledSource, mediaCountOf } from '../../lib/imagesource'
 import { defaultGallerySettings } from '../../lib/gallery-settings'
 import {
   getGallery,
@@ -10,7 +10,6 @@ import {
 } from '../../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../../lib/user-repository'
 import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
-import PhotoParamCleanup from '../../islands/PhotoParamCleanup'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
 
@@ -64,7 +63,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={mediaCountOf(source.list())}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}
@@ -75,7 +74,6 @@ export default createRoute(async (c) => {
         libraryHref={libraryHref}
         initialIndex={photoIndex > 0 ? photoIndex : 0}
       />
-      {photoParam !== undefined ? <PhotoParamCleanup /> : null}
     </GalleryShell>,
     {
       title: `${gallery.title} — manorama`,
