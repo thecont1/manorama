@@ -1,7 +1,7 @@
 import { createRoute } from 'honox/factory'
 import Viewer from '../../islands/Viewer'
 import GalleryShell from '../../components/GalleryShell'
-import { BundledSource } from '../../lib/imagesource'
+import { BundledSource, mediaCountOf } from '../../lib/imagesource'
 import { defaultGallerySettings } from '../../lib/gallery-settings'
 import {
   getGallery,
@@ -64,7 +64,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={mediaCountOf(source.list())}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}

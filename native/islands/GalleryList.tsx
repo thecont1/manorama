@@ -3,7 +3,7 @@ import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from 
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { decideBack } from '../lib/back-decision'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
-import { isVideoItem } from '../../app/lib/imagesource'
+import { isVideoItem, mediaCountOf } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import GalleryShell from '../../app/components/GalleryShell'
@@ -640,7 +640,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     }
     return (
       <>
-        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined} mediaCount={{ stills: source.list().filter((item) => item.type !== 'video').length, videos: source.list().filter((item) => item.type === 'video').length }}>
+        <GalleryShell settings={settings} status={status === 'offline' ? galleryStatusMessage(status) : undefined} mediaCount={mediaCountOf(source.list())}>
           <Viewer
             key={`${manifest.slug}:${frameKick.nonce}`}
             slug={manifest.slug}

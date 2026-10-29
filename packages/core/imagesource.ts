@@ -114,6 +114,14 @@ export const isVideoItem = (item: GalleryMediaItem): item is VideoItem =>
 export const stillSourceOf = (item: GalleryMediaItem): string =>
   isVideoItem(item) ? item.poster.src : item.src
 
+/** The curtain's count line: videos counted in one pass, stills derived
+ *  from the total so every shell counts the same way. */
+export const mediaCountOf = (items: readonly GalleryMediaItem[]): { stills: number; videos: number } => {
+  let videos = 0
+  for (const item of items) if (isVideoItem(item)) videos += 1
+  return { stills: items.length - videos, videos }
+}
+
 export type GalleryManifest = {
   slug: string
   title: string
