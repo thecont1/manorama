@@ -28,8 +28,10 @@ type Surface = import('@playwright/test').Page
 const themeState = (page: Surface) =>
   page.evaluate((key) => ({
     stored: (() => { try { return localStorage.getItem(key) } catch { return null } })(),
-    control: [...document.querySelectorAll('.admin-drawer-action')].map(node => node.textContent?.trim() ?? '')
-      .find(text => text.startsWith('Switch to')) ?? null,
+    control: document.querySelector('.web-settings')
+      ? (document.documentElement.classList.contains('light') ? 'Switch to dark mode' : 'Switch to light mode')
+      : [...document.querySelectorAll('.admin-drawer-action')].map(node => node.textContent?.trim() ?? '')
+        .find(text => text.startsWith('Switch to')) ?? null,
     light: document.documentElement.classList.contains('light'),
   }), THEME_KEY)
 
@@ -41,6 +43,21 @@ const openPane = async (page: Surface) => {
   await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
   await page.getByRole('button', { name: 'Account menu', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Account', exact: true })).toBeVisible()
+}
+
+const openWebSettings = async (page: Surface) => {
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
+  if (new URL(page.url()).searchParams.get('settings') === '1' || await page.locator('.web-settings').isVisible()) {
+    await expect(page.locator('.web-settings')).toBeVisible()
+    return
+  }
+  await openPane(page)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.locator('.web-settings')).toBeVisible()
+}
+
+const chooseWebLight = async (page: Surface) => {
+  await page.locator('.web-settings').getByRole('radio', { name: 'Light', exact: true }).click()
 }
 
 /** The dashboard needs its seeded development account before it renders. */
@@ -59,18 +76,18 @@ test('the web dashboard persists its theme through a reload', async ({ browser }
     await signInToWeb(context)
     const page = await context.newPage()
     await page.goto(`${web}/thecontrarian`, { waitUntil: 'domcontentloaded' })
-    await openPane(page)
+    await openWebSettings(page)
 
     // A fresh profile starts on the shared default, and the surface writes
     // that default out — both bundles materialise the same key, not just read
     // it.
     await expectTheme(page, { stored: 'dark', control: LIGHT_LABEL, light: false })
 
-    await page.getByRole('button', { name: LIGHT_LABEL, exact: true }).click()
+    await chooseWebLight(page)
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await openPane(page)
+    await openWebSettings(page)
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
   } finally { await context.close() }
 })
@@ -108,8 +125,8 @@ test('both bundles answer to the identical key, class and label', async ({ brows
     await blockProductionApi(page)
 
     await page.goto(`${web}/thecontrarian`, { waitUntil: 'domcontentloaded' })
-    await openPane(page)
-    await page.getByRole('button', { name: LIGHT_LABEL, exact: true }).click()
+    await openWebSettings(page)
+    await chooseWebLight(page)
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
     const onWeb = await themeState(page)
 
@@ -141,8 +158,8 @@ test('a theme set on one origin does not silently apply to the other', async ({ 
     await blockProductionApi(page)
 
     await page.goto(`${web}/thecontrarian`, { waitUntil: 'domcontentloaded' })
-    await openPane(page)
-    await page.getByRole('button', { name: LIGHT_LABEL, exact: true }).click()
+    await openWebSettings(page)
+    await chooseWebLight(page)
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
 
     // The Mac shell is a different origin: it starts on its own default, not
@@ -156,7 +173,7 @@ test('a theme set on one origin does not silently apply to the other', async ({ 
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
 
     await page.goto(`${web}/thecontrarian`, { waitUntil: 'domcontentloaded' })
-    await openPane(page)
+    await openWebSettings(page)
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
   } finally { await context.close() }
 })

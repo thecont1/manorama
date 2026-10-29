@@ -160,9 +160,10 @@ export const getSessionAppUserId = async (): Promise<string | undefined> => {
   }
 }
 
-export const beginProviderSignIn = async (provider: AuthProvider, apiBase: string): Promise<void> => {
+export const beginProviderSignIn = async (provider: AuthProvider, apiBase: string, link = false): Promise<void> => {
   const url = new URL(`/auth/${provider}`, `${apiBase.replace(/\/+$/, '')}/`)
   url.searchParams.set('native', '1')
+  if (link) url.searchParams.set('link', '1')
   await Browser.open({ url: url.toString(), toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 

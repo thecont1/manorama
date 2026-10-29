@@ -904,7 +904,7 @@ body.manorama-native:has(.native-account-shell) {
   /* The account rows wear the web dashboard's type: the brand face for the
      title, a quieter subtitle beneath. Only the public address truncates — a
      long title wraps rather than losing its words. */
-  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 24px;
   font-variation-settings: "wdth" 100, "wght" 500;
   letter-spacing: -.04em;
@@ -928,7 +928,7 @@ body.manorama-native:has(.native-account-shell) {
 .native-gallery-heading .native-gallery-meta {
   flex: 0 0 auto;
   color: rgba(var(--ink), .6);
-  font-family: 'Bricolate Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   font-variation-settings: "wdth" 100, "wght" 500;
   letter-spacing: -.01em;
@@ -950,9 +950,9 @@ body.manorama-native:has(.native-account-shell) {
 .native-gallery-link {
   min-width: 0;
   overflow: hidden;
-  color: rgba(var(--ink), .48);
+  color: rgba(var(--ink), .62);
   font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 13px;
   letter-spacing: .04em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1071,6 +1071,14 @@ body.manorama-native:not(.gallery-entered) .stage-seq {
    them. Paint the body to match whichever surface is mounted. */
 body.manorama-native:has(.native-landing),
 body.manorama-native:has(.native-list-shell) { background: #111312; }
+html.light body.manorama-native:has(.native-landing),
+html.light body.manorama-native:has(.native-list-shell) { background: var(--m-ground); }
+html.light body.manorama-native .native-list-shell,
+html.light body.manorama-native .native-account-edge-tab,
+html.light body.manorama-native .native-drawer-panel,
+html.light body.manorama-native .native-editor { background: var(--m-ground); color: var(--m-ink); }
+html.light body.manorama-native .native-drawer-close:hover,
+html.light body.manorama-native .native-drawer-close:focus-visible { color: var(--m-ink); }
 /* The account introduction: wordmark and menu share one row, and the greeting
    reads as two short statements instead of one run-on paragraph. */
 .native-account-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
@@ -1353,12 +1361,11 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
   font-size: 13px;
   line-height: 1.5;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 .native-gallery-caption:hover { color: rgba(var(--ink), .8); }
 .native-gallery-caption:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 .native-gallery-caption.is-empty { color: rgba(var(--ink), .34); font-style: italic; }
-
 .native-gallery-caption-edit {
   display: flex;
   align-items: center;
@@ -1463,9 +1470,12 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
 }
 
 /* ── The gallery editor ────────────────────────────────────────────────────
-   Resequencing is its only write, and it is made on the picker's matrix: the
-   same cells, the same fixed viewport-relative height, aspect-true widths and
-   zero gaps, with the photograph in hand carrying the picker's pink. */
+   Full-screen owner surface: a TopBar (Close / Reorder / Reset), the gallery
+   title with its count and a concise hint, then a virtualised aspect-true
+   matrix. The matrix mounts only complete visible rows (plus overscan) from
+   the core layout helpers; every cell keeps its source aspect ratio at the
+   fixed 88px row height with zero gaps, and the photograph in hand carries
+   the picker's pink. */
 
 .native-editor {
   position: fixed;
@@ -1475,93 +1485,100 @@ body.manorama-native:has(.native-list-shell) { background: #111312; }
   flex-direction: column;
   background: var(--gallery-canvas, #111312);
   color: rgb(var(--ink));
+  transition: opacity .24s ease-out;
 }
-.native-editor-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.native-editor.is-settling { opacity: 0; pointer-events: none; }
+.native-editor .m-topbar {
   flex: 0 0 auto;
-  padding: max(20px, var(--native-safe-top)) 66px 10px 24px;
+  padding: max(12px, var(--native-safe-top)) max(12px, var(--native-safe-right)) 8px max(12px, var(--native-safe-left));
 }
-.native-editor-titles { min-width: 0; }
-.native-editor-titles h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 500;
-  letter-spacing: -.01em;
+.native-editor .native-editor-close,
+.native-editor .native-editor-reset { min-width: 44px; min-height: 44px; padding: 0 12px; }
+.native-editor-close svg { width: 20px; height: 20px; display: block; }
+.native-editor-meta {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 2px;
+  padding: 4px 24px 0;
 }
+.native-editor-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.native-editor-count { margin: 0; color: rgba(var(--ink), .6); font-size: 13px; }
 .native-editor-hint {
-  margin: 6px 0 0;
-  color: rgba(var(--ink), .6);
+  margin: 0;
+  color: rgba(var(--ink), .55);
   font-size: 13px;
   line-height: 1.45;
 }
 .native-editor-note {
   flex: 0 0 auto;
   margin: 0;
-  padding: 0 24px 10px;
+  padding: 8px 24px 12px;
   color: rgba(var(--ink), .55);
   font-size: 12px;
   line-height: 1.45;
-}
-.native-editor-close {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 14px);
-  right: 14px;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid rgba(var(--ink), .22);
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--ink));
-  cursor: pointer;
-}
-.native-editor-close svg { width: 20px; height: 20px; }
-.native-editor-close:hover { border-color: rgba(var(--ink), .7); }
-.native-editor-close:focus-visible {
-  border-color: rgba(var(--ink), .7);
-  outline: 2px solid rgb(var(--ink));
-  outline-offset: 2px;
 }
 .native-editor-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
-.native-editor .native-global-grid { justify-content: center; }
+.native-editor-virtual { position: relative; min-width: 100%; }
+.native-editor-row {
+  margin: 0 auto;
+  height: 12dvh;
+  display: flex;
+  align-items: stretch;
+}
+.native-editor .native-global-cell {
+  flex: 0 0 auto;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(10, 10, 10, .12);
+  cursor: pointer;
+  display: block;
+}
+.native-editor .native-global-cell img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+.native-editor .native-global-cell.is-active {
+  z-index: 1;
+  outline: 3px solid #fc0fc0;
+  outline-offset: -3px;
+  box-shadow: 0 0 0 1px #fc0fc0;
+}
+.native-editor .native-global-cell.is-drop-target {
+  outline: 2px solid rgba(252, 15, 192, .6);
+  outline-offset: -2px;
+}
+.native-editor .native-global-cell:focus-visible { outline: 2px solid #fc0fc0; outline-offset: 3px; }
 .native-editor .native-global-cell:disabled { opacity: .6; cursor: default; }
 .native-editor-actions {
   display: flex;
   flex: 0 0 auto;
-  gap: 12px;
   padding: 12px 24px max(20px, var(--native-safe-bottom));
   border-top: 1px solid rgba(var(--ink), .12);
 }
-.native-editor-actions button {
-  flex: 1 1 auto;
-  min-height: 48px;
-  border: 1px solid rgba(var(--ink), .25);
-  border-radius: 0;
-  background: transparent;
-  color: rgb(var(--ink));
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
+.native-editor-confirm-copy {
+  margin: 0 0 16px;
+  color: rgba(var(--ink), .7);
+  line-height: 1.5;
 }
-.native-editor-actions button:disabled { opacity: .4; cursor: default; }
-.native-editor-actions .native-editor-save:not(:disabled) { border-color: rgba(var(--ink), .8); }
-.native-editor-actions button:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.native-editor-confirm-actions { display: flex; gap: 10px; }
+.native-editor-confirm-actions .m-btn { flex: 1 1 auto; }
 
 @media (min-width: 900px) {
-  .native-editor-head { padding: max(28px, var(--native-safe-top)) 80px 14px 40px; }
+  .native-editor-meta { padding-inline: 40px; }
   .native-editor-note { padding-inline: 40px; }
   .native-editor-actions { padding-inline: 40px; }
 }
@@ -1601,6 +1618,7 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   -webkit-overflow-scrolling: touch;
 }
 .lib-rail::-webkit-scrollbar { display: none; }
+.lib-rail-spacer { flex: none; }
 .lib-rail--dragging { cursor: grabbing; }
 .lib-rail--dragging .lib-th { pointer-events: none; }
 
@@ -1634,14 +1652,18 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 /* Title leads the card; the ··· button is the card's only chrome. */
 .lib-card-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-top: 14px;
 }
 .native-gallery-list .lib-card .lib-card-title,
 .lib-card-title {
-  display: inline;
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
   width: auto;
   padding: 0;
   border: 0;
@@ -1659,8 +1681,8 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   align-items: center;
   justify-content: center;
   width: 44px;
-  height: 32px;
-  margin: -4px 0 0;
+  height: 44px;
+  margin: 0;
   padding: 0;
   border: 0;
   background: none;
@@ -1678,7 +1700,7 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   margin: 4px 0 0;
   color: rgba(var(--ink), .55);
   font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: .06em;
 }
 .lib-card-meter {
@@ -1709,3 +1731,107 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 /* Sponsored placement cadence: 24px under the Library status block,
    40px before the first card. */
 .native-list-card > .native-account-ad { margin: 24px 0 40px; }
+
+.native-library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.native-library-heading h1 { margin: 0; font-size: 28px; line-height: 1.2; }
+
+/* Settings keeps the shared owner grammar while embedding the live vault
+   controls rather than mounting a second settings shell. */
+.native-settings { background: var(--m-ground); color: var(--m-ink); }
+.native-settings-content { padding-top: 16px; padding-bottom: calc(40px + var(--native-safe-bottom)); }
+.native-settings .m-settings-address,
+.native-settings .m-settings-control,
+.native-settings .m-settings-segmented { display: grid; gap: 8px; padding: 12px 16px; }
+.native-settings .m-settings-address > label,
+.native-settings .m-settings-control > label { color: var(--m-secondary); font-size: var(--m-fs-small); }
+.native-settings .m-settings-address > div { display: flex; align-items: center; min-width: 0; }
+.native-settings .m-settings-address span { color: var(--m-secondary); flex: none; }
+.native-settings .m-settings-address input {
+  min-width: 0;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1px solid var(--m-rule);
+  background: transparent;
+  color: var(--m-ink);
+  font: inherit;
+}
+.native-settings select {
+  min-height: var(--m-touch);
+  padding: 0 10px;
+  border: 1px solid var(--m-rule);
+  border-radius: 8px;
+  background: var(--m-surface);
+  color: var(--m-ink);
+  font: inherit;
+}
+.native-settings .m-settings-delete { display: grid; gap: 16px; padding: 16px; }
+.native-settings .m-settings-delete p { margin: 0; color: var(--m-secondary); line-height: 1.5; }
+.native-settings .m-settings-delete > div { display: flex; flex-wrap: wrap; gap: 10px; }
+.native-settings .native-vault-card {
+  width: 100%;
+  max-width: none;
+  padding: 16px;
+  border: 0;
+  background: transparent;
+}
+.native-settings .native-vault-header h1 { font-size: 17px; }
+.native-settings .native-vault-close { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .native-settings * { scroll-behavior: auto; }
+}
+
+.native-welcome {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+  padding: calc(32px + var(--native-safe-top)) 24px calc(24px + var(--native-safe-bottom));
+  background: var(--m-ground);
+  color: var(--m-ink);
+}
+.native-welcome-focal { display: grid; gap: 20px; max-width: 560px; margin: auto 0 0; }
+.native-welcome-logo { position: relative; display: inline-flex; justify-self: start; align-items: flex-end; gap: 5px; min-height: 47px; }
+.native-welcome-logo img { display: block; width: 140px; height: 47px; object-fit: contain; }
+.native-welcome-focal h1 { max-width: 20ch; margin: 0; font-size: clamp(30px, 8vw, 48px); line-height: 1.08; letter-spacing: -.035em; }
+.native-welcome-focal p { max-width: 46ch; margin: 0; color: var(--m-secondary); font-size: 17px; line-height: 1.5; }
+.native-welcome-providers { width: min(100%, 480px); display: grid; gap: 12px; }
+.native-welcome-provider {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border: 1px solid var(--m-rule);
+  border-radius: 12px;
+  background: var(--m-ink);
+  color: var(--m-ground);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.native-welcome-provider svg { width: 20px; height: 20px; flex: none; }
+.native-welcome-provider:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 3px; }
+.native-welcome-note { margin: 0; color: var(--m-secondary); line-height: 1.5; }
+.native-welcome > .native-account-ad { width: min(100%, 480px); }
+.native-welcome .site-footer { margin-top: 0; }
+.native-welcome .site-footer button { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+@media (min-width: 820px) {
+  .native-welcome { padding-inline: max(48px, calc((100vw - 800px) / 2)); }
+}
+
+.native-visionary { background: var(--m-ground); color: var(--m-ink); }
+.native-visionary-content { padding-top: 24px; padding-bottom: calc(40px + var(--native-safe-bottom)); }
+.native-visionary-intro { display: grid; gap: 16px; margin-bottom: 8px; }
+.native-visionary-intro h1 { max-width: 22ch; margin: 0; font-size: clamp(28px, 6vw, 42px); line-height: 1.12; letter-spacing: -.03em; }
+.native-visionary-intro p { max-width: 62ch; margin: 0; color: var(--m-secondary); line-height: 1.55; }
+.native-visionary-kicker { color: var(--m-ink) !important; font-family: 'DM Mono', ui-monospace, monospace; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.native-visionary-cta { padding: 12px; border-bottom: 1px solid var(--m-rule); }

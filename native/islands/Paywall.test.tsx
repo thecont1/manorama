@@ -96,4 +96,31 @@ describe('paywall legal links', () => {
       'https://manorama.xyz/privacy',
     ])
   })
+
+  test('mounting never opens the store; only the explicit CTA does', async () => {
+    let presented = 0
+    let offerings = 0
+    const client = {
+      currentState: { tier: 'free', isPro: false, customerInfo: {} },
+      offerings: async () => { offerings += 1; return { availablePackages: [{}] } },
+      presentPaywallIfNeeded: async () => { presented += 1; return { result: 'NOT_PRESENTED', state: { tier: 'free', isPro: false, customerInfo: {} } } },
+      presentCustomerCenter: async () => ({ tier: 'free', isPro: false, customerInfo: {} }),
+    } as unknown as RevenueCatBilling
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+    render(<Paywall billing={client} onClose={() => {}} />, container)
+    await settle()
+
+    // P9: Visionary is an introduction first — the store stays closed until
+    // the explicit CTA is tapped.
+    expect(presented).toBe(0)
+    expect(offerings).toBe(0)
+    const cta = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
+    expect(cta).toBeDefined()
+    cta.click()
+    await settle()
+    expect(offerings).toBe(1)
+    expect(presented).toBe(1)
+    expect(container.innerHTML).toContain('You can review the options in the store whenever you are ready.')
+  })
 })

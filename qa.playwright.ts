@@ -412,14 +412,13 @@ for (const vp of viewports) {
       expect(top.top).toBeLessThan(stage.top + 40);
       expect(bottom.bottom).toBeLessThanOrEqual(stage.bottom + 1);
       expect(bottom.bottom).toBeGreaterThan(stage.bottom - 60);
-      // The owner session renders Library as a link back to the
-      // dashboard; Details still waits for P7.
+      // The owner session renders Library and the shared Details entry.
       await expect(
         page.locator("[data-chrome-library]"),
       ).toHaveAttribute("href", /\//);
       await expect(
         page.locator("[data-chrome-bottom]").getByRole("button", { name: "Details" }),
-      ).toHaveCount(0);
+      ).toBeVisible();
       await page.getByRole("button", { name: "Display", exact: true }).click();
       await expect(
         page.getByRole("dialog", { name: "Display" }),
@@ -2374,8 +2373,11 @@ test("public root is a minimal Manorama landing page", async ({
     "src",
     "/manorama-merged-logo.png",
   );
+  await expect(page.locator(".landing-brand h1")).toHaveText(
+    "A quieter place to look at photographs, on your own or with anyone.",
+  );
   await expect(page.locator(".landing-brand-intro")).toHaveText(
-    /adj\. a view that is delightful to the mind\.\s*Also, the WOW-est way to enjoy a photo gallery with anyone!/i,
+    /Sign in to add public Dropbox, Google Drive, iCloud, or MEGA folders and albums\./,
   );
   await expect(page.locator(".admin-gallery-card")).toHaveCount(0);
 });

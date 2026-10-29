@@ -203,8 +203,8 @@ export class LibraryMediaLoader {
           this.live.set(key, entry)
           return url
         } catch {
-          // A URL that cannot be minted is a miss — the cell falls back
-          // to its remote preview rather than failing the job.
+          // URL construction is a vault miss too: fall back to the provider
+          // preview, and never retain the decrypted source buffer.
           return undefined
         } finally {
           bytes.fill(0)

@@ -1,7 +1,7 @@
 import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { deleteCookie } from 'hono/cookie'
-import { SourceFetchError, isVideoItem, stillSourceOf, type GalleryMediaItem } from './lib/imagesource'
+import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
@@ -23,7 +23,7 @@ import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
 
-type RequestBody = { url?: string; order?: string[]; quick?: boolean }
+type RequestBody = { url?: string; order?: string[]; quick?: boolean; title?: string }
 
 export type RuntimeEnv = {
   AIRTABLE_PAT?: string
@@ -496,9 +496,12 @@ export const createManoramaApi = () => {
         : scan.images
       // Quick-add (the manorama.xyz/<share-url> shortcut) names the
       // gallery itself: three random hyphenated words, which also makes
-      // the slug read like the title. Dashboard creates keep the scanned
-      // folder name — the owner chose it on the provider side.
-      const title = payload.quick ? randomGalleryName() : smartQuotes(scan.title)
+      // the slug read like the title. An ordinary create may carry one
+      // optional owner-chosen title; blank falls back to the scanned name.
+      const requestedTitle = typeof payload.title === 'string'
+        ? smartQuotes(payload.title.trim().slice(0, 120))
+        : ''
+      const title = payload.quick ? randomGalleryName() : requestedTitle || smartQuotes(scan.title)
       const baseSlug = slugify(title)
       let slug = baseSlug
       let suffix = 2
@@ -559,7 +562,7 @@ export const createManoramaApi = () => {
     const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; newSlug?: string } => ({}))
     const title = typeof payload.title === 'string' ? smartQuotes(payload.title.trim().slice(0, 120)) : undefined
     const caption = typeof payload.caption === 'string' ? smartQuotes(payload.caption.trim().slice(0, 500)) : undefined
-    const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, 500) : undefined
+    const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, MAX_GALLERY_ITEMS) : undefined
     const nextSlug = typeof payload.newSlug === 'string' ? payload.newSlug.trim().toLowerCase() : undefined
     if (title !== undefined && !title) return c.json({ error: 'A gallery title cannot be empty' }, 400)
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)

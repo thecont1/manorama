@@ -50,6 +50,17 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       .evaluate((node) => getComputedStyle(node).paddingLeft)
     if (viewport.width < 820) expect(shellPadding).toBe('24px')
 
+    // Add is a deliberate, keyboard-safe sheet with one pinned CTA.
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    const addSheet = page.getByRole('dialog', { name: 'Add gallery' })
+    await expect(addSheet).toBeVisible()
+    await expect(addSheet.getByLabel('Public Dropbox, Google Drive, iCloud, or MEGA link')).toBeVisible()
+    await expect(addSheet.getByRole('button', { name: 'Paste', exact: true })).toBeVisible()
+    await expect(addSheet.getByLabel('Name (optional)')).toBeVisible()
+    await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add gallery', exact: true })).toBeInViewport()
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-add.png`, fullPage: false })
+    await addSheet.getByRole('button', { name: 'Close', exact: true }).click()
+
     // The card's only chrome is its ··· affordance — the actions live in a
     // sheet of word rows, opened on demand.
     const firstCard = cards.first()
@@ -60,18 +71,25 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(cardMenu.getByRole('menuitem')).toHaveText([
       'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
     ])
+    await expect(page.getByRole('dialog').locator('h2')).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(cardMenu).toHaveCount(0)
 
-    // The caption line edits in place; a gallery without one is invited to add
-    // it rather than left blank.
-    const captionLine = firstCard.locator('.native-gallery-caption')
-    await expect(captionLine).toBeVisible()
-    if (((await captionLine.textContent()) ?? '').includes('Add a caption')) {
-      await captionLine.click()
-      await expect(firstCard.locator('.native-gallery-caption-edit input')).toBeFocused()
-      await page.keyboard.press('Escape')
-    }
+    // Details owns metadata editing and device policy; the Library card no
+    // longer doubles as an inline editor.
+    await firstCard.locator('.lib-card-menu').click()
+    await page.getByRole('menuitem', { name: 'Gallery details', exact: true }).click()
+    const libraryDetails = page.locator('[data-screen="details"]')
+    await expect(libraryDetails).toBeVisible()
+    await expect(libraryDetails.locator('.m-actionrow').filter({ hasText: 'Caption' })).toBeVisible()
+    await expect(libraryDetails.locator('.m-actionrow-label').getByText('Address', { exact: true })).toBeVisible()
+    const detailBounds = await libraryDetails.locator('.m-actionrow, .m-panel-note').evaluateAll((nodes) =>
+      nodes.map((node) => ({ className: node.className, left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right, viewport: window.innerWidth })))
+    const detailOverflow = detailBounds.filter((node) => node.right > node.viewport + 1).length
+    expect(detailOverflow, JSON.stringify(detailBounds)).toBe(0)
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-details.png`, fullPage: true })
+    await libraryDetails.locator('.m-topbar button').click()
+    await expect(libraryDetails).toHaveCount(0)
 
     // Reorder lives in the card's ··· menu: the picker's matrix, in order.
     // One photograph is picked up and put down, and only that order is
@@ -87,15 +105,48 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     expect(cellCount).toBeGreaterThan(1)
     const heights = await cells.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)))
     expect(new Set(heights).size).toBe(1)
+    const overlaps = await cells.evaluateAll((nodes) => {
+      const rects = nodes.map((node) => ({ key: node.getAttribute('data-order-key'), rect: node.getBoundingClientRect() }))
+      const collisions: string[] = []
+      for (let a = 0; a < rects.length; a += 1) {
+        for (let b = a + 1; b < rects.length; b += 1) {
+          const one = rects[a]!
+          const two = rects[b]!
+          if (one.rect.left < two.rect.right - 1 && one.rect.right > two.rect.left + 1 && one.rect.top < two.rect.bottom - 1 && one.rect.bottom > two.rect.top + 1) {
+            collisions.push(`${one.key}:${two.key}`)
+          }
+        }
+      }
+      return collisions
+    })
+    expect(overlaps).toEqual([])
     // Order assertions read data-order-key, not data-photo: the save writes
     // orderKeys (ref ?? filename ?? id), which is what the recorded PATCH
     // must match.
     const orderBefore = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
+    // The PATCH writes the whole session order but the editor only mounts a
+    // window; walk the scroll container to collect every order key.
+    const orderAll: (string | null)[] = [...orderBefore]
+    const scroller = editor.locator('[data-editor-scroll]')
+    for (let guard = 0; guard < 40; guard += 1) {
+      const collected = orderAll.length
+      await scroller.evaluate((node) => { node.scrollTop += node.clientHeight })
+      await page.waitForTimeout(120)
+      const mounted = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
+      for (const key of mounted) if (!orderAll.includes(key)) orderAll.push(key)
+      if (orderAll.length === collected) break
+    }
+    await scroller.evaluate((node) => { node.scrollTop = 0 })
+    await expect(cells.first()).toBeVisible()
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-editor.png`, fullPage: false })
     await cells.nth(cellCount - 1).click()
     await expect(cells.nth(cellCount - 1)).toHaveClass(/is-active/)
     await expect(editor.locator('.native-editor-note')).toContainText('in hand')
-    await cells.first().click()
+    await editor.locator('[data-editor-scroll]').evaluate((node) => { node.scrollTop = 0 })
+    const originalFirst = editor.locator(`[data-order-key="${orderBefore[0]}"]`)
+    await expect(originalFirst).toBeVisible()
+    await originalFirst.click()
+    await expect(editor.locator('.native-editor-note')).toContainText('position 1 of')
     const orderAfter = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
     expect(orderAfter[0]).toBe(orderBefore[cellCount - 1])
     await editor.locator('.native-editor-save').click()
@@ -105,7 +156,10 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     }).__capturePatch ?? [])
     const lastWrite = saved.at(-1)
     expect(lastWrite?.url).toContain('/api/galleries/')
-    expect(lastWrite?.body.order).toEqual(orderAfter)
+    // The click-tap move lifted the last mounted cell to position 1; assert
+    // the complete saved sequence, not just its membership.
+    const heldKey = orderBefore[cellCount - 1]
+    expect(lastWrite?.body.order).toEqual([heldKey, ...orderAll.filter((key) => key !== heldKey)])
     await editor.locator('[aria-label="Close the editor"]').click()
     await expect(editor).toHaveCount(0)
 
@@ -142,11 +196,34 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       const menuIntro = await account.locator('.native-drawer-brand .landing-brand-intro').evaluate((node) => Math.round(node.getBoundingClientRect().height))
       expect(menuIntro).toBe(pageIntro)
     }
-    await expect(account.locator('.native-load-policy')).toBeVisible()
-    await expect(account.locator('.native-house-cards')).toBeVisible()
-    await expect.poll(async () => (await account.boundingBox())?.x ?? -999).toBeGreaterThanOrEqual(0)
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
-    await page.getByRole('button', { name: 'Close account menu', exact: true }).click()
+    await account.getByRole('button', { name: 'Settings', exact: true }).click()
+    const settings = page.locator('.native-settings')
+    await expect(settings).toBeVisible()
+    await expect(settings.locator('#settings-load-policy')).toBeVisible()
+    await expect(settings.getByText('House cards', { exact: true })).toBeVisible()
+    await settings.getByRole('button', { name: 'Learn about Visionary', exact: true }).click()
+    const visionary = page.locator('.native-visionary')
+    await expect(visionary).toBeVisible()
+    await expect(visionary).toContainText('from 3 to 99')
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-visionary.png`, fullPage: false })
+    await visionary.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(settings).toBeVisible()
+    await settings.getByRole('button', { name: 'Privacy Policy', exact: true }).click()
+    const privacy = page.locator('.privacy-view')
+    await expect(privacy).toBeVisible()
+    await expect(privacy.locator('h1')).toHaveText('Privacy Policy')
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-privacy.png`, fullPage: false })
+    await privacy.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(settings).toBeVisible()
+    await expect(settings.getByText('Appearance', { exact: true }).first()).toBeVisible()
+    await settings.getByRole('radio', { name: 'Light', exact: true }).click()
+    await expect(page.locator('html')).toHaveClass(/light/)
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-settings-light.png`, fullPage: false })
+    await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
+    await expect(page.locator('html')).not.toHaveClass(/light/)
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-settings.png`, fullPage: false })
+    await settings.getByRole('button', { name: 'Back', exact: true }).click()
     // The rail is the card's most obvious affordance, so it opens the
     // gallery — the editor lives on the card menu, exercised above.
     await page.locator('.lib-card .lib-th').first().click()
@@ -164,12 +241,24 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await page.getByRole('button', { name: 'Display', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Display' })
     await expect(dialog).toBeVisible()
-    const stream = page.getByLabel('Don’t download this gallery', { exact: true })
-    await expect(stream).not.toBeChecked()
-    await stream.check()
-    await expect(stream).toBeChecked()
-    await expect(page.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
+    // Fullscreen is a web capability; native shells keep the same Display
+    // controls except this browser-only escape hatch.
+    await expect(dialog.getByRole('switch', { name: 'Fullscreen', exact: true })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    const positionBeforeDetails = await page.locator('.stage-seq-tally').textContent()
+    await page.getByRole('button', { name: 'Details', exact: true }).click()
+    const viewerDetails = page.locator('[data-screen="details"]')
+    await expect(viewerDetails).toBeVisible()
+    const keepCopy = page.getByRole('switch', { name: 'Keep a copy on this device' })
+    await expect(keepCopy).toHaveAttribute('aria-checked', 'true')
+    await keepCopy.click()
+    await expect(keepCopy).toHaveAttribute('aria-checked', 'false')
+    await expect(viewerDetails.getByRole('status').filter({ hasText: 'Streaming from cloud' })).toBeVisible()
+    await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-viewer-details.png`, fullPage: true })
+    await viewerDetails.locator('.m-topbar button').click()
+    await expect(viewerDetails).toHaveCount(0)
+    await expect(page.locator('[data-curtain]')).toBeHidden()
+    await expect(page.locator('.stage-seq-tally')).toHaveText(positionBeforeDetails ?? '')
     await page.keyboard.press('g')
     const picker = page.locator('[data-global-view]')
     await expect(picker).toBeVisible()

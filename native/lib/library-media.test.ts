@@ -70,6 +70,24 @@ describe('LibraryMediaLoader', () => {
     expect(reads).toEqual(['gallery-a:thumb:absent'])
   })
 
+  test('an object-URL failure wipes decrypted bytes and falls back to the preview', async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    let exposed: Uint8Array | undefined
+    const loader = new LibraryMediaLoader({
+      read: async () => bytes,
+      objectUrls: {
+        create(received) {
+          exposed = received
+          throw new Error('object URLs unavailable')
+        },
+        revoke() {},
+      },
+    })
+    const lease = await loader.acquire(cell({ entryId: 'thumb:one', remote: 'https://provider.test/preview.jpg' }))
+    expect(lease?.kind).toBe('remote')
+    expect([...exposed!]).toEqual([0, 0, 0])
+  })
+
   test('a cell with neither bytes nor preview keeps its placeholder', async () => {
     const loader = new LibraryMediaLoader({ read: async () => undefined, objectUrls: countingUrls() })
     const lease = await loader.acquire(cell({ entryId: 'thumb:none' }))

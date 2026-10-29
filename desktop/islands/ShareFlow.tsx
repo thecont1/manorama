@@ -8,6 +8,7 @@ import { UPLOAD_PROVIDER_IDS } from '../lib/providers/types'
 import { shareLocalGallery } from '../lib/share'
 import type { DesktopSession } from '../lib/session'
 import { readFileBytes } from '../lib/tauri'
+import { Button } from '../../app/components/ui/Button'
 
 /**
  * The share sheet: provider → connect → explicit confirmation → progress →
@@ -31,12 +32,16 @@ export default function ShareFlow({
   apiBase,
   session,
   onClose,
+  onStepChange,
+  presentation = 'inline',
 }: {
   record: LocalGalleryRecord
   catalogue: LocalCatalogue
   apiBase: string
   session: DesktopSession | null
   onClose: () => void
+  onStepChange?: (step: ShareStep) => void
+  presentation?: 'inline' | 'sheet'
 }) {
   const providers = useMemo<Record<UploadProviderId, UploadProvider>>(
     () => ({ dropbox: createDropboxUploadProvider(), drive: createDriveUploadProvider() }),
@@ -49,6 +54,10 @@ export default function ShareFlow({
   const [result, setResult] = useState<{ shareUrl: string; galleryUrl: string; slug: string } | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pasteUrl, setPasteUrl] = useState('')
+
+  useEffect(() => {
+    onStepChange?.(step)
+  }, [step, onStepChange])
 
   useEffect(() => {
     let active = true
@@ -152,13 +161,13 @@ export default function ShareFlow({
   }
 
   return (
-    <section class="desktop-share" aria-label="Share this gallery">
-      <header class="desktop-share-header">
+    <section class={`desktop-share${presentation === 'sheet' ? ' desktop-share--sheet' : ''}`} aria-label="Share this gallery">
+      {presentation === 'inline' ? <header class="desktop-share-header">
         <h3>Share “{record.title}”</h3>
         {step !== 'uploading' ? (
-          <button type="button" onClick={close}>Close</button>
+          <Button variant="quiet" onClick={close}>Close</Button>
         ) : null}
-      </header>
+      </header> : null}
 
       {errorMessage && step === 'error' ? (
         <p class="desktop-notice desktop-error" role="alert">{errorMessage}</p>
@@ -180,13 +189,13 @@ export default function ShareFlow({
                 {!configured ? (
                   <span class="desktop-share-provider-note">Not configured in this build</span>
                 ) : isConnected ? (
-                  <button type="button" onClick={() => { setProviderId(id); setStep('confirm') }}>
+                  <Button variant="secondary" onClick={() => { setProviderId(id); setStep('confirm') }}>
                     Use {p.label}
-                  </button>
+                  </Button>
                 ) : (
-                  <button type="button" onClick={() => beginConnect(id)}>
+                  <Button variant="secondary" onClick={() => beginConnect(id)}>
                     Connect
-                  </button>
+                  </Button>
                 )}
               </div>
             )
@@ -212,12 +221,12 @@ export default function ShareFlow({
                 autoCorrect="off"
               />
             </label>
-            <button type="submit">Complete connection</button>
+            <Button variant="primary" type="submit">Complete connection</Button>
             <p class="desktop-paste-hint">
               Dev builds cannot receive the redirect — paste the full link the browser lands on.
             </p>
           </form>
-          <button type="button" onClick={cancelConnect}>Cancel</button>
+          <Button variant="quiet" onClick={cancelConnect}>Cancel</Button>
         </div>
       ) : null}
 
@@ -229,10 +238,10 @@ export default function ShareFlow({
             becomes viewable by anyone with the link. Manorama receives only the public link and scans it there.
           </p>
           <div class="desktop-share-confirm-actions">
-            <button type="button" onClick={confirmShare}>
+            <Button variant="primary" onClick={confirmShare}>
               Upload and publish
-            </button>
-            <button type="button" onClick={() => setStep('choose')}>Back</button>
+            </Button>
+            <Button variant="secondary" onClick={() => setStep('choose')}>Back</Button>
           </div>
         </div>
       ) : null}
@@ -272,7 +281,7 @@ export default function ShareFlow({
       ) : null}
 
       {step === 'error' ? (
-        <button type="button" onClick={() => setStep('choose')}>Back to providers</button>
+        <Button variant="secondary" onClick={() => setStep('choose')}>Back to providers</Button>
       ) : null}
     </section>
   )

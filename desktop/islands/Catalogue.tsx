@@ -23,10 +23,12 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
-import { handleProviderDeepLink } from '../lib/providers/oauth'
+import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
+import LocalGalleryDetails from './LocalGalleryDetails'
+import { Sheet } from '../../app/components/ui/Sheet'
 import { applyTheme, oppositeTheme, readStoredTheme, storeTheme, themeControlLabel, type Theme } from '../lib/theme'
 import {
   beginDesktopSignIn,
@@ -44,7 +46,7 @@ const CATALOGUE_FILE = 'catalogue.json'
 const DEVICE_LABEL = 'This Mac'
 const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
 const sourceLabel = (record: LocalGalleryRecord): string =>
-  record.sourceKind === 'card' ? 'Memory card' : 'Folder on this device'
+  record.sourceKind === 'card' ? 'Memory card' : 'Folder on this Mac'
 
 const openExternal = (url: string) => {
   // External links leave the app for the system browser via the opener
@@ -93,10 +95,9 @@ const syncMessage = (state: SyncState, session: DesktopSession | null): string =
  *  persisted or synced. */
 type DimsMap = Map<string, { w: number; h: number }>
 
-const OpenIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M19 13v5.5A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-11A1.5 1.5 0 0 1 6.5 6H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-const RefreshIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M20 12a8 8 0 0 1-13.66 5.66L4 16M4 20v-4h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-const ShareIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /><path d="M5 14v5.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-const TrashIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 4h4l1 3H9l1-3ZM8 7l.7 13h6.6L16 7M10 10v7M14 10v7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+/** The share sheet's steps, mirrored from ShareFlow so the host can gate
+ *  dismissal on upload and settle a pending connect on early dismissal. */
+type ShareStep = 'choose' | 'connecting' | 'confirm' | 'uploading' | 'done' | 'error'
 
 /** A newly added folder's card mounts at the foot of the list: bring it into
  *  view the way the web dashboard brings a new gallery in. */
@@ -131,6 +132,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [pasteUrl, setPasteUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [shareGalleryId, setShareGalleryId] = useState<string | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareUploading, setShareUploading] = useState(false)
+  const [shareStep, setShareStep] = useState<ShareStep>('choose')
+  const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
   // The account pane opens closed on every load and is never encoded in the URL.
   const [menuOpen, setMenuOpen] = useState(false)
@@ -143,6 +148,41 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => {
     catalogueRef.current = catalogue
   }, [catalogue])
+  // The share sheet's live state, mirrored in refs so the window-level history
+  // listener (registered once, empty deps) sees the CURRENT flow instead of
+  // closing over a stale render.
+  const detailsIdRef = useRef<string | null>(detailsId)
+  const shareStepRef = useRef<ShareStep>('choose')
+  const shareUploadingRef = useRef(false)
+  useEffect(() => {
+    detailsIdRef.current = detailsId
+  }, [detailsId])
+  useEffect(() => {
+    const followHistory = () => {
+      const detail = new URLSearchParams(window.location.search).get('details')
+      if (shareUploadingRef.current) {
+        // An upload in flight owns the details surface: navigation must not
+        // dismiss or unmount it, or clear the share state while ShareFlow
+        // keeps working. Restore the details URL so Back can still leave
+        // once the upload settles.
+        const current = detailsIdRef.current
+        if (current && detail !== current) {
+          const url = new URL(window.location.href)
+          url.searchParams.set('details', current)
+          window.history.pushState(window.history.state, '', url)
+        }
+        return
+      }
+      setDetailsId(detail)
+      // Any navigation dismisses the share sheet and forgets its flow; a
+      // dismissal mid-connect settles the pending flow exactly like the
+      // sheet's own close.
+      if (shareStepRef.current === 'connecting') cancelProviderConnect()
+      resetShare()
+    }
+    window.addEventListener('popstate', followHistory)
+    return () => window.removeEventListener('popstate', followHistory)
+  }, [])
 
   const persistCatalogue = useCallback(async (next: LocalCatalogue) => {
     setCatalogue(next)
@@ -306,36 +346,122 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     if (status === 'unavailable') {
       // An ejected source drops its open views; the record itself stays.
       if (viewerState?.galleryId === record.id) setViewerState(null)
-      return
+      throw new Error('The source is unavailable — reconnect it, then rescan.')
     }
+    let updated: LocalGalleryRecord
+    let next: LocalCatalogue
     try {
       const scan = await scanLocalDirectory(record.rootPath, readDirEntries)
-      const updated: LocalGalleryRecord = {
+      updated = {
         ...record,
         items: scan.items,
         itemCount: scan.truncated ?? scan.items.length,
         lastSeenAt: new Date().toISOString(),
       }
-      const next = {
+      next = {
         ...catalogue,
         galleries: catalogue.galleries.map((g) => (g.id === record.id ? updated : g)),
       }
-      await persistCatalogue(next)
-      if (!scan.items.length) setNotice('That source has no photos Manorama can display')
-      void runSync(next, session)
-    } catch {
+    } catch (reason) {
+      // A genuine source read failure may mark the source unavailable.
       setAvailability((previous) => ({ ...previous, [record.id]: 'unavailable' }))
+      throw reason instanceof Error ? reason : new Error('The source could not be read again')
     }
+    // Persist first, exactly like rename/remove: a failed private-store write
+    // keeps the prior record on screen instead of pretending the rescan stuck.
+    await writeCatalogueFile(serializeLocalCatalogue(next))
+    setCatalogue(next)
+    if (!updated.items.length) setNotice('That source has no photos Manorama can display')
+    void runSync(next, session)
+  }
+
+  /** Forget the share sheet, its step, and any in-flight upload together. */
+  const resetShare = () => {
+    setShareOpen(false)
+    setShareGalleryId(null)
+    setShareStep('choose')
+    setShareUploading(false)
+    shareStepRef.current = 'choose'
+    shareUploadingRef.current = false
   }
 
   const remove = async (record: LocalGalleryRecord) => {
     if (!catalogue) return
     const next = { ...catalogue, galleries: catalogue.galleries.filter((g) => g.id !== record.id) }
+    // Persist first: the Library entry only goes once the private store has
+    // acknowledged the write — a failed save keeps the record and surfaces the
+    // reason inside the confirmation sheet.
+    await writeCatalogueFile(serializeLocalCatalogue(next))
+    setCatalogue(next)
     if (viewerState?.galleryId === record.id) setViewerState(null)
-    if (shareGalleryId === record.id) setShareGalleryId(null)
     // The catalogue entry goes; nothing on disk is touched, ever.
-    await persistCatalogue(next)
     if (session) void removeDeviceGallery(base, session.token, record)
+    // The acknowledgement is what returns to the Library.
+    closeDetails()
+  }
+
+  const openDetails = (record: LocalGalleryRecord) => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('details', record.id)
+    window.history.pushState({ manoramaDetails: true }, '', url)
+    setDetailsId(record.id)
+    resetShare()
+  }
+
+  const closeDetails = () => {
+    // An upload in flight owns the details surface — Back must not dismiss it
+    // mid-transfer; it can leave once the upload settles.
+    if (shareUploading) return
+    resetShare()
+    setDetailsId(null)
+    if (window.history.state?.manoramaDetails) {
+      window.history.back()
+      return
+    }
+    const url = new URL(window.location.href)
+    url.searchParams.delete('details')
+    window.history.replaceState(null, '', url)
+  }
+
+  const dismissShare = () => {
+    if (shareUploading) return
+    // A dismissal mid-connect must settle the pending flow so the next attempt
+    // starts clean — the same settle ShareFlow's own close performs.
+    if (shareStep === 'connecting') cancelProviderConnect()
+    resetShare()
+  }
+
+  const openShareFromDetails = () => {
+    if (!detailsId) return
+    setShareGalleryId(detailsId)
+    setShareStep('choose')
+    setShareUploading(false)
+    setShareOpen(true)
+    shareStepRef.current = 'choose'
+    shareUploadingRef.current = false
+  }
+
+  const handleShareStep = (step: ShareStep) => {
+    setShareStep(step)
+    setShareUploading(step === 'uploading')
+    shareStepRef.current = step
+    shareUploadingRef.current = step === 'uploading'
+  }
+
+  const rename = async (record: LocalGalleryRecord, value: string) => {
+    if (!catalogue) return
+    const title = value.trim()
+    if (!title) throw new Error('Give this gallery a name')
+    if (title === record.title) return
+    const next = {
+      ...catalogue,
+      galleries: catalogue.galleries.map(gallery => gallery.id === record.id ? { ...gallery, title } : gallery),
+    }
+    // Persist first: a failed private-store write keeps the old title on screen
+    // and inside the open edit sheet, rather than pretending the rename stuck.
+    await writeCatalogueFile(serializeLocalCatalogue(next))
+    setCatalogue(next)
+    void runSync(next, session)
   }
 
   const signIn = (provider: AuthProvider) => {
@@ -400,6 +526,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             images={manifest.images}
             settings={settings}
             initialIndex={viewerState?.index ?? 0}
+            allowFullscreen={false}
             onReturnToGalleries={() => setViewerState(null)}
           />
         </GalleryShell>
@@ -481,6 +608,48 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     )
   }
 
+  // The selected record's details: a full-screen local surface mounted in
+  // place of the workbench, with the shared Sheet+ShareFlow hosted alongside
+  // it (Share opens only from Details). The viewer takes precedence when a
+  // photograph is open — Open leaves details first.
+  const detailsRecord = detailsId && catalogue ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
+  const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
+  const shareHost = shareOpen && shareRecord ? (
+    <Sheet open={shareOpen} onClose={dismissShare} title={`Share “${shareRecord.title}”`} dismissible={!shareUploading}>
+      <ShareFlow
+        record={shareRecord}
+        catalogue={catalogue}
+        apiBase={base}
+        session={session}
+        presentation="sheet"
+        onClose={resetShare}
+        onStepChange={handleShareStep}
+      />
+    </Sheet>
+  ) : null
+
+  if (detailsRecord) {
+    return (
+      <>
+        <div class="desktop-titlebar" data-tauri-drag-region />
+        <LocalGalleryDetails
+          record={detailsRecord}
+          availability={availability[detailsRecord.id] ?? 'available'}
+          onBack={closeDetails}
+          onOpen={() => {
+            closeDetails()
+            setViewerState({ galleryId: detailsRecord.id, index: 0 })
+          }}
+          onShare={openShareFromDetails}
+          onRescan={() => rescan(detailsRecord)}
+          onRename={(title) => rename(detailsRecord, title)}
+          onRemove={() => remove(detailsRecord)}
+        />
+        {shareHost}
+      </>
+    )
+  }
+
   const galleries = catalogue.galleries
   const photoCount = galleries.reduce((total, record) => total + record.itemCount, 0)
 
@@ -490,8 +659,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // than against an account limit, so the count is local, not the account's.
   // A session stored before the exchange answered `tier` omits the plan
   // sentence rather than guessing Free.
-  const planLabel = session?.tier === 'pro' ? 'Pro' : session?.tier === 'free' ? 'Free' : undefined
-  const planSentence = planLabel ? `You are a ${planLabel} User.` : null
+  const planSentence = session?.tier === 'pro' ? 'You are a Visionary.' : session?.tier === 'free' ? 'You are a Free User.' : null
   const galleryWord = galleries.length === 1 ? 'gallery' : 'galleries'
   const helloLine = `Hello, ${session?.ownerSlug || 'there'}. Welcome to manorama.xyz.`
   const planLine = `${planSentence ? `${planSentence} ` : ''}${galleries.length} ${galleryWord} on this Mac.`
@@ -627,7 +795,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                         <span class="admin-gallery-title">{record.title}</span>
                         <span class="admin-gallery-count" aria-label={`${record.itemCount} ${photos}`}>({record.itemCount} {photos})</span>
                       </div>
-                      <p class="admin-gallery-caption">{sourceLabel(record)} · {record.rootPath}</p>
+                      <p class="admin-gallery-caption">{sourceLabel(record)}</p>
                       {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
                     </div>
                     {/* One gapless row of aspect-true originals, hung exactly as
@@ -663,16 +831,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       </div>
                     </div>
                     <div class="gallery-card-actions">
-                      <button type="button" class="admin-icon-action" title="View the photographs" aria-label={`View ${record.title}`} disabled={unavailable} onClick={() => setViewerState({ galleryId: record.id, index: 0 })}><OpenIcon /></button>
-                      <button type="button" class="admin-icon-action" title="Rescan this source" aria-label={`Rescan ${record.title}`} onClick={() => void rescan(record)}><RefreshIcon /></button>
-                      <button type="button" class="admin-icon-action" title="Share…" aria-label={`Share ${record.title}`} disabled={unavailable} onClick={() => setShareGalleryId(shareGalleryId === record.id ? null : record.id)}><ShareIcon /></button>
-                      <button type="button" class="admin-icon-action admin-icon-action--delete" title="Remove from the catalogue" aria-label={`Remove ${record.title}`} onClick={() => void remove(record)}><TrashIcon /></button>
+                      <button type="button" class="admin-button" aria-label={`Details ${record.title}`} onClick={() => openDetails(record)}>Details</button>
                     </div>
-                    {shareGalleryId === record.id ? (
-                      <div class="desktop-share-host">
-                        <ShareFlow record={record} catalogue={catalogue} apiBase={base} session={session} onClose={() => setShareGalleryId(null)} />
-                      </div>
-                    ) : null}
                   </article>
                 )
               })}

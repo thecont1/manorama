@@ -113,9 +113,9 @@ describe('vault cap policy', () => {
 
   test('rejects over-ceiling choices for non-Pro callers', () => {
     expect(() => assertCapAllowed('free', FREE_VAULT_CAP_BYTES)).not.toThrow()
-    expect(() => assertCapAllowed('free', null)).toThrow('requires manorama Pro')
-    expect(() => assertCapAllowed('free', FREE_VAULT_CAP_BYTES + 1)).toThrow('requires manorama Pro')
-    expect(() => assertCapAllowed(undefined, FREE_VAULT_CAP_BYTES + 1)).toThrow('requires manorama Pro')
+    expect(() => assertCapAllowed('free', null)).toThrow('requires manorama Visionary')
+    expect(() => assertCapAllowed('free', FREE_VAULT_CAP_BYTES + 1)).toThrow('requires manorama Visionary')
+    expect(() => assertCapAllowed(undefined, FREE_VAULT_CAP_BYTES + 1)).toThrow('requires manorama Visionary')
     expect(() => assertCapAllowed('pro', null)).not.toThrow()
     expect(() => assertCapAllowed('pro', 8 * 1024 * 1024 * 1024)).not.toThrow()
   })
@@ -201,7 +201,7 @@ describe('vault settings controller', () => {
   test('selectCap refuses a Pro-only cap while Free without persisting it', async () => {
     const { controller, vault, persistence } = makeController({ tier: () => 'free' })
 
-    await expect(controller.selectCap(null)).rejects.toThrow('requires manorama Pro')
+    await expect(controller.selectCap(null)).rejects.toThrow('requires manorama Visionary')
     expect(persistence.values.has(VAULT_CAP_PREFERENCE_KEY)).toBe(false)
     expect(vault.cap).toBe(FREE_VAULT_CAP_BYTES)
   })

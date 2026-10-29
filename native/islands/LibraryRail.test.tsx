@@ -1,9 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
-import { render } from 'hono/jsx/dom'
+import { flushSync, render } from 'hono/jsx/dom'
+import { useState } from 'hono/jsx'
 import { LibraryRail } from './LibraryRail'
+import { LibraryDeviceStatus } from './GalleryList'
 import { cacheFillRegistry } from '../lib/cache-fill'
 import type { LibraryMediaCell, LibraryMediaLease } from '../lib/library-media'
+import type { OfflineGallerySummary } from '../lib/offline-gallery'
 
 /** The rail is a component contract: one cell per photograph at its own
  *  aspect ratio, media only inside the visible window, a 6px drag that pans
@@ -96,23 +99,33 @@ const mount = async (options: {
   count?: number
   onOpen?: (index: number) => void
   loader?: RecordedLoader['loader']
+  placeholder?: string
+  viewport?: { width: number; height: number; scrollLeft?: number }
 } = {}) => {
   const recorded = recordedLoader()
   const opened: number[] = []
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
+  const frames = images(options.count ?? 3)
+  if (options.placeholder !== undefined && frames[0]) frames[0].placeholder = options.placeholder
   render(
     <LibraryRail
       galleryId="g-1"
-      images={images(options.count ?? 3)}
+      images={frames}
       loader={(options.loader ?? recorded.loader) as never}
       title="Kashmir"
       onOpen={options.onOpen ?? ((index) => opened.push(index))}
     />,
     container as unknown as HTMLElement,
   )
+  if (options.viewport) {
+    const rail = container.querySelector('.lib-rail') as unknown as HTMLElement
+    Object.defineProperty(rail, 'clientWidth', { configurable: true, value: options.viewport.width })
+    Object.defineProperty(rail, 'clientHeight', { configurable: true, value: options.viewport.height })
+    rail.scrollLeft = options.viewport.scrollLeft ?? 0
+  }
   await settle()
-  return { container, recorded, opened }
+  return { container: container as unknown as HTMLElement, recorded, opened }
 }
 
 const pointer = (type: string, init: { clientX?: number; pointerId?: number; button?: number; bubbles?: boolean } = {}) =>
@@ -136,6 +149,28 @@ describe('LibraryRail', () => {
     // The remote preview is what lands in the <img>.
     const imgs = [...container.querySelectorAll('.lib-th img')]
     expect((imgs[0] as unknown as HTMLImageElement).src).toBe('https://cdn.example/photo-0.jpg')
+  })
+
+  test('a 1,000-item rail mounts only the visible window', async () => {
+    const { container, recorded } = await mount({ count: 1000, viewport: { width: 300, height: 200 } })
+    const rail = container.querySelector('.lib-rail') as HTMLElement
+    expect(rail.getAttribute('data-rail-total')).toBe('1000')
+    expect(container.querySelectorAll('.lib-th').length).toBeLessThan(30)
+    expect(recorded.cells.length).toBeLessThan(30)
+    expect((container.querySelector('.lib-rail-spacer') as HTMLElement).style.width).not.toBe('300px')
+
+    rail.scrollLeft = 50_000
+    rail.dispatchEvent(new dom.Event('scroll', { bubbles: true }) as unknown as Event)
+    await settle()
+    expect(Number((container.querySelector('.lib-th') as HTMLElement).dataset.at)).toBeGreaterThan(0)
+    expect(container.querySelectorAll('.lib-th').length).toBeLessThan(30)
+  })
+
+  test('a remote placeholder is never loaded as a CSS background', async () => {
+    const placeholder = 'https://evil.test/tracker'
+    const { container } = await mount({ count: 1, placeholder })
+    const cell = container.querySelector<HTMLButtonElement>('.lib-th')!
+    expect(cell.style.backgroundImage).toBe('')
   })
 
   test('a thumb click opens its own index; rail background opens the first', async () => {
@@ -204,7 +239,7 @@ describe('LibraryRail', () => {
 
     // Nothing intersecting yet — offscreen media never starts.
     expect(recorded.cells).toHaveLength(0)
-    const cells = [...container.querySelectorAll('[data-rail-cell]')]
+    const cells = [...(container as unknown as HTMLElement).querySelectorAll<HTMLElement>('[data-rail-cell]')]
     StubObserver.last!.fire([cells[1]])
     await settle()
     expect(recorded.cells.map((cell) => cell.entryId)).toEqual(['thumb:photo-1'])
@@ -234,6 +269,44 @@ describe('LibraryRail', () => {
     cacheFillRegistry.publish({ galleryId: 'other', item: { id: 'photo-0', entryId: 'thumb:photo-0', mimeType: 'image/jpeg', index: 0 } })
     await settle()
     expect(recorded.cells.length).toBe(before + 1)
+  })
+
+  test('a pre-commit catalog refresh does not pull the fill meter backwards', async () => {
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+    const initial: OfflineGallerySummary = { status: 'cached', galleryId: 'g-1', owner: 'owner', slug: 'gallery', title: 'Gallery', images: 2 }
+    let refresh: (summary: OfflineGallerySummary | undefined) => void = () => {}
+    const Harness = () => {
+      const [summary, setSummary] = useState<OfflineGallerySummary | undefined>(initial)
+      refresh = setSummary
+      return <LibraryDeviceStatus galleryId="g-1" imageCount={3} streamOnly={false} summary={summary} />
+    }
+    render(<Harness />, container)
+    await settle()
+    expect(container.textContent).toContain('Saving 2 of 3')
+    cacheFillRegistry.publish({ galleryId: 'g-1', item: { id: 'photo-1', entryId: 'thumb:photo-1', mimeType: 'image/jpeg', index: 1 } })
+    await settle()
+    flushSync(() => refresh(undefined))
+    await settle()
+    expect(container.textContent).toContain('Saving 2 of 3')
+  })
+
+  test('an authoritative catalog removal resets the saved status', async () => {
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+    const initial: OfflineGallerySummary = { status: 'cached', galleryId: 'g-1', owner: 'owner', slug: 'gallery', title: 'Gallery', images: 1 }
+    let refresh: (summary: OfflineGallerySummary | undefined) => void = () => {}
+    const Harness = () => {
+      const [summary, setSummary] = useState<OfflineGallerySummary | undefined>(initial)
+      refresh = setSummary
+      return <LibraryDeviceStatus galleryId="g-1" imageCount={1} streamOnly={false} summary={summary} />
+    }
+    render(<Harness />, container)
+    await settle()
+    expect(container.textContent).toContain('Saved on this device')
+    flushSync(() => refresh(undefined))
+    await settle()
+    expect(container.textContent).not.toContain('Saved on this device')
   })
 
   test('a batched viewport exit-and-return still loads the rail', async () => {

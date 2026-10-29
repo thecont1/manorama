@@ -75,18 +75,24 @@ export const fetchGallery = async (
   }
 }
 
-/** The native counterpart of the web quick-add interstitial. The wrapped URL
- * has already been intentionally accepted by the deep-link parser; the Worker
- * remains the single source scanner and gallery creator. */
-export const createGalleryFromQuickAdd = async (
+/** Create from the explicit Add sheet or the zero-click quick-add deep link.
+ * The Worker remains the single scanner; ordinary creates may carry an
+ * optional owner title, while quick-add keeps its server-side random name. */
+export const createGalleryFromSource = async (
   apiBase: string,
   sourceUrl: string,
+  options: { quick?: boolean; title?: string } = {},
   fetcher: typeof fetch = fetch,
 ): Promise<{ owner: string; slug: string }> => {
+  const title = options.title?.trim()
   const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
-    body: JSON.stringify({ url: sourceUrl, quick: true }),
+    body: JSON.stringify({
+      url: sourceUrl,
+      ...(options.quick ? { quick: true } : {}),
+      ...(!options.quick && title ? { title } : {}),
+    }),
   })
   const payload = await response.json().catch(() => ({})) as { galleryUrl?: string; error?: string }
   const duplicateGallery = response.status === 409 && typeof payload.galleryUrl === 'string'
@@ -100,6 +106,13 @@ export const createGalleryFromQuickAdd = async (
   }
   return { owner: parts[0]!, slug: parts[1]! }
 }
+
+export const createGalleryFromQuickAdd = async (
+  apiBase: string,
+  sourceUrl: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ owner: string; slug: string }> =>
+  createGalleryFromSource(apiBase, sourceUrl, { quick: true }, fetcher)
 
 /** The signed-in account's own gallery summaries — the same rows the web
  *  dashboard lists, so the phone can offer them without a typed slug. */
@@ -173,6 +186,15 @@ export const fetchAccountIdentities = async (
   return Array.isArray(payload.identities) ? payload.identities : []
 }
 
+export const unlinkAccountIdentity = async (apiBase: string, provider: string): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/account/identities/${encodeURIComponent(provider)}`, {
+    method: 'DELETE',
+    headers: await bearerHeaders(),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'That sign-in method could not be removed')
+}
+
 /** The gallery editor's one write: the running order of a gallery's
  *  photographs, as image ids. The server reorders against the gallery's own
  *  manifest and answers with the stored summary, exactly as the web
@@ -188,20 +210,44 @@ export const updateGalleryOrder = async (apiBase: string, slug: string, order: r
     throw new NativeGalleryHttpError(response.status, payload.error || 'That order could not be saved')
   }
 }
-/** The caption under a gallery's title. The dashboard treats the caption as
- *  editable metadata, and the account card does the same, so the write lives
- *  beside the other gallery mutations. The route answers with the stored
- *  summary, which is what the card then shows: trimmed, smart-quoted and
- *  length-capped by the same handler the web dashboard writes through. */
-export const updateGalleryCaption = async (apiBase: string, slug: string, caption: string): Promise<string> => {
+/** Metadata edits share the web handler's trimming, smart-quote and length
+ * rules. The response is the stored summary, not an optimistic local echo. */
+export const updateGalleryMetadata = async (
+  apiBase: string,
+  slug: string,
+  input: { title?: string; caption?: string },
+): Promise<GallerySummary> => {
   const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
-    body: JSON.stringify({ caption }),
+    body: JSON.stringify(input),
   })
-  const payload = await response.json().catch(() => ({})) as { gallery?: { caption?: string }; error?: string }
-  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'That caption could not be saved')
-  return payload.gallery?.caption ?? caption.trim()
+  const payload = await response.json().catch(() => ({})) as { gallery?: GallerySummary; error?: string }
+  if (!response.ok || !payload.gallery) throw new NativeGalleryHttpError(response.status, payload.error || 'That metadata could not be saved')
+  return payload.gallery
+}
+
+/** The caption under a gallery's title, retained for the existing card path. */
+export const updateGalleryCaption = async (apiBase: string, slug: string, caption: string): Promise<string> =>
+  (await updateGalleryMetadata(apiBase, slug, { caption })).caption ?? ''
+
+export const refreshGallery = async (apiBase: string, slug: string): Promise<GallerySummary> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/refresh`, {
+    method: 'POST',
+    headers: await bearerHeaders(),
+  })
+  const payload = await response.json().catch(() => ({})) as { gallery?: GallerySummary; error?: string }
+  if (!response.ok || !payload.gallery) throw new NativeGalleryHttpError(response.status, payload.error || 'The folder could not be read again')
+  return payload.gallery
+}
+
+export const deleteGallery = async (apiBase: string, slug: string): Promise<void> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: await bearerHeaders(),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new NativeGalleryHttpError(response.status, payload.error || 'The gallery could not be removed')
 }
 /** The dashboard's custom-URL edit: PATCHes the owner slug and answers the
  *  slug the server actually stored, lowercased and normalised. */

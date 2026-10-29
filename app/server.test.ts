@@ -143,7 +143,7 @@ describe('owner dashboard authentication', () => {
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('Add a gallery')
-    expect(html).toContain('Sign out')
+    expect(html).toContain('>Settings</button>')
     expect(html).not.toContain('vendo-root')
     expect(html).not.toContain('vendo-client')
   })

@@ -83,7 +83,7 @@ export const resolveVaultCap = (
 export const assertCapAllowed = (tier: NativeTier | undefined, preference: VaultCapPreference): void => {
   if (tier === 'pro') return
   if (preference === null || preference > FREE_VAULT_CAP_BYTES) {
-    throw new Error('A larger or unlimited vault requires manorama Pro')
+    throw new Error('A larger or unlimited vault requires manorama Visionary')
   }
 }
 

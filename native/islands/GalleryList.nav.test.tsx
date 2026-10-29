@@ -117,9 +117,9 @@ const fireBack = async () => {
 }
 
 describe('navigation reducer drives the shell surfaces', () => {
-  test('the account surface is the library screen', async () => {
+  test('the signed-out shell lands on Welcome', async () => {
     const container = await mount()
-    expect(container.querySelector('.native-account, [class*="account"]')).not.toBeNull()
+    expect(container.querySelector('.native-welcome')).not.toBeNull()
     expect(container.querySelector('.viewer-stage')).toBeNull()
   })
 
@@ -197,6 +197,9 @@ describe('hardware back sees the gallery on the nav stack', () => {
     const url = String(input)
     urls.push(url)
     if (url.includes('/api/gallery/')) return new Response(galleryPayload, { status: 200, headers: { 'content-type': 'application/json' } })
+    // The account list and the create call share the endpoint — one body
+    // answers both: an empty list, and a galleryUrl the create can parse.
+    if (url.includes('/api/galleries')) return new Response(JSON.stringify({ galleries: [], galleryUrl: 'http://api.test/ana/coast' }), { status: 200, headers: { 'content-type': 'application/json' } })
     return new Response('{}', { status: 404 })
   }
 
@@ -209,18 +212,18 @@ describe('hardware back sees the gallery on the nav stack', () => {
     try {
       const rejectedBefore = rejections.length
       const container = await mount()
-      // The manual form lives in the account drawer — open it the same way
-      // the account suite does.
-      ;(container.querySelector('[aria-label="Account menu"]') as unknown as HTMLButtonElement).click()
+      // The manual open is the Add sheet: paste a link, name it, and the
+      // create call resolves into the same enterGallery the reducer sees.
+      ;(container.querySelector('.m-btn--primary') as unknown as HTMLButtonElement).click()
       await settle()
-      const form = container.querySelector('.native-another form')
+      const form = container.querySelector('#m-add-gallery-form')
       expect(form).not.toBeNull()
       const inputs = [...form!.querySelectorAll('input')] as unknown as HTMLInputElement[]
       const fire = (input: HTMLInputElement, value: string) => {
         input.value = value
         input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
       }
-      fire(inputs[0], 'ana')
+      fire(inputs[0], 'https://www.dropbox.com/scl/fo/folder/key')
       fire(inputs[1], 'coast')
       await settle()
       ;(form as unknown as { dispatchEvent(event: Event): boolean }).dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)

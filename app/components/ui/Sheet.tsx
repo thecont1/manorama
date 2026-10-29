@@ -44,13 +44,19 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
   // host leaves the document (MutationObserver), both independent of hono's
   // effect-cleanup timing.
   const activation = useRef<{ release(): void } | null>(null)
+  const close = () => {
+    // Dismissal is synchronous: a second sheet opened in the same gesture
+    // must never sit underneath a stale overlay that still owns Escape.
+    activation.current?.release()
+    onCloseRef.current()
+  }
 
   useEffect(() => {
     const host = hostRef.current
     if (open && host && !activation.current && typeof document !== 'undefined') {
       const release = pushOverlay({
         host,
-        onEscape: dismissible ? () => onCloseRef.current() : undefined,
+        onEscape: dismissible ? close : undefined,
       })
       const unwatch = watchVisualViewport(host)
       const vv = typeof visualViewport === 'undefined' ? null : visualViewport
@@ -61,15 +67,15 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
       // would re-run and pull focus off whatever the user is typing in.
       headingRef.current?.focus()
       const frame = requestAnimationFrame(() => setEntered(true))
-      const observer = new MutationObserver(() => {
+      const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(() => {
         if (!host.isConnected) activation.current?.release()
       })
-      observer.observe(document.body, { childList: true, subtree: true })
+      observer?.observe(document.body, { childList: true, subtree: true })
       activation.current = {
         release() {
           activation.current = null
           cancelAnimationFrame(frame)
-          observer.disconnect()
+          observer?.disconnect()
           vv?.removeEventListener('resize', onVv)
           vv?.removeEventListener('scroll', onVv)
           unwatch()
@@ -98,12 +104,12 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
     <div ref={hostRef} class="m-sheet-host">
       <div
         class={`m-scrim ${entered ? 'm-scrim--open' : ''}`}
-        onClick={() => { if (dismissible) onCloseRef.current() }}
+        onClick={() => { if (dismissible) close() }}
       />
       <div class={sheetClasses} style={panelStyle} role="dialog" aria-modal="true" aria-labelledby={headingId}>
         <div class="m-sheet-head">
           <h2 class="m-sheet-title" id={headingId} tabIndex={-1} ref={headingRef}>{title}</h2>
-          {dismissible ? <Button variant="quiet" onClick={() => onCloseRef.current()} aria-label="Close">Close</Button> : null}
+          {dismissible ? <Button variant="quiet" onClick={close} aria-label="Close">Close</Button> : null}
         </div>
         <div class="m-sheet-body">{children}</div>
         {footer ? <div class="m-sheet-foot">{footer}</div> : null}
