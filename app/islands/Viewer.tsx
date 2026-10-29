@@ -891,7 +891,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       settleTo(navDestXRef.current, instant)
     }
     if (mode === 'vertical') {
-      requestAnimationFrame(() => document.querySelector(`[data-image-id="${images[next]?.id}"]`)?.scrollIntoView({ block: 'start', behavior: instant ? 'auto' : 'smooth' }))
+      requestAnimationFrame(() => stageRef.current?.querySelector(`[data-image-id="${images[next]?.id}"]`)?.scrollIntoView({ block: 'start', behavior: instant ? 'auto' : 'smooth' }))
     }
   }
 
@@ -1124,7 +1124,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     boundsDirtyRef.current = true
     const target = mode === 'strip' ? -imageStart(index) : 0
     renderX(target, false)
-    if (mode === 'vertical') requestAnimationFrame(() => document.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
+    if (mode === 'vertical') requestAnimationFrame(() => stageRef.current?.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
   }, [mode, foldActive])
 
   const applyStageMetrics = () => {
