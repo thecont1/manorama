@@ -162,8 +162,20 @@ export const getSessionAppUserId = async (): Promise<string | undefined> => {
 
 export const beginProviderSignIn = async (provider: AuthProvider, apiBase: string, link = false): Promise<void> => {
   const url = new URL(`/auth/${provider}`, `${apiBase.replace(/\/+$/, '')}/`)
-  url.searchParams.set('native', '1')
-  if (link) url.searchParams.set('link', '1')
+  if (link) {
+    // The in-app browser holds no manorama cookie: mint the one-minute link
+    // handoff so the opened flow binds to this account without it.
+    const token = await getSessionToken()
+    const response = await fetch(`${apiBase.replace(/\/+$/, '')}/api/account/link-handoff`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const payload = (await response.json().catch(() => null)) as { linkToken?: string } | null
+    if (!response.ok || !payload?.linkToken) throw new Error('That sign-in method could not be connected.')
+    url.searchParams.set('link', payload.linkToken)
+  } else {
+    url.searchParams.set('native', '1')
+  }
   await Browser.open({ url: url.toString(), toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 

@@ -91,6 +91,22 @@ export const verifyNativeHandoffToken = async (token: string, secret: string) =>
   return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
 }
 
+/** A one-minute, purpose-bound token that lets a client open an identity-link
+ * flow in a browser that holds no manorama cookie. Minted only behind a live
+ * bearer session, so the URL never carries the long-lived session token. */
+export const createLinkHandoffToken = (accountId: string, secret: string) =>
+  new SignJWT({ sub: accountId, typ: 'link-handoff' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(`${NATIVE_HANDOFF_TTL_SECONDS}s`)
+    .sign(sessionKey(secret))
+
+export const verifyLinkHandoffToken = async (token: string, secret: string) => {
+  const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] }).catch(() => ({ payload: null }))
+  if (payload?.typ !== 'link-handoff') return null
+  return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
+}
+
 const verifySessionToken = async (token: string, secret: string) => {
   const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
   if (payload.typ !== undefined) return null

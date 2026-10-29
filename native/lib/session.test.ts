@@ -73,12 +73,26 @@ describe('beginProviderSignIn', () => {
       writable: true,
       value: { open: (url: string) => { opened.push(url); return null } },
     })
+    // A link flow mints the one-minute handoff under the bearer session,
+    // then opens the auth route with `?link={token}` — never `native=1&link=1`,
+    // which the route cannot bind without a cookie.
+    const storage = installLocalStorage()
+    storage.set(TOKEN_KEY, 'bearer-xyz')
+    const fetcher = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = (async (url: string | URL) => {
+      calls.push(String(url))
+      return new Response(JSON.stringify({ linkToken: 'link-tok' }), { status: 200 })
+    }) as typeof fetch
     try {
       await beginProviderSignIn('dropbox', 'https://manorama.xyz', true)
+      expect(calls).toEqual(['https://manorama.xyz/api/account/link-handoff'])
       expect(opened).toEqual([
-        'https://manorama.xyz/auth/dropbox?native=1&link=1',
+        'https://manorama.xyz/auth/dropbox?link=link-tok',
       ])
     } finally {
+      globalThis.fetch = fetcher
+      restoreLocalStorage()
       Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: realWindow })
     }
   })

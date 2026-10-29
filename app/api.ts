@@ -11,7 +11,7 @@ import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from '.
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
-import { createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
@@ -424,6 +424,17 @@ export const createManoramaApi = () => {
   api.use('/api/galleries/*', requireSession())
   api.use('/api/account', requireSession())
   api.use('/api/account/*', requireSession())
+
+  /** Mints the one-minute link handoff a client browser needs to open
+   * `/auth/{provider}?link={token}` — the in-app browser holds no manorama
+   * cookie, so the link intent binds to this session's account instead. */
+  api.post('/api/account/link-handoff', async (c) => {
+    c.header('Cache-Control', 'no-store')
+    const session = c.get('manoramaSession')
+    const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
+    if (!secret) return c.json({ error: 'Linking is temporarily unavailable' }, 503)
+    return c.json({ linkToken: await createLinkHandoffToken(session.accountId, secret) })
+  })
 
   api.get('/api/galleries', async (c) => {
     const session = c.get('manoramaSession')
