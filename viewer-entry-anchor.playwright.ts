@@ -93,7 +93,12 @@ test('a slow decode after the old reseed cap still docks the entered photograph'
   const earlier = page.locator(`.viewer-frame[data-index="${at.index - 1}"]`).first()
   const earlierSrc = await earlier.locator('img.frame-img').first().getAttribute('src')
   test.skip(!earlierSrc, 'the preceding photograph has no mounted image to reshape')
-  widen = new URL(earlierSrc!, base).href
+  // The route can only replace a network fetch. A data: or blob: source is
+  // already in memory, so the width-change assertion below could never pass
+  // for the right reason — pick a different gallery rather than measure it.
+  const widenUrl = new URL(earlierSrc!, base)
+  test.skip(!/^https?:$/.test(widenUrl.protocol), 'the preceding photograph is not served over http(s)')
+  widen = widenUrl.href
   const before = await earlier.boundingBox()
 
   // Longer than the retired 150-frame cap, while the earlier frames are still withheld.
