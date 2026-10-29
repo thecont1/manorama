@@ -127,7 +127,9 @@ export const LibraryRail = ({ galleryId, images, loader, title, onOpen }: Props)
     // A rail scrolled out of the page stops watching its cells and drops
     // every lease — offscreen cards hold no media.
     const gate = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) for (const cell of cells) observer.observe(cell)
+      // Batches arrive oldest-first — the last entry is the rail's state
+      // now, so a rapid exit-and-return re-watches its cells.
+      if (entries.at(-1)?.isIntersecting) for (const cell of cells) observer.observe(cell)
       else { observer.disconnect(); setVisible(new Set()) }
     })
     gate.observe(rail)

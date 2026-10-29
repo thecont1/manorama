@@ -235,4 +235,40 @@ describe('LibraryRail', () => {
     await settle()
     expect(recorded.cells.length).toBe(before + 1)
   })
+
+  test('a batched viewport exit-and-return still loads the rail', async () => {
+    class StubObserver {
+      static instances: StubObserver[] = []
+      readonly targets = new Set<unknown>()
+      constructor(private readonly callback: IntersectionObserverCallback) {
+        StubObserver.instances.push(this)
+      }
+      observe(el: unknown) { this.targets.add(el) }
+      unobserve(el: unknown) { this.targets.delete(el) }
+      disconnect() { this.targets.clear() }
+      fireBatch(entries: Array<{ target: unknown; isIntersecting: boolean }>) {
+        this.callback(entries as IntersectionObserverEntry[], this as unknown as IntersectionObserver)
+      }
+    }
+    globals.IntersectionObserver = StubObserver as unknown as typeof IntersectionObserver
+    const { container, recorded } = await mount({ count: 3 })
+    // The rail builds its viewport gate first and the cell observer second.
+    const [gate, cells] = StubObserver.instances
+    const rail = container.querySelector('.lib-rail') as unknown
+
+    // Off-screen: cell watching stops entirely.
+    gate.fireBatch([{ target: rail, isIntersecting: false }])
+    expect(cells.targets.size).toBe(0)
+
+    // Exit and return delivered as one batch — the latest entry decides,
+    // so the rail re-watches without needing another transition first.
+    gate.fireBatch([
+      { target: rail, isIntersecting: false },
+      { target: rail, isIntersecting: true },
+    ])
+    expect(cells.targets.size).toBe(3)
+    cells.fireBatch([...container.querySelectorAll('[data-rail-cell]')].map((el) => ({ target: el, isIntersecting: true })))
+    await settle()
+    expect(recorded.cells.length).toBeGreaterThan(0)
+  })
 })
