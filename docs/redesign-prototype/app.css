@@ -499,6 +499,7 @@ img { display: block; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  .curtain, .curtain > * { transition-duration: .2s !important; }
 }
 
 /* ───────── Gallery details: one header, then only action rows ─────────

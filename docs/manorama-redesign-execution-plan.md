@@ -102,7 +102,7 @@ Goal: handoff section 4 for Library, Add sheet and Gallery details.
 - Kept galleries: read thumbnails from the vault, switching each to its local copy as it lands. Streamed galleries: show the existing item placeholder first, IntersectionObserver near-view loading, fade-in on decode; bounded concurrency (reuse the `thumbs.ts` limits). An optional locally derived colour may only come from bytes already fetched — never another media fetch.
 
 3b. Library (M)
-- Layout: top bar with Settings gear, title and Add pill, status line, sponsored slot (behind the Q1 flag, hidden when off), gallery cards.
+- Layout: top bar with Settings gear, title and Add pill, status line, sponsored slot (house-only restyle of the existing account placement — existing eligibility and `/api/ads/visibility` master suppression unchanged; no new flag, no live AdMob), gallery cards.
 - Card: full-bleed rail (drag after 6px; touch, trackpad and mouse; `min-width: 0` and `minmax(0, 1fr)` to avoid the grid trap), name and sub line with live saving state, progress line, caption, ··· menu.
 - Tapping a thumbnail opens the viewer at that photograph through the curtain; tapping the card opens at the first.
 - Empty state and error state (no galleries; offline; scan failure) in the same visual system.

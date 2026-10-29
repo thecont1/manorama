@@ -138,13 +138,38 @@ describe('navigation reducer drives the shell surfaces', () => {
     expect(urls.some((u) => u.includes('/api/gallery/ana/coast'))).toBe(true)
   })
 
-  test('sign-out resets to the welcome path', async () => {
-    const container = await mount()
-    // A mounted shell without a session is the signed-out/library surface;
-    // the reducer's signed-out target is welcome — covered by the unit
-    // reducer tests. Here we assert the shell renders without crashing and
-    // no viewer is up.
-    expect(container.querySelector('.viewer-stage')).toBeNull()
+  test('sign-out clears the session and reloads onto the welcome path', async () => {
+    installLocalStorage()
+    storage.set('capacitor-storage_manorama.session-token', 'session-token-1')
+    const prevFetch = globals.fetch
+    globals.fetch = async () => new Response('{}', { status: 404 })
+    try {
+      const container = await mount()
+      ;(container.querySelector('[aria-label="Account menu"]') as unknown as HTMLButtonElement).click()
+      await settle()
+      const signOutButton = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Sign out') as HTMLButtonElement | undefined
+      expect(signOutButton).not.toBeUndefined()
+      // signOut dispatches signed-out (the reducer's welcome target is
+      // covered in packages/core/owner-navigation.test.ts), clears the
+      // token, and remounts via location.reload — stub the reload so the
+      // assertions are the cleared token and the reload request itself.
+      let reloads = 0
+      const location = dom.location as unknown as { reload: () => void }
+      const prevReload = location.reload
+      location.reload = () => { reloads += 1 }
+      try {
+        signOutButton!.click()
+        await settle()
+        expect(storage.has('capacitor-storage_manorama.session-token')).toBe(false)
+        expect(reloads).toBe(1)
+      } finally {
+        location.reload = prevReload
+      }
+    } finally {
+      globals.fetch = prevFetch
+      storage.clear()
+      restoreLocalStorage()
+    }
   })
 })
 
