@@ -24,13 +24,16 @@ type Props = {
   title: string
   images: readonly WebReorderImage[]
   busy?: boolean
+  /** A failed Save, shown beside the status line so the draft does not look
+   *  committed while the toast behind the overlay is unreadable. */
+  note?: string | null
   onCancel: () => void
   onSave: (orderKeys: readonly string[]) => void
 }
 
 const HINT = 'Tap a photograph to pick it up, then tap where it goes.'
 
-export function WebReorderView({ title, images, busy = false, onCancel, onSave }: Props) {
+export function WebReorderView({ title, images, busy = false, note = null, onCancel, onSave }: Props) {
   const [session, setSession] = useState<ReorderState<WebReorderImage>>(() => createReorderSession(images))
   const dirty = reorderIsDirty(session)
   const held = session.items.find((item) => item.id === session.heldId) ?? null
@@ -72,7 +75,10 @@ export function WebReorderView({ title, images, busy = false, onCancel, onSave }
         start={<Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>}
         end={<Button variant="primary" onClick={() => onSave(session.items.map((item) => item.orderKey))} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>}
       />
-      <p class="web-reorder-status" id="web-reorder-status">{status}</p>
+      <p class="web-reorder-status" id="web-reorder-status">
+        {status}
+        {note ? <span class="web-reorder-note" role="alert">{note}</span> : null}
+      </p>
       <div class="admin-gallery-strip-frame web-reorder-frame">
         <div
           class="admin-gallery-strip"

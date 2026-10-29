@@ -72,4 +72,17 @@ describe('web reorder draft', () => {
     save?.click()
     expect(saved).toEqual([['ref-c', 'ref-a', 'b.jpg']])
   })
+
+  test('a failed Save shows its message beside the status line', () => {
+    const container = dom.document.createElement('div')
+    dom.document.body.appendChild(container)
+    flushSync(() => {
+      render(<WebReorderView title="Kashmir" images={photos()} note="That order could not be saved" onCancel={() => {}} onSave={() => {}} />, container as unknown as HTMLElement)
+    })
+    const root = container as unknown as HTMLElement
+    const status = root.querySelector('#web-reorder-status')
+    const note = status?.querySelector('.web-reorder-note')
+    expect(note?.textContent).toBe('That order could not be saved')
+    expect(note?.getAttribute('role')).toBe('alert')
+  })
 })

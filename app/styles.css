@@ -2362,7 +2362,8 @@ a.m-btn { text-decoration: none; }
   background: var(--m-ground);
   color: var(--m-ink);
 }
-.web-reorder-status { margin: 0; padding: 8px 20px 12px; color: var(--m-secondary); font-size: 16px; }
+.web-reorder-status { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 8px 20px 12px; color: var(--m-secondary); font-size: 16px; }
+.web-reorder-note { color: var(--m-negative, #ff4d6d); font-weight: 600; }
 .web-reorder .admin-gallery-strip-frame {
   width: 100%;
   height: auto;
