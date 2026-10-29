@@ -226,7 +226,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
-  const [adsShow, setAdsShow] = useState(false)
+  const [adsShow, setAdsShow] = useState(true)
   const [theme, setTheme] = useState<Theme>(() =>
     readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
 
