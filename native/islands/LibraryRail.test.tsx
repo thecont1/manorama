@@ -212,12 +212,14 @@ describe('LibraryRail', () => {
     expect(opened).toEqual([0, 0])
   })
 
-  test('only intersecting cells acquire media', async () => {
+  test('only intersecting cells acquire media, and only while the rail is on the page', async () => {
     class StubObserver {
-      static last: StubObserver | undefined
+      static all: StubObserver[] = []
       readonly targets = new Set<unknown>()
-      constructor(private readonly callback: IntersectionObserverCallback) {
-        StubObserver.last = this
+      readonly root: unknown
+      constructor(private readonly callback: IntersectionObserverCallback, options?: { root?: unknown }) {
+        this.root = options?.root ?? null
+        StubObserver.all.push(this)
       }
       observe(el: unknown) { this.targets.add(el) }
       unobserve(el: unknown) { this.targets.delete(el) }
@@ -230,6 +232,7 @@ describe('LibraryRail', () => {
         this.callback(entries, this as unknown as IntersectionObserver)
       }
     }
+    StubObserver.all = []
     globals.IntersectionObserver = StubObserver as unknown as typeof IntersectionObserver
     const recorded = recordedLoader()
     const container = dom.document.createElement('div')
@@ -237,20 +240,41 @@ describe('LibraryRail', () => {
     render(<LibraryRail galleryId="g-1" images={images(3)} loader={recorded.loader as never} title="Kashmir" onOpen={() => {}} />, container as unknown as HTMLElement)
     await settle()
 
-    // Nothing intersecting yet — offscreen media never starts.
-    expect(recorded.cells).toHaveLength(0)
     const cells = [...(container as unknown as HTMLElement).querySelectorAll<HTMLElement>('[data-rail-cell]')]
-    StubObserver.last!.fire([cells[1]])
+    const rail = (container as unknown as HTMLElement).querySelector('.lib-rail')
+    const pageGate = StubObserver.all.find((observer) => observer.root === null)
+    const cellObserver = StubObserver.all.find((observer) => observer.root === rail)
+    expect(cellObserver).toBeTruthy()
+    expect(pageGate).toBeTruthy()
+    // The page gate owns the rail. Cells stay unwatched until it says the card is on screen.
+    expect(pageGate!.targets.has(rail)).toBe(true)
+    expect(cellObserver!.targets.size).toBe(0)
+    expect(recorded.cells).toHaveLength(0)
+
+    // A cell callback before the gate opens must not start media.
+    cellObserver!.fire([cells[1]])
+    await settle()
+    expect(recorded.cells).toHaveLength(0)
+
+    pageGate!.fire([rail])
+    await settle()
+    expect([...cellObserver!.targets]).toEqual(cells)
+    cellObserver!.fire([cells[1]])
     await settle()
     expect(recorded.cells.map((cell) => cell.entryId)).toEqual(['thumb:photo-1'])
 
-    // Leaving the window releases the lease.
-    StubObserver.last!.fire([])
+    // Leaving the page drops every lease and stops watching cells.
+    pageGate!.fire([])
     await settle()
     expect(recorded.releases).toBe(1)
+    expect(cellObserver!.targets.size).toBe(0)
+    cellObserver!.fire([cells[0], cells[2]])
+    await settle()
+    expect(recorded.cells).toHaveLength(1)
 
-    // Entering again re-acquires.
-    StubObserver.last!.fire([cells[0], cells[2]])
+    // Coming back re-watches, and a later cell intersection acquires again.
+    pageGate!.fire([rail])
+    cellObserver!.fire([cells[0], cells[2]])
     await settle()
     expect(recorded.cells.map((cell) => cell.entryId)).toEqual([
       'thumb:photo-1', 'thumb:photo-0', 'thumb:photo-2',
