@@ -9,7 +9,7 @@ import GalleryList from './GalleryList'
 import type { AdFrame } from '../../packages/core/adframe'
 import type { AdPolicyInput } from '../lib/ads'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
-import type { OfflineGalleryStore, OfflineGridGallery } from '../lib/offline-gallery'
+import { offlineGalleryId, type OfflineGalleryStore, type OfflineGridGallery } from '../lib/offline-gallery'
 
 /**
  * The account slot is a lifecycle feature — entitlement flips and slow
@@ -538,8 +538,9 @@ describe('signed-in account area', () => {
     expect(container.querySelector('.native-list-card')).not.toBeNull()
     expect(html).not.toContain('Hello,')
     expect(html).not.toContain('You are a Free User')
-    // The status line under the heading reports vault state first.
-    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 1 kept on this iPhone.')
+    // The status line under the heading reports vault state first — kept
+    // means a complete committed copy, and nothing is saved yet.
+    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 0 kept on this iPhone.')
     expect(html).toContain('Kashmir')
     expect(html).toContain('A winter album')
     expect(html).toContain('kashmir')
@@ -938,6 +939,27 @@ describe('signed-in account area', () => {
     resolveAccount(json({ galleries: [] }))
     await settle()
     expect(container.querySelector('[data-cached-gallery="saved-album"]')?.textContent).toContain('not in the online account list')
+  })
+
+  test('the kept count follows committed copies, not the stream-only flag', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: json({ galleries: [accountSummary({ slug: 'kashmir' })] }) })
+    // A committed vault copy: status cached, images meeting the list's count.
+    const kashmirId = await offlineGalleryId({ owner: 'quiet-owner', slug: 'kashmir' })
+    const store = {
+      listGalleries: async () => [
+        { status: 'cached', galleryId: kashmirId, owner: 'quiet-owner', slug: 'kashmir', title: 'Kashmir', images: 12 },
+      ],
+      listGridGalleries: async () => [],
+      readThumbnail: async () => undefined,
+    } as unknown as OfflineGalleryStore
+    const { container } = mountAccount({ store })
+    await settle()
+
+    expect(container.querySelector('.native-library-finding')?.textContent).toBe('1 gallery, 1 kept on this iPhone.')
+    // The card agrees — the same predicate drives its device word.
+    expect(container.querySelector('.lib-card-sub')?.textContent).toContain('On this iPhone')
   })
 
   test('sign out clears the session, the owner slug, and billing', async () => {

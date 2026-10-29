@@ -1299,10 +1299,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // rectangle paints over it, the reserve carries the house creative.
   const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
   // The status line under the title reports vault activity first, then how
-  // many galleries live on this iPhone. Stream-only flags count as not kept;
-  // an unset policy follows the vault default.
+  // many galleries live on this iPhone. Kept means what the cards mean: not
+  // stream-only, with a committed vault copy holding every image.
   const keptOnDevice = ownerSlug
-    ? retainedAccountGalleries.filter((gallery) => galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] !== true).length
+    ? retainedAccountGalleries.filter((gallery) => {
+        if (galleryPolicies?.[galleryPolicyKey(ownerSlug, gallery.slug)] === true) return false
+        const summary = galleryIds[gallery.slug] ? vaultGalleries.get(galleryIds[gallery.slug]) : undefined
+        return summary?.status === 'cached' && summary.images >= gallery.imageCount
+      }).length
     : 0
   const libraryFinding = vaultProgress && vaultProgress.total > 0
     ? `${selection.slug} is saving to this iPhone, ${vaultProgress.completed} of ${vaultProgress.total}.`
