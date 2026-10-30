@@ -55,7 +55,8 @@ type Props = {
 const providerName = (provider: string) => ({ apple: 'Apple', google: 'Google', dropbox: 'Dropbox' } as Record<string, string>)[provider] ?? provider
 
 /** One owner settings surface. Existing account, billing and vault controllers
- * remain authoritative; this view only moves their controls into one place. */
+ * remain authoritative; this view only moves their controls into one place.
+ * The groups follow the prototype: Account, Plan, This iPhone, About. */
 export default function Settings(props: Props) {
   const {
     accountName, ownerSlugDraft, identities, identityNote, tier, retainedCount, galleryLimit,
@@ -64,9 +65,19 @@ export default function Settings(props: Props) {
   } = props
   const linked = new Set((identities ?? []).map((identity) => identity.provider))
   return (
-    <main class="m-owner m-screen m-screen--fixed native-settings">
-      <TopBar title="Settings" logo={false} start={<Button variant="quiet" onClick={props.onBack} aria-label="Back">‹ Back</Button>} />
+    <main class="m-owner m-screen m-screen--fixed native-settings" data-screen="settings">
+      <TopBar
+        start={(
+          <Button variant="quiet" onClick={props.onBack} aria-label="Back to the library" class="m-backbtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>
+            Library
+          </Button>
+        )}
+      />
       <div class="m-owner-content native-settings-content">
+        <div class="native-settings-heading">
+          <h1>Settings</h1>
+        </div>
         <ActionGroup label="Account">
           <ActionRow label="Name" value={accountName} chevron={false} />
           <div class="m-panel m-settings-address">
@@ -83,9 +94,6 @@ export default function Settings(props: Props) {
               onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); props.onSaveOwnerSlug() } }}
             /></div>
           </div>
-        </ActionGroup>
-
-        <ActionGroup label="Sign-in methods">
           {identities === null ? <p class="m-note m-panel-note">Reading sign-in methods…</p> : null}
           {identities?.map((identity) => (
             <ActionRow
@@ -98,18 +106,30 @@ export default function Settings(props: Props) {
             <ActionRow label={`Connect ${providerName(provider)}`} onClick={() => props.onLinkIdentity(provider)} />
           ))}
           {identityNote ? <p class="m-note m-panel-note" role="status">{identityNote}</p> : null}
-          <p class="m-note m-panel-note">Keep at least one way to sign in.</p>
+          {identities !== null ? <p class="m-note m-panel-note">Keep at least one way to sign in.</p> : null}
         </ActionGroup>
 
         <ActionGroup label="Plan">
-          <ActionRow label="Plan" value={tier === 'pro' ? 'Visionary' : 'Free'} chevron={false} />
-          <ActionRow label="Editable galleries" value={`${retainedCount} of ${galleryLimit}`} chevron={false} />
-          <ActionRow label={tier === 'pro' ? 'Manage Visionary' : 'Learn about Visionary'} onClick={props.onOpenVisionary} />
-          <p class="m-note m-panel-note">The 30-day limit applies to overflow gallery retention, not to encrypted copies on this device.</p>
+          <div class="m-settings-plan">
+            <div class="m-settings-usage"><b>{tier === 'pro' ? 'Visionary' : 'Free'}</b><span>{retainedCount} of {galleryLimit} galleries</span></div>
+            {/* The pink data hue marks the count; the bar itself is the
+                measure, so it carries the progressbar role. */}
+            <span
+              class="m-meter-track"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={galleryLimit}
+              aria-valuenow={retainedCount}
+              aria-label={`${retainedCount} of ${galleryLimit} galleries in use`}
+            ><i class="m-meter-fill" style={{ width: `${Math.min(100, (retainedCount / Math.max(1, galleryLimit)) * 100)}%` }} /></span>
+            <p class="m-note">Visionary keeps up to 99 galleries and gives more room on this iPhone.</p>
+            <Button variant="secondary" block onClick={props.onOpenVisionary}>{tier === 'pro' ? 'Manage Visionary' : 'Go Visionary'}</Button>
+          </div>
         </ActionGroup>
 
-        <ActionGroup label="Appearance">
-          <div class="m-panel m-settings-segmented">
+        <ActionGroup label="This iPhone" note="These settings stay on this device.">
+          <div class="m-panel m-settings-control">
+            <label>Appearance</label>
             <Segmented
               label="Appearance"
               value={theme}
@@ -117,6 +137,25 @@ export default function Settings(props: Props) {
               onChange={(value) => props.onTheme(value as Theme)}
             />
           </div>
+          <div class="m-panel m-settings-control">
+            <label>New galleries</label>
+            {loadPolicy === null
+              ? <p class="m-note">Reading…</p>
+              : <Segmented
+                  label="New galleries"
+                  value={loadPolicy}
+                  options={[{ value: 'vault', label: 'Keep a copy' }, { value: 'stream', label: 'Stream only' }]}
+                  onChange={(value) => { if (!props.loadPolicyBusy) props.onLoadPolicy(value as VaultLoadPolicy) }}
+                />}
+          </div>
+          <ActionRow
+            label="Photo picker"
+            control={<Switch checked={globalViewEnabled === true} label="Let galleries show photographs already saved on this iPhone" disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
+          />
+          {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
+          <p class="m-note m-panel-note">Everything stays encrypted and on the device. The picker lets galleries show photographs already saved on this iPhone.</p>
+          {deviceGalleries.map((gallery) => <ActionRow label={gallery.title} value={`${gallery.itemCount} photographs`} chevron={Boolean(gallery.publicGallerySlug)} onClick={gallery.publicGallerySlug ? () => props.onOpenDeviceGallery(gallery) : undefined} />)}
+          <VaultSettings controller={props.controller} tier={tier} embedded />
         </ActionGroup>
 
         {houseCards ? <ActionGroup label="House cards">
@@ -124,30 +163,9 @@ export default function Settings(props: Props) {
           {houseCards.actions.map((action) => <ActionRow label={action.label} onClick={action.onClick} disabled={action.disabled} />)}
         </ActionGroup> : null}
 
-        <ActionGroup label="This device">
-          <div class="m-panel m-settings-control">
-            <label for="settings-load-policy">When opening an online gallery</label>
-            <select id="settings-load-policy" value={loadPolicy ?? 'vault'} disabled={props.loadPolicyBusy || loadPolicy === null} onChange={(event) => props.onLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}>
-              <option value="vault">Download to encrypted vault (default)</option>
-              <option value="stream">Stream from cloud when needed</option>
-            </select>
-          </div>
-          <ActionRow
-            label="Expanded photo picker"
-            control={<Switch checked={globalViewEnabled === true} label="Keep photos from this device ready to choose in galleries" disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
-          />
-          {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
-          <p class="m-note m-panel-note">Encrypted copies stay app-private. The picker setting expands native scope; the current-gallery selector remains available.</p>
-          {deviceGalleries.map((gallery) => <ActionRow label={gallery.title} value={`${gallery.itemCount} photographs`} chevron={Boolean(gallery.publicGallerySlug)} onClick={gallery.publicGallerySlug ? () => props.onOpenDeviceGallery(gallery) : undefined} />)}
-          <VaultSettings controller={props.controller} tier={tier} embedded />
-        </ActionGroup>
-
         <ActionGroup label="About">
           <ActionRow label="Privacy Policy" onClick={props.onOpenPrivacy} />
           <ActionRow label="Mahesh Shantaram · thecontrarian.in" onClick={props.onOpenAuthor} />
-        </ActionGroup>
-
-        <ActionGroup label="Sign out and delete">
           <ActionRow label="Sign out" onClick={props.onSignOut} />
           {deleteConfirming ? <div class="m-panel m-settings-delete">
             <p>This removes your galleries, device catalogue and sign-in methods from manorama. Nothing at the source is touched. If you subscribe, cancel first — App Store: Settings › Subscriptions; web: your Stripe receipt.</p>

@@ -144,6 +144,27 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
           <p class="native-vault-note">Measuring encrypted storage…</p>
         )}
 
+        {snapshot ? (
+          <div class="native-vault-summary">
+            <div class="native-vault-summary-line">
+              <span>Encrypted copies</span>
+              <span>{snapshot.cap === null
+                ? `${formatBytes(snapshot.usage.measuredBytes)} — no storage limit`
+                : `${formatBytes(snapshot.usage.measuredBytes)} of ${formatBytes(snapshot.cap)}`}</span>
+            </div>
+            {snapshot.cap !== null ? (
+              <span
+                class="m-meter-track native-vault-meter"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={snapshot.cap}
+                aria-valuenow={snapshot.usage.measuredBytes}
+                aria-label={`${formatBytes(snapshot.usage.measuredBytes)} of ${formatBytes(snapshot.cap)} stored`}
+              ><i class="m-meter-fill" style={{ width: `${Math.min(100, (snapshot.usage.measuredBytes / snapshot.cap) * 100)}%` }} /></span>
+            ) : null}
+          </div>
+        ) : null}
+
         <label class="native-vault-cap">
           <span>Storage limit</span>
           <select
