@@ -1097,31 +1097,10 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   color: rgba(var(--ink), .46);
   font-size: 12px;
 }
-/* Wide screens — desktop web and the Duo in its wide posture — split the
-   door: brand copy left, sign-in right. The grid needs no markup change:
-   every child lands in column 1 except the .signin orb chooser, which spans
-   the right column for the full height on every platform. */
-@media (min-width: 820px) {
-  .landing-brand {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: clamp(48px, 8vw, 128px);
-    align-items: center;
-    max-width: min(1180px, 100%);
-    text-align: left;
-  }
-  .landing-brand > :where(:not(.signin)) {
-    grid-column: 1;
-    justify-self: stretch;
-  }
-  .landing-brand .brand-mark-wrap { margin-bottom: clamp(20px, 3vw, 36px); }
-  .landing-brand .signin {
-    grid-column: 2;
-    grid-row: 1 / -1;
-    align-self: center;
-    margin-top: 0;
-  }
-}
+/* The door stacks centered at every width — the split brand-left /
+   chooser-right layout only made sense when the chooser was a compact
+   icon row; the pill stack belongs under the copy like on the iPad's
+   wide posture. */
 /* Footer: privacy left, copyright right — shared by landing + admin. */
 .site-footer {
   display: flex;
