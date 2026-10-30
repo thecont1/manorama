@@ -15,6 +15,6 @@ export default createRoute(async (c) => {
   const returning = !!getCookie(c, RETURNING_COOKIE)
   return c.render(
     <PublicWelcome returning={returning} failed={failed} />,
-    { title: 'manorama', description: 'A quiet place to look at photographs, on your own or with anyone.' },
+    { title: 'manorama', description: 'manorama turns a folder of images (either on this device or in the cloud) into a beautiful full-screen hi-res gallery with a custom link of your own' },
   )
 })
