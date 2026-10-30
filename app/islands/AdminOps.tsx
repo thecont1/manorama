@@ -9,6 +9,9 @@ const asDate = (value?: string) => value
   ? new Date(value.replace(' ', 'T') + (value.includes('Z') ? '' : 'Z')).toLocaleString()
   : '—'
 
+/** Consumer-facing provider names, matching the sign-in doors. */
+const PROVIDER_LABEL: Record<string, string> = { apple: 'Apple', dropbox: 'Dropbox', google: 'Google Drive' }
+
 type SortKey = 'account' | 'galleries' | 'devices' | 'signins' | 'lastseen' | 'created' | 'access'
 
 const SORT_KEYS: Record<SortKey, (user: AdminUserSummary) => string | number> = {
@@ -182,7 +185,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
             </tr></thead>
             <tbody>
               {sorted.map((user) => <tr key={user.accountId} class={user.disabledAt ? 'ops-user-disabled' : undefined}>
-                <th scope="row"><span class="ops-user-name">{user.displayName || 'Unnamed account'}</span><span class="ops-user-slug">/{user.ownerSlug} · {user.tier}</span>{user.disabledAt ? <span class="ops-user-flag">sign-in disabled</span> : null}<code class="ops-user-id">{user.accountId}</code></th>
+                <th scope="row"><span class="ops-user-name">{user.displayName || 'Unnamed account'}</span><span class="ops-user-slug">/{user.ownerSlug}{user.primaryProvider ? ` · ${PROVIDER_LABEL[user.primaryProvider] ?? user.primaryProvider}` : ''}</span>{user.disabledAt ? <span class="ops-user-flag">sign-in disabled</span> : null}<code class="ops-user-id">{user.accountId}</code></th>
                 <td>{user.galleryCount}</td>
                 <td>{user.deviceGalleryCount}</td>
                 <td>{user.identityCount}</td>

@@ -20,6 +20,7 @@ import {
   verifyNativeHandoffToken,
 } from '../../lib/session'
 import { TEST_SESSION_SECRET } from '../../lib/test-fixtures'
+import { listUsersForAdmin } from '../../lib/user-repository'
 import dropboxStartRoute from './dropbox'
 import dropboxCallbackRoute from './dropbox/callback'
 import googleStartRoute from './google'
@@ -117,6 +118,10 @@ beforeAll(async () => {
   await applyMigration(db, '0001_users_and_galleries.sql')
   await applyMigration(db, '0005_provider_neutral_accounts.sql')
   await applyMigration(db, '0006_auth_flows.sql')
+  await applyMigration(db, '0007_device_galleries.sql')
+  await applyMigration(db, '0008_master_accounts_and_country.sql')
+  await applyMigration(db, '0009_user_disabled.sql')
+  await applyMigration(db, '0010_session_revocation.sql')
 }, 15_000)
 
 afterAll(async () => {
@@ -711,7 +716,7 @@ describe('the first-time-account interstitial', () => {
     expect(response.headers.get('Cache-Control')).toBe('no-store')
     expect(response.headers.get('Set-Cookie') ?? '').not.toContain(SESSION_COOKIE)
     const html = await response.text()
-    expect(html).toContain('This Google sign-in is new to manorama')
+    expect(html).toContain('This Google Drive sign-in is new to manorama')
     expect(html).toContain('action="/auth/confirm-account"')
     expect(html).toContain('name="token"')
     expect(html).toContain('>Go back</a>')
@@ -757,5 +762,16 @@ describe('the first-time-account interstitial', () => {
     const { response: second } = await runGoogleCallback('google-sub-second')
     expect(second.status).toBe(302)
     expect(second.headers.get('Set-Cookie')).toContain(SESSION_COOKIE)
+  })
+
+  test('the admin overview reports the account\u2019s original provider', async () => {
+    const { app, response } = await runGoogleCallback('google-sub-primary')
+    await completePending(app, response)
+    const googleAccount = await findAccountByIdentity('google', 'google-sub-primary', { DB: db() })
+    await upsertIdentitySignIn({ provider: 'dropbox', subject: 'dbid:PRIMARY', displayName: 'Dbx Primary' }, { DB: db() })
+    const dropboxAccount = await findAccountByIdentity('dropbox', 'dbid:PRIMARY', { DB: db() })
+    const { users } = await listUsersForAdmin({ DB: db() })
+    expect(users.find((u) => u.accountId === googleAccount!.accountId)?.primaryProvider).toBe('google')
+    expect(users.find((u) => u.accountId === dropboxAccount!.accountId)?.primaryProvider).toBe('dropbox')
   })
 })

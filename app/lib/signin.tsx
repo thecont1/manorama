@@ -50,25 +50,29 @@ export const SignInLinks = ({
   next?: string
 }) => (
   <div class="signin">
-    <span class="signin-lead">{returning ? 'Sign in with' : 'Continue with'}</span>
     <div class="signin-icons">
       {[...SIGN_IN_PROVIDERS]
-        // Apple leads the row everywhere — App Review 4.8 requires it given
+        // Apple leads the stack everywhere — App Review 4.8 requires it given
         // no less prominence than the other providers, and one order across
         // web and the shells keeps the door recognisable on every platform.
         .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
-        .map(({ id, label, Glyph }) => (
-          <a
-            key={id}
-            class={anchorClass ? `signin-icon ${anchorClass}` : 'signin-icon'}
-            href={next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`}
-            aria-label={`${returning ? 'Sign in' : 'Continue'} with ${label}`}
-            {...anchorAttrs}
-          >
-            <Glyph />
-            <span class="signin-label">{label}</span>
-          </a>
-        ))}
+        .map(({ id, label, Glyph }) => {
+          // The button reads the whole phrase; the accessible name is the
+          // same string, so WCAG 2.5.3 holds by construction.
+          const text = `${returning ? 'Sign in' : 'Continue'} with ${label}`
+          return (
+            <a
+              key={id}
+              class={anchorClass ? `signin-pill ${anchorClass}` : 'signin-pill'}
+              href={next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`}
+              aria-label={text}
+              {...anchorAttrs}
+            >
+              <Glyph />
+              {text}
+            </a>
+          )
+        })}
     </div>
   </div>
 )

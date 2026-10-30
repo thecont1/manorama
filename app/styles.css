@@ -1039,75 +1039,37 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   margin-top: clamp(56px, 11vw, 96px);
   text-align: center;
 }
-.signin-lead {
-  display: block;
-  margin: 0 0 26px;
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
 .signin-icons {
-  /* Three glyphs in a row, each named beneath. The row is the whole chooser, so
-     no glyph depends on its neighbour's position to be understood. */
+  /* Three stacked pills — the same door anatomy as the ops console and the
+     shells. One column so the longest label ("Continue with Google Drive")
+     sets the rhythm instead of squeezing a row. */
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  gap: clamp(10px, 3vw, 28px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  max-width: 320px;
   margin-inline: auto;
 }
-.signin-icon {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  /* Equal cells, so the glyphs sit at equal intervals however long a name is —
-     "Google Drive" is more than twice "Apple" and would otherwise push the row
-     off centre. */
-  flex: 0 0 clamp(88px, 26vw, 112px);
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  color: rgb(var(--ink));
-  cursor: pointer;
+.signin-pill {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: 999px;
+  background: rgb(var(--ink));
+  color: #111312;
+  font-size: 14px;
+  font-weight: 600;
   text-decoration: none;
+  cursor: pointer;
+  transition: filter 160ms ease;
 }
-/* The visible name is the accessible name too: WCAG 2.5.3 wants the visible
-   label inside the accessible one, and the row has to read on its own. */
-.signin-label {
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: rgba(var(--ink), .62);
-  white-space: nowrap;
-}
-.signin-icon svg {
-  width: 46px;
-  height: 46px;
-  filter: drop-shadow(0 6px 16px rgba(252, 15, 192, .28));
-  transition: transform 200ms cubic-bezier(.3, 1.45, .5, 1), filter 200ms ease;
-  animation: signin-icon-bob 4.6s ease-in-out infinite;
-}
-.signin-icon:nth-child(2) svg { animation-delay: -1.5s; }
-.signin-icon:nth-child(3) svg { animation-delay: -3s; }
-.signin-icon:hover svg,
-.signin-icon:focus-visible svg {
-  transform: translateY(-4px) scale(1.08);
-  filter: drop-shadow(0 10px 22px rgba(252, 15, 192, .45));
-  animation-play-state: paused;
-}
-.signin-icon:focus-visible { outline: none; }
-.signin-icon:active svg { transform: scale(.94); }
-@media (prefers-reduced-motion: reduce) {
-  .signin-icon svg { animation: none; }
-}
-@keyframes signin-icon-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-9px); }
-}
+.signin-pill:hover { filter: brightness(.88); }
+.signin-pill:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.signin-pill svg { width: 20px; height: 20px; flex: none; }
 
 /* The single quiet outline button remains for standalone sign-in anchors —
    today the quick-add dev-seed link. */

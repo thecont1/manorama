@@ -31,6 +31,8 @@ export type AdminUserSummary = UserRecord & {
   galleryCount: number
   deviceGalleryCount: number
   identityCount: number
+  /** Provider of the account's earliest identity — how it first signed in. */
+  primaryProvider?: 'dropbox' | 'google' | 'apple'
   createdAt?: string
   updatedAt?: string
   isMaster: boolean
@@ -256,7 +258,9 @@ export const listUsersForAdmin = async (
         ) THEN 1 ELSE 0 END AS is_master,
         (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
         (SELECT COUNT(*) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
-        (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count
+        (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count,
+        (SELECT i.provider FROM auth_identities i WHERE i.account_id = u.account_id
+          ORDER BY i.created_at ASC, i.provider ASC LIMIT 1) AS primary_provider
       FROM users u
       WHERE (? = '' OR COALESCE(u.last_seen_country, '') = ?)
       ORDER BY bootstrap_order ASC, is_master DESC, u.created_at DESC, u.account_id ASC
@@ -270,6 +274,9 @@ export const listUsersForAdmin = async (
         deviceGalleryCount: Number(row.device_gallery_count) || 0,
         identityCount: Number(row.identity_count) || 0,
         isMaster: Number(row.is_master) === 1,
+        ...(typeof row.primary_provider === 'string'
+          ? { primaryProvider: row.primary_provider as 'dropbox' | 'google' | 'apple' }
+          : {}),
         ...(typeof row.created_at === 'string' ? { createdAt: row.created_at } : {}),
         ...(typeof row.updated_at === 'string' ? { updatedAt: row.updated_at } : {}),
       }]

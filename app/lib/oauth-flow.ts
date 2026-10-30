@@ -209,7 +209,7 @@ const completeSignIn = async (
   return c.redirect(`/${user.ownerSlug}`)
 }
 
-const PROVIDER_LABEL: Record<AuthProvider, string> = { apple: 'Apple', dropbox: 'Dropbox', google: 'Google' }
+const PROVIDER_LABEL: Record<AuthProvider, string> = { apple: 'Apple', dropbox: 'Dropbox', google: 'Google Drive' }
 
 const esc = (value: string) => value
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
