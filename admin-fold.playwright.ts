@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 const base = process.env.GALLERY_URL ?? 'http://localhost:5173'
 const capture = process.env.CAPTURE_URL ?? 'http://localhost:4182'
 for (const mode of ['web', 'native'] as const) {
-  test(`${mode}: account controls stay off a vertical hinge and pane restores focus`, async ({ page, context, request }) => {
+  test(`${mode}: account controls stay off a vertical hinge and settings survives a segment change`, async ({ page, context, request }) => {
     test.setTimeout(50_000)
     await page.setViewportSize({ width: 1100, height: 900 })
     await page.addInitScript(() => {
@@ -26,22 +26,14 @@ for (const mode of ['web', 'native'] as const) {
     await expect(sponsored).toBeVisible()
     const sponsoredBox = (await sponsored.boundingBox())!
     expect(sponsoredBox!.x + sponsoredBox!.width <= 520 || sponsoredBox!.x >= 580).toBe(true)
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
-    await tab.click()
-    const panel = page.getByRole('dialog', { name: 'Account', exact: true })
-    await expect(panel).toBeVisible()
-    await page.waitForTimeout(350)
-    const bounds = (await panel.boundingBox())!
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(520)
-    await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
-    await page.keyboard.press('Escape')
-    await expect(panel).toBeHidden()
-    await expect(tab).toBeFocused()
-    await tab.click()
+    const gear = page.getByRole('button', { name: 'Settings', exact: true })
+    await gear.click()
+    const settings = page.locator(mode === 'web' ? '.web-settings' : '.native-settings')
+    await expect(settings).toBeVisible()
+    // The pushed settings surface survives a segment change.
     await page.setViewportSize({ width: 375, height: 812 })
-    await expect(panel).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(panel).toBeHidden()
-    await expect(tab).toBeFocused()
+    await expect(settings).toBeVisible()
+    await settings.getByRole('button', { name: mode === 'web' ? 'Back' : 'Back to the library', exact: true }).click()
+    await expect(settings).toHaveCount(0)
   })
 }

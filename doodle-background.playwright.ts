@@ -91,11 +91,11 @@ const openDashboard = async (page: Page) => {
   await expect(page.locator('.admin-page')).toBeVisible()
   // `.admin-page` is server-rendered, so its presence proves nothing about
   // the island being live. The background toggle used to be our hydration
-  // beacon; it is gone now, and 5e8495a moved the theme control inside the
-  // account drawer, so wait on the island-rendered account tab instead.
+  // beacon; it is gone now, and the theme control lives inside Settings,
+  // so wait on the island-rendered top bar instead.
   // Deliberately no `networkidle` here — the dashboard polls on an interval,
   // so it never goes idle and the wait would eat the whole test budget.
-  await page.locator('.admin-edge-tab').waitFor({ state: 'visible', timeout: 30000 })
+  await page.locator('.m-topbar').waitFor({ state: 'visible', timeout: 30000 })
 }
 
 /** Clicks an island control that may still be hydrating: a click landing on

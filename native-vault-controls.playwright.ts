@@ -15,8 +15,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(page.locator('main .native-load-policy')).toHaveCount(0)
     await expect(page.locator('main .native-house-cards')).toHaveCount(0)
     await expect(page.locator('.lib-th.is-active')).toHaveCount(0)
-    const menu = page.getByRole('button', { name: 'Account menu', exact: true })
-    if (viewport.width < 820) await expect(menu.locator('.native-account-hamburger')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
     await expect.poll(() => page.locator('.lib-th img').first().evaluate((node) => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0), { timeout: 15000 }).toBe(true)
     // A gallery card reads top-down: the rail of every photograph, then the
     // title row with its ··· menu, then metadata, caption and address.

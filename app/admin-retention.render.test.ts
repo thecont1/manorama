@@ -100,9 +100,9 @@ const seedPipelineOwner = async () => {
 describe('the dashboard renders retention state', () => {
   test('the owner grid keeps its theme control and never paints a doodle field', async () => {
     const html = await renderDashboard(async () => {})
-    // The account drawer leads to Settings; Settings owns appearance.
-    expect(html).toContain('aria-label="Account"')
-    expect(html).toContain('>Settings</button>')
+    // The top bar gear leads to Settings; Settings owns appearance.
+    expect(html).toContain('class="m-topbar"')
+    expect(html).toContain('aria-label="Settings"')
     expect(renderSettings()).toContain('aria-label="Appearance"')
     // Doodles belong to gallery pages only: the account page must ship no
     // background layer, no has-doodle surface, and no background toggle.
@@ -112,12 +112,12 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-background-toggle')
   })
 
-  test('the account opens from an edge tab and editor rails need no repeated heading', async () => {
+  test('the account opens from the top bar gear and editor rails need no repeated heading', async () => {
     const html = await renderDashboard(seedPipelineOwner)
-    expect(html).toContain('class="admin-edge-tab"')
-    expect(html).toContain('aria-controls="admin-account-drawer"')
-    expect(html).toContain('aria-expanded="false"')
-    expect(html).toContain('aria-label="Close account menu"')
+    expect(html).toContain('class="m-topbar"')
+    expect(html).toContain('aria-label="Settings"')
+    expect(html).not.toContain('admin-edge-tab')
+    expect(html).not.toContain('admin-account-drawer')
     expect(html).not.toContain('admin-menu-bars')
     expect(html).not.toContain('admin-gallery-editor-label')
     expect(html).not.toContain('Photo Editor')
@@ -125,17 +125,17 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
 
-  test('the Library leads with its heading and ends on the plan line', async () => {
+  test('the Library leads with its heading and keeps the plan line in Settings', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     // The account workbench moved off the Library: address lives in
-    // Settings › Account, the plan summary in the quiet foot line.
+    // Settings › Account, the plan summary in Settings › Plan.
     expect(html).not.toContain('class="admin-overview"')
     expect(html).not.toContain('aria-label="Welcome to manorama"')
     expect(html).not.toContain('admin-owner-slug-input')
+    expect(html.indexOf('class="m-topbar"')).toBeLessThan(html.indexOf('class="admin-library-heading"'))
     expect(html.indexOf('class="admin-library-heading"')).toBeLessThan(html.indexOf('class="lib-list"'))
-    expect(html.indexOf('class="lib-list"')).toBeLessThan(html.indexOf('class="admin-lib-foot"'))
+    expect(html).not.toContain('class="admin-lib-foot"')
     expect(html).toContain('aria-labelledby="galleries-heading"')
-    expect(html).toContain('3 of 3 galleries · Free')
   })
 
   test('a pipeline card folds the lock into its metadata line and Details carries the upgrade path', async () => {
@@ -242,7 +242,7 @@ describe('the dashboard renders retention state', () => {
 
   test('Settings carries the self-serve delete-account controls', async () => {
     const html = await renderDashboard(async () => {})
-    expect(html).toContain('>Settings</button>')
+    expect(html).toContain('aria-label="Settings"')
     const settings = renderSettings({ deleteConfirm: 'test-owner' })
     expect(settings).toContain('m-settings-delete')
     expect(settings).toContain('Type your URL name (test-owner) to confirm')

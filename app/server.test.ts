@@ -144,7 +144,7 @@ describe('owner dashboard authentication', () => {
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('>Library<')
-    expect(html).toContain('>Settings</button>')
+    expect(html).toContain('aria-label="Settings"')
     expect(html).not.toContain('vendo-root')
     expect(html).not.toContain('vendo-client')
   })

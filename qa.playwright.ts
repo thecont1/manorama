@@ -2403,11 +2403,14 @@ test("owner admin lists galleries without a selector and remains noindex", async
   // so the load event legitimately outlasts a 30s goto. Every assertion
   // below polls a locator — none needs the load event itself.
   await page.goto(BASE + "/" + OWNER, { waitUntil: "domcontentloaded" });
-  // The account chrome moved into the slide-out drawer (5e8495a); the
-  // page's own h1 is now the galleries heading.
+  // The account chrome is the shared top bar — centred mark, Settings
+  // gear; the page's own h1 is the galleries heading.
   await expect(page.locator("h1.admin-galleries-heading")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Add", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Settings", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".lib-card").first()).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveCount(0);
@@ -2418,13 +2421,8 @@ test("owner admin lists galleries without a selector and remains noindex", async
   await expect(
     page.locator(".lib-card").first().locator(".lib-card-sub"),
   ).toContainText(/\d+ photographs?/);
-  await expect(page.locator(".admin-brand-title")).toHaveCSS(
-    "font-family",
-    /Bricolage Grotesque/i,
-  );
-  // The brand tagline italic moved out of the workbench with the redesign;
-  // the drawer's brand mark is the only branded element left to assert.
-  await expect(page.locator(".admin-brand-logo")).toHaveAttribute(
+  // The top bar's mark is the only branded element left to assert.
+  await expect(page.locator(".m-topbar-logo")).toHaveAttribute(
     "src",
     "/manorama-merged-logo.png",
   );
@@ -3429,15 +3427,27 @@ test.describe("retention policy", () => {
     });
     const page = await context.newPage();
     await page.goto(`${BASE}/${RETENTION_OWNER}`, { waitUntil: "domcontentloaded" });
-    // The retention disclosure lives in the account drawer now (5e8495a).
-    await page.getByRole("button", { name: "Account menu", exact: true }).click();
-    await expect(page.getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
+    // The retention disclosure lives in Settings › Plan.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator(".web-settings").getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
+    await page.locator(".web-settings").getByRole("button", { name: "Back", exact: true }).click();
     const card = page.locator('[data-gallery-card="ui-d"]');
-    await expect(card).toContainText("Temporary ·");
-    await expect(card.locator('a[href^="mailto:"]', { hasText: "Upgrade" })).toBeVisible();
-    expect(await card.locator('[aria-disabled="true"]').count()).toBeGreaterThan(0);
-    await expect(card.getByLabel("Delete ui-d")).toBeEnabled();
-    await expect(page.locator('[data-gallery-card="ui-a"] [aria-disabled="true"]')).toHaveCount(0);
+    await expect(card.locator(".lib-card-sub")).toContainText("Temporary gallery");
+    // Locked galleries keep management but lose mutation: Reorder is
+    // disabled, removal stays armed, and the upgrade path lives in Details.
+    await card.locator(".lib-card-menu").click();
+    let menu = page.locator(".lib-menu");
+    await expect(menu.getByRole("button", { name: "Reorder photographs", exact: true })).toBeDisabled();
+    await expect(menu.getByRole("button", { name: "Remove gallery", exact: true })).toBeEnabled();
+    await menu.getByRole("button", { name: "Gallery details", exact: true }).click();
+    const details = page.locator('[data-screen="details"]');
+    await expect(details.getByRole("link", { name: "Upgrade", exact: true })).toHaveAttribute("href", /^mailto:/);
+    await details.getByRole("button", { name: "Back", exact: true }).click();
+    const freeCard = page.locator('[data-gallery-card="ui-a"]');
+    await freeCard.locator(".lib-card-menu").click();
+    menu = page.locator(".lib-menu");
+    await expect(menu.getByRole("button", { name: "Reorder photographs", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
     await context.close();
   });
 });
