@@ -2409,45 +2409,34 @@ test("owner admin lists galleries without a selector and remains noindex", async
   await expect(
     page.getByRole("button", { name: "Add", exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".admin-gallery-card").first()).toBeVisible();
+  await expect(page.locator(".lib-card").first()).toBeVisible();
   await expect(page.getByRole("combobox")).toHaveCount(0);
   await expect(page.getByText("manorama / gallery workbench")).toHaveCount(0);
   await expect(page.getByText("Bring a folder. Make a gallery.")).toHaveCount(
     0,
   );
   await expect(
-    page.locator(".admin-gallery-card").first().locator(".admin-gallery-count"),
-  ).toHaveText(/\(\d+ photos\)/);
+    page.locator(".lib-card").first().locator(".lib-card-sub"),
+  ).toContainText(/\d+ photographs?/);
   await expect(page.locator(".admin-brand-title")).toHaveCSS(
     "font-family",
     /Bricolage Grotesque/i,
   );
-  // The tagline's italic lives on the <em> inside .admin-intro.
-  await expect(page.locator(".admin-intro em").first()).toHaveCSS(
-    "font-style",
-    "italic",
-  );
+  // The brand tagline italic moved out of the workbench with the redesign;
+  // the drawer's brand mark is the only branded element left to assert.
   await expect(page.locator(".admin-brand-logo")).toHaveAttribute(
     "src",
     "/manorama-merged-logo.png",
   );
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);
-  await expect(page.locator(".admin-gallery-card .admin-eyebrow")).toHaveCount(
-    0,
-  );
-  // The public address is prefix + slug across sibling nodes inside
-  // .admin-gallery-url — assert on the container's combined text. The
-  // host is environment-specific (manorama.xyz in prod, localhost in
-  // dev), so match the /<owner>/<slug> tail.
+  await expect(page.locator(".lib-card .admin-eyebrow")).toHaveCount(0);
+  // D2: no URL row on the card — the address lives in Share and Details.
+  await expect(page.locator(".lib-card .admin-gallery-url")).toHaveCount(0);
+  const firstCard = page.locator(".lib-card").first();
+  // D3: the card's links open the public gallery in a new tab.
   await expect(
-    page
-      .locator(".admin-gallery-url")
-      .filter({ hasText: `/${OWNER}/${SLUG}` }),
-  ).toHaveCount(1);
-  const firstCard = page.locator(".admin-gallery-card").first();
-  await expect(
-    firstCard.getByRole("link", { name: /open .* in a new tab/i }),
+    firstCard.getByRole("link", { name: /opens in a new tab/i }).first(),
   ).toHaveAttribute("target", "_blank");
   await expect(firstCard.locator(".admin-gallery-strip-frame")).toBeVisible();
   // The Photo Editor is one horizontal row (owner-approved 2026-10-10):
@@ -2463,15 +2452,20 @@ test("owner admin lists galleries without a selector and remains noindex", async
   expect(
     Math.abs(stripFrameBox.height - stripItemBox.height),
   ).toBeLessThanOrEqual(3);
+  // D1/D4: no inline edit affordances — one editing path via Details;
+  // the card's only chrome is the ··· menu.
   await expect(
-    firstCard.getByRole("button", { name: /edit gallery slug/i }),
+    firstCard.getByRole("button", { name: /edit gallery/i }),
+  ).toHaveCount(0);
+  await expect(
+    firstCard.getByRole("button", { name: /actions$/i }),
   ).toBeVisible();
 });
 test("admin gallery order is a draft until Save", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-  const card = page.locator(".admin-gallery-card").first();
+  const card = page.locator(".lib-card").first();
   const items = card.locator(".admin-gallery-strip-item");
   expect(await items.count()).toBeGreaterThan(1);
   const firstId = await items.nth(0).getAttribute("data-image-id");
@@ -2484,8 +2478,11 @@ test("admin gallery order is a draft until Save", async ({
   await page.keyboard.press("ArrowLeft");
   expect(writes).toEqual([]);
   await expect(items.nth(0)).toHaveAttribute("data-image-id", firstId!);
-  await card.getByRole("button", { name: /open details for/i }).click();
-  await page.getByRole("button", { name: "Reorder photographs", exact: true }).click();
+  await card.getByRole("button", { name: /actions$/i }).click();
+  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
+  const detailsSurface = page.locator('[data-screen="details"]');
+  await expect(detailsSurface).toBeVisible();
+  await detailsSurface.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ }).click();
   const reorder = page.locator("[data-screen=\"reorder\"]");
   await expect(reorder).toBeVisible();
   await expect(reorder.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
@@ -2502,7 +2499,7 @@ test("admin gallery images do not reorder from a pointer drag on the preview str
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-  const card = page.locator(".admin-gallery-card").first();
+  const card = page.locator(".lib-card").first();
   const items = card.locator(".admin-gallery-strip-item");
   const firstId = await items.nth(0).getAttribute("data-image-id");
   const secondId = await items.nth(1).getAttribute("data-image-id");
@@ -2606,58 +2603,89 @@ test("admin gallery strip pans with wheel and touch-style pointer input", async 
   expect(touchPan).toBeGreaterThan(0);
 });
 
-test("admin gallery title and caption edit inline and persist", async ({
+test("a rail drag suppresses the photo link while a sub-threshold tap opens it", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-  const card = page.locator(".admin-gallery-card").first();
-  const titleButton = card.getByRole("button", { name: /edit gallery title/i });
-  await titleButton.click();
-  const titleInput = page.getByRole("textbox", { name: "Edit gallery title" });
+  const anchor = page
+    .locator(".admin-gallery-strip-frame")
+    .first()
+    .locator(".admin-gallery-strip-item a")
+    .first();
+  await expect(anchor.locator("img")).toHaveClass(/is-loaded/, { timeout: 30000 });
+  const newTabs: import("@playwright/test").Page[] = [];
+  page.context().on("page", (tab) => newTabs.push(tab));
+  const box = await anchor.boundingBox();
+  expect(box).not.toBeNull();
+  const cx = box!.x + box!.width / 2;
+  const cy = box!.y + box!.height / 2;
+  // A drag past the threshold is a pan gesture, not an activation: the
+  // anchor's click is suppressed so the gallery does not open mid-drag.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy, { steps: 6 });
+  await page.mouse.up();
+  expect(newTabs).toEqual([]);
+  // Staying under the threshold leaves ordinary anchor activation intact.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 3, cy, { steps: 1 });
+  await page.mouse.up();
+  await expect.poll(() => newTabs.length).toBe(1);
+  await newTabs[0].waitForLoadState("domcontentloaded");
+  expect(newTabs[0].url()).toContain(`/${OWNER}/`);
+  await newTabs[0].close();
+});
+
+test("admin gallery title and caption edit through Details and persist", async ({
+  page,
+}) => {
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  const card = page.locator(".lib-card").first();
+  // D1: cards carry no inline editing — the one path is Details.
+  await card.getByRole("button", { name: /actions$/i }).click();
+  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
+  const details = page.locator('[data-screen="details"]');
+  await expect(details).toBeVisible();
+  await details.locator(".m-actionrow").filter({ hasText: /^Name/ }).click();
+  const titleInput = page.getByRole("textbox", { name: "Name" });
   await titleInput.fill("Italy, seen slowly");
   await titleInput.press("Enter");
-  await expect(page.locator(".admin-toast")).toHaveText("Saved", { timeout: 20000 });
-  await expect(
-    card.getByRole("button", { name: /edit gallery title/i }),
-  ).toHaveText("Italy, seen slowly");
-  const captionButton = card.getByRole("button", {
-    name: /edit gallery caption/i,
-  });
-  await captionButton.click();
-  const captionInput = page.getByRole("textbox", {
-    name: "Edit gallery caption",
-  });
+  await expect(details.getByText("Saved", { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(card.locator(".lib-card-title")).toHaveText("Italy, seen slowly");
+  await details.locator(".m-actionrow").filter({ hasText: /^Caption/ }).click();
+  const captionInput = page.getByRole("textbox", { name: "Caption" });
   await captionInput.fill(
     "A quiet sequence of streets, stone, and weather along an Italian journey.",
   );
   await captionInput.press("Control+Enter");
-  await expect(page.locator(".admin-toast")).toHaveText("Saved", { timeout: 20000 });
-  await expect(
-    card.getByRole("button", { name: /edit gallery caption/i }),
-  ).toContainText("A quiet sequence");
+  await expect(details.getByText("Saved", { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(card.locator(".lib-card-caption")).toContainText(
+    "A quiet sequence",
+  );
 });
 
-test("admin gallery slug edits inline and persists the public address", async ({
+test("admin gallery address edits through Details and persists the public address", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-  const card = page.locator(".admin-gallery-card").first();
-  await card.getByRole("button", { name: /edit gallery slug/i }).click();
-  const slugInput = page.getByRole("textbox", { name: "Edit gallery slug" });
+  const card = page.locator(".lib-card").first();
+  await card.getByRole("button", { name: /actions$/i }).click();
+  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
+  const details = page.locator('[data-screen="details"]');
+  await expect(details).toBeVisible();
+  await details.locator(".m-actionrow").filter({ hasText: /^Address/ }).click();
+  const slugInput = page.getByRole("textbox", { name: "Address" });
   const nextSlug = `italy-reframed-${Date.now()}`;
   await slugInput.fill(nextSlug);
   await slugInput.press("Enter");
-  await expect(page.locator(".admin-toast")).toHaveText("Saved", { timeout: 20000 });
+  await expect(details.getByText("Saved", { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(details.locator(".d-addr")).toContainText(`/${OWNER}/${nextSlug}`);
   await expect(
-    card.getByRole("button", { name: /edit gallery slug/i }),
-  ).toHaveText(nextSlug);
-  await expect(
-    page
-      .locator(".admin-gallery-url")
-      .filter({ hasText: `/${OWNER}/${nextSlug}` }),
+    page.locator(`.lib-card[data-gallery-card="${nextSlug}"]`),
   ).toBeVisible();
   await expect(
-    card.getByRole("link", { name: /open .* in a new tab/i }),
+    page.locator(`.lib-card[data-gallery-card="${nextSlug}"] .lib-card-title`),
   ).toHaveAttribute("href", `/${OWNER}/${nextSlug}`);
 });
 
@@ -2677,7 +2705,7 @@ test.describe("admin responsive layout", () => {
     expect(geometry.overflowX).toBeLessThanOrEqual(1);
     await expect(page.getByRole("combobox")).toHaveCount(0);
     await expect(page.locator(".admin-section-index")).toHaveCount(0);
-    await expect(page.locator(".admin-gallery-card").first()).toBeVisible();
+    await expect(page.locator(".lib-card").first()).toBeVisible();
     const stripFrameBox = (await page
       .locator(".admin-gallery-strip-frame")
       .first()
@@ -2829,20 +2857,20 @@ test("Manorama-fication adds a gallery directly without an intermediate preview"
     });
   });
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
-  await page.locator(".admin-add-gallery button").click();
-  const addDialog = page.getByRole("dialog", { name: "Add gallery", exact: true });
+  await page.locator(".admin-library-heading button").click();
+  const addDialog = page.getByRole("dialog", { name: "Add a gallery", exact: true });
   await addDialog
-    .getByLabel(/public dropbox, google drive, icloud, or mega link/i)
+    .getByLabel(/shared folder or album link/i)
     .fill("https://www.dropbox.com/scl/fo/example");
   await addDialog.getByRole("button", { name: "Add gallery", exact: true }).click();
   await expect(page.locator(".admin-toast")).toHaveText(
     "Done! Auto Gallery is at the top.",
   );
   await expect(
-    page.locator(".admin-gallery-title", { hasText: "Auto Gallery" }),
+    page.locator(".lib-card-title", { hasText: "Auto Gallery" }),
   ).toBeVisible();
   await expect(page.locator(".dropbox-scan")).toHaveCount(0);
-  await expect(page.getByRole("dialog", { name: "Add gallery" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Add a gallery" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add", exact: true })).toHaveCount(1);
 });
 

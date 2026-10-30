@@ -11,6 +11,7 @@ import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from 
 import { FREE_RETENTION_DISCLOSURE, paidGalleryLimitError, PIPELINE_LOCK_MESSAGE } from './lib/gallery-policy'
 import type { GalleryImage } from './lib/imagesource'
 import { WebSettings } from './components/WebSettings'
+import { GalleryDetailsView } from './components/GalleryDetailsView'
 
 const renderSettings = (overrides: Partial<Parameters<typeof WebSettings>[0]> = {}) => String(WebSettings({
   ownerName: 'Test Owner',
@@ -131,13 +132,13 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('class="admin-overview"')
     expect(html).not.toContain('aria-label="Welcome to manorama"')
     expect(html).not.toContain('admin-owner-slug-input')
-    expect(html.indexOf('class="admin-library-heading"')).toBeLessThan(html.indexOf('class="admin-gallery-list"'))
-    expect(html.indexOf('class="admin-gallery-list"')).toBeLessThan(html.indexOf('class="admin-lib-foot"'))
+    expect(html.indexOf('class="admin-library-heading"')).toBeLessThan(html.indexOf('class="lib-list"'))
+    expect(html.indexOf('class="lib-list"')).toBeLessThan(html.indexOf('class="admin-lib-foot"'))
     expect(html).toContain('aria-labelledby="galleries-heading"')
     expect(html).toContain('3 of 3 galleries · Free')
   })
 
-  test('a pipeline card locks every edit surface and explains the deadline', async () => {
+  test('a pipeline card folds the lock into its metadata line and Details carries the upgrade path', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     expect(html).toContain('data-retention="pipeline"')
     expect(html).toContain('data-retention="retained"')
@@ -147,33 +148,60 @@ describe('the dashboard renders retention state', () => {
     expect(settings).toContain('3 of 3')
 
     const card = cardSection(html, 'locked')
-    expect(card.match(/aria-disabled="true"/g)?.length).toBe(4)
-    expect(card.match(/aria-describedby="retention-locked"/g)?.length).toBe(4)
+    // The card states the lock in its sub line; nothing on it is editable.
+    expect(card).not.toContain('aria-disabled')
+    expect(card).not.toContain('editable-value')
+    expect(card).not.toContain('admin-gallery-retention')
+    expect(card).not.toContain('retention-locked')
     expect(card).not.toMatch(/<figure[^>]*draggable/)
     expect(card).toContain('draggable="false"')
-    expect(card).toContain(`id="retention-locked"`)
-    expect(card).toContain('Temporary ·')
-    expect(card).toContain('days left')
-    expect(card).toContain('Expires')
-    expect(card).toContain(PIPELINE_LOCK_MESSAGE)
-    expect(card).toContain('mailto:mahesh@thecontrarian.in')
-    expect(card).toContain('Upgrade')
+    expect(card).toContain('Temporary gallery')
+    expect(card).toContain('expires')
+    expect(card).toContain('aria-label="Locked actions"')
 
-    expect(card).toContain('aria-label="Open Locked in a new tab"')
-    expect(card).toContain('aria-label="Copy Locked link"')
-    expect(card).toContain('aria-label="Delete Locked"')
-    expect(card).toContain('aria-label="Open the Locked source')
-    expect(card).toContain('aria-label="Refresh Locked from its source link"')
+    // The upgrade path moved off the card into Details (D5).
+    expect(card).not.toContain('Upgrade')
+    const details = String(GalleryDetailsView({
+      title: 'Locked',
+      caption: '',
+      address: 'manorama.xyz/test-owner/locked',
+      imageCount: 1,
+      sourceLabel: 'Dropbox',
+      temporary: true,
+      expiresAt: '2026-11-15T00:00:00.000Z',
+      editable: false,
+      streamOnly: false,
+      platform: 'web',
+      upgradeHref: 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade',
+      onBack: () => {},
+      onOpen: () => {},
+      onShare: () => {},
+      onEditName: () => {},
+      onEditCaption: () => {},
+      onEditAddress: () => {},
+      onReorder: () => {},
+      onRefresh: () => {},
+      onStreamOnlyChange: () => {},
+      onPurge: () => {},
+      onRemove: () => {},
+    }))
+    expect(details).toContain('Temporary gallery')
+    expect(details).toContain(PIPELINE_LOCK_MESSAGE)
+    expect(details).toContain('mailto:mahesh@thecontrarian.in')
+    expect(details).toContain('Upgrade')
   })
 
-  test('retained cards stay fully editable and deletable', async () => {
+  test('retained cards expose the rail links and the action menu', async () => {
     const html = await renderDashboard(seedPipelineOwner)
     const card = cardSection(html, 'kept-0')
     expect(card).not.toContain('aria-disabled')
+    expect(card).not.toContain('editable-value')
     expect(card).not.toMatch(/<figure[^>]*draggable/)
     expect(card).toContain('draggable="false"')
-    expect(card).toContain('aria-label="Delete Kept 0"')
-    expect(card).toContain('aria-label="Edit gallery title')
+    expect(card).toContain('aria-label="Kept 0 actions"')
+    expect(card).toContain('aria-haspopup="dialog"')
+    expect(card).toContain('class="lib-card-title"')
+    expect(card).toContain('href="/test-owner/kept-0"')
   })
 
   test('a pro dashboard reports paid availability, and the cap message when full', async () => {

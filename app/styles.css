@@ -2502,3 +2502,119 @@ a.m-btn { text-decoration: none; }
 @media (min-width: 960px) {
   .web-settings .m-owner-content { max-width: 760px; }
 }
+
+/* ── Workbench library cards ───────────────────────────────────────────
+   The web Library adopts the native lib-card anatomy: a rail of every
+   photograph at its own proportions, then title + ··· menu, a
+   count·source metadata line, and the caption. Hairlines separate
+   cards, nothing boxes them in. The rail keeps the shared
+   admin-gallery-strip mechanics; only the chrome around it is new. */
+.lib-list { list-style: none; margin: 0; padding: 0; }
+.lib-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
+.lib-card { display: block; padding: 20px 0; }
+/* 40px between galleries: 20 of this card's top pad, 20 of the previous
+   card's bottom pad, with the li's hairline centred in the gap. */
+.lib-list > li:first-child > .lib-card { padding-top: 0; }
+
+/* Title leads the card; the ··· button is the card's only chrome. */
+.lib-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.lib-card-title {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  color: var(--m-ink);
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  line-height: 1.35;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.lib-card-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(var(--ink), .6);
+  font-size: 18px;
+  letter-spacing: .12em;
+  cursor: pointer;
+}
+.lib-card-menu:hover { color: rgb(var(--ink)); }
+.lib-card-title:focus-visible,
+.lib-card-menu:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+
+/* The metadata line hugs the title: details 2px under, caption 6px. */
+.lib-card-sub { margin: 2px 0 0; color: var(--m-secondary); font-size: var(--m-fs-small); }
+.lib-card > .lib-card-caption { margin: 6px 0 0; padding: 0; font-size: 15px; color: var(--m-secondary); }
+
+/* Remove runs as an inline confirm on the card — never a dialog. */
+.lib-remove-confirm { padding-bottom: 18px; }
+.lib-remove-confirm p { margin: 0 0 10px; font-size: 15px; }
+.lib-remove-confirm button {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin-right: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(var(--ink), .22);
+  border-radius: var(--m-pill);
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.lib-remove-confirm button:first-of-type { color: var(--m-negative); border-color: var(--m-negative); }
+.lib-remove-confirm button:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; }
+.lib-remove-confirm button:disabled { opacity: .45; cursor: default; }
+
+/* Empty library: one quiet surface card instead of a bare note. */
+.lib-empty { margin: 24px 0 0; padding: 24px; background: var(--m-surface); border-radius: var(--m-radius-card); }
+.lib-empty h3 { margin: 0; font-size: 19px; font-weight: 650; }
+.lib-empty p { margin: 6px 0 18px; color: var(--m-secondary); }
+
+/* The card menu is a sheet of rows, each a finger-sized target. Rows are
+   plain buttons and links — no menu role, since there is no roving focus. */
+.lib-menu { display: grid; gap: 2px; }
+.lib-menu > :is(button, a) {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+.lib-menu > :is(button, a):disabled { color: rgba(var(--ink), .35); cursor: default; }
+.lib-menu > :is(button, a):focus-visible { outline: 2px solid var(--m-focus); outline-offset: -2px; }
+.lib-menu .lib-menu-danger:not(:disabled) { color: var(--m-negative); }
+
+/* The temporary-gallery upgrade line inside shared Details — it only
+   exists when a platform passes upgradeHref (web does, native does not). */
+.d-upgrade-note a { color: var(--m-ink); }
+
+/* The web strip is a real list of links: the li keeps the shared item
+   class so existing selectors and the ::after separators are untouched;
+   the anchor inside only carries layout + focus chrome. */
+.lib-card ul.admin-gallery-strip { list-style: none; margin: 0; padding: 0; }
+.lib-card .admin-gallery-strip-item > a { display: block; height: 100%; text-decoration: none; }
+.lib-card .admin-gallery-strip-item > a:focus-visible { z-index: 1; outline: none; box-shadow: inset 0 0 0 2px rgb(var(--ink)); }

@@ -56,7 +56,7 @@ for (const size of sizes) {
         await expect(page.getByRole('region', { name: 'Welcome to manorama' })).toHaveCount(0)
         const heading = page.getByRole('heading', { name: 'Library', exact: true })
         const sponsored = page.locator('.account-ad')
-        const firstCard = page.locator('.admin-gallery-card').first()
+        const firstCard = page.locator('.lib-card').first()
         const foot = page.locator('.admin-lib-foot')
         await expect(sponsored).toBeVisible()
         await expect(foot).toBeVisible()
@@ -117,7 +117,7 @@ for (const size of sizes) {
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
           // The rail is one row even before its source images finish loading.
           const rail = page.locator('.admin-gallery-strip').first()
-          const items = rail.locator('figure')
+          const items = rail.locator('.admin-gallery-strip-item')
           const tops = await items.evaluateAll(nodes => nodes.map(e => e.getBoundingClientRect().top))
           expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2)
           if (!reduced) await page.screenshot({ path: resolve(evidence, `${size.name}-${theme}-admin.png`), animations: 'disabled', timeout: 10_000 })

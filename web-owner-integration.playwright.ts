@@ -38,7 +38,7 @@ const openDashboard = async (browser: Browser, prepare?: (page: Page) => Promise
   const card = page.locator('[data-gallery-card]').first()
   await expect(card).toBeVisible()
   const slug = (await card.getAttribute('data-gallery-card'))!
-  const title = (await card.locator('.admin-gallery-title').innerText()).trim()
+  const title = (await card.locator('.lib-card-title').innerText()).trim()
   return { context, page, card, slug, title }
 }
 
@@ -67,9 +67,9 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
     await expect(cta).toHaveText('Add')
     await cta.click()
 
-    const dialog = page.getByRole('dialog', { name: 'Add gallery', exact: true })
+    const dialog = page.getByRole('dialog', { name: 'Add a gallery', exact: true })
     await expect(dialog).toBeVisible()
-    const urlInput = dialog.locator('input[aria-label="Public Dropbox, Google Drive, iCloud, or MEGA link"]')
+    const urlInput = dialog.locator('input[aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA"]')
     await expect(urlInput).toBeVisible()
     await urlInput.fill('https://www.dropbox.com/scl/fo/demo-integration?rlkey=abcd1234&dl=0')
     await dialog.locator('input[type="text"]').fill('Owner integration demo')
@@ -86,11 +86,12 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
 test('card Details is web-only (no vault/offline) and browser Back/Forward round-trips', async ({ browser }) => {
   const { context, page, card, slug } = await openDashboard(browser)
   try {
-    await card.locator('.admin-details-button').click()
+    await card.getByRole('button', { name: /actions$/i }).click()
+    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
     await expect(page).toHaveURL(`${base}/${owner}?details=${slug}`)
-    await expect(details.locator('h1')).toBeVisible()
+    await expect(details.locator('.d-name')).toBeVisible()
 
     // platform="web": no device/vault/offline controls; the Source group
     // replaces the native "This device" group entirely.
@@ -107,7 +108,8 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
     await expect(page).toHaveURL(`${base}/${owner}`)
 
     // Browser Back/Forward across the Details entry.
-    await card.locator('.admin-details-button').click()
+    await card.getByRole('button', { name: /actions$/i }).click()
+    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
     await expect(details).toBeVisible()
     await page.evaluate(() => { setTimeout(() => window.history.back(), 0) })
     await expect(details).toHaveCount(0)
@@ -125,7 +127,8 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
 test('Details Share opens the shared sheet with the correct public URL', async ({ browser }) => {
   const { context, page, card, title } = await openDashboard(browser)
   try {
-    await card.locator('.admin-details-button').click()
+    await card.getByRole('button', { name: /actions$/i }).click()
+    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
 
@@ -173,7 +176,7 @@ test('owner viewer chrome Details navigates to dashboard Details with details/ph
     await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20_000 })
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
-    await expect(details.locator('h1')).toHaveText(title)
+    await expect(details.locator('.d-name')).toHaveText(title)
 
     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 25_000 })
     await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`), { timeout: 25_000 })
