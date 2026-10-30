@@ -233,7 +233,6 @@ const pendingAccountPage = async (
     appChallenge: flow.appChallenge,
   }, secret)
   const provider = PROVIDER_LABEL[identity.provider]
-  const who = identity.displayName || identity.email
   // Declining lands back where sign-in can be retried: the ops door keeps
   // its provider buttons anonymous, everywhere else it's the landing page.
   const decline = flow.nextUrl?.startsWith('/opman') ? flow.nextUrl : '/'
@@ -257,9 +256,7 @@ font-size:1rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;w
 .back{background:transparent;color:#b9b5ae;border:1px solid #3a3d3b}
 </style></head><body><main class="card">
 <img src="/manorama-merged-logo.png" alt="manorama">
-<h1>This sign-in is new to manorama.</h1>
-<p>${who ? `${esc(provider)} knows you as <strong>${esc(who)}</strong> &mdash;` : `This ${esc(provider)} sign-in`} no
-manorama account is tied to it yet.</p>
+<h1>This ${esc(provider)} sign-in is new to manorama.</h1>
 <p class="note">If you already keep galleries here, this probably isn&rsquo;t the sign-in you used
 before &mdash; go back and pick the provider you signed in with last time.</p>
 <div class="actions">
