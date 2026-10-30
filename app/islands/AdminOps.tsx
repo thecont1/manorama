@@ -9,7 +9,7 @@ const asDate = (value?: string) => value
   ? new Date(value.replace(' ', 'T') + (value.includes('Z') ? '' : 'Z')).toLocaleString()
   : '—'
 
-type SortKey = 'account' | 'galleries' | 'devices' | 'signins' | 'lastseen' | 'created' | 'access' | 'actions'
+type SortKey = 'account' | 'galleries' | 'devices' | 'signins' | 'lastseen' | 'created' | 'access'
 
 const SORT_KEYS: Record<SortKey, (user: AdminUserSummary) => string | number> = {
   account: (u) => (u.displayName || u.ownerSlug).toLowerCase(),
@@ -19,7 +19,6 @@ const SORT_KEYS: Record<SortKey, (user: AdminUserSummary) => string | number> = 
   lastseen: (u) => u.lastSeenCountry || '',
   created: (u) => u.createdAt || '',
   access: (u) => (u.isMaster ? 0 : u.tier === 'pro' ? 1 : 2),
-  actions: (u) => u.accountId,
 }
 
 const icon = { viewBox: '0 0 24 24', width: 15, height: 15, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': true }
@@ -156,12 +155,12 @@ export default function AdminOps({ ownerName, accountId }: Props) {
             <thead><tr>
               {sortTh('account', 'Account')}
               {sortTh('galleries', 'Galleries')}
-              {sortTh('devices', 'Device lists')}
+              {sortTh('devices', 'Devices')}
               {sortTh('signins', 'Sign-ins')}
               {sortTh('lastseen', 'Last seen')}
               {sortTh('created', 'Created')}
               {sortTh('access', 'Access')}
-              {sortTh('actions', 'Actions')}
+              <th scope="col">Actions</th>
             </tr></thead>
             <tbody>
               {sorted.map((user) => <tr key={user.accountId} class={user.disabledAt ? 'ops-user-disabled' : undefined}>
