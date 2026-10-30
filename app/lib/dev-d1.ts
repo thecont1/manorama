@@ -19,7 +19,10 @@ export const injectDevD1 = async (c: Context, next: Next) => {
     __manoramaDevD1?: D1Database
     __manoramaDevD1Ready?: Promise<unknown>
   }
-  if (g.__manoramaDevD1Ready) await g.__manoramaDevD1Ready.catch(() => undefined)
+  // A rejected readiness promise means the proxy or a migration failed —
+  // fail the request instead of letting it limp through on memory stores
+  // that only pretend the identity layer works.
+  if (g.__manoramaDevD1Ready) await g.__manoramaDevD1Ready
   const env = (c.env ?? {}) as Record<string, unknown>
   if (!env.DB && g.__manoramaDevD1) (c as { env: unknown }).env = { ...env, DB: g.__manoramaDevD1 }
   await next()

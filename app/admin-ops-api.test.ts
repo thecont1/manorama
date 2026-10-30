@@ -253,5 +253,15 @@ describe('master operations API', () => {
       headers: { Cookie: await sessionCookieFor(other.accountId), 'Content-Type': 'application/json' },
     }, env)
     expect(fresh.status).toBe(403)
+
+    // Re-enabling an already-enabled account is a no-op: the revocation
+    // marker must not move, or sessions minted since the enable would die.
+    const revokedStamp = (await getUserByAccountId(other.accountId))?.sessionsRevokedAt
+    expect(revokedStamp).toBeTruthy()
+    const repeat = await api.request(path, {
+      method: 'PUT', headers, body: JSON.stringify({ disabled: false }),
+    }, env)
+    expect(repeat.status).toBe(200)
+    expect((await getUserByAccountId(other.accountId))?.sessionsRevokedAt).toBe(revokedStamp)
   })
 })

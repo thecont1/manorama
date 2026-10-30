@@ -34,7 +34,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
   const [busy, setBusy] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null)
 
-  const refresh = async (): Promise<boolean> => {
+  const refresh = async (): Promise<AdminUserSummary[] | null> => {
     setStatus('Loading operations data…')
     try {
       const response = await fetch('/api/admin/overview', { cache: 'no-store' })
@@ -42,10 +42,10 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       if (!response.ok || !payload.users) throw new Error(payload.error || 'The operations overview could not be loaded')
       setUsers(payload.users.users)
       setStatus('Updated just now')
-      return true
+      return payload.users.users
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The operations overview could not be loaded')
-      return false
+      return null
     }
   }
 
@@ -61,12 +61,16 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       })
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'The plan could not be changed')
-      // Only claim success when the refreshed table confirms it — a failed
-      // overview fetch keeps its own error instead of being overwritten.
-      if (await refresh()) {
-        setStatus(tier === 'pro'
-          ? `Upgraded ${user.displayName || user.ownerSlug} to Visionary`
-          : `Downgraded ${user.displayName || user.ownerSlug} to Free`)
+      // Only claim success when the refreshed table shows the requested
+      // state — a failed refresh keeps its own error, a stale row says so.
+      const refreshed = await refresh()
+      if (refreshed) {
+        const updated = refreshed.find((u) => u.accountId === user.accountId)
+        setStatus(updated?.tier === tier
+          ? (tier === 'pro'
+            ? `Upgraded ${user.displayName || user.ownerSlug} to Visionary`
+            : `Downgraded ${user.displayName || user.ownerSlug} to Free`)
+          : `The table refreshed but ${user.displayName || user.ownerSlug}'s plan did not change — try again`)
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The plan could not be changed')
@@ -85,10 +89,14 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       })
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'The account could not be updated')
-      if (await refresh()) {
-        setStatus(disabled
-          ? `Disabled ${user.displayName || user.ownerSlug} — sign-in is now refused`
-          : `Enabled ${user.displayName || user.ownerSlug}`)
+      const refreshed = await refresh()
+      if (refreshed) {
+        const updated = refreshed.find((u) => u.accountId === user.accountId)
+        setStatus(Boolean(updated?.disabledAt) === disabled
+          ? (disabled
+            ? `Disabled ${user.displayName || user.ownerSlug} — sign-in is now refused`
+            : `Enabled ${user.displayName || user.ownerSlug}`)
+          : `The table refreshed but ${user.displayName || user.ownerSlug}'s sign-in state did not change — try again`)
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The account could not be updated')
@@ -113,7 +121,12 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       })
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'The account could not be deleted')
-      if (await refresh()) setStatus(`Deleted ${user.displayName || user.ownerSlug}`)
+      const refreshed = await refresh()
+      if (refreshed) {
+        setStatus(refreshed.some((u) => u.accountId === user.accountId)
+          ? `The table refreshed but ${user.displayName || user.ownerSlug} is still listed — try again`
+          : `Deleted ${user.displayName || user.ownerSlug}`)
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The account could not be deleted')
     } finally {

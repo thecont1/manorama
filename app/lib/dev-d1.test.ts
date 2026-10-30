@@ -57,10 +57,13 @@ describe('injectDevD1', () => {
     expect(await res.json()).toEqual({ db: null })
   })
 
-  test('falls through cleanly when the boot failed', async () => {
+  test('fails the request when the boot failed instead of limping without D1', async () => {
     globals.__manoramaDevD1Ready = Promise.reject(new Error('no workerd'))
+    // A rejected readiness promise means the proxy or a migration failed —
+    // requests must not reach handlers on memory stores that pretend the
+    // identity layer works.
     const res = await app().request('/', {}, {})
-    expect(await res.json()).toEqual({ db: null })
+    expect(res.status).toBe(500)
   })
 })
 

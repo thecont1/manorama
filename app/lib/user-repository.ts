@@ -315,6 +315,9 @@ export const setUserDisabled = async (
 ): Promise<UserRecord | null> => {
   const current = await getUserByAccountId(accountId, env)
   if (!current) return null
+  // Idempotent flips are a no-op: restamping the markers would rewrite the
+  // suspension timestamp and kill sessions minted since the real transition.
+  if (Boolean(current.disabledAt) === disabled) return current
   if (d1Configured(env)) {
     await env.DB.prepare(
       `UPDATE users SET disabled_at = ?, sessions_revoked_at = ?, updated_at = datetime('now') WHERE account_id = ?`,
