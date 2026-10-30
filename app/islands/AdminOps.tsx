@@ -22,6 +22,13 @@ const SORT_KEYS: Record<SortKey, (user: AdminUserSummary) => string | number> = 
   actions: (u) => u.accountId,
 }
 
+const icon = { viewBox: '0 0 24 24', width: 15, height: 15, fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': true }
+const IconUp = () => <svg {...icon}><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>
+const IconDown = () => <svg {...icon}><path d="M12 5v14" /><path d="m5 12 7 7 7-7" /></svg>
+const IconBan = () => <svg {...icon}><circle cx="12" cy="12" r="8.25" /><path d="m6.2 6.2 11.6 11.6" /></svg>
+const IconCheck = () => <svg {...icon}><circle cx="12" cy="12" r="8.25" /><path d="m8.4 12.3 2.4 2.4 4.8-5.4" /></svg>
+const IconTrash = () => <svg {...icon}><path d="M4 7h16" /><path d="M9.5 7V4.5h5V7" /><path d="m6.5 7 .9 12.5h9.2L17.5 7" /><path d="M10 11v5" /><path d="M14 11v5" /></svg>
+
 export default function AdminOps({ ownerName, accountId }: Props) {
   const [users, setUsers] = useState<AdminUserSummary[]>([])
   const [total, setTotal] = useState(0)
@@ -61,6 +68,27 @@ export default function AdminOps({ ownerName, accountId }: Props) {
         : `Downgraded ${user.displayName || user.ownerSlug} to Free`)
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The plan could not be changed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const setDisabled = async (user: AdminUserSummary, disabled: boolean) => {
+    setBusy(true)
+    try {
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(user.accountId)}/disabled`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'The account could not be updated')
+      await refresh()
+      setStatus(disabled
+        ? `Disabled ${user.displayName || user.ownerSlug} — sign-in is now refused`
+        : `Enabled ${user.displayName || user.ownerSlug}`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'The account could not be updated')
     } finally {
       setBusy(false)
     }
@@ -141,8 +169,8 @@ export default function AdminOps({ ownerName, accountId }: Props) {
               {sortTh('actions', 'Actions')}
             </tr></thead>
             <tbody>
-              {sorted.map((user) => <tr key={user.accountId}>
-                <th scope="row"><span class="ops-user-name">{user.displayName || 'Unnamed account'}</span><span class="ops-user-slug">/{user.ownerSlug} · {user.tier}</span><code class="ops-user-id">{user.accountId}</code></th>
+              {sorted.map((user) => <tr key={user.accountId} class={user.disabledAt ? 'ops-user-disabled' : undefined}>
+                <th scope="row"><span class="ops-user-name">{user.displayName || 'Unnamed account'}</span><span class="ops-user-slug">/{user.ownerSlug} · {user.tier}</span>{user.disabledAt ? <span class="ops-user-flag">sign-in disabled</span> : null}<code class="ops-user-id">{user.accountId}</code></th>
                 <td>{user.galleryCount}</td>
                 <td>{user.deviceGalleryCount}</td>
                 <td>{user.identityCount}</td>
@@ -153,7 +181,11 @@ export default function AdminOps({ ownerName, accountId }: Props) {
                   : user.tier === 'pro'
                     ? <span class="ops-master-label ops-access-visionary">Visionary</span>
                     : <span class="ops-master-label">Free</span>}</td>
-                <td class="ops-actions">{user.isMaster || user.accountId === accountId ? null : <><button type="button" class="ops-role" disabled={busy} onClick={() => void setTier(user, user.tier === 'pro' ? 'free' : 'pro')}>{user.tier === 'pro' ? 'Downgrade' : 'Upgrade'}</button><button type="button" class="ops-delete" disabled={busy} onClick={() => void removeUser(user)}>Delete</button></>}</td>
+                <td class="ops-actions">{user.isMaster || user.accountId === accountId ? null : <>
+                  <button type="button" class="ops-action" title={user.tier === 'pro' ? 'Downgrade to Free' : 'Upgrade to Visionary'} aria-label={`${user.tier === 'pro' ? 'Downgrade' : 'Upgrade'} ${user.displayName || user.ownerSlug}`} disabled={busy} onClick={() => void setTier(user, user.tier === 'pro' ? 'free' : 'pro')}>{user.tier === 'pro' ? <IconDown /> : <IconUp />}</button>
+                  <button type="button" class={user.disabledAt ? 'ops-action ops-action-enable' : 'ops-action'} title={user.disabledAt ? 'Enable sign-in' : 'Disable sign-in'} aria-label={`${user.disabledAt ? 'Enable' : 'Disable'} ${user.displayName || user.ownerSlug}`} disabled={busy} onClick={() => void setDisabled(user, !user.disabledAt)}>{user.disabledAt ? <IconCheck /> : <IconBan />}</button>
+                  <button type="button" class="ops-action ops-action-danger" title="Delete account" aria-label={`Delete ${user.displayName || user.ownerSlug}`} disabled={busy} onClick={() => void removeUser(user)}><IconTrash /></button>
+                </>}</td>
               </tr>)}
               {!users.length ? <tr><td class="ops-empty" colSpan={8}>No accounts match this filter.</td></tr> : null}
             </tbody>

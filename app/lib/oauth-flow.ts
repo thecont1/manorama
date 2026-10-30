@@ -6,6 +6,7 @@ import { createDesktopHandoffToken, DESKTOP_CALLBACK } from './desktop-auth'
 import { dropboxAuthorizeUrl, fetchDropboxAccount, type DropboxOauthEnv } from './dropbox-oauth'
 import { fetchGoogleIdentity, googleAuthorizeUrl, type GoogleAuthEnv } from './google-auth'
 import {
+  AccountDisabledError,
   IdentityConflictError,
   IdentityStorageUnavailableError,
   linkIdentity,
@@ -250,6 +251,10 @@ export const finishProviderAuth = async (
     if (error instanceof IdentityStorageUnavailableError) {
       c.header('Cache-Control', 'no-store')
       return c.text('Sign-in is temporarily unavailable', 503)
+    }
+    if (error instanceof AccountDisabledError) {
+      c.header('Cache-Control', 'no-store')
+      return c.text('This account has been disabled. Contact the manorama operator if that looks wrong.', 403)
     }
     return finishFailure(c)
   }

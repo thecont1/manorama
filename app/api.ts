@@ -12,7 +12,7 @@ import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
-import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
@@ -411,6 +411,25 @@ export const createManoramaApi = () => {
     const updated = await setUserTier(accountId, tier, dbEnv(c))
     if (!updated) return c.json({ error: 'That plan could not be changed' }, 503)
     return c.json({ ok: true, accountId, tier: updated.tier })
+  })
+  /** Disabling suspends sign-in without touching the account's data — the
+   *  reversible alternative to deletion. Master accounts can never be
+   *  suspended: a disabled master loses every session at once and nobody
+   *  would be left to switch it back on. */
+  api.put('/api/admin/users/:accountId/disabled', async (c) => {
+    const accountId = c.req.param('accountId').trim()
+    const payload = await c.req.json().catch(() => null) as unknown
+    const disabled = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as { disabled?: unknown }).disabled
+      : undefined
+    if (typeof disabled !== 'boolean') return c.json({ error: 'Provide disabled as a boolean' }, 400)
+    if (!(await getUserByAccountId(accountId, dbEnv(c)))) return c.json({ error: 'That account was not found' }, 404)
+    if (disabled && await isMasterAccountId(accountId, dbEnv(c))) {
+      return c.json({ error: 'Master accounts cannot be disabled' }, 409)
+    }
+    const updated = await setUserDisabled(accountId, disabled, dbEnv(c))
+    if (!updated) return c.json({ error: 'That account could not be updated' }, 503)
+    return c.json({ ok: true, accountId, disabled: Boolean(updated.disabledAt) })
   })
   api.delete('/api/admin/users/:accountId', async (c) => {
     const accountId = c.req.param('accountId').trim()

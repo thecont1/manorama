@@ -29,6 +29,8 @@ export type LinkedIdentity = {
 export class IdentityConflictError extends Error {}
 export class LastIdentityError extends Error {}
 export class IdentityStorageUnavailableError extends Error {}
+/** The master suspended the account — sign-in is refused while rows remain. */
+export class AccountDisabledError extends Error {}
 
 const PROVIDERS: readonly string[] = ['dropbox', 'google', 'apple']
 const SUBJECT_MAX = 1024
@@ -96,7 +98,10 @@ export const upsertIdentitySignIn = async (
   if (existingAccountId) {
     await refreshIdentityMetadata(db, provider, subject, { displayName, email })
     const user = await getUserByAccountId(existingAccountId, env)
-    if (user) return user
+    if (user) {
+      if (user.disabledAt) throw new AccountDisabledError('This account has been disabled')
+      return user
+    }
   }
   const initialName = displayName ?? 'Photographer'
   const slugified = slugifyName(initialName).replace(/-+$/, '')
@@ -124,7 +129,10 @@ export const upsertIdentitySignIn = async (
       if (winnerAccountId) {
         await refreshIdentityMetadata(db, provider, subject, { displayName, email })
         const winner = await getUserByAccountId(winnerAccountId, env)
-        if (winner) return winner
+        if (winner) {
+          if (winner.disabledAt) throw new AccountDisabledError('This account has been disabled')
+          return winner
+        }
       }
     }
   }

@@ -4,6 +4,7 @@ import { resetAdSuppressionStore } from './lib/ads-visibility'
 import { resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { resetMasterAccountStore } from './lib/master-accounts'
+import { resolveManoramaSession } from './lib/session'
 import { getUserByAccountId, resetUserStore, setLastSeenCountry } from './lib/user-repository'
 
 const env = {
@@ -181,5 +182,62 @@ describe('master operations API', () => {
       body: JSON.stringify({ confirmAccountId: TEST_OWNER.accountId }),
     }, env)
     expect(self.status).toBe(409)
+  })
+
+  test('suspends sign-in without deleting the account and never disables a master', async () => {
+    const api = createManoramaApi()
+    const headers = { Cookie: await sessionCookieFor(TEST_OWNER.accountId), 'Content-Type': 'application/json' }
+    const other = await seedTestUser({ accountId: 'acct_suspend_me', displayName: 'Suspend Me' })
+    const otherCookie = await sessionCookieFor(other.accountId)
+    const path = `/api/admin/users/${other.accountId}/disabled`
+
+    const anonymous = await api.request(path, { method: 'PUT', body: JSON.stringify({ disabled: true }) }, env)
+    expect(anonymous.status).toBe(401)
+
+    const nonMasterHeaders = { Cookie: otherCookie, 'Content-Type': 'application/json' }
+    const forbidden = await api.request(path, { method: 'PUT', headers: nonMasterHeaders, body: JSON.stringify({ disabled: true }) }, env)
+    expect(forbidden.status).toBe(403)
+
+    for (const body of [null, [], 42, 'true', {}, { disabled: 'yes' }, { disabled: 1 }]) {
+      const malformed = await api.request(path, { method: 'PUT', headers, body: JSON.stringify(body) }, env)
+      expect(malformed.status).toBe(400)
+    }
+
+    const missing = await api.request('/api/admin/users/acct_missing/disabled', {
+      method: 'PUT', headers, body: JSON.stringify({ disabled: true }),
+    }, env)
+    expect(missing.status).toBe(404)
+
+    // Suspending a master would strand everyone: the disabled account loses
+    // every session at once, so nobody could switch it back on.
+    const master = await api.request(`/api/admin/users/${TEST_OWNER.accountId}/disabled`, {
+      method: 'PUT', headers, body: JSON.stringify({ disabled: true }),
+    }, env)
+    expect(master.status).toBe(409)
+
+    const disabled = await api.request(path, {
+      method: 'PUT', headers, body: JSON.stringify({ disabled: true }),
+    }, env)
+    expect(disabled.status).toBe(200)
+    expect(await disabled.json()).toEqual({ ok: true, accountId: other.accountId, disabled: true })
+    const suspended = await getUserByAccountId(other.accountId)
+    expect(suspended?.disabledAt).toBeTruthy()
+    // The account row itself is untouched — tier, name, galleries all stay.
+    expect(suspended?.tier).toBe('free')
+    expect(suspended?.displayName).toBe('Suspend Me')
+
+    // The suspended member's previously minted session stops resolving at
+    // once — the same cookie that worked a moment ago is now anonymous.
+    const request = new Request('https://manorama.test/api/account', { headers: { Cookie: otherCookie } })
+    expect(await resolveManoramaSession(request, env)).toBeNull()
+    const kicked = await api.request('/api/admin/overview', { headers: nonMasterHeaders }, env)
+    expect(kicked.status).toBe(401)
+
+    const enabled = await api.request(path, {
+      method: 'PUT', headers, body: JSON.stringify({ disabled: false }),
+    }, env)
+    expect(enabled.status).toBe(200)
+    expect(await enabled.json()).toEqual({ ok: true, accountId: other.accountId, disabled: false })
+    expect((await getUserByAccountId(other.accountId))?.disabledAt).toBeUndefined()
   })
 })

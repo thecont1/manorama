@@ -17,6 +17,9 @@ export type UserRecord = {
   billingEventTimestampMs?: number
   billingEventId?: string
   lastSeenCountry?: string
+  /** Set when the master suspends sign-in; NULL/absent means active. The rows
+   *  stay — disabling is deliberately non-destructive. */
+  disabledAt?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -71,6 +74,9 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
   }
   if (typeof row.last_seen_country === 'string' && row.last_seen_country.length > 0) {
     user.lastSeenCountry = row.last_seen_country
+  }
+  if (typeof row.disabled_at === 'string' && row.disabled_at.length > 0) {
+    user.disabledAt = row.disabled_at
   }
   if (typeof row.created_at === 'string') user.createdAt = row.created_at
   if (typeof row.updated_at === 'string') user.updatedAt = row.updated_at
@@ -237,6 +243,7 @@ export const listUsersForAdmin = async (
         u.created_at,
         u.updated_at,
         u.last_seen_country,
+        u.disabled_at,
         CASE WHEN u.account_id = ? THEN 0 ELSE 1 END AS bootstrap_order,
         CASE WHEN u.account_id = ? OR EXISTS (
           SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
@@ -288,6 +295,31 @@ export const setLastSeenCountry = async (accountId: string, country: string | un
   }
   const user = users.get(accountId)
   if (user) user.lastSeenCountry = country
+}
+
+/** Sets or clears an account's sign-in suspension. Disabling is a flag flip,
+ *  not a delete — galleries, identities, and tier all stay so enabling restores
+ *  the account exactly as it was. The flag lands in `disabled_at` (a timestamp,
+ *  not a boolean, so the audit trail keeps when it happened). */
+export const setUserDisabled = async (
+  accountId: string,
+  disabled: boolean,
+  env?: UserRepositoryEnv,
+  now = new Date().toISOString(),
+): Promise<UserRecord | null> => {
+  const current = await getUserByAccountId(accountId, env)
+  if (!current) return null
+  if (d1Configured(env)) {
+    await env.DB.prepare(
+      `UPDATE users SET disabled_at = ?, updated_at = datetime('now') WHERE account_id = ?`,
+    ).bind(disabled ? now : null, accountId).run()
+    return getUserByAccountId(accountId, env)
+  }
+  const user = users.get(accountId)
+  if (!user) return null
+  if (disabled) user.disabledAt = now
+  else delete user.disabledAt
+  return { ...user }
 }
 
 export class OwnerSlugError extends Error {}

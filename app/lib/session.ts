@@ -166,6 +166,9 @@ export async function resolveManoramaSession(
   if (!accountId) return null
   const user = await getUserByAccountId(accountId, env)
   if (!user) return null
+  // A suspended account loses every live session at once — resolution fails
+  // closed here so no surface has to remember the check.
+  if (user.disabledAt) return null
   const session: ManoramaSession = {
     id: `account:${user.accountId}`,
     accountId: user.accountId,
