@@ -8,6 +8,7 @@ import renderer from './routes/_renderer'
 import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
 import indexPage from './routes/index'
+import opmanPage from './routes/opman'
 import { resetUserStore } from './lib/user-repository'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
@@ -211,6 +212,46 @@ describe('the landing page is the sign-in door', () => {
     const response = await page().request('/', authed(), env)
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('/test-owner')
+  })
+})
+
+describe('the operations console at /opman', () => {
+  const opmanEnv = { ...env, MASTER_ACCOUNT_ID: TEST_OWNER.accountId }
+  const page = () => {
+    const app = new Hono()
+    app.use(honoxContext)
+    app.use(renderer)
+    mountRoute(app, '/opman', opmanPage)
+    return app
+  }
+
+  test('anonymous visitors get the manorama provider chooser bound to /opman', async () => {
+    const response = await page().request('/opman', undefined, opmanEnv)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('Identify yourself in any way you like')
+    expect(html).toContain('href="/auth/apple?next=%2Fopman"')
+    expect(html).toContain('href="/auth/dropbox?next=%2Fopman"')
+    expect(html).toContain('href="/auth/google?next=%2Fopman"')
+  })
+
+  test('a signed-in non-master is offered another way to identify', async () => {
+    const other = await seedTestUser({ accountId: 'acct_no_ops', displayName: 'No Ops' })
+    const response = await page().request('/opman', {
+      headers: { Cookie: await sessionCookieFor(other.accountId) },
+    }, opmanEnv)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('does not hold operations access')
+    expect(html).toContain('href="/auth/dropbox?next=%2Fopman"')
+  })
+
+  test('the configured master reaches the console', async () => {
+    const response = await page().request('/opman', authed(), opmanEnv)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('Keep the manor healthy')
+    expect(html).toContain('People using manorama')
   })
 })
 

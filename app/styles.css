@@ -1925,6 +1925,8 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-user-facts dt { margin-bottom: 4px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; text-transform: uppercase; }
 .ops-user-facts dd { margin: 0; font-size: 12px; }
 .ops-master-label { white-space: nowrap; }
+.ops-access-master { color: rgb(252, 15, 192); }
+.ops-access-visionary { color: rgba(var(--ink), .85); }
 .ops-delete { border-color: rgba(220, 90, 90, .4); color: rgba(220, 130, 130, .9); }
 .ops-table-wrap { width: 100%; margin-top: 24px; overflow-x: auto; border-top: 1px solid rgba(var(--ink), .12); }
 .ops-users-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }

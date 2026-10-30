@@ -30,12 +30,9 @@ export type AdminUserSummary = UserRecord & {
   isMaster: boolean
 }
 
-export type AdminUserPage = {
+export type AdminUserList = {
   users: AdminUserSummary[]
-  page: number
-  pageSize: number
   total: number
-  totalPages: number
 }
 
 export type UserRepositoryEnv = { DB?: D1Database }
@@ -217,16 +214,13 @@ export const getUserByOwnerSlug = async (
 
 /** Lists account metadata only. This intentionally contains no photo bytes or
  * source URLs; the master console is an operations surface, not a gallery
- * index. Results are bounded to 100 rows so the console remains usable as the
- * account count grows. */
+ * index. The list is unbounded — every account renders — until the base
+ * grows large enough to need paging again. */
 export const listUsersForAdmin = async (
   env?: UserRepositoryEnv & MasterAccountEnv,
-  options: { page?: number; country?: string; bootstrapAccountId?: string } = {},
-): Promise<AdminUserPage> => {
-  const page = Math.max(1, Math.floor(options.page ?? 1))
+  options: { country?: string; bootstrapAccountId?: string } = {},
+): Promise<AdminUserList> => {
   const country = options.country?.trim().toUpperCase() ?? ''
-  const pageSize = 100
-  const offset = (page - 1) * pageSize
   const bootstrapAccountId = options.bootstrapAccountId?.trim() ?? ''
   if (d1Configured(env)) {
     const totalRow = await env.DB.prepare(
@@ -253,8 +247,7 @@ export const listUsersForAdmin = async (
       FROM users u
       WHERE (? = '' OR COALESCE(u.last_seen_country, '') = ?)
       ORDER BY bootstrap_order ASC, is_master DESC, u.created_at DESC, u.account_id ASC
-      LIMIT ? OFFSET ?
-    `).bind(bootstrapAccountId, bootstrapAccountId, country, country, pageSize, offset).all<Record<string, unknown>>()
+    `).bind(bootstrapAccountId, bootstrapAccountId, country, country).all<Record<string, unknown>>()
     const users = (result.results ?? []).flatMap((row) => {
       const user = rowToUser(row)
       if (!user) return []
@@ -269,7 +262,7 @@ export const listUsersForAdmin = async (
       }]
     })
     const total = Number(totalRow?.total) || 0
-    return { users, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
+    return { users, total }
   }
   const allUsers = [...users.values()].map((user) => ({
     ...user,
@@ -284,14 +277,7 @@ export const listUsersForAdmin = async (
     || Number(b.isMaster) - Number(a.isMaster)
     || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
     || a.accountId.localeCompare(b.accountId))
-  const total = filtered.length
-  return {
-    users: filtered.slice(offset, offset + pageSize),
-    page,
-    pageSize,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  }
+  return { users: filtered, total: filtered.length }
 }
 
 export const setLastSeenCountry = async (accountId: string, country: string | undefined, env?: UserRepositoryEnv): Promise<void> => {

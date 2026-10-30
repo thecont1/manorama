@@ -4,7 +4,7 @@ import { resetAdSuppressionStore } from './lib/ads-visibility'
 import { resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { resetMasterAccountStore } from './lib/master-accounts'
-import { resetUserStore, setLastSeenCountry } from './lib/user-repository'
+import { getUserByAccountId, resetUserStore, setLastSeenCountry } from './lib/user-repository'
 
 const env = {
   HOST_API_JWT_SECRET: TEST_SESSION_SECRET,
@@ -35,13 +35,12 @@ describe('master operations API', () => {
       headers: { Cookie: await sessionCookieFor(TEST_OWNER.accountId) },
     }, env)
     expect(allowed.status).toBe(200)
-    const body = await allowed.json() as { users: { users: { accountId: string; email?: string }[]; pageSize: number; totalPages: number } }
+    const body = await allowed.json() as { users: { users: { accountId: string; email?: string }[]; total: number } }
     const accountIds = body.users.users.map((user) => user.accountId)
     expect(accountIds[0]).toBe(TEST_OWNER.accountId)
     expect(accountIds).toContain(TEST_OWNER.accountId)
     expect(accountIds).toContain(other.accountId)
-    expect(body.users.pageSize).toBe(100)
-    expect(body.users.totalPages).toBe(1)
+    expect(body.users.total).toBe(2)
     expect(JSON.stringify(body)).not.toContain('provider_subject')
   })
 
@@ -109,6 +108,49 @@ describe('master operations API', () => {
     }, { ...env, DB: failingDb as never })
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ error: 'The operations overview is temporarily unavailable' })
+  })
+
+  test('changes plans through the tier endpoint, masters only', async () => {
+    const api = createManoramaApi()
+    const headers = { Cookie: await sessionCookieFor(TEST_OWNER.accountId), 'Content-Type': 'application/json' }
+    const other = await seedTestUser({ accountId: 'acct_plan', displayName: 'Plan User', email: undefined })
+    const path = `/api/admin/users/${other.accountId}/tier`
+
+    const anonymous = await api.request(path, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier: 'pro' }),
+    }, env)
+    expect(anonymous.status).toBe(401)
+
+    const nonMasterHeaders = { Cookie: await sessionCookieFor(other.accountId), 'Content-Type': 'application/json' }
+    const forbidden = await api.request(path, {
+      method: 'PUT', headers: nonMasterHeaders, body: JSON.stringify({ tier: 'pro' }),
+    }, env)
+    expect(forbidden.status).toBe(403)
+
+    for (const body of [null, [], 42, 'pro', {}, { tier: 'visionary' }, { tier: 'master' }, { tier: 1 }]) {
+      const malformed = await api.request(path, {
+        method: 'PUT', headers, body: JSON.stringify(body),
+      }, env)
+      expect(malformed.status).toBe(400)
+    }
+
+    const missing = await api.request('/api/admin/users/acct_missing/tier', {
+      method: 'PUT', headers, body: JSON.stringify({ tier: 'pro' }),
+    }, env)
+    expect(missing.status).toBe(404)
+
+    const upgraded = await api.request(path, {
+      method: 'PUT', headers, body: JSON.stringify({ tier: 'pro' }),
+    }, env)
+    expect(upgraded.status).toBe(200)
+    expect(await upgraded.json()).toEqual({ ok: true, accountId: other.accountId, tier: 'pro' })
+    expect((await getUserByAccountId(other.accountId))?.tier).toBe('pro')
+
+    const downgraded = await api.request(path, {
+      method: 'PUT', headers, body: JSON.stringify({ tier: 'free' }),
+    }, env)
+    expect(downgraded.status).toBe(200)
+    expect((await getUserByAccountId(other.accountId))?.tier).toBe('free')
   })
 
   test('requires exact account ID confirmation and never deletes the master account', async () => {

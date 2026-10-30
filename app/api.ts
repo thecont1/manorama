@@ -12,7 +12,7 @@ import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
-import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
+import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
 import { randomGalleryName } from './lib/gallery-name'
@@ -368,12 +368,11 @@ export const createManoramaApi = () => {
   api.use('/api/admin/*', requireMasterSession())
   api.get('/api/admin/overview', async (c) => {
     try {
-      const pageParam = Number(c.req.query('page') ?? '1')
       const country = (c.req.query('country') ?? '').trim().toUpperCase()
       if (country && !/^[A-Z]{2}$/.test(country)) return c.json({ error: 'Country filter must be an ISO-3166 alpha-2 code' }, 400)
       const bootstrapAccountId = await configuredMasterAccountId(dbEnv(c))
       return c.json({
-        users: await listUsersForAdmin(dbEnv(c), { page: Number.isFinite(pageParam) ? pageParam : 1, country, bootstrapAccountId: bootstrapAccountId ?? undefined }),
+        users: await listUsersForAdmin(dbEnv(c), { country, bootstrapAccountId: bootstrapAccountId ?? undefined }),
         suppressions: await listAdSuppressions(dbEnv(c)),
       })
     } catch {
@@ -398,6 +397,20 @@ export const createManoramaApi = () => {
       await grantMasterAccount(accountId, session.accountId, dbEnv(c))
     }
     return c.json({ ok: true, accountId, isMaster: granted || await isMasterAccountId(accountId, dbEnv(c)) })
+  })
+  /** Plan changes ride the same seam as billing webhooks: setUserTier writes
+   *  the tier and promotes every unexpired pipeline gallery in one batch. */
+  api.put('/api/admin/users/:accountId/tier', async (c) => {
+    const accountId = c.req.param('accountId').trim()
+    const payload = await c.req.json().catch(() => null) as unknown
+    const tier = payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as { tier?: unknown }).tier
+      : undefined
+    if (tier !== 'free' && tier !== 'pro') return c.json({ error: 'Provide tier as free or pro' }, 400)
+    if (!(await getUserByAccountId(accountId, dbEnv(c)))) return c.json({ error: 'That account was not found' }, 404)
+    const updated = await setUserTier(accountId, tier, dbEnv(c))
+    if (!updated) return c.json({ error: 'That plan could not be changed' }, 503)
+    return c.json({ ok: true, accountId, tier: updated.tier })
   })
   api.delete('/api/admin/users/:accountId', async (c) => {
     const accountId = c.req.param('accountId').trim()
