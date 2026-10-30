@@ -18,6 +18,7 @@ import {
 } from './identity-repository'
 import { OWNER_SLUG_PATTERN } from './user-repository'
 import { createAuthFlow } from './auth-flows'
+import { confirmPendingAccount } from './oauth-flow'
 import { TEST_SESSION_SECRET } from './test-fixtures'
 import callbackRoute from '../routes/auth/dropbox/callback'
 
@@ -382,6 +383,7 @@ describe('the Dropbox callback on the migrated schema', () => {
     const calls = mockDropboxFetch(OWNER_A, 'a@manorama.xyz')
     const app = new Hono()
     app.get('/auth/dropbox/callback', ...callbackRoute)
+    app.post('/auth/confirm-account', confirmPendingAccount)
     try {
       const migrated = await app.request(`/auth/dropbox/callback?code=abc&state=${await callbackState()}`, undefined, oauthEnv())
       expect(migrated.status).toBe(302)
@@ -396,7 +398,16 @@ describe('the Dropbox callback on the migrated schema', () => {
 
       calls.length = 0
       mockDropboxFetch('dbid:CALLBACKnew', 'new@manorama.xyz')
-      const fresh = await app.request(`/auth/dropbox/callback?code=abc&state=${await callbackState()}`, undefined, oauthEnv())
+      // A first-time identity pauses on the confirm page; completing it
+      // creates the account and lands on the new dashboard.
+      const interstitial = await app.request(`/auth/dropbox/callback?code=abc&state=${await callbackState()}`, undefined, oauthEnv())
+      expect(interstitial.status).toBe(200)
+      const token = /name="token" value="([^"]+)"/.exec(await interstitial.text())?.[1]!
+      const fresh = await app.request('/auth/confirm-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `token=${encodeURIComponent(token)}`,
+      }, oauthEnv())
       expect(fresh.status).toBe(302)
       const identity = await db().prepare(
         "SELECT account_id FROM auth_identities WHERE provider = 'dropbox' AND provider_subject = 'dbid:CALLBACKnew'",

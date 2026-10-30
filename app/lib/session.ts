@@ -108,6 +108,55 @@ export const verifyLinkHandoffToken = async (token: string, secret: string) => {
   return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
 }
 
+/** Carries a provider identity that matched no account from the OAuth
+ *  callback to the confirm step, so the "no account exists" page can finish
+ *  the sign-in without a second provider round-trip. Five minutes: it only
+ *  needs to survive the human pause on the interstitial. */
+export type PendingAccount = {
+  provider: 'dropbox' | 'google' | 'apple'
+  subject: string
+  name?: string | undefined
+  email?: string | undefined
+  next?: string | undefined
+  native?: string | undefined
+  appChallenge?: string | undefined
+}
+
+export const createPendingAccountToken = (pending: PendingAccount, secret: string) =>
+  new SignJWT({
+    typ: 'pending-account',
+    sub: pending.subject,
+    provider: pending.provider,
+    name: pending.name,
+    email: pending.email,
+    next: pending.next,
+    native: pending.native,
+    appChallenge: pending.appChallenge,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('300s')
+    .sign(sessionKey(secret))
+
+export const verifyPendingAccountToken = async (token: string, secret: string): Promise<PendingAccount | null> => {
+  const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] }).catch(() => ({ payload: null }))
+  if (payload?.typ !== 'pending-account' || typeof payload.sub !== 'string' || !payload.sub) return null
+  if (payload.provider !== 'dropbox' && payload.provider !== 'google' && payload.provider !== 'apple') return null
+  const claim = (key: string) => {
+    const value = payload[key]
+    return typeof value === 'string' && value ? value : undefined
+  }
+  return {
+    provider: payload.provider,
+    subject: payload.sub,
+    name: claim('name'),
+    email: claim('email'),
+    next: claim('next'),
+    native: claim('native'),
+    appChallenge: claim('appChallenge'),
+  }
+}
+
 const verifySessionToken = async (token: string, secret: string) => {
   const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
   if (payload.typ !== undefined) return null
