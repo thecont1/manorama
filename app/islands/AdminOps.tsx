@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'hono/jsx'
 import type { AdminUserSummary } from '../lib/user-repository'
 
+/** The console page is normally capped at 1120px; the table grip lets the
+ *  operator stretch it on roomy screens. Stored per device — it is a screen
+ *  preference, not an account one. */
+const PAGE_W_KEY = 'manorama.opman.width'
+const PAGE_W_MIN = 980
+
 type Props = { ownerName?: string; accountId: string }
 type UserList = { users: AdminUserSummary[]; total: number }
 type Overview = { users?: UserList; error?: string }
@@ -158,8 +164,35 @@ export default function AdminOps({ ownerName, accountId }: Props) {
     </th>
   )
 
+  const [pageW, setPageW] = useState(0)
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(PAGE_W_KEY))
+    if (saved >= PAGE_W_MIN) setPageW(saved)
+  }, [])
+
+  const stretchTo = (width: number) => {
+    const next = Math.max(PAGE_W_MIN, Math.round(width))
+    setPageW(next)
+    localStorage.setItem(PAGE_W_KEY, String(next))
+  }
+
+  const onGripDown = (event: PointerEvent) => {
+    const grip = event.currentTarget as HTMLElement
+    const startX = event.clientX
+    const startW = grip.closest('.ops-page')?.getBoundingClientRect().width ?? 1120
+    grip.setPointerCapture(event.pointerId)
+    const move = (e: PointerEvent) => setPageW(Math.max(PAGE_W_MIN, Math.round(startW + e.clientX - startX)))
+    const up = (e: PointerEvent) => {
+      grip.removeEventListener('pointermove', move)
+      grip.removeEventListener('pointerup', up)
+      stretchTo(startW + e.clientX - startX)
+    }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('pointerup', up)
+  }
+
   return (
-    <main class="ops-page">
+    <main class="ops-page" style={pageW ? `width:min(${pageW}px, calc(100% - 40px))` : undefined}>
       <div class="ops-top">
         <p class="ops-logo"><span class="brand-mark-wrap"><img class="ops-logo-mark" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
         <a class="ops-back" href="/">Return home</a>
@@ -172,6 +205,19 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       </header>
       <p class="ops-status" role="status" aria-live="polite">{status}</p>
       <section class="ops-section" aria-label="accounts">
+        <div
+          class="ops-table-grip"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Drag to widen the accounts table"
+          title="Drag to widen — remembered on this device"
+          tabIndex={0}
+          onPointerDown={onGripDown}
+          onKeyDown={(e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') stretchTo((pageW || document.querySelector('.ops-page')?.getBoundingClientRect().width || 1120) + 40)
+            if (e.key === 'ArrowLeft') stretchTo((pageW || document.querySelector('.ops-page')?.getBoundingClientRect().width || 1120) - 40)
+          }}
+        />
         <div class="ops-table-wrap">
           <table class="ops-users-table">
             <thead><tr>
