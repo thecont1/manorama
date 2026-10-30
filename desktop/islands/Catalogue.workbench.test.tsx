@@ -380,6 +380,65 @@ describe('desktop catalogue workbench', () => {
     expect(card.querySelector('.desktop-share-host')).toBeNull()
   })
 
+  test('lists account cloud galleries ahead of the local folders', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) {
+        return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      }
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir',
+            title: 'kashmir, in winter',
+            caption: '',
+            date: '',
+            imageCount: 1,
+            sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            retention: 'retained',
+            expiresAt: null,
+            images: [
+              { id: 'a', ref: undefined, filename: 'a.jpg', src: '/img/a.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/a-sm.jpg', width: 400, format: 'image/jpeg' }] },
+            ],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      // The cloud gallery leads the list — it is the thing the owner came to see.
+      expect(titles.indexOf('kashmir, in winter')).toBeGreaterThanOrEqual(0)
+      expect(titles.indexOf('kashmir, in winter')).toBeLessThan(titles.indexOf(TITLE))
+
+      const card = container.querySelector<HTMLElement>('.admin-gallery-card')!
+      expect(card.querySelector('.admin-gallery-count')?.textContent).toBe('(1 photo)')
+      expect(card.querySelector('.admin-gallery-caption')?.textContent).toBe('Dropbox · cloud gallery')
+      // Server-relative previews arrive rewritten against the API origin.
+      expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
+      // A cloud card opens the public gallery; Details stays local-only.
+      expect(byText(card, 'Open')).toBeDefined()
+      expect(card.querySelector(`[aria-label="Details kashmir, in winter"]`)).toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed account fetch leaves the local catalogue untouched', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async () => new Response('down', { status: 500 })) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      expect(container.querySelector('.desktop-source-note')?.textContent).toContain('could not be loaded')
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
   test('signed out, the desktop shows the welcome chooser', async () => {
     const container = await mount(false)
     expect(container.querySelector('.admin-page')).toBeNull()
