@@ -7,9 +7,9 @@ import { PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGall
 import type { AuthProvider } from '../lib/identity-repository'
 import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
-import { CopyIcon, OpenIcon, RefreshIcon, SourceIcon, TrashIcon } from '../components/admin-icons'
 import { AddGallerySheet } from '../components/AddGallerySheet'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
+import { Sheet } from '../components/ui/Sheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
@@ -25,8 +25,6 @@ type Props = {
   accountId?: string
   upgradeUrl?: string
 }
-type EditableField = 'title' | 'caption' | 'slug'
-type Editing = { slug: string; field: EditableField } | null
 type ReorderableGalleryImage = GallerySummary['images'][number]
 type AccountIdentity = AccountIdentityWeb
 
@@ -102,8 +100,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // A failed draft save stays visible inside the reorder overlay instead of
   // only in the toast behind it.
   const [reorderNote, setReorderNote] = useState<string | null>(null)
-  const [editing, setEditing] = useState<Editing>(null)
-  const [draft, setDraft] = useState('')
   const [status, setStatus] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // In-progress messages are sticky: they hold until the outcome
@@ -144,7 +140,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [editField, setEditField] = useState<GalleryEditField | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editNote, setEditNote] = useState<string | null>(null)
-  const [shareOpen, setShareOpen] = useState(false)
+  // The card overflow sheet (···) and the share sheet it can open are keyed
+  // by slug so they work without Details being mounted underneath.
+  const [shareSlug, setShareSlug] = useState<string | null>(null)
+  const [menuSlug, setMenuSlug] = useState<string | null>(null)
+  // Remove runs as an inline confirm on the card, like the native list —
+  // never a window.confirm dialog.
+  const [removeSlug, setRemoveSlug] = useState<string | null>(null)
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
@@ -347,13 +349,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const state = event.state as { surface?: string; slug?: string } | null
       if (state?.surface === 'details') {
         setDetailsSlug(state.slug ?? null)
-        setShareOpen(false)
+        setShareSlug(null)
       } else if (state?.surface === 'settings') {
         setSettingsOpen(true)
       } else {
         setDetailsSlug(null)
         setSettingsOpen(false)
-        setShareOpen(false)
+        setShareSlug(null)
       }
     }
     window.addEventListener('popstate', onPop)
@@ -363,7 +365,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (!galleries.some((gallery) => gallery.slug === slug)) return
     setDetailsSlug(slug)
     setDetailsNote(null)
-    setShareOpen(false)
+    setShareSlug(null)
     const params = new URLSearchParams(window.location.search)
     params.set('details', slug)
     window.history.pushState({ surface: 'details', slug }, '', `${window.location.pathname}?${params}`)
@@ -541,76 +543,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       setBusy(false)
     }
   }
-  const beginEditing = (gallery: GallerySummary, field: EditableField) => {
-    if (blockPipelineEdit(gallery)) return
-    setEditing({ slug: gallery.slug, field })
-    setDraft(gallery[field])
-    announce('')
-  }
-
-  const cancelEditing = () => {
-    setEditing(null)
-    setDraft('')
-  }
-
-  const saveEditing = async () => {
-    if (!editing || saveEditingInFlight.current) return
-    const current = galleries.find((item) => item.slug === editing.slug)
-    if (current && blockPipelineEdit(current)) return
-    const editingSlug = editing.slug
-    const value = draft.trim()
-    if (editing.field === 'title' && !value) {
-      announce('A gallery title cannot be empty')
-      return
-    }
-    if (editing.field === 'slug' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
-      announce('Use lowercase letters, numbers, and single hyphens for the gallery URL')
-      return
-    }
-    saveEditingInFlight.current = true
-    setBusy(true)
-    announce('Saving…', true)
-    try {
-      const response = await fetch(`/api/galleries/${encodeURIComponent(editing.slug)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        // The URL slug is the resource identity; a rename is `newSlug`.
-        body: JSON.stringify(editing.field === 'slug' ? { newSlug: value } : { [editing.field]: value }),
-      })
-      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That change could not be saved')
-      setGalleries((previous) => sortRecent(previous.map((item) => item.slug === editingSlug ? payload.gallery! : item)))
-      setEditing(null)
-      setDraft('')
-      announce('Saved')
-    } catch (error) {
-      announce(error instanceof Error ? error.message : 'That change could not be saved')
-    } finally {
-      saveEditingInFlight.current = false
-      setBusy(false)
-    }
-  }
-
-  const copyGalleryAddress = async (gallery: GallerySummary) => {
-    const address = `https://${galleryAddress(gallery.slug)}`
-    try {
-      await navigator.clipboard.writeText(address)
-      announce('Gallery link copied')
-    } catch {
-      const field = document.createElement('textarea')
-      field.value = address
-      field.style.position = 'fixed'
-      field.style.opacity = '0'
-      document.body.appendChild(field)
-      field.select()
-      document.execCommand('copy')
-      field.remove()
-      announce('Gallery link copied')
-    }
-  }
-
   const removeGallery = async (gallery: GallerySummary) => {
-    if (!window.confirm(`Remove “${gallery.title}” from Manorama?`)) return
     setBusy(true)
     announce('Removing gallery…', true)
     try {
@@ -618,6 +551,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
       setGalleries((previous) => previous.filter((item) => item.slug !== gallery.slug))
+      setRemoveSlug(null)
       announce('Gallery removed')
     } catch (error) {
       announce(error instanceof Error ? error.message : 'That gallery could not be removed')
@@ -678,7 +612,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
       setGalleries((previous) => previous.filter((item) => item.slug !== gallery.slug))
-      setShareOpen(false)
+      setShareSlug(null)
       if (initialDetailsRef.current === gallery.slug) {
         // Deep-linked from the viewer: the gallery the viewer was showing is
         // gone, so land on the library instead of walking back into a 404.
@@ -756,33 +690,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     closeDetails()
   }
 
-  const editableText = (gallery: GallerySummary, field: EditableField, className: string) => {
-    const isEditing = editing?.slug === gallery.slug && editing.field === field
-    if (isEditing) {
-      const common = {
-        value: draft,
-        ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
-          if (!el || el === document.activeElement) return
-          el.focus()
-          el.setSelectionRange(el.value.length, el.value.length)
-        },
-        'aria-label': `Edit gallery ${field}`,
-        disabled: busy,
-        onInput: (event: Event) => setDraft((event.target as HTMLInputElement | HTMLTextAreaElement).value),
-        onBlur: () => { void saveEditing() },
-        onKeyDown: (event: KeyboardEvent) => {
-          if (event.key === 'Escape') cancelEditing()
-          if (event.key === 'Enter' && (field === 'title' || field === 'slug')) { event.preventDefault(); void saveEditing() }
-          if (event.key === 'Enter' && field === 'caption' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEditing() }
-        },
-      }
-      return field === 'caption' ? <textarea class={`${className} is-editing`} rows={3} {...common} /> : <input class={`${className} is-editing`} type="text" {...common} />
-    }
-    const text = gallery[field] || (field === 'caption' ? 'Add a caption' : gallery.title)
-    const displayText = text
-    return <button type="button" class={`${className} editable-value${gallery[field] ? '' : ' is-empty'}`} aria-label={`Edit gallery ${field}: ${text}`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : undefined} onClick={() => beginEditing(gallery, field)}>{displayText}</button>
-  }
-
   // A card can cross its expiry while the dashboard stays open (the `now`
   // ticker rerenders every minute): expired pipeline galleries are already
   // gone logically and drop out of the next fetch, so skip them here too.
@@ -790,6 +697,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
   const detailsGallery = detailsSlug ? liveGalleries.find((gallery) => gallery.slug === detailsSlug) ?? null : null
+  const menuGallery = menuSlug ? liveGalleries.find((gallery) => gallery.slug === menuSlug) ?? null : null
+  const shareGallery = shareSlug ? liveGalleries.find((gallery) => gallery.slug === shareSlug) ?? null : null
+  // client_reference_id is how the Stripe webhook maps a completed checkout
+  // back to this account — hex-encoded because Stripe drops ids outside its
+  // safe charset. Never strip it.
   const upgradeHref = upgradeUrl && accountId ? `${upgradeUrl}?client_reference_id=${encodeStripeAccountRef(accountId)}` : 'mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade'
 
   return (
@@ -860,27 +772,42 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
-        {liveGalleries.length ? <div class="admin-gallery-list">{liveGalleries.map((gallery) => <article class="admin-gallery-card" key={gallery.slug} data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-          <div class="admin-gallery-card-body"><div class="admin-gallery-title-row">{editableText(gallery, 'title', 'admin-gallery-title')}<span class="admin-gallery-count" aria-label={`${gallery.imageCount} photos`}>({gallery.imageCount} photos)</span></div>{editableText(gallery, 'caption', 'admin-gallery-caption')}</div>
-          {isLocked(gallery) && gallery.expiresAt ? <div class="admin-gallery-retention" id={`retention-${gallery.slug}`}>
-            <p>Temporary · {Math.max(0, Math.ceil((Date.parse(gallery.expiresAt) - now) / 86_400_000))} days left</p>
-            <p>Expires <time dateTime={gallery.expiresAt}>{gallery.expiresAt.replace('T', ' ').replace('.000Z', ' UTC')}</time>. Permanently removed from Manorama after 30 days unless you upgrade before expiry.</p>
-            {/* client_reference_id is how the Stripe webhook maps a
-                completed checkout back to this account — hex-encoded because
-                Stripe drops ids outside its safe charset. Never strip it. */}
-            <p>{PIPELINE_LOCK_MESSAGE} <a href={upgradeHref}>Upgrade</a></p>
-          </div> : null}
-          <div class="gallery-card-url-row"><button type="button" class="admin-icon-action" title="Copy gallery link" aria-label={`Copy ${gallery.title} link`} onClick={() => copyGalleryAddress(gallery)}><CopyIcon /></button><div class="admin-gallery-url"><span class="admin-gallery-url-prefix">{publicHost}{galleryPath('').replace(/\/$/, '')}/</span>{editableText(gallery, 'slug', 'admin-gallery-slug')}</div></div>
-          <div class="admin-gallery-strip-frame" aria-label={`${gallery.title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
-            <div class="admin-gallery-strip" role="list" aria-label={`${gallery.title} photographs`}>
-              {gallery.images.map((image, imageIndex) => <figure class="admin-gallery-strip-item" role="listitem" key={image.id} data-image-id={image.id} aria-label={`${image.filename}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
-                <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
-                {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
-              </figure>)}
+        {liveGalleries.length ? <ul class="lib-list">{liveGalleries.map((gallery) => {
+          const title = gallery.title || gallery.slug
+          const locked = isLocked(gallery)
+          return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+            <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
+              <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
+                {gallery.images.map((image, imageIndex) => <li class="admin-gallery-strip-item" key={image.id} data-image-id={image.id}>
+                  <a href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}, opens in a new tab`}>
+                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                    {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
+                  </a>
+                </li>)}
+              </ul>
             </div>
+            <div class="lib-card-head">
+              <a class="lib-card-title" href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" title="Opens in a new tab">{title}</a>
+              <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
+            </div>
+            <p class="lib-card-sub">
+              {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} · {sourceLabelFor(gallery.sourceUrl)}
+              {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+            </p>
+            {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
+            {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
+              <p>Remove “{title}” from manorama? Every photograph stays in {sourceLabelFor(gallery.sourceUrl)}.</p>
+              <button type="button" disabled={busy} onClick={() => void removeGallery(gallery)}>Remove gallery</button>
+              <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
+            </div> : null}
+          </article></li>
+        })}</ul> : (
+          <div class="lib-empty">
+            <h3>No galleries yet</h3>
+            <p>Paste a link to a folder or album you already share. Nothing is copied or moved.</p>
+            <button type="button" class="m-btn m-btn--primary" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add a gallery</button>
           </div>
-          <div class="gallery-card-actions"><button type="button" class="admin-button admin-button--secondary admin-details-button" aria-label={`Open details for ${gallery.title}`} onClick={() => openDetails(gallery.slug)} disabled={busy}>Details</button><a class="admin-icon-action" title="Open gallery in a new tab" aria-label={`Open ${gallery.title} in a new tab`} href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer"><OpenIcon /></a>{gallery.sourceUrl ? <a class="admin-icon-action" title={gallery.sourceUrl} aria-label={`Open the ${gallery.title} source at ${gallery.sourceUrl}`} href={gallery.sourceUrl} target="_blank" rel="noreferrer"><SourceIcon /></a> : null}{gallery.sourceUrl ? <button type="button" class="admin-icon-action" title={isLocked(gallery) ? PIPELINE_LOCK_MESSAGE : 'Refresh from source'} aria-label={`Refresh ${gallery.title} from its source link`} aria-disabled={isLocked(gallery) ? 'true' : undefined} aria-describedby={isLocked(gallery) ? `retention-${gallery.slug}` : undefined} onClick={() => refreshGallery(gallery)} disabled={busy}><RefreshIcon /></button> : null}<button type="button" class="admin-icon-action admin-icon-action--delete" title="Delete gallery" aria-label={`Delete ${gallery.title}`} onClick={() => removeGallery(gallery)} disabled={busy}><TrashIcon /></button></div>
-        </article>)}</div> : <p class="quiet-copy">No galleries are published yet. Add one above to begin.</p>}
+        )}
       </section>
       {/* The plan line is the only account copy on the Library — quiet
           normally; Settings › Plan carries the detail. */}
@@ -904,6 +831,45 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         onClose={() => { if (!busy) { setAddOpen(false); setAddError(null) } }}
         onSubmit={(input) => void addGallerySubmit(input)}
       />
+
+      {menuGallery ? (
+        <Sheet open onClose={() => setMenuSlug(null)} title={menuGallery.title || menuGallery.slug}>
+          <div class="lib-menu" role="menu" aria-label={`${menuGallery.title || menuGallery.slug} actions`}>
+            <button type="button" role="menuitem" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
+            <button type="button" role="menuitem" onClick={() => { openDetails(menuGallery.slug); setMenuSlug(null) }}>Gallery details</button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={busy || isLocked(menuGallery)}
+              title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
+              onClick={() => { setReorderNote(null); setReorderSlug(menuGallery.slug); setMenuSlug(null) }}
+            >Reorder photographs</button>
+            {menuGallery.sourceUrl ? <a role="menuitem" href={menuGallery.sourceUrl} target="_blank" rel="noreferrer">Open source</a> : null}
+            {menuGallery.sourceUrl ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy || isLocked(menuGallery)}
+                title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
+                onClick={() => { void refreshGallery(menuGallery); setMenuSlug(null) }}
+              >Read the folder again</button>
+            ) : null}
+            <button type="button" role="menuitem" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
+          </div>
+        </Sheet>
+      ) : null}
+
+      {shareGallery ? (
+        <GalleryShareSheet
+          payload={{
+            title: shareGallery.title,
+            caption: shareGallery.caption,
+            url: `https://${galleryAddress(shareGallery.slug)}`,
+          }}
+          onClose={() => setShareSlug(null)}
+          onCopy={copyText}
+        />
+      ) : null}
 
       {settingsOpen ? (
         <WebSettings
@@ -951,13 +917,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             onPurge={() => {}}
             onBack={closeDetails}
             onOpen={() => openGalleryTab(detailsGallery)}
-            onShare={() => { setDetailsNote(null); setShareOpen(true) }}
+            onShare={() => { setDetailsNote(null); setShareSlug(detailsGallery.slug) }}
             onEditName={() => { setEditField('name'); setEditValue(detailsGallery.title); setEditNote(null) }}
             onEditCaption={() => { setEditField('caption'); setEditValue(detailsGallery.caption || ''); setEditNote(null) }}
             onEditAddress={() => { setEditField('address'); setEditValue(detailsGallery.slug); setEditNote(null) }}
             onReorder={() => reorderFromDetails(detailsGallery)}
             onRefresh={() => void refreshGalleryFromDetails(detailsGallery)}
             onRemove={() => void removeGalleryFromDetails(detailsGallery)}
+            upgradeHref={upgradeHref}
           />
           <GalleryEditSheet
             open={editField !== null}
@@ -969,17 +936,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             onSubmit={(value) => void saveEditFromDetails(value)}
             onClose={() => { if (!busy) { setEditField(null); setEditNote(null) } }}
           />
-          {shareOpen ? (
-            <GalleryShareSheet
-              payload={{
-                title: detailsGallery.title,
-                caption: detailsGallery.caption,
-                url: `https://${galleryAddress(detailsGallery.slug)}`,
-              }}
-              onClose={() => setShareOpen(false)}
-              onCopy={copyText}
-            />
-          ) : null}
         </>
       ) : null}
       {(() => {

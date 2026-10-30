@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx'
+import { PIPELINE_LOCK_MESSAGE } from '../lib/gallery-policy'
 import { ActionGroup, ActionRow } from './ui/ActionRow'
 import { Button } from './ui/Button'
 import { Switch } from './ui/Switch'
@@ -12,6 +13,9 @@ type Props = {
   sourceLabel: string
   temporary?: boolean
   expiresAt?: string | null
+  /** Web-only: the Stripe upgrade href shown under the temporary notice.
+   *  Native surfaces the visionary sheet instead, so they never pass it. */
+  upgradeHref?: string
   editable: boolean
   busy?: boolean
   note?: string | null
@@ -75,6 +79,7 @@ export function GalleryDetailsView({
   sourceLabel,
   temporary = false,
   expiresAt,
+  upgradeHref,
   editable,
   busy = false,
   note,
@@ -132,6 +137,9 @@ export function GalleryDetailsView({
         </header>
 
         <div class="d-groups">
+          {temporary && upgradeHref ? (
+            <p class="m-note d-upgrade-note">{PIPELINE_LOCK_MESSAGE} <a href={upgradeHref}>Upgrade</a></p>
+          ) : null}
           <ActionGroup>
             <ActionRow
               label="Open gallery"
