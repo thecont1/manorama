@@ -22,8 +22,8 @@ export default function Welcome({ signedIn, onSignIn, authError, pendingQuickAdd
           <img src="/manorama-merged-logo.png" width="140" height="47" alt="manorama" />
           <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
-        <h1>A quieter place to look at photographs, on your own or with anyone.</h1>
-        <p>Sign in to add public Dropbox, Google Drive, iCloud, or MEGA folders and albums.</p>
+        <h1>Your shared folders, shown properly</h1>
+        <p>Paste a Dropbox, Google Drive, iCloud or MEGA link, or pick a folder on this iPhone. manorama turns it into a quiet, full-screen gallery at your own address.</p>
       </div>
       {accountAdAside}
       {signedIn === false && onSignIn ? <div class="native-welcome-providers">
