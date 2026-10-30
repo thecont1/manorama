@@ -263,7 +263,7 @@ describe('the operations console at /opman', () => {
     expect(response.status).toBe(200)
     const html = await response.text()
     expect(html).toContain('manorama housekeeping')
-    expect(html).toContain('People using manorama')
+    expect(html).toContain('ops-users-table')
     expect(html).toContain('class="ops-logo"')
     expect(html).toContain('manorama-merged-logo.png')
   })

@@ -31,7 +31,6 @@ const IconTrash = () => <svg {...icon}><path d="M4 7h16" /><path d="M9.5 7V4.5h5
 
 export default function AdminOps({ ownerName, accountId }: Props) {
   const [users, setUsers] = useState<AdminUserSummary[]>([])
-  const [total, setTotal] = useState(0)
   const [status, setStatus] = useState('Loading operations data…')
   const [busy, setBusy] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null)
@@ -43,7 +42,6 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       const payload = await response.json() as Overview
       if (!response.ok || !payload.users) throw new Error(payload.error || 'The operations overview could not be loaded')
       setUsers(payload.users.users)
-      setTotal(payload.users.total)
       setStatus('Updated just now')
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'The operations overview could not be loaded')
@@ -141,21 +139,18 @@ export default function AdminOps({ ownerName, accountId }: Props) {
 
   return (
     <main class="ops-page">
-      <p class="ops-logo"><span class="brand-mark-wrap"><img class="ops-logo-mark" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
+      <div class="ops-top">
+        <p class="ops-logo"><span class="brand-mark-wrap"><img class="ops-logo-mark" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
+        <a class="ops-back" href="/">Return home</a>
+      </div>
       <header class="ops-header">
         <div>
           <h1>manorama housekeeping</h1>
           <p class="ops-intro">Signed in as <strong>{ownerName || accountId}</strong>. This console exposes account metadata, never photographs or provider subjects.</p>
         </div>
-        <a class="ops-back" href="/">Return home</a>
       </header>
       <p class="ops-status" role="status" aria-live="polite">{status}</p>
-      <section class="ops-section" aria-labelledby="ops-users-heading">
-        <div class="ops-section-heading">
-          <div><p class="eyebrow">accounts</p><h2 id="ops-users-heading">People using manorama</h2></div>
-          <button type="button" class="ops-refresh" disabled={busy} onClick={() => void refresh()}>Refresh</button>
-        </div>
-        <p class="ops-copy">{total} accounts — every one of them. The master stays at the top, followed by newest accounts.</p>
+      <section class="ops-section" aria-label="accounts">
         <div class="ops-table-wrap">
           <table class="ops-users-table">
             <thead><tr>

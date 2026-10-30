@@ -1900,6 +1900,10 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 /* The brand mark is the first in-flow child of .ops-page on both the door
    and the console, so its box is set by the shared page geometry alone and
    lands at the same pixel on either surface. */
+/* The logo and the way back share one top row on both ops surfaces. */
+.ops-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
+.ops-top .ops-logo { margin: 0; }
+.ops-top .ops-back { margin-top: 0; }
 .ops-logo { margin: 0 0 26px; }
 .ops-logo .brand-mark-wrap { transform: translateX(-9.2%); }
 .ops-logo-mark { display: block; width: clamp(168px, 22vw, 240px); height: auto; }
