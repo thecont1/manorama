@@ -41,7 +41,7 @@ export function AddGallerySheet({
     <Sheet
       open={open}
       onClose={onClose}
-      title="Add gallery"
+      title="Add a gallery"
       size="half"
       dismissible={!busy}
       footer={(
@@ -66,24 +66,24 @@ export function AddGallerySheet({
         }}
       >
         <label class="m-field">
-          <span>Public Dropbox, Google Drive, iCloud, or MEGA link</span>
-          <input
-            class="m-input"
-            type="url"
-            aria-label="Public Dropbox, Google Drive, iCloud, or MEGA link"
-            value={url}
-            placeholder="Paste a public folder or album link"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellcheck={false}
-            required
-            disabled={busy}
-            onInput={(event) => onUrlChange((event.currentTarget as HTMLInputElement).value)}
-          />
+          <span>Shared folder or album link</span>
+          <span class="m-input-wrap">
+            <input
+              class="m-input"
+              type="url"
+              aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA"
+              value={url}
+              placeholder="https://www.dropbox.com/scl/fo/…"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellcheck={false}
+              required
+              disabled={busy}
+              onInput={(event) => onUrlChange((event.currentTarget as HTMLInputElement).value)}
+            />
+            <button class="m-input-paste" type="button" disabled={busy} onClick={() => void paste()}>Paste</button>
+          </span>
         </label>
-        <div class="m-form-inline">
-          <Button variant="secondary" type="button" disabled={busy} onClick={() => void paste()}>Paste</Button>
-        </div>
         <label class="m-field">
           <span>Name <small>(optional)</small></span>
           <input

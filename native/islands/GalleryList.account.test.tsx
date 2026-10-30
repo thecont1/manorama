@@ -369,7 +369,7 @@ describe('account slot layout contract', () => {
     // gallery shortcuts wait behind sign-in.
     expect(container.querySelector('form')).toBeNull()
     expect(container.innerHTML).not.toContain('Global view')
-    expect(container.innerHTML).not.toContain('View subscription options')
+    expect(container.innerHTML).not.toContain('See price in the App Store')
   })
 })
 
@@ -555,7 +555,7 @@ describe('signed-in account area', () => {
     // Sign out waits inside Settings, reached by the gear directly.
     await openSettings(container)
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === 'Sign out')).toBe(true)
-    ;(container.querySelector('[aria-label="Back"]') as HTMLButtonElement).click()
+    ;(container.querySelector('[aria-label="Back to the library"]') as HTMLButtonElement).click()
     await settle()
     // Signed-in home replaces the provider row; Settings never shows a
     // manual open form — deep links cover shared galleries.
@@ -592,7 +592,7 @@ describe('signed-in account area', () => {
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
     expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
-    ;(container.querySelector('[data-gallery-editor] [aria-label="Close the editor"]') as HTMLButtonElement).click()
+    ;(container.querySelector('[data-gallery-editor] .native-editor-cancel') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).toBeNull()
 
@@ -607,8 +607,8 @@ describe('signed-in account area', () => {
     // The account controls live in Settings behind the topbar gear.
     await openSettings(container)
     const settingsHtml = container.innerHTML
-    expect(settingsHtml).toContain('Expanded photo picker')
-    expect(settingsHtml).toContain('Keep photos from this device ready to choose in galleries')
+    expect(settingsHtml).toContain('Photo picker')
+    expect(settingsHtml).toContain('Let galleries show photographs already saved on this iPhone')
     // The picker opens from Settings only when the expanded mode is on.
     expect(settingsHtml).not.toContain('Open photo picker')
   })
@@ -691,7 +691,7 @@ describe('signed-in account area', () => {
 
     await openSettings(container)
     const html = container.innerHTML
-    expect(html).toContain('This device')
+    expect(html).toContain('This iPhone')
     // The web dashboard's "Mac" is the wrong word in an iOS app, and the list
     // is whatever device the account last published from.
     expect(html).not.toContain('On your Mac')
@@ -737,23 +737,24 @@ describe('signed-in account area', () => {
     // list running from the device down to the load policy.
     const headings = [...container.querySelectorAll('.m-actiongroup-label')].map((heading) => heading.textContent)
     expect(headings).toContain('House cards')
-    expect(headings).toContain('This device')
+    expect(headings).toContain('This iPhone')
 
-    // The load-policy select names what it governs.
-    const policy = container.querySelector('#settings-load-policy') as unknown as HTMLSelectElement
+    // The new-galleries segment names what it governs.
+    const policy = container.querySelector('[role="radiogroup"][aria-label="New galleries"]') as HTMLElement
     expect(policy).not.toBeNull()
-    expect([...policy.options].map((option) => option.textContent)).toEqual([
-      'Download to encrypted vault (default)',
-      'Stream from cloud when needed',
+    const policyOptions = [...policy.querySelectorAll('[role="radio"]')] as HTMLButtonElement[]
+    expect(policyOptions.map((option) => option.textContent)).toEqual([
+      'Keep a copy',
+      'Stream only',
     ])
-    expect(policy.value).toBe('vault')
+    expect(policyOptions.map((option) => option.getAttribute('aria-checked'))).toEqual(['true', 'false'])
 
-    // The expanded picker switch carries its plain-language description.
+    // The picker switch carries its plain-language description.
     const pickerRow = [...container.querySelectorAll('.m-actionrow')]
-      .find((row) => row.textContent?.includes('Expanded photo picker')) as HTMLElement
+      .find((row) => row.textContent?.includes('Photo picker')) as HTMLElement
     const picker = pickerRow?.querySelector('[role="switch"]') as HTMLButtonElement
     expect(picker).not.toBeNull()
-    expect(picker.textContent).toContain('Keep photos from this device ready to choose in galleries')
+    expect(picker.textContent).toContain('Let galleries show photographs already saved on this iPhone')
 
     // The house-card status and the buttons say what they hide.
     const houseCards = [...container.querySelectorAll('.m-actiongroup-label')]
@@ -764,7 +765,7 @@ describe('signed-in account area', () => {
 
     // The internal vocabulary the owner flagged never reaches the screen.
     const html = container.innerHTML
-    expect(html).toContain('Encrypted copies stay app-private.')
+    expect(html).toContain('Everything stays encrypted and on the device.')
     expect(html).not.toContain('the gallery picker')
     expect(html).not.toContain('Plates')
     expect(html).not.toContain('Hide today')
@@ -1274,13 +1275,13 @@ describe('signed-in account area', () => {
     await settle()
 
     await openSettings(container)
-    const learn = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Learn about Visionary') as HTMLButtonElement
+    const learn = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Go Visionary') as HTMLButtonElement
     expect(learn).toBeDefined()
     learn.click()
     await settle()
     // Visiting the Visionary introduction never touches the store.
     expect(presented).toBe(0)
-    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'See price in the App Store') as HTMLButtonElement
     expect(entry).toBeDefined()
     entry.click()
     await settle()
@@ -1305,10 +1306,10 @@ describe('signed-in account area', () => {
     await settle()
 
     await openSettings(container)
-    const learn = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Learn about Visionary') as HTMLButtonElement
+    const learn = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Go Visionary') as HTMLButtonElement
     learn.click()
     await settle()
-    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'See price in the App Store') as HTMLButtonElement
     entry.click()
     await settle()
 
@@ -1333,12 +1334,12 @@ describe('signed-in account area', () => {
     await settle()
 
     await openSettings(container)
-    const learn = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Learn about Visionary') as HTMLButtonElement
+    const learn = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Go Visionary') as HTMLButtonElement
     learn.click()
     await settle()
     // The store stays closed until the explicit CTA inside Visionary.
     expect(presented).toBe(0)
-    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
+    const entry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'See price in the App Store') as HTMLButtonElement
     entry.click()
     await settle()
 
@@ -1421,7 +1422,7 @@ describe('signed-in account area', () => {
     ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('[data-screen="details"]')).not.toBeNull()
-    const captionRow = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Add a caption')) as HTMLButtonElement
+    const captionRow = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('None')) as HTMLButtonElement
     captionRow.click()
     await settle()
     const form = container.querySelector('#m-gallery-metadata-form') as HTMLFormElement
@@ -1488,7 +1489,7 @@ describe('signed-in account area', () => {
     // always-on workbench form.
     const addForm = await openAddForm(container)
     expect(addForm.querySelector('input[type="url"]')?.getAttribute('aria-label'))
-      .toBe('Public Dropbox, Google Drive, iCloud, or MEGA link')
+      .toBe('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA')
     ;(container.querySelector('.m-sheet [aria-label="Close"]') as HTMLButtonElement).click()
     await settle()
 
@@ -1496,7 +1497,7 @@ describe('signed-in account area', () => {
     await openSettings(container)
     expect(container.querySelector('[data-account-drawer]')).toBeNull()
     expect(container.querySelector('#settings-owner-address')).not.toBeNull()
-    ;(container.querySelector('[aria-label="Back"]') as HTMLButtonElement).click()
+    ;(container.querySelector('[aria-label="Back to the library"]') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('.native-library-heading')).not.toBeNull()
   })
