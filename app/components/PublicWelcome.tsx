@@ -40,10 +40,10 @@ export default function PublicWelcome({
           <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
         <h1 style={welcomeHeadingStyle}>
-          A quieter place to look at photographs, on your own or with anyone.
+          the WOW-est way to enjoy a photo gallery with anyone
         </h1>
         <p class="landing-brand-intro">
-          Sign in to add public Dropbox, Google Drive, iCloud, or MEGA folders and albums.
+          manorama turns a folder of images (either on this device or in the cloud) into a beautiful full-screen hi-res gallery with a custom link of your own
         </p>
         <SignInLinks returning={returning} />
         {failed ? <p class="landing-note">Sign-in didn’t complete. Please try again.</p> : null}
