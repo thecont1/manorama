@@ -14,6 +14,7 @@ import type { RevenueCatBilling } from '../lib/billing'
 const globals = globalThis as Record<string, unknown>
 let previousWindow: unknown
 let previousDocument: unknown
+let previousHTMLElement: unknown
 let previousAnimationFrame: unknown
 let previousCancelAnimationFrame: unknown
 let dom: Window
@@ -33,10 +34,13 @@ beforeAll(() => {
   dom = new Window({ url: 'http://localhost/' })
   previousWindow = globals.window
   previousDocument = globals.document
+  previousHTMLElement = globals.HTMLElement
   previousAnimationFrame = globals.requestAnimationFrame
   previousCancelAnimationFrame = globals.cancelAnimationFrame
   globals.window = dom
   globals.document = dom.document
+  // The sheet's overlay stack inerts siblings through instanceof checks.
+  globals.HTMLElement = dom.HTMLElement
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback })
@@ -50,6 +54,7 @@ beforeAll(() => {
 afterAll(() => {
   globals.window = previousWindow
   globals.document = previousDocument
+  globals.HTMLElement = previousHTMLElement
   globals.requestAnimationFrame = previousAnimationFrame
   globals.cancelAnimationFrame = previousCancelAnimationFrame
 })
@@ -115,7 +120,7 @@ describe('paywall legal links', () => {
     // the explicit CTA is tapped.
     expect(presented).toBe(0)
     expect(offerings).toBe(0)
-    const cta = [...container.querySelectorAll('button')].find((button) => button.textContent === 'View subscription options') as HTMLButtonElement
+    const cta = [...container.querySelectorAll('button')].find((button) => button.textContent === 'See price in the App Store') as HTMLButtonElement
     expect(cta).toBeDefined()
     cta.click()
     await settle()

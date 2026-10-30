@@ -5,12 +5,13 @@ import type { Child, JSX } from 'hono/jsx'
  *  `control` slot (e.g. a Switch) replaces the chevron; a row carrying a
  *  control is not itself a button, so the control keeps its own events. */
 
-type GroupProps = { label?: string; children?: Child }
+type GroupProps = { label?: string; note?: string; children?: Child }
 
-export function ActionGroup({ label, children }: GroupProps) {
+export function ActionGroup({ label, note, children }: GroupProps) {
   return (
     <section>
       {label ? <h3 class="m-actiongroup-label">{label}</h3> : null}
+      {note ? <p class="m-actiongroup-note">{note}</p> : null}
       <div class="m-panel m-actiongroup">{children}</div>
     </section>
   )
@@ -19,6 +20,9 @@ export function ActionGroup({ label, children }: GroupProps) {
 type RowProps = {
   label: Child
   value?: Child
+  /** Optional 22px stroke glyph ahead of the label — the prototype's row
+   *  icon, muted like the value text. */
+  icon?: Child
   onClick?: () => void
   href?: string
   chevron?: boolean
@@ -33,11 +37,12 @@ const Chevron = () => (
   </svg>
 )
 
-export function ActionRow({ label, value, onClick, href, chevron, tone = 'default', disabled = false, control }: RowProps) {
+export function ActionRow({ label, value, icon, onClick, href, chevron, tone = 'default', disabled = false, control }: RowProps) {
   const classes = ['m-actionrow', tone === 'destructive' ? 'm-actionrow--destructive' : ''].filter(Boolean).join(' ')
   const showChevron = control == null && (chevron ?? Boolean(onClick || href))
   const inner = (
     <>
+      {icon ? <span class="m-actionrow-icon" aria-hidden="true">{icon}</span> : null}
       <span class="m-actionrow-label">{label}</span>
       {value != null ? <span class="m-actionrow-value">{value}</span> : null}
       {control != null ? <span class="m-actionrow-control">{control}</span> : null}

@@ -129,7 +129,16 @@ export const LibraryDeviceStatus = ({
   if (liveSaved < imageCount) {
     return (<>
       <span class="lib-card-device"> · Saving {liveSaved} of {imageCount}</span>
-      <progress class="lib-card-meter" value={liveSaved} max={imageCount} aria-label={`${liveSaved} of ${imageCount} photographs saved`} />
+      {/* The pink data hue marks progress; the bar itself is the measure,
+          so it carries the progressbar role rather than a native progress. */}
+      <span
+        class="lib-card-meter"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={imageCount}
+        aria-valuenow={liveSaved}
+        aria-label={`${liveSaved} of ${imageCount} photographs saved`}
+      ><i style={{ width: `${(liveSaved / imageCount) * 100}%` }} /></span>
     </>)
   }
   return <span class="lib-card-device"> · On this iPhone</span>
@@ -812,15 +821,38 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     ? accountGalleries?.find((gallery) => gallery.slug === detailsSlug)
     : undefined
   const detailsGalleryId = detailsSummary ? galleryIds[detailsSummary.slug] : undefined
+  const detailsFromViewer = nav.screen.kind === 'details' && nav.screen.from === 'viewer'
+  const detailsStreamOnly = detailsSummary && ownerSlug
+    ? galleryPolicies?.[galleryPolicyKey(ownerSlug, detailsSummary.slug)] === true
+    : false
   const detailsView = detailsSummary && ownerSlug ? (
     <GalleryDetails
       apiBase={base}
       owner={ownerSlug}
       gallery={detailsSummary}
-      streamOnly={galleryPolicies?.[galleryPolicyKey(ownerSlug, detailsSummary.slug)] === true}
+      streamOnly={detailsStreamOnly}
       vaultNote={selection.slug === detailsSummary.slug ? vaultNote : undefined}
       vaultProgress={selection.slug === detailsSummary.slug ? vaultProgress : null}
       hasSavedCopy={detailsGalleryId ? vaultGalleries.get(detailsGalleryId)?.status === 'cached' : false}
+      backLabel={detailsFromViewer ? 'Back' : 'Library'}
+      backAriaLabel={detailsFromViewer ? `Back to ${galleryName(detailsSummary)}` : undefined}
+      rail={(
+        <LibraryRail
+          galleryId={detailsGalleryId ?? ''}
+          images={detailsSummary.images}
+          loader={libraryLoader}
+          title={galleryName(detailsSummary)}
+          onOpen={(index) => openSelectionAt(ownerSlug, detailsSummary.slug, index)}
+        />
+      )}
+      deviceStatus={(
+        <LibraryDeviceStatus
+          galleryId={detailsGalleryId ?? ''}
+          imageCount={detailsSummary.imageCount}
+          streamOnly={detailsStreamOnly}
+          summary={detailsGalleryId ? vaultGalleries.get(detailsGalleryId) : undefined}
+        />
+      )}
       onBack={() => dispatchNav({ type: 'back' })}
       onOpen={() => {
         if (nav.screen.kind === 'details' && nav.screen.from === 'viewer') {
@@ -982,6 +1014,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   if (nav.screen.kind === 'privacy') {
     return <Privacy
       onBack={() => dispatchNav({ type: 'back' })}
+      backLabel={nav.screen.from === 'settings' ? 'Settings' : 'Back'}
       onOpenExternal={openExternal}
       onPrint={typeof window !== 'undefined' && typeof window.print === 'function' ? () => window.print() : undefined}
     />
@@ -1442,7 +1475,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       <TopBar end={(
         <button
           type="button"
-          class="m-btn m-btn--quiet"
+          class="m-btn m-btn--quiet m-iconbtn"
           aria-label="Settings"
           onClick={() => dispatchNav({ type: 'open-settings' })}
         >
@@ -1487,7 +1520,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
                 ))}
               </ul>
             ) : accountGalleries && !accountListFailed && temporaryAccountGalleries.length === 0 ? (
-              <p class="native-account-note">No galleries on this account yet.</p>
+              <div class="lib-empty">
+                <h3>No galleries yet</h3>
+                <p>Paste a link to a folder or album you already share. Nothing is copied or moved.</p>
+                <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}>Add a gallery</button>
+              </div>
             ) : null}
           </div>
         ) : null}

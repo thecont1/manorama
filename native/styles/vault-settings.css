@@ -86,6 +86,26 @@
   font-weight: 600;
 }
 
+.native-vault-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.native-vault-summary-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 15px;
+}
+
+.native-vault-summary-line > span:first-child {
+  font-weight: 600;
+}
+
+.native-vault-meter {
+  display: block;
+}
+
 .native-vault-cap {
   display: flex;
   flex-wrap: wrap;

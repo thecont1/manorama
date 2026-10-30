@@ -1,34 +1,6 @@
 @import '../app/styles.css';
 @import './styles/display.css';
 
-/* Native curtain composition: the mark is the quiet opening gesture, enlarged
-   and held in the upper half without changing the web gallery layout. */
-body.manorama-native .curtain-content {
-  display: grid;
-  grid-template-rows: 1fr 1fr;
-  align-items: center;
-  width: min(1200px, 100%);
-  height: 100%;
-  text-align: center;
-  transform: none;
-}
-body.manorama-native .curtain-logo-wrap {
-  grid-row: 1;
-  width: fit-content;
-  margin: 0 auto;
-  transform: none;
-}
-body.manorama-native .curtain-logo { width: clamp(236px, 42vw, 480px); }
-body.manorama-native .curtain-details {
-  grid-row: 2;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  min-width: 0;
-}
-body.manorama-native .curtain h1 { max-width: 12ch; margin: 0 0 20px; }
-body.manorama-native .curtain-caption { margin: 0 auto; }
-
 /* Native gallery chrome is a single reachable row. Every control shares the
    same dynamic height; the photograph remains untouched above it. */
 body.manorama-native .stage-arrows:not(.stage-arrows--bare) {
@@ -87,32 +59,7 @@ body.manorama-native .stage-arrows .stage-nav-arrow--next {
 body.manorama-native .stage-arrows .stage-nav-arrow {
   font-size: clamp(16px, 2.8svh, 24px);
 }
-@media (orientation: landscape) {
-  /* One centred group, exactly as in portrait: the mark above the title, then
-     the caption. The two-column spread gave the title a column of its own at
-     the shared 116px size, which wrapped a short title over three lines, and
-     it detached the mark from the words directly beneath it. Landscape keeps
-     the grouping and only scales the mark and title up. */
-  body.manorama-native .curtain-content {
-    display: block;
-    width: min(760px, 100%);
-    height: auto;
-  }
-  body.manorama-native .curtain-logo-wrap {
-    display: block;
-    margin: 0 auto 36px;
-  }
-  body.manorama-native .curtain-logo { width: clamp(236px, 24vw, 360px); }
-  body.manorama-native .curtain-details { align-self: start; }
-  body.manorama-native .curtain h1 {
-    max-width: none;
-    font-size: clamp(40px, 6.4vw, 76px);
-    line-height: 1.05;
-  }
-}
 
-@media (pointer: coarse) {
-  }
 
 :root {
   --native-safe-top: env(safe-area-inset-top, 0px);
@@ -199,15 +146,6 @@ body:has(.native-diptych) {
   line-height: 1.55;
 }
 
-.curtain-status {
-  max-width: 36rem;
-  margin: 18px auto 0;
-  color: rgba(var(--ink), .58);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
 .native-list-card form {
   display: grid;
   gap: 16px;
@@ -246,8 +184,10 @@ body:has(.native-diptych) {
   outline-offset: 3px;
 }
 
-/* Same outline button as the web landing — square, thin, quiet until tapped. */
-.native-list-card button {
+/* Same outline button as the web landing — square, thin, quiet until tapped.
+   Scoped off .m-btn: the redesign's pills (Add, Plan) share this card and the
+   element-qualified rule would otherwise win over the component class. */
+.native-list-card button:not(.m-btn) {
   border: 1px solid rgba(var(--ink), .22);
   border-radius: 0;
   padding: 13px 22px;
@@ -258,7 +198,7 @@ body:has(.native-diptych) {
   cursor: pointer;
 }
 
-.native-list-card button:hover {
+.native-list-card button:not(.m-btn):hover {
   border-color: rgba(var(--ink), .78);
   color: rgb(var(--ink));
 }
@@ -472,37 +412,6 @@ body.manorama-native:not(.gallery-entered) .stage-seq {
   }
 }
 
-/* The title begins where the mark's half ends. The curtain's two halves are the
-   grid's two rows, and the container centres each half's contents, so the title
-   was being centred in the lower half — about a third of a screen below the
-   equator. `align-self: start` puts the block at the top of its own row, which
-   is the equator exactly, at every size.
-
-   A negative `margin-top` is the tempting fix and the wrong one: the container
-   centres the *margin* box, so pulling the block up by 148px moves it up by 74.
-   Portrait only — the landscape curtain groups the same way and needs no
-   nudge. */
-@media (orientation: portrait) {
-  /* Keep the logo, title and caption together like the web reference. The
-     two equal-height native rows stranded the logo in the upper quarter.
-     Landscape groups identically and only scales the mark and title up. */
-  body.manorama-native .curtain-content {
-    display: block;
-    width: min(640px, 100%);
-    height: auto;
-  }
-  body.manorama-native .curtain-logo-wrap {
-    display: block;
-    margin: 0 auto 36px;
-  }
-  body.manorama-native .curtain-logo {
-    width: min(220px, 64vw);
-  }
-  body.manorama-native .curtain-details {
-    align-self: start;
-    margin-top: 0;
-  }
-}
 /* The WebView paints under the status bar now, and the body reserves the notch
    as padding — so the strip above a surface is the *body's* own background.
    That is `#0a0a0a`, the viewer's canvas, which is right while a gallery is on
@@ -574,29 +483,15 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
   flex: 0 0 auto;
   padding: max(12px, var(--native-safe-top)) max(12px, var(--native-safe-right)) 8px max(12px, var(--native-safe-left));
 }
-.native-editor .native-editor-close,
-.native-editor .native-editor-reset { min-width: 44px; min-height: 44px; padding: 0 12px; }
-.native-editor-close svg { width: 20px; height: 20px; display: block; }
-.native-editor-meta {
-  flex: 0 0 auto;
-  display: grid;
-  gap: 2px;
-  padding: 4px 24px 0;
-}
-.native-editor-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
-.native-editor-count { margin: 0; color: rgba(var(--ink), .6); font-size: 13px; }
-.native-editor-hint {
-  margin: 0;
-  color: rgba(var(--ink), .55);
-  font-size: 13px;
-  line-height: 1.45;
-}
+.native-editor .native-editor-cancel,
+.native-editor .native-editor-save { min-height: 36px; padding: 0 14px; font-size: 15px; }
 .native-editor-note {
   flex: 0 0 auto;
   margin: 0;
-  padding: 8px 24px 12px;
+  min-height: 20px;
+  padding: 4px 24px 10px;
   color: rgba(var(--ink), .55);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .native-editor-scroll {
@@ -615,6 +510,7 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
   align-items: stretch;
 }
 .native-editor .native-global-cell {
+  position: relative;
   flex: 0 0 auto;
   height: 100%;
   min-height: 0;
@@ -645,11 +541,70 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
 }
 .native-editor .native-global-cell:focus-visible { outline: 2px solid #fc0fc0; outline-offset: 3px; }
 .native-editor .native-global-cell:disabled { opacity: .6; cursor: default; }
-.native-editor-actions {
+/* The badge only appears on photographs the owner actually moved. */
+.native-editor .native-global-cell .pos {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  min-width: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(12, 12, 12, .75);
+  color: rgba(255, 255, 255, .9);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.native-editor .native-global-cell.is-moved .pos { background: #fc0fc0; color: #18060f; }
+.native-editor-sizer {
   display: flex;
+  align-items: center;
+  gap: 12px;
   flex: 0 0 auto;
-  padding: 12px 24px max(20px, var(--native-safe-bottom));
+  padding: 12px 24px max(16px, var(--native-safe-bottom));
   border-top: 1px solid rgba(var(--ink), .12);
+  color: rgba(var(--ink), .6);
+}
+.native-editor-sizer svg.s { width: 14px; height: 14px; flex: 0 0 auto; }
+.native-editor-sizer svg.l { width: 22px; height: 22px; flex: 0 0 auto; }
+.native-editor-sizer input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 32px;
+  background: transparent;
+}
+.native-editor-sizer input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(var(--ink), .25);
+}
+.native-editor-sizer input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -11px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-primary);
+}
+.native-editor-sizer input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(var(--ink), .25);
+}
+.native-editor-sizer input[type="range"]::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-primary);
+}
+.native-editor-sizer input[type="range"]:focus-visible {
+  outline: 2px solid #fc0fc0;
+  outline-offset: 4px;
 }
 .native-editor-confirm-copy {
   margin: 0 0 16px;
@@ -660,9 +615,8 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
 .native-editor-confirm-actions .m-btn { flex: 1 1 auto; }
 
 @media (min-width: 900px) {
-  .native-editor-meta { padding-inline: 40px; }
   .native-editor-note { padding-inline: 40px; }
-  .native-editor-actions { padding-inline: 40px; }
+  .native-editor-sizer { padding-inline: 40px; }
 }
 
 /* The rest bubble docks left of the forward arrow, same as the web. */
@@ -787,22 +741,30 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 
 .lib-card-sub {
   margin: 2px 0 0;
-  color: rgba(var(--ink), .55);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 13px;
-  letter-spacing: .06em;
+  color: var(--m-secondary);
+  font-size: var(--m-fs-small);
 }
 /* The card text column hugs its title: details sit 2px under, caption 6px. */
-.lib-card > .native-gallery-caption { margin-top: 6px; padding: 0; font-size: 15px; }
+.lib-card > .native-gallery-caption { margin-top: 6px; padding: 0; font-size: 15px; color: var(--m-secondary); }
 /* One hairline marks where a gallery ends and the next begins. */
 .native-gallery-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
+/* The vault fill is the only pink on the card — a thin block meter, not
+   a native progress widget, so every platform paints it identically. */
 .lib-card-meter {
   display: block;
   width: 120px;
   height: 3px;
   margin-top: 8px;
-  accent-color: rgb(var(--ink));
+  border-radius: 2px;
+  background: var(--m-raised);
+  overflow: hidden;
 }
+.lib-card-meter > i { display: block; height: 100%; background: var(--m-data); transition: width .6s var(--m-ease); }
+
+/* Empty library: one quiet surface card instead of a bare note. */
+.lib-empty { margin: 24px 0 0; padding: 24px; background: var(--m-surface); border-radius: var(--m-radius-card); }
+.lib-empty h3 { margin: 0; font-size: 19px; font-weight: 650; }
+.lib-empty p { margin: 6px 0 18px; color: var(--m-secondary); }
 
 /* The card menu is a sheet of rows, each a finger-sized target. */
 .lib-menu { display: grid; gap: 2px; }
@@ -825,14 +787,16 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
    40px before the first card. */
 .native-list-card > .native-account-ad { margin: 24px 0 40px; }
 
-.native-library-heading {
+.native-library-heading,
+.native-settings-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 8px;
 }
-.native-library-heading h1 { margin: 0; font-size: 28px; line-height: 1.2; }
+.native-library-heading h1,
+.native-settings-heading h1 { margin: 0; font-size: var(--m-fs-title); line-height: 1.1; font-weight: 700; letter-spacing: -.02em; font-variation-settings: "opsz" 36; }
 
 /* One status line under the title: vault activity first, then the kept
    count. It keeps its line even when empty so the sponsored slot does not
@@ -840,11 +804,11 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 .native-library-finding {
   min-height: 1.6em;
   margin: 0;
-  color: rgba(var(--ink), .55);
+  color: var(--m-secondary);
   font-size: 15px;
   line-height: 1.6;
 }
-.native-library-finding b { color: rgb(var(--ink)); font-weight: 600; }
+.native-library-finding b { color: var(--m-ink); font-weight: 600; }
 
 /* The plan line: quiet usage normally, a warning sentence when the next
    gallery would be temporary. */
@@ -869,6 +833,11 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 .native-settings .m-settings-address,
 .native-settings .m-settings-control,
 .native-settings .m-settings-segmented { display: grid; gap: 8px; padding: 12px 16px; }
+.native-settings .m-settings-plan { display: grid; gap: 12px; padding: 16px; }
+.native-settings .m-settings-usage { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; }
+.native-settings .m-settings-usage b { font-weight: 600; }
+.native-settings .m-settings-plan .m-meter-track { display: block; }
+.native-settings .m-settings-plan .m-note { margin: 0; }
 .native-settings .m-settings-address > label,
 .native-settings .m-settings-control > label { color: var(--m-secondary); font-size: var(--m-fs-small); }
 .native-settings .m-settings-address > div { display: flex; align-items: center; min-width: 0; }
@@ -950,9 +919,15 @@ body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 }
 
 .native-visionary { background: var(--m-ground); color: var(--m-ink); }
-.native-visionary-content { padding-top: 24px; padding-bottom: calc(40px + var(--native-safe-bottom)); }
-.native-visionary-intro { display: grid; gap: 16px; margin-bottom: 8px; }
-.native-visionary-intro h1 { max-width: 22ch; margin: 0; font-size: clamp(28px, 6vw, 42px); line-height: 1.12; letter-spacing: -.03em; }
-.native-visionary-intro p { max-width: 62ch; margin: 0; color: var(--m-secondary); line-height: 1.55; }
-.native-visionary-kicker { color: var(--m-ink) !important; font-family: 'DM Mono', ui-monospace, monospace; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
-.native-visionary-cta { padding: 12px; border-bottom: 1px solid var(--m-rule); }
+.native-visionary-body { display: grid; gap: 14px; }
+.native-visionary-kv {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 15px;
+}
+.native-visionary-kv dt { color: var(--m-secondary); }
+.native-visionary-kv dd { margin: 0; font-weight: 600; text-align: right; }
+.native-visionary-note { margin: 0; color: var(--m-secondary); font-size: 13px; line-height: 1.5; }
+.native-visionary-more { overflow: hidden; }

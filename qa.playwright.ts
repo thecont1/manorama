@@ -182,7 +182,7 @@ async function waitForTrackSettled(page: import("@playwright/test").Page) {
     .toBe(true);
 }
 
-test("curtain uses larger brand type without entry labels", async ({
+test("curtain shows the mark, title, caption and open hint", async ({
   page,
 }) => {
   await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
@@ -190,8 +190,14 @@ test("curtain uses larger brand type without entry labels", async ({
   // Real albums may carry no caption — the element renders empty and
   // zero-height, so the contract is presence + typeface, not visibility.
   await expect(page.locator("[data-curtain-caption]")).toBeAttached();
+  // The mark is the shared 140×47 logo box; the hint is fixed copy.
+  const mark = page.locator(".curtain-mark");
+  await expect(mark).toBeAttached();
+  const box = await mark.boundingBox();
+  expect(box?.width).toBe(140);
+  expect(box?.height).toBe(47);
+  await expect(page.locator(".curtain-prompt")).toHaveText("Tap to open");
   await expect(page.locator(".curtain-kicker")).toHaveCount(0);
-  await expect(page.locator(".curtain-prompt")).toHaveCount(0);
   await expect(page.getByText("a single album")).toHaveCount(0);
   await expect(
     page.getByText(/tap, click or press enter to enter/i),
@@ -199,6 +205,11 @@ test("curtain uses larger brand type without entry labels", async ({
   await expect(page.locator("[data-curtain-title]")).toHaveCSS(
     "font-family",
     /Bricolage Grotesque/i,
+  );
+  // Prototype hierarchy: 36px title, 17px caption — no display-size type.
+  await expect(page.locator("[data-curtain-title]")).toHaveCSS(
+    "font-size",
+    "36px",
   );
   await expect(page.locator("[data-curtain-caption]")).toHaveCSS(
     "font-family",

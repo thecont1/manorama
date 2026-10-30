@@ -61,7 +61,8 @@ describe('Privacy native view', () => {
 
   test('mounts the full shared policy document, readable and scrollable', () => {
     const html = String(Privacy({ onBack: () => {} }))
-    expect(html).toContain('class="m-owner privacy-view"')
+    expect(html).toContain('privacy-view')
+    expect(html).toContain('data-screen="privacy"')
     expect(html).toContain('class="privacy-scroll"')
     expect(html).toContain('aria-label="Back"')
     expect(html).toContain('Privacy Policy')

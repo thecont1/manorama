@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem } from '../../app/lib/imagesource'
-import { CloseIcon } from '../../app/components/admin-icons'
 import { fetchGallery, updateGalleryOrder } from '../lib/api'
 import { TopBar } from '../../app/components/ui/TopBar'
 import { Button } from '../../app/components/ui/Button'
@@ -83,12 +82,16 @@ const SETTLE_MS = 240
 
 export default function GalleryEditor({ owner, slug, title, apiBase, onClose, onSaved }: Props) {
   const [session, setSession] = useState<ReorderState<EditorPhoto> | null>(null)
+  const [movedIds, setMovedIds] = useState<ReadonlySet<string>>(new Set())
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [settling, setSettling] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [viewport, setViewport] = useState({ width: 375, height: 812 })
   const [rowHeight, setRowHeight] = useState(editorRowHeight)
+  // Once the sizer is touched the height belongs to the user; resizes only
+  // re-derive it while the default viewport-based value is still in place.
+  const userSizedRef = useRef(false)
   const [scrollTop, setScrollTop] = useState(0)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
@@ -119,6 +122,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
         if (!active) return
         const loaded = photosFrom(manifest)
         setSession(createReorderSession(loaded))
+        setMovedIds(new Set())
         setNote(loaded.length ? null : 'This gallery has no photographs yet.')
       })
       .catch((reason) => {
@@ -134,7 +138,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     const el = scrollRef.current
     if (!el) return
     const measure = () => {
-      setRowHeight(editorRowHeight())
+      if (!userSizedRef.current) setRowHeight(editorRowHeight())
       const width = el.clientWidth
       const height = el.clientHeight
       if (width > 0 || height > 0) {
@@ -202,8 +206,13 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     const next = pickUpItem(current, photo.id)
     if (next === current) return
     setSession(next)
-    setNote(`“${photo.label}” is in hand.`)
+    setNote(`Picked up “${photo.label}”. Tap where it goes.`)
   }
+
+  /** The photographs the owner actually moved wear the position badge;
+   *  neighbours that merely shifted as a result are not marked. */
+  const markMoved = (id: string) =>
+    setMovedIds((previous) => previous.has(id) ? previous : new Set(previous).add(id))
 
   const putDown = (target: EditorPhoto) => {
     const current = sessionRef.current
@@ -217,6 +226,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
       return
     }
     if (next === current) return
+    markMoved(heldId)
     const movedAt = next.items.findIndex((item) => item.id === heldId)
     const moved = next.items[movedAt]
     if (moved) setNote(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`)
@@ -240,6 +250,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
         return
       }
       setSession((previous) => previous ? { ...previous, savedKeys: intended } : previous)
+      setMovedIds(new Set())
       setNote('New order saved.')
       onSavedRef.current?.()
     } catch (reason) {
@@ -257,6 +268,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     settlingRef.current = true
     setSettling(true)
     setSession(discardReorder(current))
+    setMovedIds(new Set())
     setDropTarget(null)
     setNote('Back to the saved order.')
     settleTimerRef.current = window.setTimeout(() => {
@@ -284,8 +296,8 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   const heldId = session?.heldId ?? null
   const itemCount = session?.items.length ?? 0
   const hint = heldId
-    ? 'Tap where it should land.'
-    : 'Pick a photograph, then tap its new place.'
+    ? 'Tap where it goes.'
+    : 'Tap a photograph to pick it up, then tap where it goes.'
 
   /** Keyboard moves mirror the tap contract: Ctrl/Meta+arrows step the held
    *  photograph, Home/End jump to the boundary. Nothing moves without a hold.
@@ -307,6 +319,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     const next = moveHeldItem(current, to)
     if (next === current) return
     setSession(next)
+    markMoved(current.heldId)
     const movedAt = next.items.findIndex((item) => item.id === current.heldId)
     const moved = next.items[movedAt]
     if (moved) setNote(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`)
@@ -356,33 +369,27 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
         <TopBar
           start={
             <Button
-              variant="quiet"
-              class="native-editor-close"
-              aria-label="Close the editor"
+              variant="secondary"
+              class="native-editor-cancel"
               onClick={requestClose}
               disabled={busy || settling}
             >
-              <CloseIcon />
+              Cancel
             </Button>
           }
-          title="Reorder"
+          title={`Reorder ${title}`}
           end={
             <Button
-              variant="quiet"
-              class="native-editor-reset"
-              onClick={reset}
-              disabled={!session || busy || settling}
+              variant="primary"
+              class="native-editor-save"
+              onClick={() => void save()}
+              disabled={!dirty || busy || settling || !session}
             >
-              Reset
+              {busy ? 'Saving…' : 'Save'}
             </Button>
           }
         />
-        <div class="native-editor-meta">
-          <h2 class="native-editor-title">{title}</h2>
-          <p class="native-editor-count">{itemCount} {itemCount === 1 ? 'photograph' : 'photographs'}</p>
-          <p class="native-editor-hint">{hint}</p>
-        </div>
-        <p class="native-editor-note" role="status" aria-live="polite">{note ?? ''}</p>
+        <p class="native-editor-note" role="status" aria-live="polite">{note ?? hint}</p>
         <div
           class="native-editor-scroll"
           ref={scrollRef}
@@ -402,7 +409,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
                         <button
                           key={photo.id}
                           type="button"
-                          class={`native-global-cell native-editor-cell${isHeld ? ' is-active' : ''}${dropTarget === photo.id ? ' is-drop-target' : ''}`}
+                          class={`native-global-cell native-editor-cell${isHeld ? ' is-active' : ''}${dropTarget === photo.id ? ' is-drop-target' : ''}${movedIds.has(photo.id) ? ' is-moved' : ''}`}
                           data-photo={photo.id}
                           data-order-key={photo.orderKey}
                           aria-label={`${photo.label}, position ${(indexOf.get(photo.id) ?? 0) + 1} of ${itemCount}`}
@@ -424,6 +431,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
                             loading="lazy"
                             draggable={false}
                           />
+                          {movedIds.has(photo.id) ? <span class="pos">{(indexOf.get(photo.id) ?? 0) + 1}</span> : null}
                         </button>
                       )
                     })}
@@ -433,17 +441,27 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
             </div>
           ) : null}
         </div>
-        <footer class="native-editor-actions">
-          <Button
-            variant="primary"
-            block
-            class="native-editor-save"
-            disabled={!dirty || busy || settling || !session}
-            onClick={() => void save()}
-          >
-            {busy ? 'Saving…' : 'Save order'}
-          </Button>
-        </footer>
+        <div class="native-editor-sizer">
+          <svg class="s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+          <input
+            type="range"
+            min="56"
+            max="248"
+            step="4"
+            value={rowHeight}
+            aria-label="Photograph size"
+            onInput={(event) => {
+              userSizedRef.current = true
+              setRowHeight(Number((event.currentTarget as HTMLInputElement).value))
+            }}
+            onKeyDown={(event) => {
+              // Home/End adjust the slider natively; the editor's section
+              // handler would otherwise move the held photograph instead.
+              if (event.key === 'Home' || event.key === 'End') event.stopPropagation()
+            }}
+          />
+          <svg class="l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
+        </div>
       </section>
       <Sheet open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Discard unsaved changes?" size="auto">
         <p class="native-editor-confirm-copy">Your recent reorder is not saved. Discard it and close?</p>
@@ -452,10 +470,8 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
           <Button
             variant="destructive"
             onClick={() => {
-              const current = sessionRef.current
-              if (current) setSession(discardReorder(current))
               setConfirmOpen(false)
-              onCloseRef.current()
+              reset()
             }}
           >
             Discard

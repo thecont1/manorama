@@ -1,9 +1,9 @@
 import { useState } from 'hono/jsx'
 import { Browser } from '@capacitor/browser'
 import { RevenueCatBilling } from '../lib/billing'
-import { TopBar } from '../../app/components/ui/TopBar'
 import { Button } from '../../app/components/ui/Button'
-import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
+import { ActionRow } from '../../app/components/ui/ActionRow'
+import { Sheet } from '../../app/components/ui/Sheet'
 
 type Props = {
   billing: RevenueCatBilling
@@ -11,8 +11,10 @@ type Props = {
   onOpenPrivacy?: () => void
 }
 
-/** Visionary is an introduction first. The store opens only after its explicit
- * CTA; restore, customer center and legal links stay available alongside it. */
+/** Visionary is an introduction first — a sheet, one tap from the store. The
+ *  numbers are stated as before-and-after, never a price: that comes from the
+ *  App Store sheet opened by the explicit CTA. Restore, customer center and
+ *  legal links stay available alongside it. */
 export default function Paywall({ billing, onClose, onOpenPrivacy }: Props) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -66,26 +68,34 @@ export default function Paywall({ billing, onClose, onOpenPrivacy }: Props) {
   }
 
   return (
-    <main class="m-owner m-screen m-screen--fixed native-visionary" aria-live="polite">
-      <TopBar title="Visionary" logo={false} start={<Button variant="quiet" onClick={onClose} aria-label="Back">‹ Back</Button>} />
-      <div class="m-owner-content native-visionary-content">
-        <header class="native-visionary-intro">
-          <p class="native-visionary-kicker">manorama Visionary</p>
-          <h1>{isPro ? 'Your subscription is active.' : 'More room for the work you want to keep.'}</h1>
-          <p>Visionary raises the editable gallery limit from 3 to 99, allows larger configurable encrypted vaults where supported, and promotes every unexpired temporary gallery.</p>
-          <p>The 30-day limit concerns overflow gallery retention. It is not a timer on encrypted copies stored on your device.</p>
-        </header>
-        <ActionGroup label="Subscription">
-          <div class="native-visionary-cta"><Button variant="primary" block onClick={() => void present()} disabled={busy}>{busy ? 'Opening…' : isPro ? 'Review subscription options' : 'View subscription options'}</Button></div>
-          <ActionRow label="Restore purchases" onClick={() => void restore()} disabled={busy} />
-          <ActionRow label="Manage subscription" onClick={() => void customerCenter()} disabled={busy} />
-          {message ? <p class="m-note m-panel-note" role="status">{message}</p> : null}
-        </ActionGroup>
-        <ActionGroup label="Legal">
-          <ActionRow label="Terms of Use" onClick={() => void Browser.open({ url: 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/' })} />
-          <ActionRow label="Privacy Policy" onClick={onOpenPrivacy ?? (() => void Browser.open({ url: 'https://manorama.xyz/privacy' }))} />
-        </ActionGroup>
-      </div>
+    <main class="m-owner m-screen native-visionary" aria-live="polite">
+      <Sheet
+        open
+        title="manorama Visionary"
+        onClose={onClose}
+        footer={
+          <Button variant="primary" block onClick={() => void present()} disabled={busy}>
+            {busy ? 'Opening…' : isPro ? 'Review subscription options' : 'See price in the App Store'}
+          </Button>
+        }
+      >
+        <div class="native-visionary-body">
+          {isPro ? <p class="native-visionary-note" role="status">Your Visionary subscription is active.</p> : null}
+          <dl class="native-visionary-kv">
+            <dt>Galleries kept</dt><dd>3 → 99</dd>
+            <dt>Room on this iPhone</dt><dd>256 MB → larger</dd>
+            <dt>Galleries over the limit</dt><dd>Kept, not for 30 days</dd>
+          </dl>
+          <p class="native-visionary-note">An annual subscription, billed by the App Store. Your galleries and photographs are the same on either plan.</p>
+          {message ? <p class="m-note" role="status">{message}</p> : null}
+          <div class="m-panel native-visionary-more">
+            <ActionRow label="Restore purchases" onClick={() => void restore()} disabled={busy} />
+            <ActionRow label="Manage subscription" onClick={() => void customerCenter()} disabled={busy} />
+            <ActionRow label="Terms of Use" onClick={() => void Browser.open({ url: 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/' })} />
+            <ActionRow label="Privacy Policy" onClick={onOpenPrivacy ?? (() => void Browser.open({ url: 'https://manorama.xyz/privacy' }))} />
+          </div>
+        </div>
+      </Sheet>
     </main>
   )
 }

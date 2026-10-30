@@ -109,7 +109,11 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
       <div class={sheetClasses} style={panelStyle} role="dialog" aria-modal="true" aria-labelledby={headingId}>
         <div class="m-sheet-head">
           <h2 class="m-sheet-title" id={headingId} tabIndex={-1} ref={headingRef}>{title}</h2>
-          {dismissible ? <Button variant="quiet" onClick={close} aria-label="Close">Close</Button> : null}
+          {dismissible ? (
+            <Button variant="quiet" onClick={close} aria-label="Close" class="m-iconbtn">
+              <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </Button>
+          ) : null}
         </div>
         <div class="m-sheet-body">{children}</div>
         {footer ? <div class="m-sheet-foot">{footer}</div> : null}

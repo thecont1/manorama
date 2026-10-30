@@ -1,4 +1,4 @@
-import { useState } from 'hono/jsx'
+import { useState, type Child } from 'hono/jsx'
 import GalleryDetailsView from '../../app/components/GalleryDetailsView'
 import { Button } from '../../app/components/ui/Button'
 import { Sheet } from '../../app/components/ui/Sheet'
@@ -15,6 +15,10 @@ type Props = {
   vaultNote?: string
   vaultProgress?: { completed: number; total: number } | null
   hasSavedCopy: boolean
+  backLabel?: string
+  backAriaLabel?: string
+  rail?: Child
+  deviceStatus?: Child
   onBack: () => void
   onOpen: () => void
   onShare: () => void
@@ -35,6 +39,10 @@ export default function GalleryDetails({
   vaultNote,
   vaultProgress,
   hasSavedCopy,
+  backLabel,
+  backAriaLabel,
+  rail,
+  deviceStatus,
   onBack,
   onOpen,
   onShare,
@@ -133,6 +141,10 @@ export default function GalleryDetails({
         vaultProgress={vaultProgress}
         hasSavedCopy={hasSavedCopy}
         deviceLabel={nativeDeviceLabel()}
+        backLabel={backLabel}
+        backAriaLabel={backAriaLabel}
+        rail={rail}
+        deviceStatus={deviceStatus}
         onBack={onBack}
         onOpen={onOpen}
         onShare={onShare}
