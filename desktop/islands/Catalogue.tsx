@@ -23,6 +23,10 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
+import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
+import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
+import type { GallerySummary } from '../../app/lib/gallery-repository'
+import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
@@ -126,6 +130,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [session, setSession] = useState<DesktopSession | null>(null)
+  const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
+  const [deviceRows, setDeviceRows] = useState<DeviceGallery[]>([])
+  const [galleriesFailed, setGalleriesFailed] = useState(false)
+  const [devicesFailed, setDevicesFailed] = useState(false)
+  const [slugFailed, setSlugFailed] = useState(false)
+  const [ownerSlug, setOwnerSlug] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [syncState, setSyncState] = useState<SyncState>('idle')
@@ -247,6 +257,39 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       void cleanup?.()
     }
   }, [base, runSync])
+
+  // The account's galleries join the list once a session exists — the iOS
+  // Library's feeds, applied as each one lands rather than batched: the cloud
+  // cards appear the moment /api/galleries settles, and the device rows and
+  // owner slug arrive whenever their own calls return. The slug lookup only
+  // replaces the sign-in copy stored in session.json — it goes stale the
+  // moment a rename happens elsewhere, so a failed refresh is worth a note.
+  useEffect(() => {
+    if (!session) {
+      setAccountGalleries(null)
+      setDeviceRows([])
+      setGalleriesFailed(false)
+      setDevicesFailed(false)
+      setSlugFailed(false)
+      setOwnerSlug(null)
+      return
+    }
+    const controller = new AbortController()
+    const alive = () => !controller.signal.aborted
+    void fetchAccountGalleries(base, session.token, fetch, controller.signal).then(
+      (rows) => { if (alive()) { setAccountGalleries(rows); setGalleriesFailed(false) } },
+      () => { if (alive()) setGalleriesFailed(true) },
+    )
+    void fetchDeviceGalleries(base, session.token, fetch, controller.signal).then(
+      (rows) => { if (alive()) { setDeviceRows(rows); setDevicesFailed(false) } },
+      () => { if (alive()) setDevicesFailed(true) },
+    )
+    void fetchAccountOwnerSlug(base, session.token, fetch, controller.signal).then(
+      (slug) => { if (alive()) { setOwnerSlug(slug); setSlugFailed(false) } },
+      () => { if (alive()) setSlugFailed(true) },
+    )
+    return () => controller.abort()
+  }, [base, session, syncState])
 
   // The theme belongs to the catalogue, not to the stage. While a photograph is
   // in view the class is held off: the stage is a neutral near-black by
@@ -651,6 +694,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const galleries = catalogue.galleries
+  // Dedupe at render so whichever feed lands last re-derives the list — a
+  // device row published as a cloud gallery collapses the moment the account
+  // read arrives, without waiting on the slower call.
+  const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId)
+  const accountNote = galleriesFailed || devicesFailed ? 'Your galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
+  const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
   const photoCount = galleries.reduce((total, record) => total + record.itemCount, 0)
 
   // The account surface speaks the vocabulary the web dashboard and iOS
@@ -782,8 +831,67 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
         <section class="gallery-list" aria-labelledby="galleries-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Your galleries</h1>
-          {galleries.length ? (
+          {accountNote ? <p class="desktop-source-note" role="status">{accountNote}</p> : null}
+          {slugNote ? <p class="desktop-source-note" role="status">{slugNote}</p> : null}
+          {galleries.length || accountGalleries?.length || remoteDeviceGalleries.length ? (
             <div class="admin-gallery-list">
+              {accountGalleries?.map((gallery) => {
+                const title = gallery.title || gallery.slug
+                const photos = gallery.imageCount === 1 ? 'photo' : 'photos'
+                const galleryUrl = `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
+                return (
+                  <article class="admin-gallery-card" key={`account-${gallery.slug}`}>
+                    <div class="admin-gallery-card-body">
+                      <div class="admin-gallery-title-row">
+                        <span class="admin-gallery-title">{title}</span>
+                        <span class="admin-gallery-count" aria-label={`${gallery.imageCount} ${photos}`}>({gallery.imageCount} {photos})</span>
+                      </div>
+                      <p class="admin-gallery-caption">{sourceLabelFor(gallery.sourceUrl)} · cloud gallery</p>
+                    </div>
+                    {gallery.images.length ? (
+                      <div class="admin-gallery-strip-frame" aria-label={`${title} photographs`}>
+                        <div class="admin-gallery-strip" role="list">
+                          {gallery.images.map((image, index) => (
+                            <button
+                              type="button"
+                              role="listitem"
+                              key={image.id}
+                              class="admin-gallery-strip-item desktop-strip-item"
+                              aria-label={`Open ${title} — photograph ${index + 1} of ${gallery.images.length}`}
+                              onClick={() => openExternal(galleryUrl)}
+                            >
+                              <img
+                                src={previewSrcFor(image)}
+                                alt=""
+                                loading="lazy"
+                                draggable={false}
+                                onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div class="gallery-card-actions">
+                      <button type="button" class="admin-button" aria-label={`Open ${title}`} onClick={() => openExternal(galleryUrl)}>Open</button>
+                    </div>
+                  </article>
+                )
+              })}
+              {remoteDeviceGalleries.map((gallery) => {
+                const photos = gallery.itemCount === 1 ? 'photo' : 'photos'
+                return (
+                  <article class="admin-gallery-card" key={`device-${gallery.id}`}>
+                    <div class="admin-gallery-card-body">
+                      <div class="admin-gallery-title-row">
+                        <span class="admin-gallery-title">{gallery.title}</span>
+                        <span class="admin-gallery-count" aria-label={`${gallery.itemCount} ${photos}`}>({gallery.itemCount} {photos})</span>
+                      </div>
+                      <p class="admin-gallery-caption">{gallery.deviceLabel} · synced — open it on that device</p>
+                    </div>
+                  </article>
+                )
+              })}
               {galleries.map((record) => {
                 const state = availability[record.id] ?? 'available'
                 const unavailable = state === 'unavailable'

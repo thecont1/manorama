@@ -90,6 +90,7 @@ let files: Record<string, string>
 let dirs: Record<string, DirEntry[]>
 let readFileGate: Gate | null
 let invokeLog: string[]
+let invokeCalls: { command: string; args?: Record<string, unknown> }[]
 
 const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>) => {
   files = {
@@ -105,9 +106,11 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   }
   readFileGate = null
   invokeLog = []
+  invokeCalls = []
   ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args?: Record<string, unknown>) => {
       invokeLog.push(command)
+      invokeCalls.push({ command, args })
       if (command === 'read_private_file') return files[String(args?.name)] ?? null
       if (command === 'write_private_file') {
         files[String(args?.name)] = String(args?.contents)
@@ -378,6 +381,164 @@ describe('desktop catalogue workbench', () => {
       expect(card.querySelector(`[aria-label="${name}"]`)).toBeNull()
     }
     expect(card.querySelector('.desktop-share-host')).toBeNull()
+  })
+
+  test('lists account cloud galleries ahead of the local folders', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) {
+        return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      }
+      // The stored session says 'thecontrarian'; the account row says the
+      // owner renamed to 'fresh-name'. Open must use the fresh slug.
+      if (path.endsWith('/api/account')) {
+        return new Response(JSON.stringify({ ownerSlug: 'fresh-name' }), { status: 200 })
+      }
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir',
+            title: 'kashmir, in winter',
+            caption: '',
+            date: '',
+            imageCount: 1,
+            sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            retention: 'retained',
+            expiresAt: null,
+            images: [
+              { id: 'a', ref: undefined, filename: 'a.jpg', src: '/img/a.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/a-sm.jpg', width: 400, format: 'image/jpeg' }] },
+            ],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      // The cloud gallery leads the list — it is the thing the owner came to see.
+      expect(titles.indexOf('kashmir, in winter')).toBeGreaterThanOrEqual(0)
+      expect(titles.indexOf('kashmir, in winter')).toBeLessThan(titles.indexOf(TITLE))
+
+      const card = container.querySelector<HTMLElement>('.admin-gallery-card')!
+      expect(card.querySelector('.admin-gallery-count')?.textContent).toBe('(1 photo)')
+      expect(card.querySelector('.admin-gallery-caption')?.textContent).toBe('Dropbox · cloud gallery')
+      // Server-relative previews arrive rewritten against the API origin.
+      expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
+      // A cloud card opens the public gallery; Details stays local-only.
+      const open = byText(card, 'Open')!
+      expect(open).toBeDefined()
+      expect(card.querySelector(`[aria-label="Details kashmir, in winter"]`)).toBeNull()
+
+      open.click()
+      await settle()
+      const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
+      expect(opener?.args?.url).toBe('https://manorama.xyz/fresh-name/kashmir')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed device feed still shows the cloud galleries', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) return new Response('down', { status: 500 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      // The device feed died; the account read survived it.
+      expect(titles).toContain('kashmir, in winter')
+      expect(container.querySelector('.desktop-source-note')?.textContent).toContain('could not be loaded')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('cloud galleries render while the device feed is still in flight', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      // The device feed hangs forever — the cloud card must not wait on it.
+      if (path.endsWith('/api/device-galleries')) return new Promise<Response>(() => {})
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      expect(titles).toContain('kashmir, in winter')
+      expect(container.querySelector('.desktop-source-note')).toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed slug refresh warns and falls back to the saved slug', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/account')) return new Response('down', { status: 500 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const notes = [...container.querySelectorAll('.desktop-source-note')].map((el) => el.textContent)
+      expect(notes.some((text) => text?.includes('older account address'))).toBe(true)
+
+      const open = byText(container, 'Open')!
+      open.click()
+      await settle()
+      // The stored session slug still builds a working link.
+      const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
+      expect(opener?.args?.url).toBe('https://manorama.xyz/thecontrarian/kashmir')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed account fetch leaves the local catalogue untouched', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async () => new Response('down', { status: 500 })) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      expect(container.querySelector('.desktop-source-note')?.textContent).toContain('could not be loaded')
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
   })
 
   test('signed out, the desktop shows the welcome chooser', async () => {
