@@ -7,6 +7,7 @@ import { dropboxAuthorizeUrl, fetchDropboxAccount, type DropboxOauthEnv } from '
 import { fetchGoogleIdentity, googleAuthorizeUrl, type GoogleAuthEnv } from './google-auth'
 import {
   AccountDisabledError,
+  findAccountByIdentity,
   IdentityConflictError,
   IdentityStorageUnavailableError,
   linkIdentity,
@@ -18,15 +19,17 @@ import type { OidcDependencies } from './oidc'
 import {
   accessEnvOf,
   createNativeHandoffToken,
+  createPendingAccountToken,
   createSessionToken,
   resolveManoramaSession,
   verifyLinkHandoffToken,
+  verifyPendingAccountToken,
   RETURNING_COOKIE,
   RETURNING_TTL_SECONDS,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
 } from './session'
-import { setLastSeenCountry } from './user-repository'
+import { setLastSeenCountry, type UserRecord } from './user-repository'
 
 /**
  * The shared halves of the /auth/{provider} routes. All three providers
@@ -162,6 +165,148 @@ export const providerAuthEntry = async (c: Context, provider: AuthProvider) => {
 
 const finishFailure = (c: Context) => c.redirect('/?error=1')
 
+/** The sign-in tail shared by the OAuth callback and the pending-account
+ * confirm step: country, cookies, then the handoff/next/dashboard choice. */
+const completeSignIn = async (
+  c: Context,
+  user: UserRecord,
+  flow: Pick<AuthFlow, 'native' | 'nextUrl' | 'appChallenge'>,
+  env: ReturnType<typeof accessEnvOf>,
+  secret: string,
+) => {
+  const requestUrl = new URL(c.req.url)
+  const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
+  await setLastSeenCountry(user.accountId, country, env).catch(() => {})
+  const token = await createSessionToken(user.accountId, secret)
+  const cookieOpts = {
+    httpOnly: true,
+    secure: requestUrl.protocol === 'https:',
+    sameSite: 'Lax' as const,
+    path: '/',
+  }
+  setCookie(c, SESSION_COOKIE, token, { ...cookieOpts, maxAge: SESSION_TTL_SECONDS })
+  // Outlives the session: a signed-in-here-before hint for the landing CTA.
+  setCookie(c, RETURNING_COOKIE, '1', { ...cookieOpts, maxAge: RETURNING_TTL_SECONDS })
+
+  if (flow.native === '1') {
+    const handoff = await createNativeHandoffToken(user.accountId, secret)
+    return c.redirect(`${NATIVE_CALLBACK}?handoff=${encodeURIComponent(handoff)}`)
+  }
+  if (flow.native === 'desktop') {
+    const handoff = await createDesktopHandoffToken(user.accountId, secret, flow.appChallenge ?? '')
+    return c.redirect(`${DESKTOP_CALLBACK}?handoff=${encodeURIComponent(handoff)}`)
+  }
+  if (flow.nextUrl) {
+    try {
+      // Stored raw at create time; the same-origin check happens here,
+      // at the only place the value can do harm. Path-relative URLs
+      // resolve against our own origin and always pass.
+      if (new URL(flow.nextUrl, requestUrl.origin).origin === requestUrl.origin) {
+        return c.redirect(flow.nextUrl)
+      }
+    } catch { /* fall through to the dashboard */ }
+  }
+  return c.redirect(`/${user.ownerSlug}`)
+}
+
+const PROVIDER_LABEL: Record<AuthProvider, string> = { apple: 'Apple', dropbox: 'Dropbox', google: 'Google' }
+
+const esc = (value: string) => value
+  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;').replaceAll("'", '&#39;')
+
+/** The pause page for a provider identity that maps to no manorama account.
+ * Self-contained HTML — it renders before any route renderer is involved. */
+const pendingAccountPage = async (
+  c: Context,
+  identity: IdentityInput,
+  flow: AuthFlow,
+  secret: string,
+) => {
+  const token = await createPendingAccountToken({
+    provider: identity.provider,
+    subject: identity.subject,
+    name: identity.displayName,
+    email: identity.email,
+    next: flow.nextUrl,
+    native: flow.native || undefined,
+    appChallenge: flow.appChallenge,
+  }, secret)
+  const provider = PROVIDER_LABEL[identity.provider]
+  const who = identity.displayName || identity.email
+  // Declining lands back where sign-in can be retried: the ops door keeps
+  // its provider buttons anonymous, everywhere else it's the landing page.
+  const decline = flow.nextUrl?.startsWith('/opman') ? flow.nextUrl : '/'
+  c.header('Cache-Control', 'no-store')
+  return c.html(`<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>manorama — new sign-in</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#111312;color:#e8e6e3;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif}
+.card{max-width:30rem;padding:2.5rem 2rem;text-align:center}
+.card img{width:15rem;height:auto;margin-bottom:1.75rem;transform:translateX(-9.2%)}
+h1{font-size:1.5rem;font-weight:600;margin:0 0 1rem}
+p{color:#b9b5ae;line-height:1.55;margin:0 0 1rem;font-size:.95rem}
+p.note{color:#8a867e;font-size:.85rem}
+.actions{display:flex;flex-direction:column;gap:.75rem;margin-top:1.75rem}
+.btn{display:block;border-radius:999px;min-height:52px;line-height:52px;text-align:center;
+font-size:1rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;width:100%;box-sizing:border-box}
+.create{background:#e8e6e3;color:#111312}
+.back{background:transparent;color:#b9b5ae;border:1px solid #3a3d3b}
+</style></head><body><main class="card">
+<img src="/manorama-merged-logo.png" alt="manorama">
+<h1>This sign-in is new to manorama.</h1>
+<p>${who ? `${esc(provider)} knows you as <strong>${esc(who)}</strong> &mdash;` : `This ${esc(provider)} sign-in`} no
+manorama account is tied to it yet.</p>
+<p class="note">If you already keep galleries here, this probably isn&rsquo;t the sign-in you used
+before &mdash; go back and pick the provider you signed in with last time.</p>
+<div class="actions">
+<form method="post" action="/auth/confirm-account">
+<input type="hidden" name="token" value="${esc(token)}">
+<button class="btn create" type="submit">Create a new account</button>
+</form>
+<a class="btn back" href="${esc(decline)}">Go back</a>
+</div></main></body></html>`)
+}
+
+/** POST /auth/confirm-account — the interstitial's create button. The
+ * token proves the identity came out of a real provider round-trip; on
+ * success the shared sign-in tail mints the session and redirects. */
+export const confirmPendingAccount = async (c: Context) => {
+  const env = accessEnvOf(c)
+  const secret = env.HOST_API_JWT_SECRET?.trim()
+  const form = await c.req.parseBody().catch(() => null)
+  const token = secret && form && typeof form.token === 'string'
+    ? await verifyPendingAccountToken(form.token, secret).catch(() => null)
+    : null
+  if (!token) return finishFailure(c)
+  try {
+    const user = await upsertIdentitySignIn({
+      provider: token.provider,
+      subject: token.subject,
+      displayName: token.name,
+      email: token.email,
+    }, env)
+    return completeSignIn(c, user, {
+      native: token.native === '1' || token.native === 'desktop' ? token.native : '',
+      nextUrl: token.next,
+      appChallenge: token.appChallenge,
+    }, env, secret!)
+  } catch (error) {
+    if (error instanceof IdentityStorageUnavailableError) {
+      c.header('Cache-Control', 'no-store')
+      return c.text('Sign-in is temporarily unavailable', 503)
+    }
+    if (error instanceof AccountDisabledError) {
+      c.header('Cache-Control', 'no-store')
+      return c.text('This account has been disabled. Contact the manorama operator if that looks wrong.', 403)
+    }
+    return finishFailure(c)
+  }
+}
+
 /**
  * The provider callback. The state row is consumed first — before the
  * error/code checks and before any network call — so a replayed, expired,
@@ -174,7 +319,6 @@ export const finishProviderAuth = async (
   params: { code?: string | undefined; state?: string | undefined; error?: string | undefined; user?: unknown },
   deps: OidcDependencies = {},
 ) => {
-  const requestUrl = new URL(c.req.url)
   const env = accessEnvOf(c)
   const flow = params.state ? await consumeAuthFlow(params.state, env).catch(() => null) : null
   if (!flow || flow.provider !== provider) return finishFailure(c)
@@ -214,39 +358,14 @@ export const finishProviderAuth = async (
       return c.redirect(nativeLink ? `${NATIVE_CALLBACK}?linked=${provider}` : `/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
     }
 
+    // A first-time provider identity used to mint an empty account on the
+    // spot — the person landed in an empty dashboard and thought their
+    // galleries were gone. Pause instead: confirm creation, or go back and
+    // pick the provider the existing account already knows.
+    const existing = await findAccountByIdentity(identity.provider, identity.subject, env)
+    if (!existing) return pendingAccountPage(c, identity, flow, secret)
     const user = await upsertIdentitySignIn(identity, env)
-    const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
-    await setLastSeenCountry(user.accountId, country, env).catch(() => {})
-    const token = await createSessionToken(user.accountId, secret)
-    const cookieOpts = {
-      httpOnly: true,
-      secure: requestUrl.protocol === 'https:',
-      sameSite: 'Lax' as const,
-      path: '/',
-    }
-    setCookie(c, SESSION_COOKIE, token, { ...cookieOpts, maxAge: SESSION_TTL_SECONDS })
-    // Outlives the session: a signed-in-here-before hint for the landing CTA.
-    setCookie(c, RETURNING_COOKIE, '1', { ...cookieOpts, maxAge: RETURNING_TTL_SECONDS })
-
-    if (flow.native === '1') {
-      const handoff = await createNativeHandoffToken(user.accountId, secret)
-      return c.redirect(`${NATIVE_CALLBACK}?handoff=${encodeURIComponent(handoff)}`)
-    }
-    if (flow.native === 'desktop') {
-      const handoff = await createDesktopHandoffToken(user.accountId, secret, flow.appChallenge ?? '')
-      return c.redirect(`${DESKTOP_CALLBACK}?handoff=${encodeURIComponent(handoff)}`)
-    }
-    if (flow.nextUrl) {
-      try {
-        // Stored raw at create time; the same-origin check happens here,
-        // at the only place the value can do harm. Path-relative URLs
-        // resolve against our own origin and always pass.
-        if (new URL(flow.nextUrl, requestUrl.origin).origin === requestUrl.origin) {
-          return c.redirect(flow.nextUrl)
-        }
-      } catch { /* fall through to the dashboard */ }
-    }
-    return c.redirect(`/${user.ownerSlug}`)
+    return completeSignIn(c, user, flow, env, secret)
   } catch (error) {
     if (error instanceof IdentityStorageUnavailableError) {
       c.header('Cache-Control', 'no-store')
