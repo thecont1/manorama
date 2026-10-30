@@ -131,8 +131,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [session, setSession] = useState<DesktopSession | null>(null)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
-  const [remoteDeviceGalleries, setRemoteDeviceGalleries] = useState<DeviceGallery[]>([])
-  const [accountNote, setAccountNote] = useState<string | null>(null)
+  const [deviceRows, setDeviceRows] = useState<DeviceGallery[]>([])
+  const [galleriesFailed, setGalleriesFailed] = useState(false)
+  const [devicesFailed, setDevicesFailed] = useState(false)
+  const [slugFailed, setSlugFailed] = useState(false)
   const [ownerSlug, setOwnerSlug] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -257,39 +259,35 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }, [base, runSync])
 
   // The account's galleries join the list once a session exists — the iOS
-  // Library's two feeds, under the same dedupe rule. The feeds settle
-  // independently: a device-feed failure never discards a successful gallery
-  // read, and the slug lookup only replaces the sign-in copy stored in
-  // session.json — it goes stale the moment a rename happens elsewhere.
+  // Library's feeds, applied as each one lands rather than batched: the cloud
+  // cards appear the moment /api/galleries settles, and the device rows and
+  // owner slug arrive whenever their own calls return. The slug lookup only
+  // replaces the sign-in copy stored in session.json — it goes stale the
+  // moment a rename happens elsewhere, so a failed refresh is worth a note.
   useEffect(() => {
     if (!session) {
       setAccountGalleries(null)
-      setRemoteDeviceGalleries([])
-      setAccountNote(null)
+      setDeviceRows([])
+      setGalleriesFailed(false)
+      setDevicesFailed(false)
+      setSlugFailed(false)
       setOwnerSlug(null)
       return
     }
     const controller = new AbortController()
-    void (async () => {
-      const [account, devices, slug] = await Promise.allSettled([
-        fetchAccountGalleries(base, session.token, fetch, controller.signal),
-        fetchDeviceGalleries(base, session.token, fetch, controller.signal),
-        fetchAccountOwnerSlug(base, session.token, fetch, controller.signal),
-      ])
-      if (controller.signal.aborted) return
-      if (account.status === 'fulfilled') setAccountGalleries(account.value)
-      if (devices.status === 'fulfilled') {
-        setRemoteDeviceGalleries(
-          standaloneDeviceGalleries(devices.value, account.status === 'fulfilled' ? account.value : [], catalogueRef.current?.deviceId),
-        )
-      }
-      if (slug.status === 'fulfilled') setOwnerSlug(slug.value)
-      if (account.status === 'rejected' || devices.status === 'rejected') {
-        setAccountNote('Your galleries could not be loaded — this Mac’s catalogue is unaffected.')
-      } else {
-        setAccountNote(null)
-      }
-    })()
+    const alive = () => !controller.signal.aborted
+    void fetchAccountGalleries(base, session.token, fetch, controller.signal).then(
+      (rows) => { if (alive()) { setAccountGalleries(rows); setGalleriesFailed(false) } },
+      () => { if (alive()) setGalleriesFailed(true) },
+    )
+    void fetchDeviceGalleries(base, session.token, fetch, controller.signal).then(
+      (rows) => { if (alive()) { setDeviceRows(rows); setDevicesFailed(false) } },
+      () => { if (alive()) setDevicesFailed(true) },
+    )
+    void fetchAccountOwnerSlug(base, session.token, fetch, controller.signal).then(
+      (slug) => { if (alive()) { setOwnerSlug(slug); setSlugFailed(false) } },
+      () => { if (alive()) setSlugFailed(true) },
+    )
     return () => controller.abort()
   }, [base, session, syncState])
 
@@ -696,6 +694,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const galleries = catalogue.galleries
+  // Dedupe at render so whichever feed lands last re-derives the list — a
+  // device row published as a cloud gallery collapses the moment the account
+  // read arrives, without waiting on the slower call.
+  const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId)
+  const accountNote = galleriesFailed || devicesFailed ? 'Your galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
+  const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
   const photoCount = galleries.reduce((total, record) => total + record.itemCount, 0)
 
   // The account surface speaks the vocabulary the web dashboard and iOS
@@ -828,6 +832,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         <section class="gallery-list" aria-labelledby="galleries-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Your galleries</h1>
           {accountNote ? <p class="desktop-source-note" role="status">{accountNote}</p> : null}
+          {slugNote ? <p class="desktop-source-note" role="status">{slugNote}</p> : null}
           {galleries.length || accountGalleries?.length || remoteDeviceGalleries.length ? (
             <div class="admin-gallery-list">
               {accountGalleries?.map((gallery) => {

@@ -469,6 +469,66 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
+  test('cloud galleries render while the device feed is still in flight', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      // The device feed hangs forever — the cloud card must not wait on it.
+      if (path.endsWith('/api/device-galleries')) return new Promise<Response>(() => {})
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      expect(titles).toContain('kashmir, in winter')
+      expect(container.querySelector('.desktop-source-note')).toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed slug refresh warns and falls back to the saved slug', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/account')) return new Response('down', { status: 500 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const notes = [...container.querySelectorAll('.desktop-source-note')].map((el) => el.textContent)
+      expect(notes.some((text) => text?.includes('older account address'))).toBe(true)
+
+      const open = byText(container, 'Open')!
+      open.click()
+      await settle()
+      // The stored session slug still builds a working link.
+      const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
+      expect(opener?.args?.url).toBe('https://manorama.xyz/thecontrarian/kashmir')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
   test('a failed account fetch leaves the local catalogue untouched', async () => {
     const defaultFetch = globals.fetch
     globals.fetch = (async () => new Response('down', { status: 500 })) as unknown as typeof fetch
