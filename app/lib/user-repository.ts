@@ -17,6 +17,12 @@ export type UserRecord = {
   billingEventTimestampMs?: number
   billingEventId?: string
   lastSeenCountry?: string
+  /** IATA code of the Cloudflare edge datacenter that served the last
+   *  sign-in (SIN, BOM…) — the location signal that isn't a stored IP. */
+  lastSeenColo?: string
+  /** When that last sign-in happened — the datetime behind the ops table's
+   *  Last seen column. */
+  lastSeenAt?: string
   /** Set when the master suspends sign-in; NULL/absent means active. The rows
    *  stay — disabling is deliberately non-destructive. */
   disabledAt?: string
@@ -79,6 +85,12 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
   }
   if (typeof row.last_seen_country === 'string' && row.last_seen_country.length > 0) {
     user.lastSeenCountry = row.last_seen_country
+  }
+  if (typeof row.last_seen_colo === 'string' && row.last_seen_colo.length > 0) {
+    user.lastSeenColo = row.last_seen_colo
+  }
+  if (typeof row.last_seen_at === 'string' && row.last_seen_at.length > 0) {
+    user.lastSeenAt = row.last_seen_at
   }
   if (typeof row.disabled_at === 'string' && row.disabled_at.length > 0) {
     user.disabledAt = row.disabled_at
@@ -251,6 +263,8 @@ export const listUsersForAdmin = async (
         u.created_at,
         u.updated_at,
         u.last_seen_country,
+        u.last_seen_colo,
+        u.last_seen_at,
         u.disabled_at,
         CASE WHEN u.account_id = ? THEN 0 ELSE 1 END AS bootstrap_order,
         CASE WHEN u.account_id = ? OR EXISTS (
@@ -300,14 +314,31 @@ export const listUsersForAdmin = async (
   return { users: filtered, total: filtered.length }
 }
 
-export const setLastSeenCountry = async (accountId: string, country: string | undefined, env?: UserRepositoryEnv): Promise<void> => {
-  if (!country || !/^[A-Z]{2}$/.test(country)) return
+/** Stamps the sign-in's place and time. The timestamp always moves;
+ *  country/colo write only when cf supplied a valid value — an absent
+ *  edge (vite dev, tests) must never blank a real reading. */
+export const setLastSeenLocation = async (
+  accountId: string,
+  country: string | undefined,
+  colo: string | undefined,
+  env?: UserRepositoryEnv,
+): Promise<void> => {
+  const validCountry = country && /^[A-Z]{2}$/.test(country) ? country : undefined
+  const validColo = colo && /^[A-Z]{3}$/.test(colo) ? colo : undefined
   if (d1Configured(env)) {
-    await env.DB.prepare('UPDATE users SET last_seen_country = ? WHERE account_id = ?').bind(country, accountId).run()
+    const sets = ['last_seen_at = datetime(\'now\')']
+    const binds: string[] = []
+    if (validCountry) { sets.push('last_seen_country = ?'); binds.push(validCountry) }
+    if (validColo) { sets.push('last_seen_colo = ?'); binds.push(validColo) }
+    await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?`).bind(...binds, accountId).run()
     return
   }
   const user = users.get(accountId)
-  if (user) user.lastSeenCountry = country
+  if (user) {
+    user.lastSeenAt = new Date().toISOString().replace('T', ' ').slice(0, 19)
+    if (validCountry) user.lastSeenCountry = validCountry
+    if (validColo) user.lastSeenColo = validColo
+  }
 }
 
 /** Sets or clears an account's sign-in suspension. Disabling is a flag flip,

@@ -29,7 +29,7 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
 } from './session'
-import { setLastSeenCountry, type UserRecord } from './user-repository'
+import { setLastSeenLocation, type UserRecord } from './user-repository'
 
 /**
  * The shared halves of the /auth/{provider} routes. All three providers
@@ -165,6 +165,16 @@ export const providerAuthEntry = async (c: Context, provider: AuthProvider) => {
 
 const finishFailure = (c: Context) => c.redirect('/?error=1')
 
+/** The geo cf already computed for this request — country code and the
+ *  edge datacenter's IATA code. Empty in vite dev; never stored raw IPs. */
+const requestGeo = (c: Context) => {
+  const cf = (c.req.raw as { cf?: { country?: unknown; colo?: unknown } }).cf
+  return {
+    country: (cf?.country ?? '').toString().toUpperCase(),
+    colo: (cf?.colo ?? '').toString().toUpperCase(),
+  }
+}
+
 /** The sign-in tail shared by the OAuth callback and the pending-account
  * confirm step: country, cookies, then the handoff/next/dashboard choice. */
 const completeSignIn = async (
@@ -175,8 +185,8 @@ const completeSignIn = async (
   secret: string,
 ) => {
   const requestUrl = new URL(c.req.url)
-  const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
-  await setLastSeenCountry(user.accountId, country, env).catch(() => {})
+  const geo = requestGeo(c)
+  await setLastSeenLocation(user.accountId, geo.country, geo.colo, env).catch(() => {})
   const token = await createSessionToken(user.accountId, secret)
   const cookieOpts = {
     httpOnly: true,
@@ -350,8 +360,8 @@ export const finishProviderAuth = async (
         }
         throw error
       }
-      const country = ((c.req.raw as { cf?: { country?: unknown } }).cf?.country ?? '').toString().toUpperCase()
-      await setLastSeenCountry(flow.accountId!, country, env).catch(() => {})
+      const geo = requestGeo(c)
+      await setLastSeenLocation(flow.accountId!, geo.country, geo.colo, env).catch(() => {})
       return c.redirect(nativeLink ? `${NATIVE_CALLBACK}?linked=${provider}` : `/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
     }
 

@@ -1828,12 +1828,12 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-users-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
 .ops-users-table th, .ops-users-table td { padding: 14px 12px; border-bottom: 1px solid rgba(var(--ink), .1); text-align: left; vertical-align: middle; }
 .ops-users-table thead th { padding-top: 11px; padding-bottom: 10px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; font-weight: 400; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
-.ops-users-table thead th:nth-child(1) { width: 24%; }
+.ops-users-table thead th:nth-child(1) { width: 18%; }
 .ops-users-table thead th:nth-child(2), .ops-users-table thead th:nth-child(3), .ops-users-table thead th:nth-child(4) { width: 8%; }
-.ops-users-table thead th:nth-child(5) { width: 9%; }
-.ops-users-table thead th:nth-child(6) { width: 15%; }
-.ops-users-table thead th:nth-child(7) { width: 9%; }
-.ops-users-table thead th:nth-child(8) { width: 19%; }
+.ops-users-table thead th:nth-child(5) { width: 10%; }
+.ops-users-table thead th:nth-child(6), .ops-users-table thead th:nth-child(7) { width: 14%; }
+.ops-users-table thead th:nth-child(8) { width: 8%; }
+.ops-users-table thead th:nth-child(9) { width: 14%; }
 .ops-users-table tbody th { font-weight: 400; }
 .ops-sort { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .ops-sort:hover, .ops-sort:focus-visible { color: rgba(var(--ink), .8); }

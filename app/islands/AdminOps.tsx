@@ -12,14 +12,15 @@ const asDate = (value?: string) => value
 /** Consumer-facing provider names, matching the sign-in doors. */
 const PROVIDER_LABEL: Record<string, string> = { apple: 'Apple', dropbox: 'Dropbox', google: 'Google Drive' }
 
-type SortKey = 'account' | 'galleries' | 'devices' | 'signins' | 'lastseen' | 'created' | 'access'
+type SortKey = 'account' | 'galleries' | 'devices' | 'signins' | 'location' | 'lastseen' | 'created' | 'access'
 
 const SORT_KEYS: Record<SortKey, (user: AdminUserSummary) => string | number> = {
   account: (u) => (u.displayName || u.ownerSlug).toLowerCase(),
   galleries: (u) => u.galleryCount,
   devices: (u) => u.deviceGalleryCount,
   signins: (u) => u.identityCount,
-  lastseen: (u) => u.lastSeenCountry || '',
+  location: (u) => u.lastSeenCountry || '',
+  lastseen: (u) => u.lastSeenAt || '',
   created: (u) => u.createdAt || '',
   access: (u) => (u.isMaster ? 0 : u.tier === 'pro' ? 1 : 2),
 }
@@ -178,6 +179,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
               {sortTh('galleries', 'Galleries')}
               {sortTh('devices', 'Devices')}
               {sortTh('signins', 'Sign-ins')}
+              {sortTh('location', 'Location')}
               {sortTh('lastseen', 'Last seen')}
               {sortTh('created', 'Created')}
               {sortTh('access', 'Access')}
@@ -189,7 +191,8 @@ export default function AdminOps({ ownerName, accountId }: Props) {
                 <td>{user.galleryCount}</td>
                 <td>{user.deviceGalleryCount}</td>
                 <td>{user.identityCount}</td>
-                <td>{user.lastSeenCountry || '—'}</td>
+                <td>{[user.lastSeenCountry, user.lastSeenColo].filter(Boolean).join(' · ') || '—'}</td>
+                <td>{asDate(user.lastSeenAt)}</td>
                 <td>{asDate(user.createdAt)}</td>
                 <td>{user.isMaster
                   ? <span class="ops-master-label ops-access-master">Master</span>
