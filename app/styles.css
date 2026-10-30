@@ -1897,6 +1897,13 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
    stage. */
 body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-page { min-height: 100svh; width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: clamp(28px, 6vw, 76px) 0; color: rgb(var(--ink)); }
+/* The brand mark is the first in-flow child of .ops-page on both the door
+   and the console, so its box is set by the shared page geometry alone and
+   lands at the same pixel on either surface. */
+.ops-logo { margin: 0 0 26px; }
+.ops-logo .brand-mark-wrap { transform: translateX(-9.2%); }
+.ops-logo-mark { display: block; width: clamp(168px, 22vw, 240px); height: auto; }
+.ops-logo .brand-tld { font-size: clamp(10px, 1.35vw, 15px); }
 .ops-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; padding-bottom: 36px; border-bottom: 1px solid rgba(var(--ink), .16); }
 .ops-header h1 { max-width: 12ch; margin: 16px 0; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(42px, 7vw, 84px); font-weight: 700; letter-spacing: -.045em; line-height: 1; }
 .ops-intro, .ops-copy { max-width: 62ch; color: rgba(var(--ink), .64); font-size: 13px; line-height: 1.7; }

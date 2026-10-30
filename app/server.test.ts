@@ -240,6 +240,10 @@ describe('the operations console at /opman', () => {
     // Apple leads the row — App Review 4.8 ordering, same as every door.
     expect(html.indexOf('/auth/apple')).toBeLessThan(html.indexOf('/auth/dropbox'))
     expect(html.indexOf('/auth/dropbox')).toBeLessThan(html.indexOf('/auth/google'))
+    // The brand mark opens .ops-page on both the door and the console, so it
+    // lands at the same pixel either way.
+    expect(html).toContain('class="ops-logo"')
+    expect(html).toContain('manorama-merged-logo.png')
   })
 
   test('a signed-in non-master is offered another way to identify', async () => {
@@ -260,6 +264,8 @@ describe('the operations console at /opman', () => {
     const html = await response.text()
     expect(html).toContain('manorama housekeeping')
     expect(html).toContain('People using manorama')
+    expect(html).toContain('class="ops-logo"')
+    expect(html).toContain('manorama-merged-logo.png')
   })
 })
 

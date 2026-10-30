@@ -18,6 +18,7 @@ export default function OpsDoor({
   const lead = returning ?? Boolean(deniedName)
   return (
     <main class="ops-page">
+      <p class="ops-logo"><span class="brand-mark-wrap"><img class="ops-logo-mark" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
       <header class="ops-header">
         <div>
           <h1>Janitors check-in here.</h1>
