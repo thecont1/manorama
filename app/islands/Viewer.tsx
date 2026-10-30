@@ -550,11 +550,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       const element = curtain?.querySelector<HTMLElement>(selector)
       if (element) element.textContent = value
     }
-    updateText('[data-curtain-kicker]', loaded.curtainKicker)
+    // Kicker, date and the stored prompt left the curtain in the redesign —
+    // only the title and caption remain gallery-owned.
     updateText('[data-curtain-title]', loaded.title)
     updateText('[data-curtain-caption]', loaded.caption)
-    updateText('[data-curtain-date]', loaded.date)
-    updateText('[data-curtain-prompt]', loaded.curtainPrompt)
   }, [slug, initialSettings, viewPrefs])
 
   useEffect(() => {
