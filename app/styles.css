@@ -1927,6 +1927,23 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-master-label { white-space: nowrap; }
 .ops-access-master { color: rgb(252, 15, 192); }
 .ops-access-visionary { color: rgba(var(--ink), .85); }
+/* The ops door's provider buttons mirror the landing door's
+   .landing-signin pill — stacked, narrower, no hero margin. */
+.ops-signin { display: flex; flex-direction: column; gap: 10px; margin-top: 32px; max-width: 320px; }
+.ops-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 22px;
+  border: 1px solid rgba(var(--ink), .22);
+  color: rgba(var(--ink), .82);
+  font-size: 13px;
+  letter-spacing: .01em;
+  text-decoration: none;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+.ops-provider:hover, .ops-provider:focus-visible { border-color: rgba(var(--ink), .78); color: #fff; outline: none; }
+.ops-provider svg { width: 17px; height: 17px; }
 .ops-delete { border-color: rgba(220, 90, 90, .4); color: rgba(220, 130, 130, .9); }
 .ops-table-wrap { width: 100%; margin-top: 24px; overflow-x: auto; border-top: 1px solid rgba(var(--ink), .12); }
 .ops-users-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }

@@ -1,4 +1,4 @@
-import { SignInLinks } from '../lib/signin'
+import { SIGN_IN_PROVIDERS } from '../lib/signin'
 
 /** The /opman door. The operations console sits behind the same manorama
  *  sign-in as everything else — the operator picks whichever linked
@@ -15,21 +15,38 @@ export default function OpsDoor({
   /** The current session resolved but holds no master role. */
   deniedName?: string
 }) {
+  const lead = returning ?? Boolean(deniedName)
   return (
     <main class="ops-page">
       <header class="ops-header">
         <div>
-          <p class="eyebrow">manorama / private operations</p>
-          <h1>Keep the manor healthy.</h1>
-          <p class="ops-intro">
-            {deniedName
-              ? `Signed in as ${deniedName} — that account does not hold operations access. Identify yourself another way.`
-              : 'This console opens to one manorama account. Identify yourself in any way you like.'}
-          </p>
+          <h1>Janitors check-in here.</h1>
+          {deniedName ? (
+            <p class="ops-intro">
+              Signed in as {deniedName} — that account does not hold operations access. Identify yourself another way.
+            </p>
+          ) : null}
         </div>
         <a class="ops-back" href="/">Return home</a>
       </header>
-      <SignInLinks returning={returning ?? Boolean(deniedName)} next="/opman" />
+      <div class="ops-signin">
+        {[...SIGN_IN_PROVIDERS]
+          // Apple leads the row everywhere — App Review 4.8 requires it given
+          // no less prominence than the other providers, and one order across
+          // web and the shells keeps the door recognisable on every platform.
+          .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+          .map(({ id, name, Glyph }) => (
+            <a
+              key={id}
+              class="ops-provider"
+              href={`/auth/${id}?next=${encodeURIComponent('/opman')}`}
+              aria-label={`${lead ? 'Sign in' : 'Continue'} with ${name}`}
+            >
+              <Glyph />
+              <span>{lead ? 'Sign in' : 'Continue'} with {name}</span>
+            </a>
+          ))}
+      </div>
     </main>
   )
 }

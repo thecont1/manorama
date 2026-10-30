@@ -225,14 +225,21 @@ describe('the operations console at /opman', () => {
     return app
   }
 
-  test('anonymous visitors get the manorama provider chooser bound to /opman', async () => {
+  test('anonymous visitors get provider buttons bound to /opman', async () => {
     const response = await page().request('/opman', undefined, opmanEnv)
     expect(response.status).toBe(200)
     const html = await response.text()
-    expect(html).toContain('Identify yourself in any way you like')
+    expect(html).toContain('Janitors check-in here.')
+    expect(html).toContain('ops-provider')
+    expect(html).toContain('>Continue with Apple<')
+    expect(html).toContain('>Continue with Dropbox<')
+    expect(html).toContain('>Continue with Google<')
     expect(html).toContain('href="/auth/apple?next=%2Fopman"')
     expect(html).toContain('href="/auth/dropbox?next=%2Fopman"')
     expect(html).toContain('href="/auth/google?next=%2Fopman"')
+    // Apple leads the row — App Review 4.8 ordering, same as every door.
+    expect(html.indexOf('/auth/apple')).toBeLessThan(html.indexOf('/auth/dropbox'))
+    expect(html.indexOf('/auth/dropbox')).toBeLessThan(html.indexOf('/auth/google'))
   })
 
   test('a signed-in non-master is offered another way to identify', async () => {
@@ -243,6 +250,7 @@ describe('the operations console at /opman', () => {
     expect(response.status).toBe(200)
     const html = await response.text()
     expect(html).toContain('does not hold operations access')
+    expect(html).toContain('>Sign in with Dropbox<')
     expect(html).toContain('href="/auth/dropbox?next=%2Fopman"')
   })
 
