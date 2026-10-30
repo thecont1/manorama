@@ -87,7 +87,7 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
   const { context, page, card, slug } = await openDashboard(browser)
   try {
     await card.getByRole('button', { name: /actions$/i }).click()
-    await page.getByRole('menuitem', { name: 'Gallery details', exact: true }).click()
+    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
     await expect(page).toHaveURL(`${base}/${owner}?details=${slug}`)
@@ -109,7 +109,7 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
 
     // Browser Back/Forward across the Details entry.
     await card.getByRole('button', { name: /actions$/i }).click()
-    await page.getByRole('menuitem', { name: 'Gallery details', exact: true }).click()
+    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
     await expect(details).toBeVisible()
     await page.evaluate(() => { setTimeout(() => window.history.back(), 0) })
     await expect(details).toHaveCount(0)
@@ -128,7 +128,7 @@ test('Details Share opens the shared sheet with the correct public URL', async (
   const { context, page, card, title } = await openDashboard(browser)
   try {
     await card.getByRole('button', { name: /actions$/i }).click()
-    await page.getByRole('menuitem', { name: 'Gallery details', exact: true }).click()
+    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
 

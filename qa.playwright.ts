@@ -2479,7 +2479,7 @@ test("admin gallery order is a draft until Save", async ({
   expect(writes).toEqual([]);
   await expect(items.nth(0)).toHaveAttribute("data-image-id", firstId!);
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("menuitem", { name: "Gallery details", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
   const detailsSurface = page.locator('[data-screen="details"]');
   await expect(detailsSurface).toBeVisible();
   await detailsSurface.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ }).click();
@@ -2603,6 +2603,40 @@ test("admin gallery strip pans with wheel and touch-style pointer input", async 
   expect(touchPan).toBeGreaterThan(0);
 });
 
+test("a rail drag suppresses the photo link while a sub-threshold tap opens it", async ({
+  page,
+}) => {
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  const anchor = page
+    .locator(".admin-gallery-strip-frame")
+    .first()
+    .locator(".admin-gallery-strip-item a")
+    .first();
+  await expect(anchor.locator("img")).toHaveClass(/is-loaded/, { timeout: 30000 });
+  const newTabs: import("@playwright/test").Page[] = [];
+  page.context().on("page", (tab) => newTabs.push(tab));
+  const box = await anchor.boundingBox();
+  expect(box).not.toBeNull();
+  const cx = box!.x + box!.width / 2;
+  const cy = box!.y + box!.height / 2;
+  // A drag past the threshold is a pan gesture, not an activation: the
+  // anchor's click is suppressed so the gallery does not open mid-drag.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy, { steps: 6 });
+  await page.mouse.up();
+  expect(newTabs).toEqual([]);
+  // Staying under the threshold leaves ordinary anchor activation intact.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 3, cy, { steps: 1 });
+  await page.mouse.up();
+  await expect.poll(() => newTabs.length).toBe(1);
+  await newTabs[0].waitForLoadState("domcontentloaded");
+  expect(newTabs[0].url()).toContain(`/${OWNER}/`);
+  await newTabs[0].close();
+});
+
 test("admin gallery title and caption edit through Details and persist", async ({
   page,
 }) => {
@@ -2610,7 +2644,7 @@ test("admin gallery title and caption edit through Details and persist", async (
   const card = page.locator(".lib-card").first();
   // D1: cards carry no inline editing — the one path is Details.
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("menuitem", { name: "Gallery details", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
   const details = page.locator('[data-screen="details"]');
   await expect(details).toBeVisible();
   await details.locator(".m-actionrow").filter({ hasText: /^Name/ }).click();
@@ -2637,7 +2671,7 @@ test("admin gallery address edits through Details and persists the public addres
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
   const card = page.locator(".lib-card").first();
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("menuitem", { name: "Gallery details", exact: true }).click();
+  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
   const details = page.locator('[data-screen="details"]');
   await expect(details).toBeVisible();
   await details.locator(".m-actionrow").filter({ hasText: /^Address/ }).click();

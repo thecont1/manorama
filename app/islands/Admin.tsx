@@ -390,6 +390,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const panState = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
   const activeTouchPointers = useRef<Set<number>>(new Set())
+  // Rail items are links now, so a drag that began on one must not also
+  // navigate on release. The tracker watches displacement independent of
+  // whether the gesture became a pan; the click is suppressed only past
+  // the threshold — an ordinary tap still activates the anchor.
+  const railDrag = useRef<{ pointerId: number; startX: number; moved: boolean } | null>(null)
   const saveEditingInFlight = useRef(false)
 
   const galleryPath = (slug: string) => `/${owner}/${slug}`
@@ -475,6 +480,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const trackTouchPointer = (event: PointerEvent) => {
     if (event.pointerType === 'touch') activeTouchPointers.current.add(event.pointerId)
+    railDrag.current = { pointerId: event.pointerId, startX: event.clientX, moved: false }
   }
 
   const startStripPan = (event: PointerEvent) => {
@@ -490,6 +496,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const moveStripPan = (event: PointerEvent) => {
+    if (railDrag.current?.pointerId === event.pointerId && Math.abs(event.clientX - railDrag.current.startX) > 6) railDrag.current.moved = true
     if (panState.current?.pointerId !== event.pointerId) return
     const frame = event.currentTarget as HTMLDivElement
     frame.scrollLeft = panState.current.startScrollLeft - (event.clientX - panState.current.startX)
@@ -499,6 +506,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const finishStripPan = (event: PointerEvent) => {
     if (event.pointerType === 'touch') activeTouchPointers.current.delete(event.pointerId)
     if (panState.current?.pointerId === event.pointerId) panState.current = null
+    // A cancelled gesture cannot end in a click; a released one may, so the
+    // flag survives pointerup and is consumed by the click handler.
+    if (event.type === 'pointercancel') railDrag.current = null
+  }
+
+  const suppressDraggedClick = (event: MouseEvent) => {
+    if (!railDrag.current?.moved) return
+    event.preventDefault()
+    event.stopPropagation()
+    railDrag.current = null
   }
 
   const addGallerySubmit = async (input: { url: string; name: string }) => {
@@ -776,7 +793,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
           return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-            <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
+            <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onClickCapture={suppressDraggedClick} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class="admin-gallery-strip-item" key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}, opens in a new tab`}>
@@ -796,7 +813,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
             {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
-              <p>Remove “{title}” from manorama? Every photograph stays in {sourceLabelFor(gallery.sourceUrl)}.</p>
+              <p>Remove “{title}” from manorama?{gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(gallery.sourceUrl)}.` : ''}</p>
               <button type="button" disabled={busy} onClick={() => void removeGallery(gallery)}>Remove gallery</button>
               <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
             </div> : null}
@@ -834,27 +851,27 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
       {menuGallery ? (
         <Sheet open onClose={() => setMenuSlug(null)} title={menuGallery.title || menuGallery.slug}>
-          <div class="lib-menu" role="menu" aria-label={`${menuGallery.title || menuGallery.slug} actions`}>
-            <button type="button" role="menuitem" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
-            <button type="button" role="menuitem" onClick={() => { openDetails(menuGallery.slug); setMenuSlug(null) }}>Gallery details</button>
+          {/* Native buttons and links, not menu/menuitem roles: there is no
+              arrow-key roving focus here, so the menu role would overpromise. */}
+          <div class="lib-menu">
+            <button type="button" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
+            <button type="button" onClick={() => { openDetails(menuGallery.slug); setMenuSlug(null) }}>Gallery details</button>
             <button
               type="button"
-              role="menuitem"
               disabled={busy || isLocked(menuGallery)}
               title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
               onClick={() => { setReorderNote(null); setReorderSlug(menuGallery.slug); setMenuSlug(null) }}
             >Reorder photographs</button>
-            {menuGallery.sourceUrl ? <a role="menuitem" href={menuGallery.sourceUrl} target="_blank" rel="noreferrer">Open source</a> : null}
+            {menuGallery.sourceUrl ? <a href={menuGallery.sourceUrl} target="_blank" rel="noreferrer">Open source</a> : null}
             {menuGallery.sourceUrl ? (
               <button
                 type="button"
-                role="menuitem"
                 disabled={busy || isLocked(menuGallery)}
                 title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
                 onClick={() => { void refreshGallery(menuGallery); setMenuSlug(null) }}
               >Read the folder again</button>
             ) : null}
-            <button type="button" role="menuitem" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
+            <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
           </div>
         </Sheet>
       ) : null}

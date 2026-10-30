@@ -2588,9 +2588,10 @@ a.m-btn { text-decoration: none; }
 .lib-empty h3 { margin: 0; font-size: 19px; font-weight: 650; }
 .lib-empty p { margin: 6px 0 18px; color: var(--m-secondary); }
 
-/* The card menu is a sheet of rows, each a finger-sized target. */
+/* The card menu is a sheet of rows, each a finger-sized target. Rows are
+   plain buttons and links — no menu role, since there is no roving focus. */
 .lib-menu { display: grid; gap: 2px; }
-.lib-menu [role='menuitem'] {
+.lib-menu > :is(button, a) {
   display: block;
   width: 100%;
   min-height: 44px;
@@ -2603,8 +2604,8 @@ a.m-btn { text-decoration: none; }
   cursor: pointer;
   text-decoration: none;
 }
-.lib-menu [role='menuitem']:disabled { color: rgba(var(--ink), .35); cursor: default; }
-.lib-menu [role='menuitem']:focus-visible { outline: 2px solid var(--m-focus); outline-offset: -2px; }
+.lib-menu > :is(button, a):disabled { color: rgba(var(--ink), .35); cursor: default; }
+.lib-menu > :is(button, a):focus-visible { outline: 2px solid var(--m-focus); outline-offset: -2px; }
 .lib-menu .lib-menu-danger:not(:disabled) { color: var(--m-negative); }
 
 /* The temporary-gallery upgrade line inside shared Details — it only
