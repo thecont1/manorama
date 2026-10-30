@@ -38,8 +38,9 @@ const mockApi = async (page: Page) => {
   await page.route('**/api/galleries*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: galleriesPayload }))
   await page.route('**/api/device-galleries*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"galleries":[]}' }))
   await page.route('**/api/ads/visibility*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"show":true,"day":"2026-10-28"}' }))
-  await page.route('**/api/account/identities*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"identities":[{"provider":"apple"},{"provider":"dropbox"}]}' }))
   await page.route('**/api/account*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"name":"quiet-owner"}' }))
+  // Registered last so it wins over the account catch-all above.
+  await page.route('**/api/account/identities*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"identities":[{"provider":"apple"},{"provider":"dropbox"}]}' }))
 }
 
 const seed = () => {

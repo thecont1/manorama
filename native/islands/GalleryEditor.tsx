@@ -89,6 +89,9 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [viewport, setViewport] = useState({ width: 375, height: 812 })
   const [rowHeight, setRowHeight] = useState(editorRowHeight)
+  // Once the sizer is touched the height belongs to the user; resizes only
+  // re-derive it while the default viewport-based value is still in place.
+  const userSizedRef = useRef(false)
   const [scrollTop, setScrollTop] = useState(0)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
@@ -135,7 +138,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     const el = scrollRef.current
     if (!el) return
     const measure = () => {
-      setRowHeight(editorRowHeight())
+      if (!userSizedRef.current) setRowHeight(editorRowHeight())
       const width = el.clientWidth
       const height = el.clientHeight
       if (width > 0 || height > 0) {
@@ -447,7 +450,15 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
             step="4"
             value={rowHeight}
             aria-label="Photograph size"
-            onInput={(event) => setRowHeight(Number((event.currentTarget as HTMLInputElement).value))}
+            onInput={(event) => {
+              userSizedRef.current = true
+              setRowHeight(Number((event.currentTarget as HTMLInputElement).value))
+            }}
+            onKeyDown={(event) => {
+              // Home/End adjust the slider natively; the editor's section
+              // handler would otherwise move the held photograph instead.
+              if (event.key === 'Home' || event.key === 'End') event.stopPropagation()
+            }}
           />
           <svg class="l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
         </div>

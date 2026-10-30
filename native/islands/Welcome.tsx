@@ -23,7 +23,7 @@ export default function Welcome({ signedIn, onSignIn, authError, pendingQuickAdd
           <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
         <h1>Your shared folders, shown properly</h1>
-        <p>Paste a Dropbox, Google Drive, iCloud or MEGA link, or pick a folder on this iPhone. manorama turns it into a quiet, full-screen gallery at your own address.</p>
+        <p>Paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
       </div>
       {accountAdAside}
       {signedIn === false && onSignIn ? <div class="native-welcome-providers">
