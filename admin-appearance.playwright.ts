@@ -14,7 +14,7 @@ const sizes = [
 
 for (const size of sizes) {
   for (const reduced of [false, true]) {
-    test(`${size.name}: both themes, edge tab and editor${reduced ? ' without motion' : ''}`, async ({ browser }) => {
+    test(`${size.name}: both themes, top bar and editor${reduced ? ' without motion' : ''}`, async ({ browser }) => {
       test.setTimeout(75_000)
       const context = await browser.newContext({
         viewport: { width: size.width, height: size.height },
@@ -34,58 +34,36 @@ for (const size of sizes) {
         page.on('pageerror', error => errors.push(error.message))
         await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded' })
         await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
-        const tab = page.getByRole('button', { name: 'Account menu', exact: true })
-        const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
-        await expect(dialog).toBeHidden()
-        await expect(tab).toHaveAttribute('aria-expanded', 'false')
-        const tabBox = await tab.boundingBox()
-        if (size.width < 820) {
-          expect(tabBox!.x).toBeGreaterThan(size.width / 2)
-          expect(tabBox!.y).toBeLessThan(30)
-          expect(tabBox!.height).toBe(44)
-          await expect(tab.locator('.admin-hamburger')).toBeVisible()
-        } else {
-          expect(tabBox!.x).toBeLessThanOrEqual(1)
-          expect(Math.abs(tabBox!.y + tabBox!.height / 2 - size.height / 2)).toBeLessThan(2)
-        }
-        expect(tabBox!.width).toBeGreaterThanOrEqual(44)
+        // Chrome is the shared top bar: centred mark, Settings gear right.
+        const topbar = page.locator('.m-topbar')
+        const gear = topbar.getByRole('button', { name: 'Settings', exact: true })
+        await expect(topbar).toBeVisible()
+        await expect(gear).toBeVisible()
+        await expect(topbar.locator('.m-topbar-logo')).toHaveAttribute('src', '/manorama-merged-logo.png')
+        const gearBox = await gear.boundingBox()
+        expect(gearBox!.x).toBeGreaterThan(size.width / 2)
+        expect(gearBox!.width).toBeGreaterThanOrEqual(44)
         await expect(page.getByText('Photo Editor', { exact: true })).toHaveCount(0)
 
         // The Library leads with its heading; the sponsored portrait slot sits
-        // between it and the first card; the plan line closes the page.
+        // between it and the first card.
         await expect(page.getByRole('region', { name: 'Welcome to manorama' })).toHaveCount(0)
         const heading = page.getByRole('heading', { name: 'Library', exact: true })
         const sponsored = page.locator('.account-ad')
         const firstCard = page.locator('.lib-card').first()
-        const foot = page.locator('.admin-lib-foot')
         await expect(sponsored).toBeVisible()
-        await expect(foot).toBeVisible()
         const headingBox = (await heading.boundingBox())!
         const sponsoredBox = (await sponsored.boundingBox())!
         const cardBox = (await firstCard.boundingBox())!
-        const footBox = (await foot.boundingBox())!
         expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)
         expect(cardBox.y).toBeGreaterThanOrEqual(sponsoredBox.y + sponsoredBox.height)
-        expect(footBox.y).toBeGreaterThanOrEqual(cardBox.y + cardBox.height)
-        await expect(foot).toContainText('Visionary')
 
         for (const theme of ['dark', 'light'] as const) {
-          await tab.click()
-          await expect(dialog).toBeVisible()
-          await expect(tab).toHaveAttribute('aria-expanded', 'true')
-          if (size.width < 820) {
-            await expect.poll(async () => (await page.getByRole('dialog', { name: 'Account', exact: true }).boundingBox())?.y ?? -999).toBeGreaterThanOrEqual(0)
-            const bounds = await page.getByRole('dialog', { name: 'Account', exact: true }).boundingBox()
-            expect(bounds!.width).toBe(size.width)
-            expect(bounds!.height).toBe(size.height)
-          }
-          await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
-          await dialog.getByRole('link', { name: 'thecontrarian.in', exact: true }).focus()
-          await page.keyboard.press('Tab')
-          await expect(page.getByRole('button', { name: 'Close account menu' })).toBeFocused()
-          await dialog.getByRole('button', { name: 'Settings', exact: true }).click()
+          await gear.click()
           const settings = page.locator('.web-settings')
           await expect(settings).toBeVisible()
+          // The seeded owner is pro — the plan row carries Visionary.
+          await expect(settings.getByText('Visionary', { exact: true }).first()).toBeVisible()
           await settings.getByRole('radio', { name: theme === 'light' ? 'Light' : 'Dark', exact: true }).click()
           await expect(page.locator('html')).toHaveClass(theme === 'light' ? /light/ : /^(?!.*light)/)
           // Footer links animate their color over 180ms. Measure the settled
@@ -122,13 +100,11 @@ for (const size of sizes) {
           expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2)
           if (!reduced) await page.screenshot({ path: resolve(evidence, `${size.name}-${theme}-admin.png`), animations: 'disabled', timeout: 10_000 })
         }
-        // State survives a resize but not a document reload; URLs stay clean.
-        await tab.click()
+        // Back from Settings restores the clean library URL; a resize never
+        // introduces horizontal overflow; the console stays quiet.
         await page.setViewportSize({ width: size.width > 800 ? 428 : 1100, height: size.height })
-        await expect(dialog).toBeVisible()
-        await page.reload({ waitUntil: 'domcontentloaded' })
-        await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
-        await expect(dialog).toBeHidden()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+        await page.setViewportSize({ width: size.width, height: size.height })
         expect(new URL(page.url()).search).toBe('')
         expect(errors).toEqual([])
       } finally { await context.close() }

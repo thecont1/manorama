@@ -14,6 +14,7 @@ import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { WebReorderView } from '../components/WebReorderView'
+import { TopBar } from '../components/ui/TopBar'
 import { copyText } from '../lib/gallery-share'
 
 type Props = {
@@ -271,11 +272,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     storeTheme(localStorage, theme)
   }, [theme])
 
-  // The account lives in a slide-out pane so the galleries can use the page's
-  // full width. It opens closed on every load and is never encoded in the URL.
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
-  const drawerRef = useRef<HTMLDivElement | null>(null)
   const pageRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     pageRef.current?.setAttribute('data-admin-ready', 'true')
@@ -296,35 +292,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     sync()
     return subscribeToRuntimeFoldLayout(sync)
   }, [])
-  const closeMenu = () => {
-    setMenuOpen(false)
-    menuButtonRef.current?.focus()
-  }
-  // Focus enters the pane, Tab stays inside it, and Esc hands the caret back to
-  // the button that opened it.
-  useEffect(() => {
-    if (!menuOpen) return
-    const panel = drawerRef.current
-    const overflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    panel?.querySelector<HTMLButtonElement>('button')?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
-      if (event.key !== 'Tab' || !panel) return
-      const focusable = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), summary')]
-        .filter((element) => element.getClientRects().length > 0)
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (!first || !last) return
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = overflow
-    }
-  }, [menuOpen])
 
   // Browser Back/Forward across the Details and Settings surfaces. Each full
   // surface occupies one history entry ({surface} state + search param); a
@@ -376,7 +343,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
   const [settingsOpen, setSettingsOpen] = useState(false)
   const openSettings = () => {
-    setMenuOpen(false)
     setSettingsOpen(true)
     setSettingsNote('')
     const params = new URLSearchParams(window.location.search)
@@ -724,47 +690,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   return (
     <>
       <main class="admin-page admin-page--selector" ref={pageRef}>
-      {/* Account tools live at the edge; the photographs keep the page width.
-          The tab belongs to the dashboard only, never to the viewing stage. */}
-      <button
-        type="button"
-        class="admin-edge-tab"
-        aria-label="Account menu"
-        aria-expanded={menuOpen ? 'true' : 'false'}
-        aria-controls="admin-account-drawer"
-        ref={menuButtonRef}
-        onClick={() => setMenuOpen(true)}
-      >
-        <span class="admin-tab-label" aria-hidden="true">Account</span>
-        <svg class="admin-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-        <svg class="admin-tab-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-      </button>
-      {/* The account drawer is now a short navigation menu: the account and
-          plan controls live on the full Settings surface. */}
-      <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
-      <div class="admin-drawer-scrim" aria-hidden="true" onClick={closeMenu} />
-      <aside class="admin-drawer-panel" role="dialog" aria-modal="true" aria-label="Account" ref={drawerRef}>
-      <button type="button" class="admin-drawer-close" aria-label="Close account menu" onClick={closeMenu}>
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-      </button>
-      <div class="admin-left">
-      <header class="admin-header">
-        <div>
-          <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
-        </div>
-      </header>
-      <nav class="admin-account-nav" aria-label="Account">
-        <button type="button" class="admin-account-nav-item" onClick={() => { closeMenu(); openSettings() }}>Settings</button>
-        <a class="admin-account-nav-item" href="/privacy">Privacy Policy</a>
-      </nav>
-      <footer class="site-footer">
-        <a class="site-footer-link" href="/privacy">Privacy Policy</a>
-        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
-      </footer>
-      </div>
-      </aside>
-      </div>
-
+      {/* The chrome is the shared top bar: centred mark, Settings gear right.
+          The edge tab and account drawer are gone (D6) — Settings is the
+          pushed surface it always was, Privacy lives on it and in the site
+          footer. */}
+      <TopBar end={(
+        <button type="button" class="m-btn m-btn--quiet m-iconbtn" aria-label="Settings" onClick={openSettings}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+        </button>
+      )} />
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
       <section class="gallery-list" aria-labelledby="galleries-heading">
@@ -826,12 +760,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div>
         )}
       </section>
-      {/* The plan line is the only account copy on the Library — quiet
-          normally; Settings › Plan carries the detail. */}
-      <footer class="admin-lib-foot">
-        <span>{retainedCount <= retainedLimit ? `${retainedCount} of ${retainedLimit} galleries` : `${retainedCount} galleries`} · {tier === 'pro' ? 'Visionary' : 'Free'}</span>
-        <button type="button" class="admin-button admin-button--secondary" onClick={openSettings}>Plan</button>
-      </footer>
       </div>
 
       {status ? <div class="admin-toast" role="status" aria-live="polite">{status}</div> : null}

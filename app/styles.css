@@ -181,6 +181,9 @@ html.light {
 .m-topbar-slot { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .m-topbar-slot--end { justify-content: flex-end; }
 .m-topbar-slot > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The slot's truncation rule must not shrink an icon button under its
+   44px touch target. */
+.m-topbar-slot .m-iconbtn { min-width: var(--m-touch); }
 .m-topbar-logo { display: block; width: var(--m-logo-w); height: var(--m-logo-h); object-fit: contain; }
 .m-topbar-title { font-size: var(--m-fs-section); font-weight: 650; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -578,32 +581,28 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
-.admin-header { width: min(1040px, 100%); margin: 0 auto; }
 .admin-form { width: min(1180px, 100%); margin: 0 auto; }
-.admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 36px; padding-bottom: clamp(32px, 5vw, 56px); }
 .admin-eyebrow, .admin-section-index, .admin-image-label code { margin: 0; color: rgba(var(--ink), .46); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: .08em; text-transform: lowercase; }
-.admin-header h1 { max-width: 14ch; margin: 22px 0 18px; font-size: clamp(40px, 6vw, 82px); font-weight: 500; letter-spacing: -.07em; line-height: .94; }
 .admin-intro { max-width: 50ch; margin: 0; color: rgb(var(--ink)); font-size: 13px; line-height: 1.7; }
 .admin-intro strong { color: rgba(var(--ink), .9); font-weight: 500; }
 .admin-intro code, .admin-image-label code { color: rgba(214, 224, 213, .62); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
-/* Prominent toast: fixed above the footer, centers attention, auto-dismisses. */
+/* The toast is a quiet pill docked at the bottom edge — a status note,
+   not a banner. */
 .admin-toast {
   position: fixed;
   z-index: 40;
   left: 50%;
-  bottom: max(64px, calc(env(safe-area-inset-bottom) + 56px));
+  bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
   transform: translateX(-50%);
   max-width: min(520px, calc(100vw - 40px));
-  padding: 14px 22px;
-  border: 1px solid #111312;
-  border-radius: 8px;
-  background: rgb(var(--ink));
-  color: #161817;
+  padding: 9px 16px;
+  border: 1px solid rgba(var(--ink), .14);
+  border-radius: var(--m-pill);
+  background: var(--admin-surface, #111312);
+  color: rgba(var(--ink), .78);
   font-size: 13px;
-  font-weight: 500;
-  line-height: 1.5;
+  line-height: 1.45;
   text-align: center;
-  box-shadow: 4px 4px 0 #ff4da6;
   animation: admin-toast-in 220ms ease;
 }
 @keyframes admin-toast-in {
@@ -654,7 +653,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); }
 
 @media (max-width: 720px) {
-  .admin-header { display: block; }
   .admin-section-heading { display: block; }
   .admin-section-heading > p { margin: 10px 0 0 36px; }
   .admin-fields--two, .admin-mode-options { grid-template-columns: 1fr; }
@@ -664,61 +662,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 }
 
 .admin-page--selector { min-height: 100dvh; }
-/* Narrow: .admin-left dissolves so header, content and footer stack as
-   one page — the explicit orders keep the legal footer last even though
-   it sits inside the left wrapper for the wide split. */
-.admin-page--selector .admin-left { display: contents; }
-.admin-page--selector .admin-content { order: 1; }
-.admin-page--selector .site-footer { order: 2; }
-/* Wide screens run the dashboard as two independently scrolling columns:
-   the left carries brand, greeting, sign-in methods and account, ending
-   on the legal footer; the right carries the import form and every
-   gallery card. The page itself locks to the viewport — each side keeps
-   its own scroll position. Same 820px line as the landing split. */
-@media (min-width: 820px) {
-  .admin-page--selector {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    column-gap: clamp(40px, 6vw, 96px);
-    align-items: stretch;
-    width: min(1520px, 100%);
-    height: 100dvh;
-    margin-inline: auto;
-    padding-bottom: clamp(28px, 6vw, 88px);
-    overflow: hidden;
-  }
-  .admin-page--selector .admin-left {
-    grid-column: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .admin-page--selector .admin-header {
-    width: 100%;
-    margin: 0;
-    padding-bottom: 0;
-  }
-  .admin-page--selector .admin-left .site-footer {
-    margin-top: auto;
-    padding-inline: 0;
-  }
-  .admin-page--selector .admin-content {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .admin-page--selector .gallery-import,
-  .admin-page--selector .gallery-list {
-    width: 100%;
-    margin: 0;
-  }
-  .admin-page--selector .gallery-import { border-top: none; padding-top: 0; }
-}
 .gallery-selector { width: min(820px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0 72px; border-top: 1px solid rgba(var(--ink), .12); }
 .gallery-selector-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 32px; }
 .gallery-selector-heading > div { display: flex; align-items: baseline; gap: 18px; }
@@ -765,7 +708,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 }
 
 /* Recency-first gallery list and inline metadata editing */
-.admin-header h1 { max-width: none; font-size: clamp(36px, 5.2vw, 74px); white-space: nowrap; }
 .gallery-list { width: min(1040px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0 72px; border-top: 1px solid rgba(var(--ink), .12); }
 .admin-gallery-list { display: grid; gap: 0; border-top: 1px solid rgba(var(--ink), .1); }
 .admin-gallery-card { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 20px; align-items: start; padding: 24px 0 28px; border-bottom: 1px solid rgba(var(--ink), .1); }
@@ -782,9 +724,7 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-gallery-card dl { display: grid; grid-template-columns: repeat(2, minmax(76px, 1fr)); gap: 22px; margin: 8px 0 0; }
 .admin-gallery-card dt { margin-bottom: 6px; color: rgba(var(--ink), .4); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 .admin-gallery-card dd { margin: 0; color: rgba(var(--ink), .82); font-size: 12px; white-space: nowrap; }
-@media (max-width: 1050px) and (min-width: 721px) { .admin-header h1 { font-size: clamp(34px, 5vw, 64px); } }
 @media (max-width: 720px) {
-  .admin-header h1 { white-space: normal; }
   .admin-gallery-card { grid-template-columns: 28px minmax(0, 1fr); gap: 12px; }
   .admin-gallery-card dl { grid-column: 2; margin-top: -8px; }
 }
@@ -872,15 +812,10 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-weight: 200 800;
   font-display: swap;
 }
-.admin-brand-title {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  text-transform: lowercase;
-}
 .admin-intro {
   font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   text-transform: none;
 }
-.admin-brand-title { font-weight: 800; letter-spacing: -.038em; line-height: 1.0; }
 .admin-intro { font-style: italic; font-weight: 400; font-size: clamp(15px, 1.7vw, 21px); letter-spacing: -.02em; line-height: 1.55; }
 .admin-gallery-title { font-size: 32px; }
 .admin-gallery-count { font-size: 12px; font-weight: 400; letter-spacing: 0; }
@@ -896,14 +831,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 }
 
 /* Brand hierarchy and logo marks */
-.admin-header { position: relative; }
-.admin-header .admin-brand-title { max-width: none; margin: 0 0 18px; font-size: 116px; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; white-space: nowrap; }
-.admin-brand-form { margin: 0; }
-.admin-brand-logo-button { display: block; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.admin-brand-logo-button:focus-visible { outline: 2px solid rgba(255, 250, 240, .94); outline-offset: 6px; }
-.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; }
-.admin-brand-logo-button .brand-mark-wrap { transform: translateX(-9.2%); }
-.admin-brand-logo-button .brand-tld { font-size: clamp(18px, 2vw, 29px); }
 .admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolage Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
 .admin-intro em { font-style: italic; }
 /* The brand is a peeking wordmark in a pill, not a banner — but the
@@ -916,10 +843,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
    never moves. Hover, pointer proximity (the ::before hit-extender
    reaches ~100px up), or keyboard focus makes the pill jump up clear
    of the fold and brighten; the click opens display settings. */
-@media (max-width: 720px) {
-  .admin-header .admin-brand-title { font-size: 96px; white-space: normal; }
-  .admin-brand-logo { width: min(300px, 80vw); }
-}
 
 
 
@@ -1400,7 +1323,6 @@ html.light { --ink: 22, 24, 23; color-scheme: light; }
 html.light:has(.admin-page), html.light body:has(.admin-page) { background: #e9e5dc; }
 html.light .admin-page { --admin-surface: #e9e5dc; --admin-muted: .72; color: rgb(var(--ink)); background: var(--admin-surface); }
 html.light .admin-gallery-strip-frame, html.light .dropbox-strip-item img { background: #dcd7cb; }
-html.light .admin-toast { color: #f3f0e8; }
 html.light .admin-button--solid { color: #e9e5dc; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { border-color: #000; background: #000; color: #e9e5dc; }
 html.light .admin-signout:hover, html.light .admin-signout:focus-visible { color: #e9e5dc; }
@@ -1411,7 +1333,7 @@ html.light .admin-row-action:hover, html.light .admin-row-action:focus-visible {
 html.light .admin-icon-action:hover, html.light .admin-icon-action:focus-visible { color: #000; }
 html.light .gallery-selector-field option { background: #e9e5dc; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { color: #e9e5dc; }
-html.light .admin-page :is(.admin-brand-logo, .admin-topbar-logo) { filter: brightness(0); }
+html.light .admin-page .m-topbar-logo { filter: brightness(0); }
 
 
 /* ── M magnifier ─────────────────────────────────────────────────────
@@ -1958,22 +1880,19 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .ops-delete, .ops-master-label { justify-self: start; }
 }
 /* ---------------------------------------------------------------------------
-   Account pane and the single-row Photo Editor.
+   Top bar and the single-row Photo Editor.
 
    The account used to hold a standing left column, which cost the galleries
    half the page and left the theme toggle floating beside unrelated content.
-   The account now waits in a slide-out pane behind one quiet top bar, and the
-   galleries run the full width.
+   Chrome is now one shared top bar — centred mark, Settings gear — and the
+   galleries run inside one centred column.
    --------------------------------------------------------------------------- */
 
-.admin-page--selector { --admin-surface: #111312; --admin-muted: .68; display: block; width: 100%; height: auto; overflow: visible; background: var(--admin-surface); padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
-.admin-page--selector .admin-left { display: block; overflow: visible; min-width: 0; }
-.admin-page--selector .admin-content { order: 0; overflow: visible; width: min(1440px, 100%); margin-inline: auto; }
+.admin-page--selector { --admin-surface: #111312; --admin-muted: .68; display: block; width: 100%; height: auto; overflow: visible; background: var(--admin-surface); padding: 0; }
+.admin-page--selector .admin-content { width: min(1440px, 100%); margin-inline: auto; padding: clamp(20px, 4vw, 48px) clamp(20px, 7vw, 112px) clamp(48px, 8vw, 96px); }
 .admin-page--selector :is(.gallery-import, .gallery-list) { width: 100%; }
 .admin-page--selector :is(.admin-topbar-title, .admin-field > span, .admin-limit-count, .admin-privacy-note, .admin-gallery-caption, .admin-gallery-caption.is-empty, .site-footer-link, .site-footer-copy, .site-footer-copy a, .admin-delete-account summary) { color: rgba(var(--ink), var(--admin-muted)); }
 .admin-page--selector input::placeholder { color: rgba(var(--ink), var(--admin-muted)); opacity: 1; }
-.admin-page--selector .site-footer { order: 0; }
-.admin-page--selector .admin-header { width: 100%; margin: 0; padding-bottom: 0; }
 
 .admin-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; padding-bottom: 32px; }
 .admin-welcome { min-width: 0; }
@@ -2036,18 +1955,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .account-ad-sub { margin-top: 4px; color: rgba(var(--ink), .55); font-size: 13px; line-height: 1.45; }
 .account-ad-cta { margin-top: 8px; color: rgb(var(--ink)); font-size: 14px; line-height: 1.2; text-underline-offset: 3px; }
 
-/* The quiet plan foot line — the only account copy the Library carries. */
-.admin-lib-foot {
-  margin-top: 40px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(var(--ink), .12);
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  color: rgba(var(--ink), .55);
-  font-size: 13px;
-}
 @media (min-width: 820px) {
   /* The page's asymmetric edge-tab gutter would pull a simple 50/50 split
      right of the physical centre. Compensate so neither top block crosses it. */
@@ -2062,108 +1969,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    inside the leading segment's padded column. */
 .admin-page[data-admin-segmented] .account-ad { width: min(480px, calc(var(--admin-left-end) - 160px)); }
 
-.admin-edge-tab {
-  position: fixed;
-  z-index: 45;
-  left: env(safe-area-inset-left, 0px);
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  width: 44px;
-  min-height: 112px;
-  place-items: center;
-  gap: 10px;
-  padding: 16px 8px;
-  border: 1px solid rgba(var(--ink), .32);
-  border-left: 0;
-  border-radius: 0 10px 10px 0;
-  background: var(--admin-surface);
-  color: rgb(var(--ink));
-  cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease;
-}
-
-.admin-edge-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .035em; }
-.admin-edge-tab svg { width: 16px; height: 16px; }
-.admin-edge-tab:hover { border-color: rgb(var(--ink)); }
-.admin-edge-tab:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-
-.admin-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-start; }
-/* `hidden` has to out-rank the flex display above, or a closed pane would
-   still paint over the galleries. */
-.admin-drawer[hidden] { display: none; }
-.admin-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .45); animation: admin-scrim-in 220ms ease; }
-
-.admin-drawer-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: min(460px, calc(100% - 24px));
-  height: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-right: 1px solid rgba(var(--ink), .2);
-  background: var(--admin-surface);
-  color: rgb(var(--ink));
-  animation: admin-drawer-in 280ms cubic-bezier(.22, 1, .36, 1);
-}
-
-.admin-drawer-close { display: grid; place-items: center; align-self: flex-end; flex: 0 0 44px; width: 44px; height: 44px; margin-bottom: 12px; padding: 0; border: 1px solid rgba(var(--ink), .3); background: transparent; color: rgb(var(--ink)); cursor: pointer; }
-.admin-drawer-close svg { width: 20px; height: 20px; }
-.admin-drawer-close:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-.admin-drawer-panel .admin-header > div { width: 100%; min-width: 0; }
-.admin-drawer-panel .admin-brand-title { font-size: 0; white-space: normal; }
-.admin-drawer-panel .brand-mark-wrap { display: block; max-width: 100%; }
-.admin-drawer-panel .admin-brand-logo { display: block; width: 100%; max-width: 320px; height: auto; }
-.admin-drawer-panel .admin-brand-title .brand-mark-wrap { width: min(320px, 100%); }
-.admin-drawer-panel .admin-greeting-url { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 16px; overflow-wrap: anywhere; }
-.admin-drawer-panel .admin-owner-slug-input { min-width: 0; max-width: 100%; margin: 0; }
-.admin-drawer-panel .admin-greeting { font-size: 15px; line-height: 1.65; }
-.admin-drawer-panel .admin-intro { font-size: 16px; }
-
-@keyframes admin-drawer-in {
-  from { transform: translateX(-100%); }
-  to { transform: none; opacity: 1; }
-}
-@keyframes admin-scrim-in { from { opacity: 0; } to { opacity: 1; } }
-
-@media (prefers-reduced-motion: reduce) {
-  .admin-drawer-panel, .admin-drawer-scrim { animation: none; }
-}
-@media (max-width: 640px) {
-  .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
-  .admin-welcome-brand { width: min(280px, 100%); }
-  .admin-overview .gallery-import-form .admin-button { justify-self: stretch; }
-}
-
-.admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
-
-.admin-drawer-actions {
-  display: grid;
-  gap: 10px;
-  margin-top: 26px;
-  padding-top: 22px;
-  border-top: 1px solid rgba(var(--ink), .12);
-}
-
-.admin-drawer-action {
-  min-height: 46px;
-  border: 1px solid rgba(var(--ink), .2);
-  border-radius: 0;
-  background: transparent;
-  color: rgba(var(--ink), .8);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.admin-drawer-action:hover { border-color: rgb(var(--ink)); color: rgb(var(--ink)); background: rgba(var(--ink), .06); }
-.admin-drawer-action:focus-visible { border-color: rgb(var(--ink)); color: rgb(var(--ink)); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-.admin-signout-form { margin: 0; }
-.admin-signout-form .admin-drawer-action { width: 100%; }
 
 /* Owner-approved on 10 October 2026: the web Photo Editor is a single
    horizontal row per gallery. The Photo Picker and Global View stay matrices.
@@ -2201,22 +2006,8 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 /* Two physical control regions: copy and inputs avoid the hinge, scrolling
    photographic rails deliberately continue across it. */
 .admin-page--selector[data-admin-segmented] .admin-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
-.admin-page--selector .admin-drawer-panel { max-width: var(--admin-pane-limit, 100vw); }
 
-.admin-edge-tab .admin-hamburger { display: none; }
 .admin-profile-address { margin: 20px 0; font-size: 14px; overflow-wrap: anywhere; color: rgb(var(--ink)); }
-@media (max-width: 819px) {
-  .admin-edge-tab { top: 14px; right: 14px; left: auto; transform: none; width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; border: 1px solid rgba(var(--ink), .32); border-radius: 50%; padding: 10px; }
-  .admin-edge-tab .admin-tab-label, .admin-edge-tab .admin-tab-arrow { display: none; }
-  .admin-edge-tab .admin-hamburger { display: block; width: 22px; height: 22px; }
-  .admin-welcome-brand { max-width: calc(100% - 50px); }
-}
-
-@keyframes admin-phone-drop { from { transform: translateY(-100%); } to { transform: none; } }
-@media (max-width: 819px) {
-  .admin-page--selector .admin-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; animation: admin-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
-}
-@media (max-width: 819px) and (prefers-reduced-motion: reduce) { .admin-page--selector .admin-drawer-panel { animation: none; } }
 
 /* Rest bubble — the quiet position counter. A 36px circle docked
    bottom-right on a 44px hit box, keeping the stage-seq aria-label

@@ -199,11 +199,8 @@ test('Account → Settings shows identities/plan/typed-delete; Light persists af
     }))
   })
   try {
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
-    const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
-    await tab.click()
-    await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Settings', exact: true }).click()
+    // The top bar's gear opens Settings as a pushed full-screen surface.
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
 
     const settings = page.locator('.web-settings')
     await expect(settings).toBeVisible()
