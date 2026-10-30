@@ -1927,40 +1927,51 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-master-label { white-space: nowrap; }
 .ops-access-master { color: rgb(252, 15, 192); }
 .ops-access-visionary { color: rgba(var(--ink), .85); }
-/* The ops door's provider buttons mirror the landing door's
-   .landing-signin pill — stacked, narrower, no hero margin. */
-.ops-signin { display: flex; flex-direction: column; gap: 10px; margin-top: 32px; max-width: 320px; }
+/* The ops door's provider buttons mirror the iOS sign-in pills: filled
+   ink on the dark door, centred, full-radius. */
+.ops-signin { display: flex; flex-direction: column; gap: 12px; margin-top: 32px; max-width: 340px; }
 .ops-provider {
-  display: inline-flex;
+  min-height: 52px;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 13px 22px;
+  padding: 12px 18px;
   border: 1px solid rgba(var(--ink), .22);
-  color: rgba(var(--ink), .82);
-  font-size: 13px;
-  letter-spacing: .01em;
+  border-radius: var(--m-pill);
+  background: rgb(var(--ink));
+  color: #111312;
+  font-size: 14px;
+  font-weight: 600;
   text-decoration: none;
-  transition: border-color 160ms ease, color 160ms ease;
+  transition: filter 160ms ease;
 }
-.ops-provider:hover, .ops-provider:focus-visible { border-color: rgba(var(--ink), .78); color: #fff; outline: none; }
-.ops-provider svg { width: 17px; height: 17px; }
+.ops-provider:hover { filter: brightness(.88); }
+.ops-provider:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.ops-provider svg { width: 20px; height: 20px; flex: none; }
 .ops-delete { border-color: rgba(220, 90, 90, .4); color: rgba(220, 130, 130, .9); }
 .ops-table-wrap { width: 100%; margin-top: 24px; overflow-x: auto; border-top: 1px solid rgba(var(--ink), .12); }
 .ops-users-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
 .ops-users-table th, .ops-users-table td { padding: 14px 12px; border-bottom: 1px solid rgba(var(--ink), .1); text-align: left; vertical-align: middle; }
 .ops-users-table thead th { padding-top: 11px; padding-bottom: 10px; color: rgba(var(--ink), .42); font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; font-weight: 400; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
-.ops-users-table thead th:nth-child(1) { width: 28%; }
+.ops-users-table thead th:nth-child(1) { width: 24%; }
 .ops-users-table thead th:nth-child(2), .ops-users-table thead th:nth-child(3), .ops-users-table thead th:nth-child(4) { width: 8%; }
 .ops-users-table thead th:nth-child(5) { width: 9%; }
 .ops-users-table thead th:nth-child(6) { width: 15%; }
 .ops-users-table thead th:nth-child(7) { width: 9%; }
-.ops-users-table thead th:nth-child(8) { width: 15%; }
+.ops-users-table thead th:nth-child(8) { width: 19%; }
 .ops-users-table tbody th { font-weight: 400; }
+.ops-sort { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.ops-sort:hover, .ops-sort:focus-visible { color: rgba(var(--ink), .8); }
+.ops-sort:focus-visible { outline: 1px solid rgba(var(--ink), .5); outline-offset: 3px; }
+.ops-sort-ind { font-size: 9px; opacity: .45; }
+.ops-users-table th[aria-sort='ascending'] .ops-sort-ind,
+.ops-users-table th[aria-sort='descending'] .ops-sort-ind { opacity: 1; color: rgb(252, 15, 192); }
 .ops-user-name, .ops-user-slug, .ops-user-id { display: block; }
 .ops-user-name { margin-bottom: 4px; font-size: 13px; font-weight: 500; }
 .ops-user-slug { color: rgba(var(--ink), .52); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 .ops-user-id { margin-top: 4px; color: rgba(var(--ink), .38); font-family: 'DM Mono', ui-monospace, monospace; font-size: 9px; overflow-wrap: anywhere; }
-.ops-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.ops-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 7px; white-space: nowrap; }
 .ops-role { min-height: 30px; padding: 6px 8px; border: 1px solid rgba(var(--ink), .2); background: transparent; color: rgba(var(--ink), .72); font: inherit; font-size: 10px; cursor: pointer; }
 .ops-role:hover, .ops-role:focus-visible { border-color: rgba(var(--ink), .72); color: rgb(var(--ink)); }
 .ops-role:disabled, .ops-delete:disabled { cursor: wait; opacity: .45; }

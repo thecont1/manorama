@@ -258,7 +258,7 @@ describe('the operations console at /opman', () => {
     const response = await page().request('/opman', authed(), opmanEnv)
     expect(response.status).toBe(200)
     const html = await response.text()
-    expect(html).toContain('Keep the manor healthy')
+    expect(html).toContain('manorama housekeeping')
     expect(html).toContain('People using manorama')
   })
 })

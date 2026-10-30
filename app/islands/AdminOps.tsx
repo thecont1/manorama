@@ -9,11 +9,25 @@ const asDate = (value?: string) => value
   ? new Date(value.replace(' ', 'T') + (value.includes('Z') ? '' : 'Z')).toLocaleString()
   : '—'
 
+type SortKey = 'account' | 'galleries' | 'devices' | 'signins' | 'lastseen' | 'created' | 'access' | 'actions'
+
+const SORT_KEYS: Record<SortKey, (user: AdminUserSummary) => string | number> = {
+  account: (u) => (u.displayName || u.ownerSlug).toLowerCase(),
+  galleries: (u) => u.galleryCount,
+  devices: (u) => u.deviceGalleryCount,
+  signins: (u) => u.identityCount,
+  lastseen: (u) => u.lastSeenCountry || '',
+  created: (u) => u.createdAt || '',
+  access: (u) => (u.isMaster ? 0 : u.tier === 'pro' ? 1 : 2),
+  actions: (u) => u.accountId,
+}
+
 export default function AdminOps({ ownerName, accountId }: Props) {
   const [users, setUsers] = useState<AdminUserSummary[]>([])
   const [total, setTotal] = useState(0)
   const [status, setStatus] = useState('Loading operations data…')
   const [busy, setBusy] = useState(false)
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null)
 
   const refresh = async () => {
     setStatus('Loading operations data…')
@@ -77,12 +91,31 @@ export default function AdminOps({ ownerName, accountId }: Props) {
     }
   }
 
+  const cycleSort = (key: SortKey) =>
+    setSort((current) => (!current || current.key !== key ? { key, dir: 1 } : current.dir === 1 ? { key, dir: -1 } : null))
+
+  const sorted = sort
+    ? [...users].sort((a, b) => {
+        const ka = SORT_KEYS[sort.key](a)
+        const kb = SORT_KEYS[sort.key](b)
+        const primary = typeof ka === 'number' && typeof kb === 'number' ? ka - kb : String(ka).localeCompare(String(kb))
+        return primary * sort.dir || a.accountId.localeCompare(b.accountId)
+      })
+    : users
+
+  const sortTh = (key: SortKey, label: string) => (
+    <th scope="col" aria-sort={sort?.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" class="ops-sort" onClick={() => cycleSort(key)}>
+        {label}<span class="ops-sort-ind" aria-hidden="true">{sort?.key === key ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</span>
+      </button>
+    </th>
+  )
+
   return (
     <main class="ops-page">
       <header class="ops-header">
         <div>
-          <p class="eyebrow">manorama / private operations</p>
-          <h1>Keep the manor healthy.</h1>
+          <h1>manorama housekeeping</h1>
           <p class="ops-intro">Signed in as <strong>{ownerName || accountId}</strong>. This console exposes account metadata, never photographs or provider subjects.</p>
         </div>
         <a class="ops-back" href="/">Return home</a>
@@ -96,9 +129,18 @@ export default function AdminOps({ ownerName, accountId }: Props) {
         <p class="ops-copy">{total} accounts — every one of them. The master stays at the top, followed by newest accounts.</p>
         <div class="ops-table-wrap">
           <table class="ops-users-table">
-            <thead><tr><th scope="col">Account</th><th scope="col">Galleries</th><th scope="col">Device lists</th><th scope="col">Sign-ins</th><th scope="col">Last seen</th><th scope="col">Created</th><th scope="col">Access</th><th scope="col">Actions</th></tr></thead>
+            <thead><tr>
+              {sortTh('account', 'Account')}
+              {sortTh('galleries', 'Galleries')}
+              {sortTh('devices', 'Device lists')}
+              {sortTh('signins', 'Sign-ins')}
+              {sortTh('lastseen', 'Last seen')}
+              {sortTh('created', 'Created')}
+              {sortTh('access', 'Access')}
+              {sortTh('actions', 'Actions')}
+            </tr></thead>
             <tbody>
-              {users.map((user) => <tr key={user.accountId}>
+              {sorted.map((user) => <tr key={user.accountId}>
                 <th scope="row"><span class="ops-user-name">{user.displayName || 'Unnamed account'}</span><span class="ops-user-slug">/{user.ownerSlug} · {user.tier}</span><code class="ops-user-id">{user.accountId}</code></th>
                 <td>{user.galleryCount}</td>
                 <td>{user.deviceGalleryCount}</td>
@@ -110,7 +152,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
                   : user.tier === 'pro'
                     ? <span class="ops-master-label ops-access-visionary">Visionary</span>
                     : <span class="ops-master-label">Free</span>}</td>
-                <td class="ops-actions">{user.accountId === accountId ? <span class="ops-master-label">Current account</span> : <><button type="button" class="ops-role" disabled={busy} onClick={() => void setTier(user, user.tier === 'pro' ? 'free' : 'pro')}>{user.tier === 'pro' ? 'Downgrade' : 'Upgrade'}</button><button type="button" class="ops-delete" disabled={busy} onClick={() => void removeUser(user)}>Delete</button></>}</td>
+                <td class="ops-actions">{user.isMaster || user.accountId === accountId ? null : <><button type="button" class="ops-role" disabled={busy} onClick={() => void setTier(user, user.tier === 'pro' ? 'free' : 'pro')}>{user.tier === 'pro' ? 'Downgrade' : 'Upgrade'}</button><button type="button" class="ops-delete" disabled={busy} onClick={() => void removeUser(user)}>Delete</button></>}</td>
               </tr>)}
               {!users.length ? <tr><td class="ops-empty" colSpan={8}>No accounts match this filter.</td></tr> : null}
             </tbody>
