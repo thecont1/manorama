@@ -41,10 +41,13 @@ export const SignInLinks = ({
   returning,
   anchorClass,
   anchorAttrs,
+  next,
 }: {
   returning?: boolean
   anchorClass?: string
   anchorAttrs?: Record<string, unknown>
+  /** Same-origin path the OAuth callback lands on instead of the dashboard. */
+  next?: string
 }) => (
   <div class="signin">
     <span class="signin-lead">{returning ? 'Sign in with' : 'Continue with'}</span>
@@ -58,7 +61,7 @@ export const SignInLinks = ({
           <a
             key={id}
             class={anchorClass ? `signin-icon ${anchorClass}` : 'signin-icon'}
-            href={`/auth/${id}`}
+            href={next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`}
             aria-label={`${returning ? 'Sign in' : 'Continue'} with ${label}`}
             {...anchorAttrs}
           >

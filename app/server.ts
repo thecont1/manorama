@@ -5,6 +5,7 @@ import type { HonoSessionEnv, SessionEnv } from './lib/session'
 import type { RuntimeEnv } from './api'
 import { expirePipelineGalleries } from './lib/gallery-expiry'
 import { deleteExpiredPipelineGallery, listExpiredPipelineGalleries } from './lib/gallery-repository'
+import { injectDevD1 } from './lib/dev-d1'
 
 type AppEnv = HonoSessionEnv & { Bindings: SessionEnv & RuntimeEnv }
 
@@ -24,6 +25,10 @@ runtimeProcess?.on?.('uncaughtException', (error) => {
 })
 
 const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
+  // Dev-only: when MANORAMA_DEV_D1 parked a local D1 on globalThis, expose
+  // it as env.DB before any handler reads c.env. No-op in production.
+  app.use('*', injectDevD1)
+
   // Management APIs behind the Dropbox session, at one boundary. The
   // owner dashboard (/[owner]) gates itself inside the route handler.
   app.route('/', createManoramaApi())

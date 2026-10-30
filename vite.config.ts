@@ -1,7 +1,10 @@
 import build from '@hono/vite-build/cloudflare-workers'
 import adapter from '@hono/vite-dev-server/node'
 import honox from 'honox/vite'
+import { readFileSync, readdirSync } from 'node:fs'
+import type { D1Database } from '@cloudflare/workers-types'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
+import { applyDevMigrations } from './app/lib/dev-d1.ts'
 
 /** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
 const DEV_SPAWN_IMAGE = {
@@ -45,6 +48,12 @@ const manoramaDevSeed = (): Plugin => {
 
   let users: UserRepo | null = null
   let galleries: GalleryRepo | null = null
+  // MANORAMA_DEV_D1 state: set during configureServer, shared by the seed
+  // and the /.dev-seed endpoints so every repo call targets one store.
+  let devDb: D1Database | undefined
+  let devProxy: { env: { DB: D1Database }; dispose: () => Promise<void> } | undefined
+  let devD1Ready: Promise<unknown> | undefined
+  const devEnv = () => (devDb ? { DB: devDb } : undefined)
   // Pristine copies of every seeded gallery — resets re-insert clones of
   // these instead of re-scanning the live source (network) or reading the
   // manifest again, so a reset is a same-tick operation a test can afford
@@ -55,14 +64,20 @@ const manoramaDevSeed = (): Plugin => {
     if (!users || !galleries) throw new Error('dev-seed modules not loaded')
     users.resetUserStore()
     galleries.resetGalleryStore()
+    if (devDb) {
+      // Reset means the canonical fixture: drop every app row, then reseed.
+      for (const table of ['auth_flows', 'auth_identities', 'master_accounts', 'device_galleries', 'ad_suppressions', 'galleries', 'users']) {
+        await devDb.prepare(`DELETE FROM ${table}`).run()
+      }
+    }
     const owner = await users.upsertUser({
       accountId: 'dbid:AAATESTowner1',
       displayName: 'thecontrarian',
       email: 'mahesh@manorama.xyz',
-    })
+    }, devEnv())
     // Pro: the admin page mounts the real Vendo surface only for pro tier,
     // and the vendo-surface spec drives that launcher.
-    await users.setUserTier(owner.accountId, 'pro')
+    await users.setUserTier(owner.accountId, 'pro', devEnv())
     // A second free-tier owner (slug `retention-qa`, no galleries) gives
     // the retention/density specs an isolated account whose gallery count
     // never depends on which provider vars happen to be set.
@@ -70,9 +85,9 @@ const manoramaDevSeed = (): Plugin => {
       accountId: 'dbid:AAATESTretention',
       displayName: 'Retention QA',
       email: 'retention-qa@manorama.xyz',
-    })
+    }, devEnv())
     for (const { ownerId, gallery } of pristine) {
-      await galleries.createGallery(ownerId, structuredClone(gallery))
+      await galleries.createGallery(ownerId, structuredClone(gallery), devEnv())
     }
     return owner
   }
@@ -159,6 +174,33 @@ const manoramaDevSeed = (): Plugin => {
       // the globalThis the SSR graph shares; `apply: 'serve'` means no build
       // can ever see it set.
       ;(globalThis as { __manoramaLocalSources?: boolean }).__manoramaLocalSources = true
+
+      // Opt-in real D1 (MANORAMA_DEV_D1): boot a wrangler platform proxy,
+      // apply every migration once, then park the binding where
+      // injectDevD1 (app/server.ts) picks it up. Without it auth_identities
+      // has no store in dev, so real provider OAuth cannot finish.
+      if (process.env.MANORAMA_DEV_D1?.trim()) {
+        devD1Ready = (async () => {
+          const { getPlatformProxy } = await import('wrangler')
+          devProxy = await getPlatformProxy<{ DB: D1Database }>({
+            configPath: `${server.config.root}/wrangler.toml`,
+            persist: { path: `${server.config.root}/.wrangler/state/v3` },
+          })
+          const dir = `${server.config.root}/migrations`
+          const files = readdirSync(dir)
+            .filter((file) => file.endsWith('.sql'))
+            .map((file) => ({ name: file, sql: readFileSync(`${dir}/${file}`, 'utf8') }))
+          const ran = await applyDevMigrations(devProxy.env.DB, files)
+          devDb = devProxy.env.DB
+          ;(globalThis as { __manoramaDevD1?: D1Database }).__manoramaDevD1 = devDb
+          console.log(ran.length
+            ? `[dev-d1] local D1 ready — applied ${ran.join(', ')}`
+            : '[dev-d1] local D1 ready — migrations already applied')
+        })()
+        ;(globalThis as { __manoramaDevD1Ready?: Promise<unknown> }).__manoramaDevD1Ready = devD1Ready
+        void devD1Ready.catch((error) => console.warn('[dev-d1] boot failed — in-memory stores stay active:', error))
+        server.httpServer?.once('close', () => { void devProxy?.dispose() })
+      }
 
       // Explicit local-account door for a Mac build targeting localhost.
       // It never imitates provider OAuth, never ships, and only mints a
@@ -298,7 +340,7 @@ const manoramaDevSeed = (): Plugin => {
         if (!users) throw new Error('dev-seed modules not loaded')
         const accountId = typeof body.accountId === 'string' ? body.accountId : 'dbid:AAATESTowner1'
         const tier = body.tier === 'pro' ? 'pro' : 'free'
-        const user = await users.setUserTier(accountId, tier)
+        const user = await users.setUserTier(accountId, tier, devEnv())
         return { tier: user?.tier ?? null }
       }))
       server.middlewares.use('/.dev-seed/spawn', devAction(async (body) => {
@@ -320,7 +362,7 @@ const manoramaDevSeed = (): Plugin => {
             sourceUrl: `dev-seed://spawn/${entry.slug}`,
             createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
             images: (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images'],
-          } as GalleryRecord)
+          } as GalleryRecord, devEnv())
           results.push(result.ok
             ? { ok: true, slug: entry.slug, retention: result.gallery.retention ?? 'retained', expiresAt: result.gallery.expiresAt ?? null }
             : { ok: false, slug: entry.slug, reason: result.reason })
@@ -333,12 +375,14 @@ const manoramaDevSeed = (): Plugin => {
         const expiry = await server.ssrLoadModule('/app/lib/gallery-expiry.ts') as unknown as typeof import('./app/lib/gallery-expiry')
         const now = typeof body.now === 'string' ? body.now : new Date().toISOString()
         return expiry.expirePipelineGalleries({
-          list: (at, after, limit) => repo.listExpiredPipelineGalleries(at, undefined, after, limit),
-          remove: (key, at) => repo.deleteExpiredPipelineGallery(key, at),
+          list: (at, after, limit) => repo.listExpiredPipelineGalleries(at, devEnv(), after, limit),
+          remove: (key, at) => repo.deleteExpiredPipelineGallery(key, at, devEnv()),
         }, now)
       }))
       server.httpServer?.once('listening', () => {
-        seeded = seed(server)
+        // The seed writes through devDb when the flag is on, so it waits
+        // for the platform proxy boot; a failed boot falls back to memory.
+        seeded = (devD1Ready ?? Promise.resolve()).catch(() => undefined).then(() => seed(server))
         // Observe the rejection without replacing the promise awaited by
         // middleware: failed fixtures must not masquerade as a ready seed.
         void seeded.catch(error => console.warn('[dev-seed] seeding failed:', error))

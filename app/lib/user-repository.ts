@@ -17,6 +17,12 @@ export type UserRecord = {
   billingEventTimestampMs?: number
   billingEventId?: string
   lastSeenCountry?: string
+  /** Set when the master suspends sign-in; NULL/absent means active. The rows
+   *  stay — disabling is deliberately non-destructive. */
+  disabledAt?: string
+  /** Rewritten on every disable/enable flip. Survives re-enable so tokens
+   *  minted before the suspension stay dead instead of resurrecting. */
+  sessionsRevokedAt?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -30,12 +36,9 @@ export type AdminUserSummary = UserRecord & {
   isMaster: boolean
 }
 
-export type AdminUserPage = {
+export type AdminUserList = {
   users: AdminUserSummary[]
-  page: number
-  pageSize: number
   total: number
-  totalPages: number
 }
 
 export type UserRepositoryEnv = { DB?: D1Database }
@@ -74,6 +77,12 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
   }
   if (typeof row.last_seen_country === 'string' && row.last_seen_country.length > 0) {
     user.lastSeenCountry = row.last_seen_country
+  }
+  if (typeof row.disabled_at === 'string' && row.disabled_at.length > 0) {
+    user.disabledAt = row.disabled_at
+  }
+  if (typeof row.sessions_revoked_at === 'string' && row.sessions_revoked_at.length > 0) {
+    user.sessionsRevokedAt = row.sessions_revoked_at
   }
   if (typeof row.created_at === 'string') user.createdAt = row.created_at
   if (typeof row.updated_at === 'string') user.updatedAt = row.updated_at
@@ -217,16 +226,13 @@ export const getUserByOwnerSlug = async (
 
 /** Lists account metadata only. This intentionally contains no photo bytes or
  * source URLs; the master console is an operations surface, not a gallery
- * index. Results are bounded to 100 rows so the console remains usable as the
- * account count grows. */
+ * index. The list is unbounded — every account renders — until the base
+ * grows large enough to need paging again. */
 export const listUsersForAdmin = async (
   env?: UserRepositoryEnv & MasterAccountEnv,
-  options: { page?: number; country?: string; bootstrapAccountId?: string } = {},
-): Promise<AdminUserPage> => {
-  const page = Math.max(1, Math.floor(options.page ?? 1))
+  options: { country?: string; bootstrapAccountId?: string } = {},
+): Promise<AdminUserList> => {
   const country = options.country?.trim().toUpperCase() ?? ''
-  const pageSize = 100
-  const offset = (page - 1) * pageSize
   const bootstrapAccountId = options.bootstrapAccountId?.trim() ?? ''
   if (d1Configured(env)) {
     const totalRow = await env.DB.prepare(
@@ -243,6 +249,7 @@ export const listUsersForAdmin = async (
         u.created_at,
         u.updated_at,
         u.last_seen_country,
+        u.disabled_at,
         CASE WHEN u.account_id = ? THEN 0 ELSE 1 END AS bootstrap_order,
         CASE WHEN u.account_id = ? OR EXISTS (
           SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
@@ -253,8 +260,7 @@ export const listUsersForAdmin = async (
       FROM users u
       WHERE (? = '' OR COALESCE(u.last_seen_country, '') = ?)
       ORDER BY bootstrap_order ASC, is_master DESC, u.created_at DESC, u.account_id ASC
-      LIMIT ? OFFSET ?
-    `).bind(bootstrapAccountId, bootstrapAccountId, country, country, pageSize, offset).all<Record<string, unknown>>()
+    `).bind(bootstrapAccountId, bootstrapAccountId, country, country).all<Record<string, unknown>>()
     const users = (result.results ?? []).flatMap((row) => {
       const user = rowToUser(row)
       if (!user) return []
@@ -269,7 +275,7 @@ export const listUsersForAdmin = async (
       }]
     })
     const total = Number(totalRow?.total) || 0
-    return { users, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
+    return { users, total }
   }
   const allUsers = [...users.values()].map((user) => ({
     ...user,
@@ -284,14 +290,7 @@ export const listUsersForAdmin = async (
     || Number(b.isMaster) - Number(a.isMaster)
     || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
     || a.accountId.localeCompare(b.accountId))
-  const total = filtered.length
-  return {
-    users: filtered.slice(offset, offset + pageSize),
-    page,
-    pageSize,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  }
+  return { users: filtered, total: filtered.length }
 }
 
 export const setLastSeenCountry = async (accountId: string, country: string | undefined, env?: UserRepositoryEnv): Promise<void> => {
@@ -302,6 +301,35 @@ export const setLastSeenCountry = async (accountId: string, country: string | un
   }
   const user = users.get(accountId)
   if (user) user.lastSeenCountry = country
+}
+
+/** Sets or clears an account's sign-in suspension. Disabling is a flag flip,
+ *  not a delete — galleries, identities, and tier all stay so enabling restores
+ *  the account exactly as it was. The flag lands in `disabled_at` (a timestamp,
+ *  not a boolean, so the audit trail keeps when it happened). */
+export const setUserDisabled = async (
+  accountId: string,
+  disabled: boolean,
+  env?: UserRepositoryEnv,
+  now = new Date().toISOString(),
+): Promise<UserRecord | null> => {
+  const current = await getUserByAccountId(accountId, env)
+  if (!current) return null
+  // Idempotent flips are a no-op: restamping the markers would rewrite the
+  // suspension timestamp and kill sessions minted since the real transition.
+  if (Boolean(current.disabledAt) === disabled) return current
+  if (d1Configured(env)) {
+    await env.DB.prepare(
+      `UPDATE users SET disabled_at = ?, sessions_revoked_at = ?, updated_at = datetime('now') WHERE account_id = ?`,
+    ).bind(disabled ? now : null, now, accountId).run()
+    return getUserByAccountId(accountId, env)
+  }
+  const user = users.get(accountId)
+  if (!user) return null
+  if (disabled) user.disabledAt = now
+  else delete user.disabledAt
+  user.sessionsRevokedAt = now
+  return { ...user }
 }
 
 export class OwnerSlugError extends Error {}

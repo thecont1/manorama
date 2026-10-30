@@ -67,11 +67,12 @@ export const sessionKey = (secret: string) => {
   return bytes
 }
 
-/** Signs a session token for an account ID. */
-export const createSessionToken = (accountId: string, secret: string) =>
+/** Signs a session token for an account ID. `issuedAtSeconds` exists for
+ *  tests that need a token from a fixed moment; production mints now. */
+export const createSessionToken = (accountId: string, secret: string, issuedAtSeconds?: number) =>
   new SignJWT({ sub: accountId })
     .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
+    .setIssuedAt(issuedAtSeconds)
     .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
     .sign(sessionKey(secret))
 
@@ -110,7 +111,8 @@ export const verifyLinkHandoffToken = async (token: string, secret: string) => {
 const verifySessionToken = async (token: string, secret: string) => {
   const { payload } = await jwtVerify(token, sessionKey(secret), { algorithms: ['HS256'] })
   if (payload.typ !== undefined) return null
-  return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null
+  if (typeof payload.sub !== 'string' || payload.sub.length === 0) return null
+  return { accountId: payload.sub, issuedAtMs: typeof payload.iat === 'number' ? payload.iat * 1000 : 0 }
 }
 
 const cookieValue = (request: Request, name: string) => {
@@ -157,15 +159,23 @@ export async function resolveManoramaSession(
     ? bearerValue(request)
     : cookieValue(request, SESSION_COOKIE)
   if (!token) return null
-  let accountId: string | null
+  let claims: { accountId: string; issuedAtMs: number } | null
   try {
-    accountId = await verifySessionToken(token, secret)
+    claims = await verifySessionToken(token, secret)
   } catch {
     return null
   }
-  if (!accountId) return null
-  const user = await getUserByAccountId(accountId, env)
+  if (!claims) return null
+  const user = await getUserByAccountId(claims.accountId, env)
   if (!user) return null
+  // A suspended account loses every live session at once — resolution fails
+  // closed here so no surface has to remember the check.
+  if (user.disabledAt) return null
+  // Re-enable doesn't resurrect tokens from before the suspension: anything
+  // issued in an earlier second than the revocation stays dead. Tokens minted
+  // in the revocation second itself are allowed — a <=1s ambiguity window.
+  if (user.sessionsRevokedAt
+    && Math.floor(claims.issuedAtMs / 1000) < Math.floor(Date.parse(user.sessionsRevokedAt) / 1000)) return null
   const session: ManoramaSession = {
     id: `account:${user.accountId}`,
     accountId: user.accountId,

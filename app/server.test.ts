@@ -8,6 +8,7 @@ import renderer from './routes/_renderer'
 import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
 import indexPage from './routes/index'
+import opmanPage from './routes/opman'
 import { resetUserStore } from './lib/user-repository'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
@@ -211,6 +212,60 @@ describe('the landing page is the sign-in door', () => {
     const response = await page().request('/', authed(), env)
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('/test-owner')
+  })
+})
+
+describe('the operations console at /opman', () => {
+  const opmanEnv = { ...env, MASTER_ACCOUNT_ID: TEST_OWNER.accountId }
+  const page = () => {
+    const app = new Hono()
+    app.use(honoxContext)
+    app.use(renderer)
+    mountRoute(app, '/opman', opmanPage)
+    return app
+  }
+
+  test('anonymous visitors get provider buttons bound to /opman', async () => {
+    const response = await page().request('/opman', undefined, opmanEnv)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('Janitors check-in here.')
+    expect(html).toContain('ops-provider')
+    expect(html).toContain('>Continue with Apple<')
+    expect(html).toContain('>Continue with Dropbox<')
+    expect(html).toContain('>Continue with Google<')
+    expect(html).toContain('href="/auth/apple?next=%2Fopman"')
+    expect(html).toContain('href="/auth/dropbox?next=%2Fopman"')
+    expect(html).toContain('href="/auth/google?next=%2Fopman"')
+    // Apple leads the row — App Review 4.8 ordering, same as every door.
+    expect(html.indexOf('/auth/apple')).toBeLessThan(html.indexOf('/auth/dropbox'))
+    expect(html.indexOf('/auth/dropbox')).toBeLessThan(html.indexOf('/auth/google'))
+    // The brand mark opens .ops-page on both the door and the console, so it
+    // lands at the same pixel either way.
+    expect(html).toContain('class="ops-logo"')
+    expect(html).toContain('manorama-merged-logo.png')
+  })
+
+  test('a signed-in non-master is offered another way to identify', async () => {
+    const other = await seedTestUser({ accountId: 'acct_no_ops', displayName: 'No Ops' })
+    const response = await page().request('/opman', {
+      headers: { Cookie: await sessionCookieFor(other.accountId) },
+    }, opmanEnv)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('does not hold operations access')
+    expect(html).toContain('>Sign in with Dropbox<')
+    expect(html).toContain('href="/auth/dropbox?next=%2Fopman"')
+  })
+
+  test('the configured master reaches the console', async () => {
+    const response = await page().request('/opman', authed(), opmanEnv)
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('manorama housekeeping')
+    expect(html).toContain('ops-users-table')
+    expect(html).toContain('class="ops-logo"')
+    expect(html).toContain('manorama-merged-logo.png')
   })
 })
 
