@@ -21,7 +21,7 @@ export const seedTestUser = async (overrides: Partial<{ accountId: string; displ
   upsertUser({ ...TEST_OWNER, ...overrides })
 
 /** A Cookie header value authenticating the given account. */
-export const sessionCookieFor = async (accountId: string): Promise<string> => {
-  const token = await createSessionToken(accountId, TEST_SESSION_SECRET)
+export const sessionCookieFor = async (accountId: string, issuedAtSeconds?: number): Promise<string> => {
+  const token = await createSessionToken(accountId, TEST_SESSION_SECRET, issuedAtSeconds)
   return `${SESSION_COOKIE}=${token}`
 }

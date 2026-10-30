@@ -20,6 +20,9 @@ export type UserRecord = {
   /** Set when the master suspends sign-in; NULL/absent means active. The rows
    *  stay — disabling is deliberately non-destructive. */
   disabledAt?: string
+  /** Rewritten on every disable/enable flip. Survives re-enable so tokens
+   *  minted before the suspension stay dead instead of resurrecting. */
+  sessionsRevokedAt?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -77,6 +80,9 @@ const rowToUser = (row: Record<string, unknown> | null): UserRecord | null => {
   }
   if (typeof row.disabled_at === 'string' && row.disabled_at.length > 0) {
     user.disabledAt = row.disabled_at
+  }
+  if (typeof row.sessions_revoked_at === 'string' && row.sessions_revoked_at.length > 0) {
+    user.sessionsRevokedAt = row.sessions_revoked_at
   }
   if (typeof row.created_at === 'string') user.createdAt = row.created_at
   if (typeof row.updated_at === 'string') user.updatedAt = row.updated_at
@@ -311,14 +317,15 @@ export const setUserDisabled = async (
   if (!current) return null
   if (d1Configured(env)) {
     await env.DB.prepare(
-      `UPDATE users SET disabled_at = ?, updated_at = datetime('now') WHERE account_id = ?`,
-    ).bind(disabled ? now : null, accountId).run()
+      `UPDATE users SET disabled_at = ?, sessions_revoked_at = ?, updated_at = datetime('now') WHERE account_id = ?`,
+    ).bind(disabled ? now : null, now, accountId).run()
     return getUserByAccountId(accountId, env)
   }
   const user = users.get(accountId)
   if (!user) return null
   if (disabled) user.disabledAt = now
   else delete user.disabledAt
+  user.sessionsRevokedAt = now
   return { ...user }
 }
 

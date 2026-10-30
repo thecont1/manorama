@@ -239,5 +239,19 @@ describe('master operations API', () => {
     expect(enabled.status).toBe(200)
     expect(await enabled.json()).toEqual({ ok: true, accountId: other.accountId, disabled: false })
     expect((await getUserByAccountId(other.accountId))?.disabledAt).toBeUndefined()
+
+    // Re-enable must not resurrect sessions minted before the suspension: a
+    // token stamped ten seconds ago predates the revocation marker, so it is
+    // rejected outright — while a freshly minted cookie resolves as a live
+    // (non-master) session, which on this endpoint means 403 rather than 401.
+    const staleCookie = await sessionCookieFor(other.accountId, Math.floor(Date.now() / 1000) - 10)
+    const resurrected = await api.request('/api/admin/overview', {
+      headers: { Cookie: staleCookie, 'Content-Type': 'application/json' },
+    }, env)
+    expect(resurrected.status).toBe(401)
+    const fresh = await api.request('/api/admin/overview', {
+      headers: { Cookie: await sessionCookieFor(other.accountId), 'Content-Type': 'application/json' },
+    }, env)
+    expect(fresh.status).toBe(403)
   })
 })

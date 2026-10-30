@@ -62,12 +62,13 @@ export const applyDevMigrations = async (
       .split(';')
       .map((part) => part.trim())
       .filter(Boolean)
-    for (const statement of statements) {
-      await db.prepare(statement).run()
-    }
-    await db.prepare(`INSERT INTO ${DEV_MIGRATIONS_TABLE} (name, applied_at) VALUES (?, ?)`)
-      .bind(name, new Date().toISOString())
-      .run()
+    // Each migration lands atomically: a crash between statements can't leave
+    // half-applied DDL unrecorded for the next boot to trip over.
+    await db.batch([
+      ...statements.map((statement) => db.prepare(statement)),
+      db.prepare(`INSERT INTO ${DEV_MIGRATIONS_TABLE} (name, applied_at) VALUES (?, ?)`)
+        .bind(name, new Date().toISOString()),
+    ])
     ran.push(name)
   }
   return ran
