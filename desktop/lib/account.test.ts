@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
-import { fetchAccountGalleries, fetchDeviceGalleries, standaloneDeviceGalleries } from './account'
+import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from './account'
 
 const captureFetch = (handler: (url: string) => Response) => {
   const calls: { url: string; init?: RequestInit }[] = []
@@ -57,6 +57,20 @@ describe('fetchDeviceGalleries', () => {
     const galleries = await fetchDeviceGalleries('https://manorama.xyz', 'token-value', fetcher)
     expect(calls[0]!.url).toBe('https://manorama.xyz/api/device-galleries')
     expect(galleries).toHaveLength(1)
+  })
+})
+
+describe('fetchAccountOwnerSlug', () => {
+  test('GETs /api/account with the bearer token and returns the fresh slug', async () => {
+    const { calls, fetcher } = captureFetch(() => new Response(JSON.stringify({ ownerSlug: 'fresh-name' }), { status: 200 }))
+    await expect(fetchAccountOwnerSlug('https://manorama.xyz', 'token-value', fetcher)).resolves.toBe('fresh-name')
+    expect(calls[0]!.url).toBe('https://manorama.xyz/api/account')
+    expect((calls[0]!.init?.headers as Record<string, string>).Authorization).toBe('Bearer token-value')
+  })
+
+  test('rejects an incomplete account response', async () => {
+    const { fetcher } = captureFetch(() => new Response(JSON.stringify({}), { status: 200 }))
+    await expect(fetchAccountOwnerSlug('https://manorama.xyz', 'token', fetcher)).rejects.toThrow('incomplete')
   })
 })
 

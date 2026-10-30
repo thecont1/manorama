@@ -90,6 +90,7 @@ let files: Record<string, string>
 let dirs: Record<string, DirEntry[]>
 let readFileGate: Gate | null
 let invokeLog: string[]
+let invokeCalls: { command: string; args?: Record<string, unknown> }[]
 
 const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>) => {
   files = {
@@ -105,9 +106,11 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   }
   readFileGate = null
   invokeLog = []
+  invokeCalls = []
   ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args?: Record<string, unknown>) => {
       invokeLog.push(command)
+      invokeCalls.push({ command, args })
       if (command === 'read_private_file') return files[String(args?.name)] ?? null
       if (command === 'write_private_file') {
         files[String(args?.name)] = String(args?.contents)
@@ -387,6 +390,11 @@ describe('desktop catalogue workbench', () => {
       if (path.endsWith('/api/device-galleries')) {
         return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
       }
+      // The stored session says 'thecontrarian'; the account row says the
+      // owner renamed to 'fresh-name'. Open must use the fresh slug.
+      if (path.endsWith('/api/account')) {
+        return new Response(JSON.stringify({ ownerSlug: 'fresh-name' }), { status: 200 })
+      }
       if (path.endsWith('/api/galleries')) {
         return new Response(JSON.stringify({
           galleries: [{
@@ -420,8 +428,42 @@ describe('desktop catalogue workbench', () => {
       // Server-relative previews arrive rewritten against the API origin.
       expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
       // A cloud card opens the public gallery; Details stays local-only.
-      expect(byText(card, 'Open')).toBeDefined()
+      const open = byText(card, 'Open')!
+      expect(open).toBeDefined()
       expect(card.querySelector(`[aria-label="Details kashmir, in winter"]`)).toBeNull()
+
+      open.click()
+      await settle()
+      const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
+      expect(opener?.args?.url).toBe('https://manorama.xyz/fresh-name/kashmir')
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed device feed still shows the cloud galleries', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/device-galleries')) return new Response('down', { status: 500 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://www.dropbox.com/scl/fo/x',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      // The device feed died; the account read survived it.
+      expect(titles).toContain('kashmir, in winter')
+      expect(container.querySelector('.desktop-source-note')?.textContent).toContain('could not be loaded')
     } finally {
       globals.fetch = defaultFetch
     }

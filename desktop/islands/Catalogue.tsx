@@ -23,7 +23,7 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
-import { fetchAccountGalleries, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
+import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -133,6 +133,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [remoteDeviceGalleries, setRemoteDeviceGalleries] = useState<DeviceGallery[]>([])
   const [accountNote, setAccountNote] = useState<string | null>(null)
+  const [ownerSlug, setOwnerSlug] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [syncState, setSyncState] = useState<SyncState>('idle')
@@ -256,27 +257,37 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }, [base, runSync])
 
   // The account's galleries join the list once a session exists — the iOS
-  // Library's two feeds, under the same dedupe rule. A failed fetch only
-  // notes itself; the local catalogue is unaffected either way.
+  // Library's two feeds, under the same dedupe rule. The feeds settle
+  // independently: a device-feed failure never discards a successful gallery
+  // read, and the slug lookup only replaces the sign-in copy stored in
+  // session.json — it goes stale the moment a rename happens elsewhere.
   useEffect(() => {
     if (!session) {
       setAccountGalleries(null)
       setRemoteDeviceGalleries([])
       setAccountNote(null)
+      setOwnerSlug(null)
       return
     }
     const controller = new AbortController()
     void (async () => {
-      try {
-        const [account, devices] = await Promise.all([
-          fetchAccountGalleries(base, session.token, fetch, controller.signal),
-          fetchDeviceGalleries(base, session.token, fetch, controller.signal),
-        ])
-        setAccountGalleries(account)
-        setRemoteDeviceGalleries(standaloneDeviceGalleries(devices, account, catalogueRef.current?.deviceId))
+      const [account, devices, slug] = await Promise.allSettled([
+        fetchAccountGalleries(base, session.token, fetch, controller.signal),
+        fetchDeviceGalleries(base, session.token, fetch, controller.signal),
+        fetchAccountOwnerSlug(base, session.token, fetch, controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      if (account.status === 'fulfilled') setAccountGalleries(account.value)
+      if (devices.status === 'fulfilled') {
+        setRemoteDeviceGalleries(
+          standaloneDeviceGalleries(devices.value, account.status === 'fulfilled' ? account.value : [], catalogueRef.current?.deviceId),
+        )
+      }
+      if (slug.status === 'fulfilled') setOwnerSlug(slug.value)
+      if (account.status === 'rejected' || devices.status === 'rejected') {
+        setAccountNote('Your galleries could not be loaded — this Mac’s catalogue is unaffected.')
+      } else {
         setAccountNote(null)
-      } catch {
-        if (!controller.signal.aborted) setAccountNote('Your galleries could not be loaded — this Mac’s catalogue is unaffected.')
       }
     })()
     return () => controller.abort()
@@ -822,7 +833,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {accountGalleries?.map((gallery) => {
                 const title = gallery.title || gallery.slug
                 const photos = gallery.imageCount === 1 ? 'photo' : 'photos'
-                const galleryUrl = `${base}/${session?.ownerSlug ?? ''}/${gallery.slug}`
+                const galleryUrl = `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
                 return (
                   <article class="admin-gallery-card" key={`account-${gallery.slug}`}>
                     <div class="admin-gallery-card-body">

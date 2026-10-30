@@ -77,6 +77,26 @@ export const fetchDeviceGalleries = async (
   return payload.galleries
 }
 
+/** GET {apiBase}/api/account — the current owner slug, resolved from the
+ *  account row on every call. session.json keeps the slug from sign-in, so a
+ *  rename on the web leaves the stored copy (and every link built from it)
+ *  dead; the fresh read keeps Open pointing at the real address. */
+export const fetchAccountOwnerSlug = async (
+  apiBase: string,
+  token: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account`, {
+    headers: bearer(token),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { ownerSlug?: string; error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || `Account request failed (${response.status})`)
+  if (typeof payload.ownerSlug !== 'string' || !payload.ownerSlug) throw new Error('Account response was incomplete')
+  return payload.ownerSlug
+}
+
 /** A synced record earns its own card only while nothing else already
  *  represents it: this Mac's catalogue renders its own records as local
  *  galleries, and a folder published as a cloud gallery collapses into that
