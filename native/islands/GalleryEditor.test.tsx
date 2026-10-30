@@ -253,14 +253,17 @@ describe('gallery editor', () => {
     await settle()
 
     expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
-    // Top bar: Close on the left, Reorder as the title, Reset on the right.
-    expect(container.querySelector('[aria-label="Close the editor"]')).not.toBeNull()
-    expect(container.textContent).toContain('Reorder')
-    expect([...container.querySelectorAll('.m-topbar button')].some((button) => button.textContent === 'Reset')).toBe(true)
-    // The gallery's own title, item count and the concise hint.
-    expect(container.querySelector('.native-editor-title')?.textContent).toBe('Kashmir')
-    expect(container.querySelector('.native-editor-count')?.textContent).toBe('3 photographs')
-    expect(container.querySelector('.native-editor-hint')?.textContent).toContain('Pick a photograph')
+    // Top bar: Cancel on the left, the gallery name in the title, Save on the right.
+    expect(container.querySelector('.native-editor-cancel')?.textContent).toBe('Cancel')
+    expect(container.querySelector('.m-topbar')?.textContent).toContain('Reorder Kashmir')
+    expect((container.querySelector('.native-editor-save') as HTMLButtonElement).textContent).toBe('Save')
+    // The status line opens with the pick-up hint.
+    expect(container.querySelector('.native-editor-note')?.textContent).toContain('Tap a photograph to pick it up')
+    // The bottom sizer drives the row height.
+    const sizer = container.querySelector('.native-editor-sizer input[type="range"]') as HTMLInputElement
+    expect(sizer.min).toBe('56')
+    expect(sizer.max).toBe('248')
+    expect(sizer.getAttribute('aria-label')).toBe('Photograph size')
     // The matrix, in the stored order, one cell per photograph.
     expect(cellsOf(container)).toHaveLength(3)
     expect(cellSources(container)).toEqual([
@@ -291,8 +294,8 @@ describe('gallery editor', () => {
     // The photograph in hand carries the picker's pink.
     expect(cells[2].className).toContain('is-active')
     expect(cells[2].getAttribute('aria-pressed')).toBe('true')
-    expect(container.querySelector('.native-editor-note')?.textContent).toContain('in hand')
-    expect(container.querySelector('.native-editor-hint')?.textContent).toContain('Tap where it should land')
+    expect(container.querySelector('.native-editor-note')?.textContent).toContain('Picked up')
+    expect(container.querySelector('.native-editor-note')?.textContent).toContain('Tap where it goes.')
 
     cells[0].click()
     await settle()
@@ -303,6 +306,10 @@ describe('gallery editor', () => {
     ])
     expect(container.querySelector('.native-editor-note')?.textContent).toContain('position 1 of 3')
     expect(cellsOf(container).filter((cell) => cell.className.includes('is-active'))).toHaveLength(0)
+    // Only the photograph that was actually moved wears the position badge.
+    const moved = cellsOf(container).filter((cell) => cell.className.includes('is-moved'))
+    expect(moved).toHaveLength(1)
+    expect(moved[0].querySelector('.pos')?.textContent).toBe('1')
     expect((container.querySelector('.native-editor-save') as HTMLButtonElement).disabled).toBe(false)
   })
 
@@ -423,7 +430,7 @@ describe('gallery editor', () => {
     const { container, closed } = mountEditor()
     await settle()
 
-    ;(container.querySelector('[aria-label="Close the editor"]') as HTMLButtonElement).click()
+    ;(container.querySelector('.native-editor-cancel') as HTMLButtonElement).click()
     await settle()
     expect(closed.value).toBe(true)
     expect(confirmDialog(container)).toBeUndefined()
@@ -442,7 +449,7 @@ describe('gallery editor', () => {
     await settle()
     const shuffled = cellSources(container)
 
-    ;(container.querySelector('[aria-label="Close the editor"]') as HTMLButtonElement).click()
+    ;(container.querySelector('.native-editor-cancel') as HTMLButtonElement).click()
     await settle()
     // The editor is still open; the confirmation sits on top with both paths.
     expect(closed.value).toBe(false)
@@ -460,12 +467,14 @@ describe('gallery editor', () => {
     expect(cellSources(container)).toEqual(shuffled)
     expect((container.querySelector('.native-editor-save') as HTMLButtonElement).disabled).toBe(false)
 
-    ;(container.querySelector('[aria-label="Close the editor"]') as HTMLButtonElement).click()
+    ;(container.querySelector('.native-editor-cancel') as HTMLButtonElement).click()
     await settle()
     const discard = [...confirmDialog(container)!.querySelectorAll('button')]
       .find((button) => button.textContent === 'Discard') as HTMLButtonElement
     discard.click()
     await settle()
+    // Discard settles the snap-back beat before the editor actually closes.
+    await new Promise((resolve) => setTimeout(resolve, 280))
     expect(closed.value).toBe(true)
   })
 
@@ -514,6 +523,7 @@ describe('gallery editor', () => {
       .find((button) => button.textContent === 'Discard') as HTMLButtonElement
     discard.click()
     await settle()
+    await new Promise((resolve) => setTimeout(resolve, 280))
     expect(second.closed.value).toBe(true)
     expect(requestReorderClose()).toBe(false)
   })
@@ -560,7 +570,7 @@ describe('gallery editor', () => {
     expect(orderKeys(container)).toEqual(['ref-a', 'ref-c', 'b.jpg'])
   })
 
-  test('reset discards to the saved keys and closes after the settle beat', async () => {
+  test('a dirty Cancel discards to the saved keys and closes after the settle beat', async () => {
     installLocalStorage()
     stubFetch()
     const { container, closed } = mountEditor()
@@ -573,16 +583,18 @@ describe('gallery editor', () => {
     await settle()
     expect(orderKeys(container)).toEqual(['b.jpg', 'ref-c', 'ref-a'])
 
-    const reset = [...container.querySelectorAll('.m-topbar button')]
-      .find((button) => button.textContent === 'Reset') as HTMLButtonElement
-    reset.click()
+    ;(container.querySelector('.native-editor-cancel') as HTMLButtonElement).click()
+    await settle()
+    const discard = [...confirmDialog(container)!.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Discard') as HTMLButtonElement
+    discard.click()
     await settle()
     // The draft is already discarded, the surface is settling, and nothing is
     // interactive until the close lands.
     expect(container.querySelector('.native-editor')?.className).toContain('is-settling')
     expect(orderKeys(container)).toEqual(['ref-a', 'b.jpg', 'ref-c'])
     expect(closed.value).toBe(false)
-    expect((container.querySelector('[aria-label="Close the editor"]') as HTMLButtonElement).disabled).toBe(true)
+    expect((container.querySelector('.native-editor-cancel') as HTMLButtonElement).disabled).toBe(true)
 
     await new Promise((resolve) => setTimeout(resolve, 280))
     expect(closed.value).toBe(true)
@@ -644,7 +656,7 @@ describe('gallery editor', () => {
     fireCell(cells[2], 'dragstart')
     await settle()
     expect(cells[2].className).toContain('is-active')
-    expect(fine.container.querySelector('.native-editor-note')?.textContent).toContain('in hand')
+    expect(fine.container.querySelector('.native-editor-note')?.textContent).toContain('Picked up')
 
     fireCell(cells[0], 'dragover')
     await settle()
