@@ -181,11 +181,11 @@ export default function AdminOps({ ownerName, accountId }: Props) {
                   : user.tier === 'pro'
                     ? <span class="ops-master-label ops-access-visionary">Visionary</span>
                     : <span class="ops-master-label">Free</span>}</td>
-                <td class="ops-actions">{user.isMaster || user.accountId === accountId ? null : <>
+                <td class="ops-actions-cell">{user.isMaster || user.accountId === accountId ? null : <div class="ops-actions">
                   <button type="button" class="ops-action" title={user.tier === 'pro' ? 'Downgrade to Free' : 'Upgrade to Visionary'} aria-label={`${user.tier === 'pro' ? 'Downgrade' : 'Upgrade'} ${user.displayName || user.ownerSlug}`} disabled={busy} onClick={() => void setTier(user, user.tier === 'pro' ? 'free' : 'pro')}>{user.tier === 'pro' ? <IconDown /> : <IconUp />}</button>
                   <button type="button" class={user.disabledAt ? 'ops-action ops-action-enable' : 'ops-action'} title={user.disabledAt ? 'Enable sign-in' : 'Disable sign-in'} aria-label={`${user.disabledAt ? 'Enable' : 'Disable'} ${user.displayName || user.ownerSlug}`} disabled={busy} onClick={() => void setDisabled(user, !user.disabledAt)}>{user.disabledAt ? <IconCheck /> : <IconBan />}</button>
                   <button type="button" class="ops-action ops-action-danger" title="Delete account" aria-label={`Delete ${user.displayName || user.ownerSlug}`} disabled={busy} onClick={() => void removeUser(user)}><IconTrash /></button>
-                </>}</td>
+                </div>}</td>
               </tr>)}
               {!users.length ? <tr><td class="ops-empty" colSpan={8}>No accounts match this filter.</td></tr> : null}
             </tbody>
