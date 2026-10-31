@@ -111,9 +111,8 @@ implementation is still pending.
   out of scope for the owner surface.
 - Any API change. Every verb below already exists over cookie auth.
 - Desktop Catalogue redesign (D10 — separate decision).
-- Inline-editing removal in *behavior*, pending D1 approval — if the owner
-  wants inline editing kept, the card head keeps it and this plan restyles it
-  instead of deleting it.
+- Inline-editing removal in *behavior* — resolved under D1 and shipped in
+  PR #151; the card head carries no editing surface.
 
 ## 4. Current code map (verified)
 
@@ -158,8 +157,9 @@ locked. Caption below when present. No URL row, no icon row, no inline inputs
 
 **Menu sheet** — shared `Sheet`, plain button/link rows per D4 (see the
 shipped-status note above on why `role="menu"` was dropped). Remove gallery
-carries `lib-menu-danger` styling and the same confirm pattern iOS uses —
-the iOS inline confirm was adopted; `window.confirm` is gone.
+carries `lib-menu-danger` styling and, from the card menu, the iOS inline
+confirm pattern; the Details path (`removeGalleryFromDetails`) still uses
+`window.confirm`.
 
 **Retention** — card folds to the sub line; `GalleryDetailsView` renders the
 temporary/expires/upgrade block on web behind the `upgradeHref` prop this
@@ -186,7 +186,7 @@ reviewable; no shared-file conflicts with anything in flight):
 
 - **PR A — the card**: `.lib-card` anatomy on the web list, menu Sheet,
   sub-line metadata, caption, empty state copy, sponsored-frame restyle.
-  Removes: URL row, icon row, retention panel, `editableText` (D1/D2 pending),
+  Removes: URL row, icon row, retention panel, `editableText` (D1/D2, shipped),
   `editable-value`/`is-editing`/`admin-icon-action` styles where unused.
 - **PR B — the chrome**: `m-topbar` + gear, drawer/edge-tab removal, footer
   removal, toast restyle, plan line into Settings confirmation.
@@ -205,8 +205,9 @@ reviewable; no shared-file conflicts with anything in flight):
 
 ## 8. Risks
 
-- **Inline editing removal is the only behavioral regression** in the plan —
-  D1 is owner-gated for exactly this reason.
+- **Inline editing removal was the only behavioral regression** in the plan —
+  D1 was owner-gated for exactly this reason; it resolved for removal and
+  shipped.
 - `admin-gallery-*` classes are shared with the desktop Catalogue — rename or
   retire only after checking `desktop/` and test references; safest is new
   `lib-card` classes on web, leaving `admin-gallery-*` intact for desktop
