@@ -712,33 +712,32 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       )} />
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
+      {/* The wordmark sits at the very top of the page, left edge flush
+          with the Library heading below it — both inset by the same
+          content padding, so the "m" lands exactly over the "L". */}
+      <div class="admin-hero-brand"><img class="landing-brand-mark" src="/manorama-merged-logo.png" alt="manorama" /></div>
       <section class="gallery-list" aria-labelledby="galleries-heading">
-        {/* The wordmark belongs at opening-screen size — too large for the
-            thin bar, so it lands as the hero above the Library heading. */}
-        <div class="admin-hero-brand"><img class="landing-brand-mark" src="/manorama-merged-logo.png" alt="manorama" /></div>
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
-          <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>+ Add</button>
         </div>
+        <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>+ Add Gallery</button>
         <p class="admin-library-sub">{liveGalleries.length === 1 ? '1 gallery' : `${liveGalleries.length} galleries`}{liveGalleries.filter(isLocked).length ? `, ${liveGalleries.filter(isLocked).length} temporary` : ''}.</p>
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
              cards — the same portrait-shaped house slot as native. */
           <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
-            <div class="account-ad-slot">
-              <div class="account-ad-frame">
-                {accountAd.image ? (
-                  <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
-                ) : (
-                  <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
-                )}
-              </div>
-              <div class="account-ad-copy">
-                <span class="account-ad-badge">{accountAd.badge}</span>
-                <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
-                <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
-                {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}
-              </div>
+            <div class="account-ad-copy">
+              <span class="account-ad-badge">{accountAd.badge}</span>
+              <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
+              <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
+              {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}
+            </div>
+            <div class="account-ad-media">
+              {accountAd.image ? (
+                <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+              ) : (
+                <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
+              )}
             </div>
           </aside>
         ) : null}
