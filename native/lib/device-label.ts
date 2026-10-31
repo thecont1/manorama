@@ -17,5 +17,9 @@ export const nativeDeviceKind = (
   return 'iphone'
 }
 
-export const nativeDeviceLabel = (kind = nativeDeviceKind()): string =>
-  kind === 'ipad' ? 'this iPad' : kind === 'iphone' ? 'this iPhone' : 'this device'
+const DEVICE_NAME: Record<NativeDeviceKind, string> = { iphone: 'iPhone', ipad: 'iPad', device: 'device' }
+
+export const nativeDeviceLabel = (kind = nativeDeviceKind()): string => `this ${DEVICE_NAME[kind]}`
+
+/** Sentence-start form for headings and row labels: "This iPad". */
+export const nativeDeviceTitle = (kind = nativeDeviceKind()): string => `This ${DEVICE_NAME[kind]}`

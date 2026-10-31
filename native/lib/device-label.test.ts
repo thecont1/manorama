@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { nativeDeviceKind, nativeDeviceLabel } from './device-label'
+import { nativeDeviceKind, nativeDeviceLabel, nativeDeviceTitle } from './device-label'
 
 describe('native device wording', () => {
   test('uses iPhone, iPad and generic device labels without changing behavior', () => {
     expect(nativeDeviceLabel(nativeDeviceKind('ios', { userAgent: 'iPhone' }))).toBe('this iPhone')
     expect(nativeDeviceLabel(nativeDeviceKind('ios', { userAgent: 'iPad' }))).toBe('this iPad')
     expect(nativeDeviceLabel(nativeDeviceKind('android', {}))).toBe('this device')
+  })
+
+  test('sentence-start titles capitalise the same device name', () => {
+    expect(nativeDeviceTitle(nativeDeviceKind('ios', { userAgent: 'iPhone' }))).toBe('This iPhone')
+    expect(nativeDeviceTitle(nativeDeviceKind('ios', { userAgent: 'iPad' }))).toBe('This iPad')
+    expect(nativeDeviceTitle(nativeDeviceKind('android', {}))).toBe('This device')
   })
 
   test('recognises iPadOS desktop mode and does not call a desktop Mac an iPad', () => {

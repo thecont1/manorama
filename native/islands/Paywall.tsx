@@ -1,6 +1,7 @@
 import { useState } from 'hono/jsx'
 import { Browser } from '@capacitor/browser'
 import { RevenueCatBilling } from '../lib/billing'
+import { nativeDeviceLabel } from '../lib/device-label'
 import { Button } from '../../app/components/ui/Button'
 import { ActionRow } from '../../app/components/ui/ActionRow'
 import { Sheet } from '../../app/components/ui/Sheet'
@@ -83,7 +84,7 @@ export default function Paywall({ billing, onClose, onOpenPrivacy }: Props) {
           {isPro ? <p class="native-visionary-note" role="status">Your Visionary subscription is active.</p> : null}
           <dl class="native-visionary-kv">
             <dt>Galleries kept</dt><dd>3 → 99</dd>
-            <dt>Room on this iPhone</dt><dd>256 MB → larger</dd>
+            <dt>Room on {nativeDeviceLabel()}</dt><dd>256 MB → larger</dd>
             <dt>Galleries over the limit</dt><dd>Kept, not for 30 days</dd>
           </dl>
           <p class="native-visionary-note">An annual subscription, billed by the App Store. Your galleries and photographs are the same on either plan.</p>
