@@ -26,6 +26,10 @@ type Props = {
   tier?: 'free' | 'pro'
   accountId?: string
   upgradeUrl?: string
+  /** `?details=<slug>` carried in by the URL — resolving it at first render
+   *  lets SSR paint the Details surface instead of the Library flashing by
+   *  before the mount effect swaps it in. */
+  initialDetails?: string
 }
 type ReorderableGalleryImage = GallerySummary['images'][number]
 type AccountIdentity = AccountIdentityWeb
@@ -92,7 +96,7 @@ const sourceLabelFor = (url?: string): string => {
 }
 
 /** Renders the owner's dashboard for importing, editing, and managing galleries. */
-export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free', accountId, upgradeUrl }: Props) {
+export default function Admin({ galleries: initialGalleries, owner, ownerName, publicHost, tier = 'free', accountId, upgradeUrl, initialDetails }: Props) {
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [sourceUrl, setSourceUrl] = useState('')
   const [addName, setAddName] = useState('')
@@ -138,7 +142,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // Actions taken inside Details (refresh, remove, save) announce in the
   // Details surface itself; the library toast lives behind it.
   const [detailsNote, setDetailsNote] = useState<string | null>(null)
-  const [detailsSlug, setDetailsSlug] = useState<string | null>(null)
+  const [detailsSlug, setDetailsSlug] = useState<string | null>(() =>
+    initialDetails && initialGalleries.some((gallery) => gallery.slug === initialDetails) ? initialDetails : null)
   const [editField, setEditField] = useState<GalleryEditField | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editNote, setEditNote] = useState<string | null>(null)
@@ -713,13 +718,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         <div class="admin-hero-brand"><img class="landing-brand-mark" src="/manorama-merged-logo.png" alt="manorama" /></div>
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
-          <button type="button" class="admin-button admin-button--solid" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add</button>
+          <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>+ Add</button>
         </div>
+        <p class="admin-library-sub">{liveGalleries.length === 1 ? '1 gallery' : `${liveGalleries.length} galleries`}{liveGalleries.filter(isLocked).length ? `, ${liveGalleries.filter(isLocked).length} temporary` : ''}.</p>
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
              cards — the same portrait-shaped house slot as native. */
           <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
-            <span class="account-ad-badge">{accountAd.badge}</span>
             <div class="account-ad-slot">
               <div class="account-ad-frame">
                 {accountAd.image ? (
@@ -729,6 +734,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 )}
               </div>
               <div class="account-ad-copy">
+                <span class="account-ad-badge">{accountAd.badge}</span>
                 <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
                 <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
                 {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}

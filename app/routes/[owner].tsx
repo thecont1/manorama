@@ -45,6 +45,7 @@ export default createRoute(async (c) => {
         tier={user.tier}
         accountId={user.accountId}
         upgradeUrl={upgradeUrl}
+        initialDetails={c.req.query('details')}
       />
       {/* Vendo is disabled platform-wide for now: no surface mounts here
           and no agent API is routed. Re-enable by reverting this change —

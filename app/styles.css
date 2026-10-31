@@ -1699,13 +1699,15 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-overview .gallery-import { min-width: 0; padding: 0; border-top: 0; }
 .admin-overview .gallery-selector-heading { margin-bottom: 22px; }
 .admin-overview .admin-retention-policy { margin: 0 0 22px; }
-.admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 20px; font-weight: 500; letter-spacing: -.025em; }
+.admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
 /* The Library hero reuses .landing-brand-mark so the wordmark tracks the
    opening screen's size at every viewport. */
-.admin-hero-brand { display: grid; place-items: center; margin: 8px 0 32px; }
+.admin-hero-brand { display: grid; place-items: center; margin: 0 0 24px; }
 .admin-hero-brand .landing-brand-mark { max-width: 100%; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-.admin-library-heading .admin-galleries-heading { margin-bottom: 24px; }
+.admin-library-heading .admin-galleries-heading { margin-bottom: 4px; }
+.admin-library-sub { margin: 0 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
+.admin-add-pill { border-radius: 999px; padding: 9px 18px; }
 
 /* Account surface sponsored slot: one labelled panel under the Library
    heading, above every gallery — its own surface shaped for a vertical
@@ -1721,6 +1723,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   background: rgba(var(--ink), .06);
 }
 .account-ad-badge {
+  margin-bottom: 6px;
   color: rgba(var(--ink), .62);
   font-family: 'DM Mono', ui-monospace, monospace;
   font-size: 11px;
@@ -1732,8 +1735,8 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 /* The plate is a vertical photograph shown fit to height; until a rented
    creative supplies art the placeholder keeps the same 2:3 frame. */
 .account-ad-frame {
-  width: 112px;
-  height: 168px;
+  width: 144px;
+  height: 216px;
   flex: none;
   display: grid;
   place-items: center;
