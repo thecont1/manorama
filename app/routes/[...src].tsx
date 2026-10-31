@@ -151,16 +151,7 @@ export default createRoute(async (c, next) => {
             </div>
           )}
         </div>
-        {/* `async` only in create mode, where earlier eval starts the POST
-            sooner. In sign-in mode the script must run before
-            DOMContentLoaded — it rewrites the sign-in hrefs to carry
-            `?next=${location.href}` (the fragment key never reaches the
-            server), and a click or read that lands first loses it. */}
-        {session ? (
-          <script type="module" async src={quickaddScriptSrc} />
-        ) : (
-          <script type="module" src={quickaddScriptSrc} />
-        )}
+        <script type="module" async src={quickaddScriptSrc} />
       </main>,
     { title: 'manorama', description: 'Turn a shared album link into a Manorama gallery.' },
   )

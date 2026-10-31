@@ -79,6 +79,10 @@ const externalAnchor = (url: string) => ({
   },
 })
 
+type CardMenu =
+  | { kind: 'account'; gallery: GallerySummary }
+  | { kind: 'local'; record: LocalGalleryRecord }
+
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
@@ -146,6 +150,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [shareUploading, setShareUploading] = useState(false)
   const [shareStep, setShareStep] = useState<ShareStep>('choose')
   const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
+  const [cardMenu, setCardMenu] = useState<CardMenu | null>(null)
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
   // The account pane opens closed on every load and is never encoded in the URL.
   const [menuOpen, setMenuOpen] = useState(false)
@@ -416,6 +421,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setCatalogue(next)
     if (!updated.items.length) setNotice('That source has no photos Manorama can display')
     void runSync(next, session)
+  }
+
+  /** Card-level rescan has no note surface of its own — a success repaints
+   *  the rail and count (and rescan itself reports an empty source); only a
+   *  thrown read needs the section's status line. */
+  const rescanFromCard = (record: LocalGalleryRecord) => {
+    rescan(record).catch((reason: unknown) =>
+      setNotice(reason instanceof Error ? reason.message : 'That source could not be read again'))
   }
 
   /** Forget the share sheet, its step, and any in-flight upload together. */
@@ -713,6 +726,16 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const helloLine = `Hello, ${session?.ownerSlug || 'there'}. Welcome to manorama.xyz.`
   const planLine = `${planSentence ? `${planSentence} ` : ''}${galleries.length} ${galleryWord} on this Mac.`
 
+  const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
+  const menuAnchor = (url: string) => ({
+    ...externalAnchor(url),
+    onClick: (event: MouseEvent) => {
+      event.preventDefault()
+      setCardMenu(null)
+      openExternal(url)
+    },
+  })
+
   return (
     // `data-admin-ready` is the shell's own "catalogue restored" signal: the
     // island renders nothing above until the private files have been read, so
@@ -834,31 +857,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {accountNote ? <p class="desktop-source-note" role="status">{accountNote}</p> : null}
           {slugNote ? <p class="desktop-source-note" role="status">{slugNote}</p> : null}
           {galleries.length || accountGalleries?.length || remoteDeviceGalleries.length ? (
-            <div class="admin-gallery-list">
+            <ul class="lib-list">
               {accountGalleries?.map((gallery) => {
                 const title = gallery.title || gallery.slug
-                const photos = gallery.imageCount === 1 ? 'photo' : 'photos'
-                const galleryUrl = `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
-                return (
-                  <article class="admin-gallery-card" key={`account-${gallery.slug}`}>
-                    <div class="admin-gallery-card-body">
-                      <div class="admin-gallery-title-row">
-                        <span class="admin-gallery-title">{title}</span>
-                        <span class="admin-gallery-count" aria-label={`${gallery.imageCount} ${photos}`}>({gallery.imageCount} {photos})</span>
-                      </div>
-                      <p class="admin-gallery-caption">{sourceLabelFor(gallery.sourceUrl)} · cloud gallery</p>
-                    </div>
-                    {gallery.images.length ? (
-                      <div class="admin-gallery-strip-frame" aria-label={`${title} photographs`}>
-                        <div class="admin-gallery-strip" role="list">
-                          {gallery.images.map((image, index) => (
-                            <button
-                              type="button"
-                              role="listitem"
-                              key={image.id}
-                              class="admin-gallery-strip-item desktop-strip-item"
+                const galleryUrl = accountGalleryUrl(gallery)
+                return <li key={`account-${gallery.slug}`}><article class="lib-card">
+                  {gallery.images.length ? (
+                    <div class="admin-gallery-strip-frame">
+                      <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
+                        {gallery.images.map((image, index) => (
+                          <li class="admin-gallery-strip-item" key={image.id}>
+                            <a
+                              {...externalAnchor(galleryUrl)}
+                              draggable={false}
                               aria-label={`Open ${title} — photograph ${index + 1} of ${gallery.images.length}`}
-                              onClick={() => openExternal(galleryUrl)}
                             >
                               <img
                                 src={previewSrcFor(image)}
@@ -867,57 +879,46 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                 draggable={false}
                                 onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')}
                               />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    <div class="gallery-card-actions">
-                      <button type="button" class="admin-button" aria-label={`Open ${title}`} onClick={() => openExternal(galleryUrl)}>Open</button>
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                  </article>
-                )
+                  ) : null}
+                  <div class="lib-card-head">
+                    <a class="lib-card-title" {...externalAnchor(galleryUrl)} draggable={false}>{title}</a>
+                    <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+                  </div>
+                  <p class="lib-card-sub">
+                    {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} · {sourceLabelFor(gallery.sourceUrl)} · cloud gallery
+                  </p>
+                </article></li>
               })}
-              {remoteDeviceGalleries.map((gallery) => {
-                const photos = gallery.itemCount === 1 ? 'photo' : 'photos'
-                return (
-                  <article class="admin-gallery-card" key={`device-${gallery.id}`}>
-                    <div class="admin-gallery-card-body">
-                      <div class="admin-gallery-title-row">
-                        <span class="admin-gallery-title">{gallery.title}</span>
-                        <span class="admin-gallery-count" aria-label={`${gallery.itemCount} ${photos}`}>({gallery.itemCount} {photos})</span>
-                      </div>
-                      <p class="admin-gallery-caption">{gallery.deviceLabel} · synced — open it on that device</p>
-                    </div>
-                  </article>
-                )
-              })}
+              {remoteDeviceGalleries.map((gallery) => (
+                <li key={`device-${gallery.id}`}><article class="lib-card">
+                  {/* Nothing on this Mac opens a remote copy — the card stays
+                      informational: no rail, no menu, no title action. */}
+                  <div class="lib-card-head">
+                    <span class="lib-card-title">{gallery.title}</span>
+                  </div>
+                  <p class="lib-card-sub">
+                    {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
+                  </p>
+                </article></li>
+              ))}
               {galleries.map((record) => {
                 const state = availability[record.id] ?? 'available'
                 const unavailable = state === 'unavailable'
-                const photos = record.itemCount === 1 ? 'photo' : 'photos'
-                return (
-                  <article class="admin-gallery-card" key={record.id} data-gallery-card={record.id} data-availability={state}>
-                    <div class="admin-gallery-card-body">
-                      <div class="admin-gallery-title-row">
-                        <span class="admin-gallery-title">{record.title}</span>
-                        <span class="admin-gallery-count" aria-label={`${record.itemCount} ${photos}`}>({record.itemCount} {photos})</span>
-                      </div>
-                      <p class="admin-gallery-caption">{sourceLabel(record)}</p>
-                      {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
-                    </div>
-                    {/* One gapless row of aspect-true originals, hung exactly as
-                        the web editor rail and the native picker hang them: one
-                        height, width from the source, zero gaps. */}
-                    <div class="admin-gallery-strip-frame" aria-label={`${record.title} photographs`}>
-                      <div class="admin-gallery-strip" role="list">
-                        {record.items.map((item, index) => (
+                return <li key={record.id}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
+                  {/* One gapless row of aspect-true originals, hung exactly as
+                      the web editor rail and the native picker hang them: one
+                      height, width from the source, zero gaps. */}
+                  <div class="admin-gallery-strip-frame">
+                    <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
+                      {record.items.map((item, index) => (
+                        <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
                           <button
                             type="button"
-                            role="listitem"
-                            key={item.id}
-                            class="admin-gallery-strip-item desktop-strip-item"
-                            data-image-id={item.id}
                             disabled={unavailable}
                             aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
                             onClick={() => setViewerState({ galleryId: record.id, index })}
@@ -934,22 +935,50 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                               }}
                             />
                           </button>
-                        ))}
-                        {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
-                      </div>
-                    </div>
-                    <div class="gallery-card-actions">
-                      <button type="button" class="admin-button" aria-label={`Details ${record.title}`} onClick={() => openDetails(record)}>Details</button>
-                    </div>
-                  </article>
-                )
+                        </li>
+                      ))}
+                    </ul>
+                    {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
+                  </div>
+                  <div class="lib-card-head">
+                    {/* Title is the primary action like everywhere else: the
+                        gallery when it can open, Details — where the fix lives —
+                        when the source is gone. */}
+                    <button
+                      type="button"
+                      class="lib-card-title"
+                      onClick={() => unavailable ? openDetails(record) : setViewerState({ galleryId: record.id, index: 0 })}
+                    >{record.title}</button>
+                    <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+                  </div>
+                  <p class="lib-card-sub">
+                    {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+                  </p>
+                  {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+                </article></li>
               })}
-            </div>
+            </ul>
           ) : (
             <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
           )}
         </section>
       </div>
+
+      {cardMenu ? (
+        <Sheet open onClose={() => setCardMenu(null)} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}>
+          {/* Native buttons and links, not menu/menuitem roles: there is no
+              arrow-key roving focus here, so the menu role would overpromise. */}
+          <div class="lib-menu">
+            {cardMenu.kind === 'account' ? (<>
+              <a {...menuAnchor(accountGalleryUrl(cardMenu.gallery))}>Open</a>
+              {cardMenu.gallery.sourceUrl ? <a {...menuAnchor(cardMenu.gallery.sourceUrl)}>Open source</a> : null}
+            </>) : (<>
+              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
+              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Read the folder again</button>
+            </>)}
+          </div>
+        </Sheet>
+      ) : null}
     </main>
   )
 }

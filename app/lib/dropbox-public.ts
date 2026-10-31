@@ -56,40 +56,11 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
   return response.json() as Promise<T>
 }
 
-/** Retry-After is delay-seconds or an HTTP-date; both land as ms from now.
- *  Missing or unparsable headers mean the caller falls back to jitter. */
-const retryAfterMs = (headers: Headers) => {
-  const value = headers.get('Retry-After')?.trim()
-  if (!value) return null
-  if (/^\d+$/.test(value)) return parseInt(value, 10) * 1000
-  const at = Date.parse(value)
-  return Number.isNaN(at) ? null : Math.max(0, at - Date.now())
-}
-
-/** A single retry may wait this long before the limiter's answer is the
- *  honest one — a burst asking for minutes of backoff is surfaced, not held. */
-const MAX_RETRY_WAIT_MS = 30_000
-
 const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit) => {
-  const once = () => fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
+  const response = await fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
     headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg), ...headers },
   })
-  let response = await once()
-  // A gallery open bursts dozens of content calls — Dropbox answers the
-  // stampede with 429 or a transient 5xx, so exactly one retry waits out
-  // Retry-After (or a short jitter) rather than dropping the photograph. A
-  // requested wait beyond the proxy's latency budget is not retried at
-  // all — the limiter's answer surfaces instead of stalling the request.
-  if (!response.ok && (response.status === 429 || response.status >= 500)) {
-    const requested = retryAfterMs(response.headers)
-    // Over the budget the limiter's answer is the honest one — it falls
-    // through to the throw below instead of stalling the request on a wait.
-    if (requested === null || requested <= MAX_RETRY_WAIT_MS) {
-      await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
-      response = await once()
-    }
-  }
   // Dropbox reports a missing path inside a valid shared folder as 409 —
   // for the proxy that is a confirmed miss, not a conflict.
   if (!response.ok) throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status})`, response.status === 409 ? 404 : response.status)

@@ -13,9 +13,9 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     // @contentauth/c2pa-web and heic2any spawn Workers; heic2any's is built
     // from a blob: URL.
     "worker-src 'self' blob:",
-    // style={} attributes; all faces are bundled locally, no remote font host.
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' data:",
+    // style={} attributes plus the Google Fonts @import in app/styles.css.
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
     // Dev adds ws:/wss: for Vite HMR.

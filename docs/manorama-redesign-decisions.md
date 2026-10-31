@@ -67,7 +67,7 @@ From the True-black flat app style (taste-skill, seed 1740959148), with manorama
 - **Ink** `#f3f0e8` (brand cream). Secondary `#b8b4ab`, meta `#98948c`. Every text tier passes 4.5:1 on the surface it sits on.
 - **Primary action** is made primary by inversion: a cream pill with black text. One per screen.
 - **One data hue**, `#fc0fc0` (the existing selector pink). It is used only on progress (saving to the iPhone, plan usage, storage), the picked-up photograph in Reorder, and moved positions. It never goes on buttons, tabs or navigation.
-- **Type:** Bricolage Grotesque only, already in `public/fonts`. Titles 28/700, sections 17/650, body 16, meta 13. Tabular figures everywhere. DM Mono, Playfair and Great Vibes go. *(31 Oct 2026: superseded in part — the shipped surfaces kept all three. DM Mono remains the metadata voice across app/native/desktop, Playfair serves the dictionary and privacy editorial copy, and Great Vibes stays bundled for the parked Ask-Manu launcher. All are now local files in `public/fonts`; no remote font request remains.)*
+- **Type:** Bricolage Grotesque only, already in `public/fonts`. Titles 28/700, sections 17/650, body 16, meta 13. Tabular figures everywhere. DM Mono, Playfair and Great Vibes go.
 - **Shapes:** buttons and segmented controls are full pills. Panels use a 14px radius, sheets 22px. Photographs keep square corners, are never cropped in the viewer and never upscaled.
 - **Touch:** every target is at least 44px.
 - **Motion:** feedback only, meaning press, sheet rise and chrome fade. No entrances. Honours `prefers-reduced-motion`.

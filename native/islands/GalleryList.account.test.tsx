@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Capacitor } from '@capacitor/core'
 import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
@@ -42,13 +41,8 @@ const settle = async () => {
 }
 
 let dom: Window
-let previousGetPlatform: typeof Capacitor.getPlatform
 beforeAll(() => {
   dom = new Window({ width: 375, height: 812, url: 'http://localhost/' })
-  // The suite's wording assertions run under happy-dom, where Capacitor
-  // reports 'web' — pin 'ios' so device labels resolve to "this iPhone".
-  previousGetPlatform = Capacitor.getPlatform
-  ;(Capacitor as unknown as Record<string, unknown>).getPlatform = () => 'ios'
   previousWindow = globals.window
   previousDocument = globals.document
   previousGetComputedStyle = globals.getComputedStyle
@@ -76,7 +70,6 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  ;(Capacitor as unknown as Record<string, unknown>).getPlatform = previousGetPlatform
   globals.window = previousWindow
   globals.document = previousDocument
   globals.getComputedStyle = previousGetComputedStyle

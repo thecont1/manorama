@@ -51,7 +51,7 @@ const openWebSettings = async (page: Surface) => {
     await expect(page.locator('.web-settings')).toBeVisible()
     return
   }
-  // The account drawer is gone — the top bar's gear opens Settings directly.
+  await openPane(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.locator('.web-settings')).toBeVisible()
 }

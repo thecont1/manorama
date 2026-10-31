@@ -37,6 +37,15 @@
   pointer-events: auto;
 }
 
+.native-global-kicker {
+  margin: 0 0 4px;
+  color: rgba(var(--ink), .62);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
 .native-global-header h1 {
   margin: 0;
   font-size: 20px;
@@ -130,6 +139,13 @@
   width: 100%;
 }
 
+.native-global-gallery-meta {
+  color: rgba(var(--ink), .55);
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .native-global-grid {
   display: flex;
   flex-direction: row;
@@ -180,4 +196,10 @@
   outline: 3px solid #fc0fc0;
   outline-offset: -3px;
   box-shadow: 0 0 0 1px #fc0fc0;
+}
+
+.native-global-count {
+  padding-top: 0;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 11px;
 }

@@ -138,29 +138,22 @@ body.manorama-desktop {
 .desktop-badge-unavailable { margin: 10px 0 0; color: rgba(240, 188, 92, .88); font-size: 12px; }
 .desktop-empty { margin: 0; color: rgba(var(--ink), .7); font-size: 13px; }
 
-/* The rail is a row of buttons, not the web editor's draggable figures: same
-   geometry, but a click opens that photograph in the shared viewer. */
-.desktop-catalogue .admin-gallery-strip-item {
-  display: block;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: zoom-in;
-}
-.desktop-catalogue .admin-gallery-strip-item:disabled { cursor: default; opacity: .45; }
-/* The first frame is the gallery's face, so it carries the shocking pink the
-   picker gives the photograph in hand (native/styles.css, same rule). */
-.desktop-catalogue .admin-gallery-strip-item.is-active {
-  z-index: 1;
-  outline: 3px solid #fc0fc0;
-  outline-offset: -3px;
-}
-.desktop-catalogue .admin-gallery-strip-item:focus-visible {
+/* The rail is a row of list items wrapping one control each — a button that
+   opens the shared viewer on local records, an external anchor on cloud
+   galleries — not the web editor's draggable figures. Same geometry either
+   way. */
+.desktop-catalogue .admin-gallery-strip-item > button { cursor: zoom-in; }
+.desktop-catalogue .admin-gallery-strip-item > button:disabled { cursor: default; opacity: .45; }
+.desktop-catalogue .admin-gallery-strip-item > :is(a, button):focus-visible {
   z-index: 2;
   outline: 3px solid rgb(var(--ink));
   outline-offset: -3px;
   box-shadow: none;
 }
+
+/* A remote-device card has no rail, so its head is the first thing in the
+   card — no rail gap above it. */
+.desktop-catalogue .lib-card > .lib-card-head:first-child { margin-top: 0; }
 
 /* The share sheet is a card-level panel: it spans the card's grid like the
    rail above it. */
@@ -344,3 +337,7 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
    split lands right of centre, the way the catalogue shipped; the shared
    sheet's symmetric `padding: 0` drops that reservation. */
 .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
+
+/* Both brand marks live inside the desktop page — the shared light rule
+   names only the web top bar's logo. */
+html.light .desktop-catalogue :is(.admin-brand-logo, .admin-topbar-logo) { filter: brightness(0); }

@@ -31,10 +31,6 @@ export default function GalleryShell({ settings, status, viewerRole, libraryHref
   return (
     <main class="gallery-shell" data-viewer-role={viewerRole} data-library-href={libraryHref}>
       <h1 class="sr-only" dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
-      {/* Parses before the curtain so a tap before island hydration still
-          dismisses — the replay in curtain-boot.js re-taps until the island's
-          own listeners take over. */}
-      <script src="/curtain-boot.js"></script>
       <section
         class="curtain"
         data-curtain

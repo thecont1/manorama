@@ -18,7 +18,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
     await expect.poll(() => page.locator('.lib-th img').first().evaluate((node) => (node as HTMLImageElement).complete && (node as HTMLImageElement).naturalWidth > 0), { timeout: 15000 }).toBe(true)
     // A gallery card reads top-down: the rail of every photograph, then the
-    // title row with its ··· menu, then metadata and any caption.
+    // title row with its ··· menu, then metadata, caption and address.
     const cards = page.locator('.lib-card')
     const cardCount = await cards.count()
     expect(cardCount).toBeGreaterThan(0)
@@ -28,13 +28,13 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       const rail = await box('.lib-rail')
       const head = await box('.lib-card-head')
       const sub = await box('.lib-card-sub')
+      const link = await box('.native-gallery-link')
       expect(rail.y + rail.height, `card ${index} keeps its rail above the title`).toBeLessThanOrEqual(head.y + 4)
       expect(head.y + head.height, `card ${index} keeps its metadata under the title`).toBeLessThanOrEqual(sub.y + 4)
-      // The rail bleeds past the card to the shell edge (margin-inline:
-      // -24px): it miniaturises the viewer, so it runs to the screen.
+      expect(sub.y + sub.height, `card ${index} puts its address under the metadata`).toBeLessThanOrEqual(link.y + 4)
+      // The rail spans the card and carries a cell per photograph.
       const cardBox = (await card.boundingBox())!
-      expect(Math.abs(cardBox.x - rail.x - 24), `card ${index} bleeds its rail left`).toBeLessThanOrEqual(4)
-      expect(Math.abs(rail.x + rail.width - cardBox.x - cardBox.width - 24), `card ${index} bleeds its rail right`).toBeLessThanOrEqual(4)
+      expect(Math.abs(rail.width - cardBox.width), `card ${index} spans its rail across the card`).toBeLessThanOrEqual(8)
       expect(await card.locator('.lib-th').count(), `card ${index} carries at least one rail cell`).toBeGreaterThan(0)
       // The title and its ··· affordance share the head row.
       const title = await box('.lib-card-title')
@@ -51,9 +51,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
 
     // Add is a deliberate, keyboard-safe sheet with one pinned CTA.
     await page.getByRole('button', { name: 'Add', exact: true }).click()
-    const addSheet = page.getByRole('dialog', { name: 'Add a gallery' })
+    const addSheet = page.getByRole('dialog', { name: 'Add gallery' })
     await expect(addSheet).toBeVisible()
-    await expect(addSheet.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA')).toBeVisible()
+    await expect(addSheet.getByLabel('Public Dropbox, Google Drive, iCloud, or MEGA link')).toBeVisible()
     await expect(addSheet.getByRole('button', { name: 'Paste', exact: true })).toBeVisible()
     await expect(addSheet.getByLabel('Name (optional)')).toBeVisible()
     await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add gallery', exact: true })).toBeInViewport()
@@ -81,8 +81,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const libraryDetails = page.locator('[data-screen="details"]')
     await expect(libraryDetails).toBeVisible()
     await expect(libraryDetails.locator('.m-actionrow').filter({ hasText: 'Caption' })).toBeVisible()
-    // The address stays readable here; editing it lives in Settings.
-    await expect(libraryDetails.locator('.d-addr')).toBeVisible()
+    await expect(libraryDetails.locator('.m-actionrow-label').getByText('Address', { exact: true })).toBeVisible()
     const detailBounds = await libraryDetails.locator('.m-actionrow, .m-panel-note').evaluateAll((nodes) =>
       nodes.map((node) => ({ className: node.className, left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right, viewport: window.innerWidth })))
     const detailOverflow = detailBounds.filter((node) => node.right > node.viewport + 1).length
@@ -138,15 +137,10 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     }
     await scroller.evaluate((node) => { node.scrollTop = 0 })
     await expect(cells.first()).toBeVisible()
-    // The mounted window re-mounts asynchronously after the jump — wait for
-    // the original top window to be back in place or `nth(cellCount - 1)`
-    // can target a cell that has not mounted yet.
-    await expect.poll(() => cells.count()).toBeGreaterThanOrEqual(cellCount)
-    await expect(cells.first()).toHaveAttribute('data-order-key', orderBefore[0]!)
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-editor.png`, fullPage: false })
     await cells.nth(cellCount - 1).click()
     await expect(cells.nth(cellCount - 1)).toHaveClass(/is-active/)
-    await expect(editor.locator('.native-editor-note')).toContainText('Picked up')
+    await expect(editor.locator('.native-editor-note')).toContainText('in hand')
     await editor.locator('[data-editor-scroll]').evaluate((node) => { node.scrollTop = 0 })
     const originalFirst = editor.locator(`[data-order-key="${orderBefore[0]}"]`)
     await expect(originalFirst).toBeVisible()
@@ -165,30 +159,61 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // the complete saved sequence, not just its membership.
     const heldKey = orderBefore[cellCount - 1]
     expect(lastWrite?.body.order).toEqual([heldKey, ...orderAll.filter((key) => key !== heldKey)])
-    await editor.locator('.native-editor-cancel').click()
+    await editor.locator('[aria-label="Close the editor"]').click()
     await expect(editor).toHaveCount(0)
 
-    // Account controls live in Settings, opened from the top bar — the
-    // Library page itself is the account surface now.
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await menu.click()
+    const account = page.getByRole('dialog', { name: 'Account', exact: true })
+    if (viewport.width < 820) {
+      await expect.poll(async () => (await account.boundingBox())?.y ?? -999).toBeGreaterThanOrEqual(0)
+      const bounds = await account.boundingBox()
+      expect(bounds!.x).toBe(0)
+      expect(bounds!.width).toBe(viewport.width)
+      expect(bounds!.height).toBe(viewport.height)
+    }
+    // The menu's brand is the page's brand: same place, same size, same
+    // measure for the tagline, so the menu reads as the page unfolding.
+    const pageMark = (await page.locator('[aria-label="Account overview"] .landing-brand-mark').boundingBox())!
+    const menuMark = (await account.locator('.native-drawer-brand .landing-brand-mark').boundingBox())!
+    // A phone shows the sheet edge to edge, so the wordmark lands on the same
+    // pixel; on a wide screen the page's brand sits in its own column while the
+    // sheet runs full width, so only its size has to match there.
+    if (viewport.width < 820) expect(Math.abs(menuMark.x - pageMark.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(menuMark.width - pageMark.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(menuMark.height - pageMark.height)).toBeLessThanOrEqual(1)
+    // The tagline is set in the page's own type on both surfaces; only a
+    // phone-wide sheet reproduces the page's measure exactly.
+    const introType = (locator: typeof page.locator extends never ? never : ReturnType<typeof page.locator>) => locator.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return `${style.fontSize}/${style.lineHeight}/${style.fontFamily.split(',')[0]}`
+    })
+    const pageIntroType = await introType(page.locator('[aria-label="Account overview"] .landing-brand-intro'))
+    const menuIntroType = await introType(account.locator('.native-drawer-brand .landing-brand-intro'))
+    expect(menuIntroType).toBe(pageIntroType)
+    if (viewport.width < 820) {
+      const pageIntro = await page.locator('[aria-label="Account overview"] .landing-brand-intro').evaluate((node) => Math.round(node.getBoundingClientRect().height))
+      const menuIntro = await account.locator('.native-drawer-brand .landing-brand-intro').evaluate((node) => Math.round(node.getBoundingClientRect().height))
+      expect(menuIntro).toBe(pageIntro)
+    }
+    await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
+    await account.getByRole('button', { name: 'Settings', exact: true }).click()
     const settings = page.locator('.native-settings')
     await expect(settings).toBeVisible()
-    await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-account.png`, fullPage: false })
-    await expect(settings.getByRole('radiogroup', { name: 'New galleries', exact: true })).toBeVisible()
+    await expect(settings.locator('#settings-load-policy')).toBeVisible()
     await expect(settings.getByText('House cards', { exact: true })).toBeVisible()
-    await settings.getByRole('button', { name: /Visionary/, exact: false }).click()
+    await settings.getByRole('button', { name: 'Learn about Visionary', exact: true }).click()
     const visionary = page.locator('.native-visionary')
     await expect(visionary).toBeVisible()
-    await expect(visionary).toContainText('3 → 99')
+    await expect(visionary).toContainText('from 3 to 99')
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-visionary.png`, fullPage: false })
-    await visionary.getByRole('button', { name: 'Close', exact: true }).click()
+    await visionary.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(settings).toBeVisible()
     await settings.getByRole('button', { name: 'Privacy Policy', exact: true }).click()
     const privacy = page.locator('.privacy-view')
     await expect(privacy).toBeVisible()
     await expect(privacy.locator('h1')).toHaveText('Privacy Policy')
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-privacy.png`, fullPage: false })
-    await privacy.getByRole('button', { name: 'Back to settings', exact: true }).click()
+    await privacy.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(settings).toBeVisible()
     await expect(settings.getByText('Appearance', { exact: true }).first()).toBeVisible()
     await settings.getByRole('radio', { name: 'Light', exact: true }).click()
@@ -197,7 +222,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
     await expect(page.locator('html')).not.toHaveClass(/light/)
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-settings.png`, fullPage: false })
-    await settings.getByRole('button', { name: 'Back to the library', exact: true }).click()
+    await settings.getByRole('button', { name: 'Back', exact: true }).click()
     // The rail is the card's most obvious affordance, so it opens the
     // gallery — the editor lives on the card menu, exercised above.
     await page.locator('.lib-card .lib-th').first().click()
@@ -247,7 +272,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // The chrome's Library pill is the exit; the endcard carries a second
     // Library control that stays behind the track until it is revealed.
     await page.locator('[data-chrome-library]').click()
-    await expect(page.locator('.native-account-shell')).toBeVisible()
+    await expect(page.locator('.native-account-overview')).toBeVisible()
     await expect(page.locator('[data-stage]')).toHaveCount(0)
     expect(errors).toEqual([])
     await context.close()

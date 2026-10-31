@@ -5,7 +5,6 @@ import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Segmented } from '../../app/components/ui/Segmented'
 import { Switch } from '../../app/components/ui/Switch'
 import type { Theme } from '../../app/lib/owner-theme'
-import { nativeDeviceLabel, nativeDeviceTitle } from '../lib/device-label'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { AccountIdentity } from '../lib/api'
 import type { NativeTier } from '../lib/billing'
@@ -123,12 +122,12 @@ export default function Settings(props: Props) {
               aria-valuenow={retainedCount}
               aria-label={`${retainedCount} of ${galleryLimit} galleries in use`}
             ><i class="m-meter-fill" style={{ width: `${Math.min(100, (retainedCount / Math.max(1, galleryLimit)) * 100)}%` }} /></span>
-            <p class="m-note">Visionary keeps up to 99 galleries and gives more room on {nativeDeviceLabel()}.</p>
+            <p class="m-note">Visionary keeps up to 99 galleries and gives more room on this iPhone.</p>
             <Button variant="secondary" block onClick={props.onOpenVisionary}>{tier === 'pro' ? 'Manage Visionary' : 'Go Visionary'}</Button>
           </div>
         </ActionGroup>
 
-        <ActionGroup label={nativeDeviceTitle()} note="These settings stay on this device.">
+        <ActionGroup label="This iPhone" note="These settings stay on this device.">
           <div class="m-panel m-settings-control">
             <label>Appearance</label>
             <Segmented
@@ -151,10 +150,10 @@ export default function Settings(props: Props) {
           </div>
           <ActionRow
             label="Photo picker"
-            control={<Switch checked={globalViewEnabled === true} label={`Let galleries show photographs already saved on ${nativeDeviceLabel()}`} disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
+            control={<Switch checked={globalViewEnabled === true} label="Let galleries show photographs already saved on this iPhone" disabled={props.globalViewBusy || globalViewEnabled === null} onChange={props.onGlobalView} />}
           />
           {globalViewEnabled ? <ActionRow label="Open photo picker" onClick={props.onOpenPicker} /> : null}
-          <p class="m-note m-panel-note">Everything stays encrypted and on the device. The picker lets galleries show photographs already saved on {nativeDeviceLabel()}.</p>
+          <p class="m-note m-panel-note">Everything stays encrypted and on the device. The picker lets galleries show photographs already saved on this iPhone.</p>
           {deviceGalleries.map((gallery) => <ActionRow label={gallery.title} value={`${gallery.itemCount} photographs`} chevron={Boolean(gallery.publicGallerySlug)} onClick={gallery.publicGallerySlug ? () => props.onOpenDeviceGallery(gallery) : undefined} />)}
           <VaultSettings controller={props.controller} tier={tier} embedded />
         </ActionGroup>

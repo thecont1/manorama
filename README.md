@@ -30,15 +30,15 @@ Every gallery lives at a clean public URL — `manorama.xyz/{you}/{gallery}` —
 
 ## Looking at a gallery
 
-The stage shows only your photographs — the chrome is temporary. A tap, mouse move, or `Tab` raises a top bar (Library, position) and a bottom row (Display, Info, and Details for owners); they hide again after three idle seconds.
+The stage shows only your photographs — a small bobbing Manorama pill at the bottom edge is the only visible chrome. Press it (or wave the mouse near it) for display settings.
 
-- **Three ways to look**: a horizontal photostrip where images abut edge-to-edge, a vertical scroll, or one photograph at a time — all inside the Display sheet.
-- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet position count sits on the stage — press it (or `G`) to open the photograph picker.
+- **Three ways to look**: a horizontal photostrip where images abut edge-to-edge, a vertical scroll, or one photograph at a time.
+- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet bubble at the bottom-right counts the photograph you're on — it's also a button: hover stretches it into a pill ("5 of 56 items" / "open global"), and click (or `G`) raises the selector filmstrip.
 - **`I`** opens the information sheet — position, caption, EXIF, Content Credentials. **`⇧I`** opens the standalone C2PA viewer in a new tab.
 - **`M`** on desktop summons a magnifier that follows your cursor at 3×.
-- **The strip ends honestly**: a "The End." card slides in past the last photograph, with **Rewind** to run home.
+- **The strip ends honestly**: a "The End." card slides in past the last photograph, with **Back to Start** to loop around.
 - **Video** plays ambient — muted and looping — with a speaker button for sound.
-- **Canvas** offers Black (the default — photographs abut), Dark, or Light — the latter two wake a subtle doodle field and give every image a 10px margin.
+- **Background** offers None (the default — photographs abut on a plain dark canvas), Dark, or Light — the latter two wake a subtle doodle field and give every image a 10px margin.
 
 Images always fit the stage whole — never cropped, never enlarged past their real resolution. Smaller sources float at their honest size rather than stretching.
 
