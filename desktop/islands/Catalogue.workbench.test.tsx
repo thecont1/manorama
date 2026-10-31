@@ -571,15 +571,18 @@ describe('desktop catalogue workbench', () => {
 
     const details = container.querySelector('[data-screen="local-details"]')
     expect(details).not.toBeNull()
-    expect(details?.querySelector('.m-owner-heading h1')?.textContent).toBe(TITLE)
-    expect(details?.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs · Folder on this Mac')
+    expect(details?.querySelector('.d-name')?.textContent).toBe(TITLE)
+    expect(details?.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
     for (const label of ['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
-    const html = container.innerHTML
-    // Local paths and filenames never surface; no invented public/provider/vault
-    // surfaces ride along with the details view.
+    // Local paths and filenames never surface in the copy; the rail's own
+    // asset URLs and photograph labels are exempt, the same way the Library
+    // card rail's are. No invented public/provider/vault surfaces ride along.
+    const copy = container.cloneNode(true) as HTMLElement
+    copy.querySelector('.d-rail')?.remove()
+    const html = copy.innerHTML
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain('MS201810-Italy0005.jpg')
@@ -670,7 +673,7 @@ describe('desktop catalogue workbench', () => {
     ;(row(container, 'Read folder again') as HTMLButtonElement).click()
     await settle()
 
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('3 photographs')
+    expect(container.querySelector('.d-head')?.textContent).toContain('3 photographs')
     expect(container.textContent).toContain('Read just now')
 
     container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
@@ -909,7 +912,7 @@ describe('desktop catalogue workbench', () => {
     // a genuine source read failure may flag the source unavailable.
     expect(container.textContent).toContain('The card is not mounted')
     expect(container.textContent).not.toContain('Read just now')
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs')
+    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="unavailable"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(2)
@@ -936,7 +939,7 @@ describe('desktop catalogue workbench', () => {
     // screen and the still-available source is not flagged unavailable.
     expect(container.textContent).toContain('The disk is full')
     expect(container.textContent).not.toContain('Read just now')
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs')
+    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="available"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(2)

@@ -268,8 +268,8 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       expect(new URL(page.url()).searchParams.get('details')).toBe(GALLERY_ID)
       // The surface states the gallery's own facts: title, count, source kind.
       await expect(details.locator('.m-topbar-title')).toHaveText('Bangkok Rain')
-      await expect(details.locator('.m-owner-heading h1')).toHaveText('Bangkok Rain')
-      await expect(details.locator('.m-owner-heading p.m-note').first()).toHaveText('25 photographs · Folder on this Mac')
+      await expect(details.locator('.d-name')).toHaveText('Bangkok Rain')
+      await expect(details.locator('.d-sub').first()).toHaveText('25 photographs · Folder on this Mac')
       await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
       // Local-only facts stay off the surface: no paths, no invented
       // public/provider/vault/offline/reorder metadata.

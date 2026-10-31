@@ -725,6 +725,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             closeDetails()
             openViewer(detailsRecord.id, 0)
           }}
+          onOpenAt={(index) => {
+            closeDetails()
+            openViewer(detailsRecord.id, index)
+          }}
           onShare={openShareFromDetails}
           onRescan={() => rescan(detailsRecord)}
           onRename={(title) => rename(detailsRecord, title)}

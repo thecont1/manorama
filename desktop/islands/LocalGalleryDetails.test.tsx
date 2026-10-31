@@ -86,6 +86,7 @@ const mount = (overrides: Partial<Props> = {}) => {
     availability: overrides.availability ?? 'available',
     onBack: overrides.onBack ?? (() => { calls.back += 1 }),
     onOpen: overrides.onOpen ?? (() => { calls.open += 1 }),
+    onOpenAt: overrides.onOpenAt ?? (() => { calls.open += 1 }),
     onShare: overrides.onShare ?? (() => { calls.share += 1 }),
     onRescan: overrides.onRescan
       ? async () => { calls.rescan += 1; await overrides.onRescan?.() }
@@ -154,6 +155,11 @@ beforeAll(() => {
   globals.cancelAnimationFrame = ((id: number) => {
     frames = frames.filter((frame) => frame.id !== id)
   }) as unknown as typeof cancelAnimationFrame
+  // The rail converts local paths through the asset protocol; the harness
+  // is not a Tauri webview, so it stubs the same shape the workbench does.
+  ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+    convertFileSrc: (path: string) => `asset://localhost${path}`,
+  }
 })
 
 afterAll(() => {
@@ -186,19 +192,22 @@ describe('local gallery details (desktop)', () => {
     expect(calls.back).toBe(1)
   })
 
-  test('shows the gallery title in the top bar and heading, with count and source', async () => {
+  test('shows the shared mark in the bar and the title once, with count and source', async () => {
     const { container } = mount()
-    expect(container.querySelector('.m-topbar-title')?.textContent).toBe(TITLE)
-    expect(container.querySelector('.m-owner-heading h1')?.textContent).toBe(TITLE)
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs · Folder on this Mac')
-    expect(container.querySelector('.m-owner-heading')?.textContent).not.toContain('photograph · Folder')
+    // One title, in the header — the top bar carries the shared mark instead
+    // of repeating it, matching Library and cloud Details.
+    expect(container.querySelector('.m-topbar-title')).toBeNull()
+    expect(container.querySelector('.m-topbar-logo')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
+    expect(container.querySelector('.d-name')?.textContent).toBe(TITLE)
+    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
+    expect(container.querySelector('.d-head')?.textContent).not.toContain('photograph · Folder')
   })
 
   test('a mounted card source reads "Memory card"', async () => {
     const { container } = mount({
       record: record({ sourceKind: 'card', mountPoint: '/Volumes/CARD' }),
     })
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('Memory card')
+    expect(container.querySelector('.d-head')?.textContent).toContain('Memory card')
   })
 
   test('renders exactly the four action verbs and no banned surfaces', async () => {
@@ -211,8 +220,12 @@ describe('local gallery details (desktop)', () => {
     // Remove is destructive.
     expect(row(container, 'Remove from Library')?.classList.contains('m-actionrow--destructive')).toBe(true)
 
-    const html = container.innerHTML
-    // Paths, mount points, and filenames never surface — they are local-only.
+    // Paths, mount points, and filenames never surface in the copy — they are
+    // local-only. The rail's own asset URLs and photograph labels are exempt:
+    // they reference originals the same way the Library card rail does.
+    const copy = container.cloneNode(true) as HTMLElement
+    copy.querySelector('.d-rail')?.remove()
+    const html = copy.innerHTML
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain(ITEM_NAME)

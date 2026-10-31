@@ -320,8 +320,8 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     await expect(details).toBeVisible()
     expect(new URL(page.url()).searchParams.get('details')).toBe(record.id)
     await expect(details.locator('.m-topbar-title')).toHaveText(record.title)
-    await expect(details.locator('.m-owner-heading h1')).toHaveText(record.title)
-    await expect(details.locator('.m-owner-heading p.m-note').first()).toHaveText(`${record.itemCount} photographs · Folder on this Mac`)
+    await expect(details.locator('.d-name')).toHaveText(record.title)
+    await expect(details.locator('.d-sub').first()).toHaveText(`${record.itemCount} photographs · Folder on this Mac`)
     await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
     // Local-only facts stay off the surface: no paths, no invented
     // public/provider/vault/offline/reorder metadata.

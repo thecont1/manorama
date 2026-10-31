@@ -4,6 +4,7 @@ import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Button } from '../../app/components/ui/Button'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { TopBar } from '../../app/components/ui/TopBar'
+import { assetUrl } from '../lib/tauri'
 import type { GalleryAvailability, LocalGalleryRecord } from '../lib/catalogue'
 
 /** The only operations that can be in flight; one at a time. */
@@ -14,6 +15,8 @@ type Props = {
   availability: GalleryAvailability
   onBack: () => void
   onOpen: () => void
+  /** A rail photograph opens the viewer on that frame, like the card rail. */
+  onOpenAt: (index: number) => void
   onShare: () => void
   onRescan: () => void | Promise<void>
   onRename: (title: string) => void | Promise<void>
@@ -39,6 +42,7 @@ export default function LocalGalleryDetails({
   availability,
   onBack,
   onOpen,
+  onOpenAt,
   onShare,
   onRescan,
   onRename,
@@ -106,17 +110,51 @@ export default function LocalGalleryDetails({
 
   return (
     <main class="m-owner m-screen m-screen--fixed" data-screen="local-details">
+      {/* The same header family as Library and cloud Details: shared mark in
+          the bar, a natural-ratio rail, then the title once with concise
+          source metadata — never the name in both bar and body. */}
       <TopBar
-        title={record.title}
-        logo={false}
-        start={<Button variant="quiet" aria-label="Back" onClick={onBack}>‹ Back</Button>}
+        start={(
+          <Button variant="quiet" onClick={onBack} aria-label="Back" class="m-backbtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg>
+            Back
+          </Button>
+        )}
       />
-      <div class="m-owner-content">
-        <header class="m-owner-heading">
-          <h1>{record.title}</h1>
-          <p class="m-note">
+      <div class="m-owner-content d-content">
+        <header class="d-head">
+          {record.items.length > 0 ? (
+            <div class="d-rail">
+              <div class="admin-gallery-strip-frame">
+                <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
+                  {record.items.map((item, index) => (
+                    <li class="admin-gallery-strip-item" key={item.id}>
+                      <button
+                        type="button"
+                        disabled={unavailable || locked}
+                        aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
+                        onClick={() => onOpenAt(index)}
+                      >
+                        <img
+                          src={assetUrl(item.path)}
+                          alt=""
+                          loading="lazy"
+                          draggable={false}
+                          onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')}
+                        />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : null}
+          <div class="d-name">{record.title}</div>
+          <div class="d-sub">
             {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
-          </p>
+          </div>
+          {/* Local-only fact: a detached source has no web analogue, so the
+              status stays its own line rather than pretending parity. */}
           <p class="m-note" role="status" data-availability={availability}>
             {unavailable ? 'Unavailable — reconnect the source, then rescan.' : 'Source available'}
           </p>
