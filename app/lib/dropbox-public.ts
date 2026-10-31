@@ -15,7 +15,7 @@ type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
 type SharedLinkMetadata = { name?: string }
 
-export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
+export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number; partial?: boolean }
 
 const validateFolderUrl = (input: string) => {
   const url = new URL(input.trim())
@@ -70,7 +70,7 @@ const retryAfterMs = (headers: Headers) => {
  *  honest one — a burst asking for minutes of backoff is surfaced, not held. */
 const MAX_RETRY_WAIT_MS = 30_000
 
-const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit) => {
+const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit, retryWaitMs = MAX_RETRY_WAIT_MS) => {
   const once = () => fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
     headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg), ...headers },
@@ -85,7 +85,7 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
     const requested = retryAfterMs(response.headers)
     // Over the budget the limiter's answer is the honest one — it falls
     // through to the throw below instead of stalling the request on a wait.
-    if (requested === null || requested <= MAX_RETRY_WAIT_MS) {
+    if (requested === null || requested <= retryWaitMs) {
       await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
       response = await once()
     }
@@ -110,10 +110,15 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
  *  media_info costs nothing — `collectEntries` already asks for it — and it is
  *  the file's own metadata, so it wins outright. The preview survives as the
  *  last resort, where its proportions still beat a guess. */
+/** Dimension probes retry only a fast limiter answer — a real wait request
+ *  inside a probe chains across hundreds of entries and outlives the scan's
+ *  90s deadline, so a bigger ask surfaces to the fallback chain instead. */
+const PROBE_RETRY_WAIT_MS = 2_000
+
 const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
   try {
-    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' })
+    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' }, PROBE_RETRY_WAIT_MS)
     const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
   } catch (error) {
@@ -129,7 +134,7 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
       format: { '.tag': 'jpeg' },
       size: 'w256h256',
       mode: 'strict',
-    }, env, fetchImpl)
+    }, env, fetchImpl, undefined, PROBE_RETRY_WAIT_MS)
     const dimensions = parseJpegDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
   } catch (error) {
@@ -211,7 +216,10 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
     }
   })).filter((image): image is GalleryImage => image !== null)
   const truncated = found.length > MAX_GALLERY_ITEMS || dropped ? found.length : undefined
-  return { sourceUrl, title, images, ...(truncated ? { truncated } : {}) }
+  // `dropped` means the budget cut the scan short — distinct from the
+  // gallery cap's honest prefix, so a refresh can refuse to persist a
+  // partial listing over a complete one.
+  return { sourceUrl, title, images, ...(truncated ? { truncated } : {}), ...(dropped ? { partial: true } : {}) }
 }
 
 export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv, range?: string | null) => {

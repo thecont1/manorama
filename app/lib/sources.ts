@@ -21,7 +21,7 @@ import type { GalleryMediaItem } from './imagesource'
 
 export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'local'
 
-export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number }
+export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number; partial?: boolean }
 
 export type SourceEnv = {
   DROPBOX_APP_KEY?: string

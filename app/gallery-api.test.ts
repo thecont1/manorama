@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { createManoramaApi } from './api'
-import { createGallery, resetGalleryStore } from './lib/gallery-repository'
+import { createGallery, getGallery, resetGalleryStore } from './lib/gallery-repository'
 import type { GalleryImage } from './lib/imagesource'
 import { resetUserStore } from './lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
@@ -481,6 +481,51 @@ describe('source ordering', () => {
       expect(payload.gallery?.images?.map((image) => image.filename)).toEqual(['d.jpg', 'a.jpg', 'c.jpg', 'img2.jpg', 'img10.jpg'])
     } finally {
       restore()
+    }
+  })
+
+  test('refresh rejects a scan the subrequest budget cut short', async () => {
+    // Own owner — a partial-source seed must not spend ORDER_OWNER's
+    // free allowance, or later seeds in this describe land read-only.
+    const PARTIAL_OWNER = 'dbid:AAATESTpartial'
+    await seedTestUser({ accountId: PARTIAL_OWNER, displayName: 'Partial Owner' })
+    const partialCookie = await sessionCookieFor(PARTIAL_OWNER)
+    await createGallery(PARTIAL_OWNER, {
+      slug: 'partial-source',
+      title: 'Partial Source',
+      caption: '',
+      date: '',
+      sourceUrl: 'https://www.dropbox.com/scl/fo/partial-src?dl=0',
+      images: [seedImage('keep-1.jpg'), seedImage('keep-2.jpg')],
+    })
+    // No media_info — every entry costs dimension probes, so 1,000 files
+    // outrun the scan's 950-request budget and come back flagged partial.
+    const names = Array.from({ length: 1000 }, (_, index) => `img${String(index).padStart(4, '0')}.jpg`)
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: names.map((name) => ({ '.tag': 'file' as const, name, id: `id:${name}` })),
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: 'Partial Album' })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    try {
+      const response = await api.request('/api/galleries/partial-source/refresh', {
+        method: 'POST',
+        headers: { Cookie: partialCookie },
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      // Persisting the partial listing would drop source items the scan
+      // never reached — the refresh is refused and the gallery stands.
+      expect(response.status).toBe(422)
+      const gallery = await getGallery(PARTIAL_OWNER, 'partial-source')
+      expect(gallery?.images.map((image) => image.filename)).toEqual(['keep-1.jpg', 'keep-2.jpg'])
+    } finally {
+      globalThis.fetch = realFetch
     }
   })
 

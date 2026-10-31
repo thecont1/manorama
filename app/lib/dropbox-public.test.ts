@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { scanDropboxFolder } from './dropbox-public'
+import { MAX_GALLERY_ITEMS } from './imagesource'
 
 const env = { DROPBOX_APP_KEY: 'test-key', DROPBOX_APP_SECRET: 'test-secret' }
 const FOLDER = 'https://www.dropbox.com/scl/fo/1AbCdEf/root?rlkey=0AbCdeF&dl=0'
@@ -102,5 +103,72 @@ describe('scanDropboxFolder dimensions', () => {
 
     expect(scan.images[0]?.width).toBe(4)
     expect(scan.images[0]?.height).toBe(3)
+  })
+})
+
+describe('scanDropboxFolder resilience', () => {
+  test('a probe ignores a limiter wait bigger than the probe bound and falls to the preview', async () => {
+    // Inside a scan the 90s deadline is shared — a Retry-After asking for
+    // real seconds must surface to the fallback chain, not be held.
+    let probeCalls = 0
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) return listing([entry()])
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      if (url.includes('sharing/get_shared_link_file')) {
+        probeCalls += 1
+        return new Response('limited', { status: 429, headers: { 'Retry-After': '30' } })
+      }
+      if (url.includes('files/get_thumbnail_v2')) return jpeg(256, 171)
+      return json({}, 404)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(probeCalls).toBe(1)
+    expect(scan.images[0]?.width).toBe(256)
+    expect(scan.images[0]?.height).toBe(171)
+  })
+
+  test('a fast limiter answer earns the probe one retry', async () => {
+    let probeCalls = 0
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) return listing([entry()])
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      if (url.includes('sharing/get_shared_link_file')) {
+        probeCalls += 1
+        return probeCalls === 1
+          ? new Response('limited', { status: 429, headers: { 'Retry-After': '0' } })
+          : jpeg(2560, 1707)
+      }
+      return json({}, 404)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(probeCalls).toBe(2)
+    expect(scan.images[0]?.width).toBe(2560)
+    expect(scan.images[0]?.height).toBe(1707)
+  })
+
+  test('marks the scan partial when the subrequest budget cuts it short', async () => {
+    // Every entry below burns two probe calls (ranged head, then preview),
+    // so the 950-call budget dies before the tail is reached — the scan
+    // must flag itself partial rather than read as a complete listing.
+    const entries = Array.from({ length: MAX_GALLERY_ITEMS }, (_, index) =>
+      entry({ name: `MS201810-Italy${String(index).padStart(4, '0')}.jpg`, id: `id:${index}` }))
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) return listing(entries)
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      return json({}, 409)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(scan.partial).toBe(true)
+    expect(scan.truncated).toBe(MAX_GALLERY_ITEMS)
+    expect(scan.images.length).toBeLessThan(MAX_GALLERY_ITEMS)
   })
 })
