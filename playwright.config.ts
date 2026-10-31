@@ -1,9 +1,12 @@
 import { defineConfig } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 
-const configDir = fileURLToPath(new URL('.', import.meta.url))
-const anchorRe = (dir: string) =>
-  new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.worktrees/`)
+// The complete directory prefix is built with the host separator — spec
+// paths reach the matcher in native form on Windows too.
+const worktreePrefix =
+  path.join(fileURLToPath(new URL('.', import.meta.url)), '.worktrees') + path.sep
+const anchorRe = new RegExp(`^${worktreePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
 
 // The browser suite lives in *.playwright.ts so bun's unit-test discovery
 // (*.test.ts / *.spec.ts) never loads Playwright specs — `bun test` stays
@@ -27,7 +30,7 @@ export default defineConfig({
   // every spec when the suite runs inside a linked checkout — a silent
   // zero-test "green". Anchored, it ignores only nested linked checkouts.
   testIgnore: [
-    anchorRe(configDir),
+    anchorRe,
     '**/node_modules/**',
     ...(process.env.PW_EVIDENCE
       ? []

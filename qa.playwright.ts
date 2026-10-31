@@ -124,11 +124,22 @@ async function ensureStripSettled(page: import("@playwright/test").Page) {
 async function waitForMountedDecodes(page: import("@playwright/test").Page) {
   await expect
     .poll(async () =>
-      // `complete` is the settled bit: a decoded image and a failed fetch
-      // both land there, and a failed frame never heals, so it must not
-      // hold the poll open waiting for dims it will never have.
       page.locator("[data-track] img.frame-img").evaluateAll((imgs) =>
-        imgs.length > 0 && imgs.every((img) => (img as HTMLImageElement).complete),
+        imgs.length > 0 &&
+        imgs.every((el) => {
+          const img = el as HTMLImageElement;
+          if (!img.complete) return false;
+          if (img.naturalWidth > 0) return true;
+          // A failed fetch is not settled while the Viewer's stall watchdog
+          // can still re-request it: `mreload` bumps to 2 attempts, lazy and
+          // non-URL sources are never retried, and only then is the hole
+          // permanent enough to measure geometry around.
+          if (img.loading === "lazy") return true;
+          const src = img.getAttribute("src") ?? "";
+          if (!/^https?:\/\//i.test(src) && !src.startsWith("/")) return true;
+          const reload = /[?&]mreload=(\d+)/.exec(src);
+          return reload !== null && Number(reload[1]) >= 2;
+        }),
       ),
     )
     .toBe(true);
