@@ -50,9 +50,17 @@ body.manorama-desktop {
 }
 .desktop-welcome-header { display: grid; place-items: center; }
 .desktop-welcome-header .landing-brand-mark { width: clamp(300px, 32vw, 520px); max-width: 100%; }
+.desktop-welcome h1 {
+  margin: clamp(26px, 4vh, 48px) auto 0;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(30px, 4.6vw, 46px);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1.12;
+}
 .desktop-welcome .landing-brand-intro {
   max-width: 38rem;
-  margin: clamp(26px, 4vh, 48px) auto 0;
+  margin: 18px auto 0;
   font-size: clamp(15px, 1.35vw, 20px);
   line-height: 1.45;
 }

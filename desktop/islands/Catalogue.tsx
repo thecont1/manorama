@@ -665,7 +665,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
               </span>
             </header>
-            <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+            <h1>Your shared folders, shown properly</h1>
+            <p class="landing-brand-intro">Pick a folder on this Mac, or paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
             <div class="desktop-signin">
               <span class="desktop-signin-lead">Continue with</span>
               <div class="desktop-signin-icons">

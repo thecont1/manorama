@@ -2342,10 +2342,10 @@ test("public root is a minimal Manorama landing page", async ({
     "/manorama-merged-logo.png",
   );
   await expect(page.locator(".landing-brand h1")).toHaveText(
-    "the WOW-est way to enjoy a photo gallery with anyone",
+    "Your shared folders, shown properly",
   );
   await expect(page.locator(".landing-brand-intro")).toHaveText(
-    /manorama turns a folder of images \(either on this device or in the cloud\) into a beautiful full-screen hi-res gallery with a custom link of your own/,
+    /Paste a shared Dropbox, Google Drive, iCloud or MEGA album link\. manorama turns it into a quiet, full-screen gallery at your own address\./,
   );
   await expect(page.locator(".lib-card")).toHaveCount(0);
 });
