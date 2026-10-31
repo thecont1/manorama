@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
 import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from '../../packages/core/owner-navigation'
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { decideBack } from '../lib/back-decision'
+import { nativeDeviceLabel } from '../lib/device-label'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
 import { isVideoItem, mediaCountOf } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
@@ -141,7 +142,7 @@ export const LibraryDeviceStatus = ({
       ><i style={{ width: `${(liveSaved / imageCount) * 100}%` }} /></span>
     </>)
   }
-  return <span class="lib-card-device"> · On this iPhone</span>
+  return <span class="lib-card-device"> · On {nativeDeviceLabel()}</span>
 }
 
 const PRIVACY_URL = 'https://manorama.xyz/privacy'
@@ -1332,7 +1333,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // rectangle paints over it, the reserve carries the house creative.
   const accountAdCreative = accountAdFrame ?? HOUSE_AD_FRAME
   // The status line under the title reports vault activity first, then how
-  // many galleries live on this iPhone. Kept means what the cards mean: not
+  // many galleries live on the device. Kept means what the cards mean: not
   // stream-only, with a committed vault copy holding every image.
   const keptOnDevice = ownerSlug
     ? retainedAccountGalleries.filter((gallery) => {
@@ -1342,9 +1343,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       }).length
     : 0
   const libraryFinding = vaultProgress && vaultProgress.total > 0
-    ? `${selection.slug} is saving to this iPhone, ${vaultProgress.completed} of ${vaultProgress.total}.`
+    ? `${selection.slug} is saving to ${nativeDeviceLabel()}, ${vaultProgress.completed} of ${vaultProgress.total}.`
     : retainedAccountGalleries.length > 0
-      ? `${retainedAccountGalleries.length} ${retainedAccountGalleries.length === 1 ? 'gallery' : 'galleries'}, ${keptOnDevice} kept on this iPhone.`
+      ? `${retainedAccountGalleries.length} ${retainedAccountGalleries.length === 1 ? 'gallery' : 'galleries'}, ${keptOnDevice} kept on ${nativeDeviceLabel()}.`
       : ''
 
   const accountAdAside = billingState?.tier && visibility?.show !== false ? (
@@ -1488,7 +1489,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add</button>
         </div>
         {/* The status line under the title reports vault activity first,
-            then how many galleries live on this iPhone. */}
+            then how many galleries live on the device. */}
         <p class="native-library-finding">{libraryFinding}</p>
         {galleryActionNote ? <p role="status">{galleryActionNote}</p> : null}
         {authError ? <p role="alert">{authError}</p> : null}
