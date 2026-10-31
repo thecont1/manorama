@@ -24,6 +24,7 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
+import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
 import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
@@ -699,8 +700,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // photograph is open — Open leaves details first.
   const detailsRecord = detailsId && catalogue ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
+  // A published link exists only when this Mac's own synced row carries the
+  // public slug; the local record id is the device-gallery row id.
+  const publishedRow = detailsRecord ? deviceRows.find((row) => row.id === detailsRecord.id) : undefined
+  const publishedSlug = publishedRow?.publicGallerySlug
+  const detailsPublishedUrl = publishedSlug && (ownerSlug ?? session?.ownerSlug)
+    ? `${base}/${ownerSlug ?? session?.ownerSlug}/${publishedSlug}`
+    : null
   const shareHost = shareOpen && shareRecord ? (
-    <Sheet open={shareOpen} onClose={dismissShare} title={`Share “${shareRecord.title}”`} dismissible={!shareUploading}>
+    <Sheet open={shareOpen} onClose={dismissShare} title={`Publish “${shareRecord.title}”`} dismissible={!shareUploading}>
       <ShareFlow
         record={shareRecord}
         catalogue={catalogue}
@@ -729,6 +737,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             closeDetails()
             openViewer(detailsRecord.id, index)
           }}
+          publishedUrl={detailsPublishedUrl}
+          onShareLink={detailsPublishedUrl ? async () => {
+            const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
+            if (shared === 'shared') return 'Link shared'
+            if (shared === 'cancelled') return null
+            // No system share in the webview — the clipboard keeps the same
+            // contract, and a failed copy leaves the address visible.
+            return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
+          } : undefined}
           onShare={openShareFromDetails}
           onRescan={() => rescan(detailsRecord)}
           onRename={(title) => rename(detailsRecord, title)}

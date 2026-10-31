@@ -161,9 +161,9 @@ export default function ShareFlow({
   }
 
   return (
-    <section class={`desktop-share${presentation === 'sheet' ? ' desktop-share--sheet' : ''}`} aria-label="Share this gallery">
+    <section class={`desktop-share${presentation === 'sheet' ? ' desktop-share--sheet' : ''}`} aria-label="Publish this gallery">
       {presentation === 'inline' ? <header class="desktop-share-header">
-        <h3>Share “{record.title}”</h3>
+        <h3>Publish “{record.title}”</h3>
         {step !== 'uploading' ? (
           <Button variant="quiet" onClick={close}>Close</Button>
         ) : null}

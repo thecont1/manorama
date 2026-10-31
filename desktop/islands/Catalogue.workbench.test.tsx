@@ -573,7 +573,7 @@ describe('desktop catalogue workbench', () => {
     expect(details).not.toBeNull()
     expect(details?.querySelector('.d-name')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library']) {
+    for (const label of ['Open', 'Publish', 'Name', 'Read folder again', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
@@ -714,7 +714,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     const host = container.querySelector('.m-sheet-host')
@@ -732,7 +732,7 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
 
     // Reopening starts from a clean choose step.
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('.m-sheet-host .desktop-share--sheet')).not.toBeNull()
     expect(container.textContent).toContain('nothing uploads until you confirm')
@@ -742,7 +742,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     const connectButton = byText(container, 'Connect')
@@ -757,7 +757,7 @@ describe('desktop catalogue workbench', () => {
 
     // The cancelled connect is settled, so a fresh attempt starts clean instead
     // of reporting a stale pending flow.
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     byText(container, 'Connect')!.click()
     await settle()
@@ -779,7 +779,7 @@ describe('desktop catalogue workbench', () => {
     readFileGate = deferred()
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     byText(container, 'Use Dropbox')!.click()
@@ -814,7 +814,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     byText(container, 'Connect')!.click()
@@ -833,7 +833,7 @@ describe('desktop catalogue workbench', () => {
     // of reporting a stale pending flow.
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     byText(container, 'Connect')!.click()
     await settle()
@@ -855,7 +855,7 @@ describe('desktop catalogue workbench', () => {
     readFileGate = deferred()
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     byText(container, 'Use Dropbox')!.click()
     await settle()

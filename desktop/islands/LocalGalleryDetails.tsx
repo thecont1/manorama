@@ -17,6 +17,12 @@ type Props = {
   onOpen: () => void
   /** A rail photograph opens the viewer on that frame, like the card rail. */
   onOpenAt: (index: number) => void
+  /** The public link, only once this record's synced row carries a slug.
+   *  Its presence is what makes "Share link" truthful instead of "Publish". */
+  publishedUrl?: string | null
+  /** Shares the existing link — never re-uploads. Resolves to the status
+   *  line the surface shows, or null when the owner cancelled. */
+  onShareLink?: () => Promise<string | null>
   onShare: () => void
   onRescan: () => void | Promise<void>
   onRename: (title: string) => void | Promise<void>
@@ -43,6 +49,8 @@ export default function LocalGalleryDetails({
   onBack,
   onOpen,
   onOpenAt,
+  publishedUrl = null,
+  onShareLink,
   onShare,
   onRescan,
   onRename,
@@ -77,6 +85,12 @@ export default function LocalGalleryDetails({
     } finally {
       setBusy(null)
     }
+  }
+
+  const shareLink = async () => {
+    if (locked || !onShareLink) return
+    const status = await onShareLink()
+    if (status) setNote(status)
   }
 
   const rescan = async () => {
@@ -162,7 +176,19 @@ export default function LocalGalleryDetails({
 
         <ActionGroup label="Open">
           <ActionRow label="Open" onClick={onOpen} disabled={unavailable || locked} />
-          <ActionRow label="Publish/Share" onClick={onShare} disabled={unavailable || locked} />
+          {/* Publish means uploading originals to create the public gallery;
+              once a usable link exists the action is sharing that link, not
+              publishing again. */}
+          {publishedUrl && onShareLink ? (
+            <ActionRow
+              label="Share link"
+              value={`…/${publishedUrl.split('/').at(-1)}`}
+              onClick={() => void shareLink()}
+              disabled={locked}
+            />
+          ) : (
+            <ActionRow label="Publish" onClick={onShare} disabled={unavailable || locked} />
+          )}
         </ActionGroup>
 
         <ActionGroup label="Gallery">

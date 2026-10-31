@@ -87,6 +87,8 @@ const mount = (overrides: Partial<Props> = {}) => {
     onBack: overrides.onBack ?? (() => { calls.back += 1 }),
     onOpen: overrides.onOpen ?? (() => { calls.open += 1 }),
     onOpenAt: overrides.onOpenAt ?? (() => { calls.open += 1 }),
+    publishedUrl: overrides.publishedUrl ?? null,
+    onShareLink: overrides.onShareLink,
     onShare: overrides.onShare ?? (() => { calls.share += 1 }),
     onRescan: overrides.onRescan
       ? async () => { calls.rescan += 1; await overrides.onRescan?.() }
@@ -212,7 +214,7 @@ describe('local gallery details (desktop)', () => {
 
   test('renders exactly the four action verbs and no banned surfaces', async () => {
     const { container } = mount()
-    for (const label of ['Open', 'Publish/Share', 'Read folder again', 'Remove from Library']) {
+    for (const label of ['Open', 'Publish', 'Read folder again', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
     // Five rows: the editable Name row plus exactly the four action verbs.
@@ -244,7 +246,7 @@ describe('local gallery details (desktop)', () => {
   test('when the source is unavailable, Open and Share are disabled and the state shows', async () => {
     const { container, calls } = mount({ availability: 'unavailable' })
     const openRow = row(container, 'Open') as HTMLButtonElement
-    const shareRow = row(container, 'Publish/Share') as HTMLButtonElement
+    const shareRow = row(container, 'Publish') as HTMLButtonElement
     const rescanRow = row(container, 'Read folder again') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
     expect(shareRow.disabled).toBe(true)
@@ -264,14 +266,42 @@ describe('local gallery details (desktop)', () => {
   test('when available, Open and Share are enabled and fire', async () => {
     const { container, calls } = mount()
     expect((row(container, 'Open') as HTMLButtonElement).disabled).toBe(false)
-    expect((row(container, 'Publish/Share') as HTMLButtonElement).disabled).toBe(false)
+    expect((row(container, 'Publish') as HTMLButtonElement).disabled).toBe(false)
     expect(container.querySelector('[data-availability="available"]')?.textContent).toBe('Source available')
 
     ;(row(container, 'Open') as HTMLButtonElement).click()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(calls.open).toBe(1)
     expect(calls.share).toBe(1)
+  })
+
+  test('a published link swaps Publish for Share link, which never re-uploads', async () => {
+    const { container } = mount({
+      publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
+      onShareLink: async () => 'Link copied — paste it anywhere',
+    })
+    const shareRow = row(container, 'Share link') as HTMLButtonElement
+    expect(shareRow).not.toBeNull()
+    expect(shareRow.textContent).toContain('…/italy-amore-mio')
+    // No publish path exists for a gallery that already has a link.
+    expect(row(container, 'Publish')).toBeUndefined()
+
+    shareRow.click()
+    await settle()
+    const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
+    expect(notes).toContain('Link copied — paste it anywhere')
+  })
+
+  test('a cancelled share leaves no status behind', async () => {
+    const { container } = mount({
+      publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
+      onShareLink: async () => null,
+    })
+    ;(row(container, 'Share link') as HTMLButtonElement).click()
+    await settle()
+    const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
+    expect(notes).toEqual(['Source available'])
   })
 
   test('renaming opens the shared edit sheet and submits the trimmed title', async () => {
