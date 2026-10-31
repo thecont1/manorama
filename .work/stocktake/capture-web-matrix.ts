@@ -121,6 +121,12 @@ for (const engine of engines) {
 
       const controls = () => page.locator('[data-chrome-bottom].is-visible').count()
       const paneOpen = async () => page.locator('.web-settings').count()
+      // .web-settings mounts instantly with "Reading sign-in methods…" while
+      // identities are null — the capture has to wait out that loading state,
+      // not just the surface itself.
+      const settingsReady = async () =>
+        (await paneOpen()) > 0 &&
+        (await page.locator('.web-settings').getByText('Reading sign-in methods').count()) === 0
 
       // Vite compiles a route's SSR graph on first request, and a cold compile
       // can answer with an empty response. Warm the routes once per engine, and
@@ -196,18 +202,18 @@ for (const engine of engines) {
       // left the page inside a gallery.
       await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await shoot('05-account-admin', async () => {
-        // The edge-tab drawer retired with the top bar: the dashboard's account
-        // surface sits behind the shared Settings gear now. Waiting for it —
-        // then watching the gear's click land — is the hydration probe.
-        await page.waitForSelector('[aria-label="Settings"]', { timeout: 25_000 })
+        // The gear is server-rendered markup — seeing it proves nothing about
+        // interactivity. The island stamps data-admin-ready when it mounts;
+        // that is the readiness signal this capture has to hold for.
+        await page.waitForSelector('[data-admin-ready="true"]', { timeout: 25_000 })
       })
 
       await shoot('05-account-pane', async () => {
         await until(
           page,
-          'the settings surface never opened',
+          'the settings surface never opened or identities never loaded',
           () => page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5_000 }),
-          async () => (await paneOpen()) > 0,
+          settingsReady,
         )
         await page.waitForTimeout(500)
       })
