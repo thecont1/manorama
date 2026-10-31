@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { Capacitor } from '@capacitor/core'
 import { Window } from 'happy-dom'
 import { flushSync, render } from 'hono/jsx/dom'
 import { useState } from 'hono/jsx'
@@ -34,7 +35,10 @@ const settle = async () => {
 }
 
 beforeAll(() => {
-  prev = { window: globals.window, document: globals.document, raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame, io: globals.IntersectionObserver }
+  prev = { window: globals.window, document: globals.document, raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame, io: globals.IntersectionObserver, getPlatform: Capacitor.getPlatform }
+  // Wording assertions run under happy-dom, where Capacitor reports 'web' —
+  // pin 'ios' so device labels resolve to "this iPhone".
+  ;(Capacitor as unknown as Record<string, unknown>).getPlatform = () => 'ios'
   dom = new Window({ width: 375, height: 812, url: 'http://localhost/' })
   globals.window = dom
   globals.document = dom.document
@@ -52,6 +56,7 @@ afterAll(() => {
   globals.requestAnimationFrame = prev.raf
   globals.cancelAnimationFrame = prev.caf
   globals.IntersectionObserver = prev.io
+  ;(Capacitor as unknown as Record<string, unknown>).getPlatform = prev.getPlatform
 })
 
 afterEach(() => {
