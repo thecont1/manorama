@@ -467,13 +467,19 @@ const transientError = (what: string, response: Response) =>
  *  request with a transient 429 or 5xx under burst load — a permanent miss
  *  is a 404, so transient statuses get exactly one retry, waiting the
  *  server's requested delay when it names one (jitter otherwise), rather
- *  than leaving a hole in the page. */
+ *  than leaving a hole in the page. A rejection from fetch itself — the
+ *  connection dying before a status ever arrived — retries on the same
+ *  budget; parse and validation failures never do. */
 const retryOnceOnTransient = async <T>(run: () => Promise<T>): Promise<T> => {
   try {
     return await run()
   } catch (error) {
     const status = error instanceof SourceFetchError ? error.status : undefined
-    if (status === undefined || (status !== 429 && status < 500)) throw error
+    // Fetch-level rejections — DNS, reset, TLS — surface as TypeError and
+    // get the same single retry; SyntaxError (a bad body) and every other
+    // thrown error propagate, since they cannot be fixed by re-asking.
+    const transient = status !== undefined ? status === 429 || status >= 500 : error instanceof TypeError
+    if (!transient) throw error
     const requested = (error as { retryAfterMs?: number | null }).retryAfterMs
     if (requested != null && requested > MAX_RETRY_WAIT_MS) throw error
     await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
