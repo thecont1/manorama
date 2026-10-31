@@ -34,12 +34,17 @@ for (const size of sizes) {
         page.on('pageerror', error => errors.push(error.message))
         await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded' })
         await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
-        // Chrome is the shared top bar: centred mark, Settings gear right.
+        // Chrome is the shared top bar: Settings gear right. The wordmark
+        // left the bar — it heroes the Library at opening-screen size.
         const topbar = page.locator('.m-topbar')
         const gear = topbar.getByRole('button', { name: 'Settings', exact: true })
         await expect(topbar).toBeVisible()
         await expect(gear).toBeVisible()
-        await expect(topbar.locator('.m-topbar-logo')).toHaveAttribute('src', '/manorama-merged-logo.png')
+        await expect(topbar.locator('.m-topbar-logo')).toHaveCount(0)
+        const heroMark = page.locator('.admin-hero-brand .landing-brand-mark')
+        await expect(heroMark).toHaveAttribute('src', '/manorama-merged-logo.png')
+        const heroBox = (await heroMark.boundingBox())!
+        expect(heroBox.width).toBeGreaterThan(280)
         const gearBox = await gear.boundingBox()
         expect(gearBox!.x).toBeGreaterThan(size.width / 2)
         expect(gearBox!.width).toBeGreaterThanOrEqual(44)
@@ -53,6 +58,7 @@ for (const size of sizes) {
         const firstCard = page.locator('.lib-card').first()
         await expect(sponsored).toBeVisible()
         const headingBox = (await heading.boundingBox())!
+        expect(headingBox.y).toBeGreaterThanOrEqual(heroBox.y + heroBox.height)
         const sponsoredBox = (await sponsored.boundingBox())!
         const cardBox = (await firstCard.boundingBox())!
         expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)

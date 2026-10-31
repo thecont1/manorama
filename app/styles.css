@@ -739,7 +739,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   height: auto;
 }
 .landing-brand .brand-mark-wrap { margin-bottom: clamp(32px, 5vw, 56px); }
-.landing-brand .brand-tld { font-size: clamp(21px, 2.7vw, 34px); }
 .landing-brand-intro {
   margin: 10px 0 0;
   font-family: 'Playfair', 'Bricolage Grotesque', 'Manrope', ui-serif, Georgia, serif;
@@ -758,25 +757,7 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .landing-brand-mark { width: 300px; }
 }
 
-/* ".xyz" badge under the merged wordmark — keeps the TLD memorable. The
-   source asset is 2170×725; its off-white wordmark ends at x=1988 and
-   y=516. Those measured anchors keep the badge aligned across every
-   surface that reuses this wrapper. */
 .brand-mark-wrap { position: relative; display: inline-block; }
-.brand-tld {
-  position: absolute;
-  top: calc(71.17241379% + 1px);
-  margin-top: -3px;
-  right: 8.38709677%;
-  bottom: auto;
-  color: rgb(var(--ink));
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 18px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: .01em;
-  pointer-events: none;
-}
 
 /* The gallery-list has its own list separator; avoid a second adjacent rule. */
 .gallery-list { border-top: 0; }
@@ -1071,7 +1052,7 @@ html.light .admin-button--solid { color: #e9e5dc; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { border-color: #000; background: #000; color: #e9e5dc; }
 html.light .admin-button:hover, html.light .admin-button:focus-visible { color: #000; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { color: #e9e5dc; }
-html.light .admin-page .m-topbar-logo { filter: brightness(0); }
+html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark) { filter: brightness(0); }
 
 /* ── M magnifier ─────────────────────────────────────────────────────
    A glass ball that replaces the cursor. Fixed to the viewport and
@@ -1476,7 +1457,7 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 
 /* The strip's terminal card: a borderless faux frame that the last
    photograph pushes aside to reveal. Typeset in the wordmark's own
-   face (the .brand-tld pairing) so "The End." reads as a signature. */
+   display face so "The End." reads as a signature. */
 .viewer-endcap {
   flex: 0 0 auto;
   width: auto;
@@ -1586,7 +1567,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .ops-logo { margin: 0 0 26px; }
 .ops-logo .brand-mark-wrap { transform: translateX(-9.2%); }
 .ops-logo-mark { display: block; width: clamp(168px, 22vw, 240px); height: auto; }
-.ops-logo .brand-tld { font-size: clamp(10px, 1.35vw, 15px); }
 .ops-header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; padding-bottom: 36px; border-bottom: 1px solid rgba(var(--ink), .16); }
 .ops-header h1 { max-width: 12ch; margin: 16px 0; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(42px, 7vw, 84px); font-weight: 700; letter-spacing: -.045em; line-height: 1; }
 .ops-intro { max-width: 62ch; color: rgba(var(--ink), .64); font-size: 13px; line-height: 1.7; }
@@ -1720,6 +1700,10 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-overview .gallery-selector-heading { margin-bottom: 22px; }
 .admin-overview .admin-retention-policy { margin: 0 0 22px; }
 .admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 20px; font-weight: 500; letter-spacing: -.025em; }
+/* The Library hero reuses .landing-brand-mark so the wordmark tracks the
+   opening screen's size at every viewport. */
+.admin-hero-brand { display: grid; place-items: center; margin: 8px 0 32px; }
+.admin-hero-brand .landing-brand-mark { max-width: 100%; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .admin-library-heading .admin-galleries-heading { margin-bottom: 24px; }
 
