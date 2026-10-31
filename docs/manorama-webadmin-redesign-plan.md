@@ -1,6 +1,11 @@
 # Manorama web-admin redesign plan
 
-Status: draft for owner approval — nothing in this document is implemented.
+Status: **shipped.** PR A (the card) landed as PR #151; PR B (the chrome) as
+PR #153. One deliberate divergence from §5: the `···` menu is a list of native
+buttons and links inside the shared Sheet, not `role="menu"`/`role="menuitem"` —
+a menu role without arrow-key/roving-focus navigation is worse semantics than
+none. D10 remains the only open decision; everything else below is the record
+of what was decided and built.
 Supersedes nothing; it narrows megaplan P10's remaining work to the one surface
 that still carries the pre-redesign shell.
 
@@ -147,7 +152,8 @@ heading and first card — all matching the shipped iOS section.
 locked. Caption below when present. No URL row, no icon row, no inline inputs
 (pending D1/D2).
 
-**Menu sheet** — shared `Sheet`, `role="menu"` list per D4. Remove gallery
+**Menu sheet** — shared `Sheet`, plain button/link rows per D4 (see the
+shipped-status note above on why `role="menu"` was dropped). Remove gallery
 carries `lib-menu-danger` styling and the same confirm pattern iOS uses
 (the web currently uses `window.confirm` — keep the browser confirm or adopt
 the iOS inline confirm group; flag: recommend the iOS inline confirm for
