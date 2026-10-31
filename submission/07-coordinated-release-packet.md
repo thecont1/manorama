@@ -7,8 +7,7 @@ migrates data, or submits to a store — those remain distinct owner actions.
 ## Integration commit
 
 - Branch: `fix/redesign-p12` (worktree `.worktrees/p12`)
-- Head: `2ecedf5` (`docs(release): prepare the coordinated release packet`)
-- Artifacts built at: `240e8e6a708dfa58dbf0d668d56f728e9cc939a5` — the packet commit adds documentation only, so the recorded hashes apply to both
+- Head: `240e8e6a708dfa58dbf0d668d56f728e9cc939a5` (`test(evidence): refresh parity pairs and six-state captures`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the review-fix and packet commits after it are documented below
 - Base: `origin/main` @ `3174cb6`
 - Logical commits on the branch: client hydration hardening, provider retry/cache, desktop catalogue restore, style pruning + details overflow fix, local font bundling, evidence-spec alignment, docs refresh, evidence captures.
 
@@ -21,24 +20,27 @@ migrates data, or submits to a store — those remain distinct owner actions.
 | `bun run build` (web) | pass — `dist/index.js` 2,224.84 kB (gzip 621.30 kB) |
 | `bun run build:native` | pass |
 | `bun run build:desktop` | pass |
-| Playwright suite | 257 pass / 18 skip; the four suite-load failures each pass in isolation (iCloud 509 and Dropbox 429 windows, one decode-timing gesture) — provider throttle windows, not product regressions |
-| Evidence specs (`PW_EVIDENCE=1`) | capture-harness 16/16, native-vault-controls 4/4, desktop-admin 10/10, desktop-catalogue 4/4 |
-
-Remaining classification note: upstream providers throttle under full-suite
-parallel load. Every failure observed this cycle was reproduced as transient
-(429/509/503 windows) and the same spec passed minutes later quiet; one
-pre-existing flake class (SSR image load races) is now fixed in product code.
+| Playwright suite | 270 pass / 9 skip / 0 fail — a clean full-suite run inside the worktree after fixing testIgnore swallowing the linked checkout's own specs |
+| Evidence specs (`PW_EVIDENCE=1`) | 44/44 — capture-harness 16/16, native-vault-controls 4/4, desktop-admin 10/10, desktop-catalogue 4/4, admin-appearance 10/10 |
 
 ## Build artifacts
 
 Fresh bundles built from the integration commit; SHA-256 for every shipped
 JS/CSS/HTML file is recorded in `outputs/rc/artifacts-sha256.txt`.
 
-| Surface | Bundle | Notes |
+The generated output directories are git-ignored, so they must be produced or
+handed over explicitly — never assumed present. Before any deploy step, build
+the target output (`bun run build`, `bun run build:native`, or
+`bun run build:desktop`) at the integration commit and verify the produced
+files against `outputs/rc/artifacts-sha256.txt`, or hand the owner the exact
+`dist/`, `native/dist/`, or `desktop/dist/` directory this packet's hashes
+describe. A stale local build of the same name must not be used.
+
+| Surface | Bundle | Handoff |
 |---|---|---|
-| Web (Cloudflare Worker) | `dist/` | HonoX worker + client; publish via existing `wrangler deploy` procedure — owner action |
-| Native (iOS/iPadOS/Android shell) | `native/dist/` | the SPA Capacitor embeds; `bunx cap sync` then archive in Xcode — owner signing |
-| Desktop (Tauri) | `desktop/dist/` | macOS bundle via `bunx tauri build --bundles app --target aarch64-apple-darwin` — owner signing/notarization |
+| Web (Cloudflare Worker) | `dist/` | HonoX worker + client; verify hashes, then publish via existing `wrangler deploy` procedure — owner action |
+| Native (iOS/iPadOS/Android shell) | `native/dist/` | the SPA Capacitor embeds; verify hashes, then `bunx cap sync` and archive in Xcode — owner signing |
+| Desktop (Tauri) | `desktop/dist/` | verify hashes, then macOS bundle via `bunx tauri build --bundles app --target aarch64-apple-darwin` — owner signing/notarization |
 
 Signing/store prerequisites (no secrets in repo): App Store Connect record per
 `submission/06`, provisioning on team `373K7W3LKU` (already in `project.pbxproj`),

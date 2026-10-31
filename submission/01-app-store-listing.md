@@ -73,7 +73,7 @@ photo,gallery,photography,portfolio,viewer,offline,slideshow,album,share,dropbox
 - **Introductory offer:** Pay-up-front introductory offer — US$11.99 for the first year, for new subscribers. The subscription reverts to US$19.99/year when the introductory period ends. Verify final storefront eligibility; it is not available to every customer.
 - **Promotional offer:** Offer code `VISIONARY2020` — one free month for new subscribers, after which the subscription renews at the introductory price. Confirm the resulting price path in a sandbox before advertising the combination.
 - **RevenueCat package:** `$rc_annual`
-- **Review note:** `Unlocks Visionary: up to 99 retained galleries, larger or unlimited encrypted offline vault, and house-only placements. Sign in, then tap “Go Visionary” on the Library footer or in Settings › Plan.`
+- **Review note:** `Unlocks Visionary: up to 99 retained galleries, larger or unlimited encrypted offline vault, and house-only placements. Sign in, then open Settings › Plan and tap “Go Visionary”. The Library footer shows “Go Visionary” only once a Free account reaches its gallery limit.`
 
 ## Release and evidence
 - **Release:** Manual release.
