@@ -7,7 +7,7 @@ migrates data, or submits to a store — those remain distinct owner actions.
 ## Integration commit
 
 - Branch: `fix/redesign-p12` (worktree `.worktrees/p12`)
-- Head: `89848ef735f6d9f52b5efb2b7b74b61c1e7de554` (`docs(release): correct App Store wording and the RC packet record`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the commit carrying this packet record and refreshed hashes follows it and changes no shipped code
+- Head: `168dca3c48842b1ec3447d59937f3a39fa2e21de` (`test(acceptance): wait out bounded image retries and anchor worktrees portably`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the commit carrying this packet record and refreshed hashes follows it and changes no shipped code
 - Base: `origin/main` @ `3174cb6`
 - Logical commits on the branch: client hydration hardening, provider retry/cache, desktop catalogue restore, style pruning + details overflow fix, local font bundling, evidence-spec alignment, docs refresh, evidence captures, review corrections (Retry-After budget, swipe/buffer replay, spec fixes, submission wording).
 
@@ -40,7 +40,7 @@ describe. A stale local build of the same name must not be used.
 |---|---|---|
 | Web (Cloudflare Worker) | `dist/` | HonoX worker + client; verify hashes, then publish via existing `wrangler deploy` procedure — owner action |
 | Native (iOS/iPadOS/Android shell) | `native/dist/` | the SPA Capacitor embeds; verify hashes, then `bunx cap sync` and archive in Xcode — owner signing |
-| Desktop (Tauri) | `desktop/dist/` | verify hashes, then macOS bundle via `bunx tauri build --bundles app --target aarch64-apple-darwin` — owner signing/notarization |
+| Desktop (Tauri) | `desktop/dist/` | run `bunx tauri build --bundles app --target aarch64-apple-darwin` first — its `beforeBuildCommand` regenerates `desktop/dist`, so the final hash verification of `desktop/dist` runs after packaging and confirms the bundled output matches `artifacts-sha256.txt` — owner signing/notarization |
 
 Signing/store prerequisites (no secrets in repo): App Store Connect record per
 `submission/06`, provisioning on team `373K7W3LKU` (already in `project.pbxproj`),
@@ -102,8 +102,9 @@ Every surface can be rolled back independently:
   no schema changed.
 - Native/desktop: re-archive the previous signed build; the installed app is
   forward/backward compatible because nothing client-persisted changed shape.
-- Git: `git revert` the integration range `3174cb6..240e8e6` restores base
-  behaviour; the eight logical commits can also be reverted individually.
+- Git: `git revert` the integration range
+  `3174cb6..168dca3c48842b1ec3447d59937f3a39fa2e21de` restores base
+  behaviour; the logical commits can also be reverted individually.
 
 ## Owner actions remaining
 

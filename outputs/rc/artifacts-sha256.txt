@@ -1,12 +1,12 @@
 # manorama release-candidate artifact hashes
-# integration commit: 89848ef735f6d9f52b5efb2b7b74b61c1e7de554
+# integration commit: 168dca3c48842b1ec3447d59937f3a39fa2e21de
 # branch: fix/redesign-p12  base: origin/main@3174cb6
-# generated: 2026-10-31T10:47:18Z
+# generated: 2026-10-31T11:50:19Z
 
 ## web worker bundle (dist/)
 ef0a27880d4809f7f18fa63ac1d4e1cba37100953eb083ee863dde0e29ec60a8  dist/curtain-boot.js
 fd523bf5b596a8356cc1ae6b9c5a96f48792ce64359775b73343f4440b4507e7  dist/hydrate-guard.js
-4e017f93809536a769a1dd76a65434df7c513ce8bf4ba2b63277ba68752aa198  dist/index.js
+22f3a550ab4e17a689367d79009f05edee80d12d56be97e84a252d302a2470ce  dist/index.js
 fc055423e77497829c0182c9035b26e1aca15f3d76d6384d1a9ff5c7d2365042  dist/static/Admin-B7ZurwQb.js
 699b44e4d6b7581ac8cd98561b90bb66c3b8189fe106a7cfd5423801d20cc906  dist/static/AdminOps-Bbb2g_KI.js
 c564602087688ad35e9ec7d231efa82a0c852640b973cea5d065379e163a39ac  dist/static/SeededDoodleBackground-DmsqMD-1.js
