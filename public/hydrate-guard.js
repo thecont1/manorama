@@ -143,10 +143,14 @@
   window.addEventListener('hono:island-live', function (event) {
     var island = event.detail && event.detail.island
     var now = Date.now()
+    // Removed newest-first so indices stay valid, replayed oldest-first —
+    // a buffered gesture only makes sense in the order it was made.
+    var mine = []
     for (var i = pending.length - 1; i >= 0; i--) {
-      var entry = pending[i]
-      if (entry.island !== island) continue
-      pending.splice(i, 1)
+      if (pending[i].island === island) mine.unshift(pending.splice(i, 1)[0])
+    }
+    for (var j = 0; j < mine.length; j++) {
+      var entry = mine[j]
       if (now - entry.when > 15000) continue
       var el = resolve(island, entry.path, entry.tag)
       if (!el) continue

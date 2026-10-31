@@ -31,8 +31,9 @@
   }
   document.addEventListener('pointerdown', function (event) {
     var target = event.target
-    if (target && target.closest && target.closest('[data-curtain]')) {
-      pointerStart = { x: event.clientX, y: event.clientY, id: event.pointerId }
+    var curtain = target && target.closest ? target.closest('[data-curtain]') : null
+    if (curtain) {
+      pointerStart = { x: event.clientX, y: event.clientY, id: event.pointerId, curtain: curtain }
     }
   }, true)
   document.addEventListener('pointerup', function (event) {
@@ -40,7 +41,12 @@
     var horizontal = Math.abs(event.clientX - pointerStart.x)
     var upward = pointerStart.y - event.clientY
     suppressClick = horizontal > 12 || Math.abs(upward) > 12
+    var curtain = pointerStart.curtain
     pointerStart = null
+    // The island's own rule: a ≥48px upward swipe dismisses — replay it as a
+    // tap when the island is not listening yet. The drag still suppresses the
+    // click it would otherwise arm.
+    if (upward >= 48 && upward > horizontal * 1.25 && !curtain.classList.contains('fading')) replay(curtain)
   }, true)
   document.addEventListener('click', function (event) {
     if (!event.isTrusted) return
