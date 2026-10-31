@@ -182,6 +182,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       .catch(() => apply(true))
     return () => { active = false }
   }, [base, viewerState?.galleryId])
+  // Opening a gallery seeds its own creative up front — otherwise the
+  // freshly mounted Viewer keeps wearing the previous gallery's plate for
+  // the round-trip until the visibility fetch above answers.
+  const openViewer = (galleryId: string, index: number) => {
+    setPlate(houseAdFrameFor(galleryId))
+    setViewerState({ galleryId, index })
+  }
   // The share sheet's live state, mirrored in refs so the window-level history
   // listener (registered once, empty deps) sees the CURRENT flow instead of
   // closing over a stale render.
@@ -714,7 +721,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           onBack={closeDetails}
           onOpen={() => {
             closeDetails()
-            setViewerState({ galleryId: detailsRecord.id, index: 0 })
+            openViewer(detailsRecord.id, 0)
           }}
           onShare={openShareFromDetails}
           onRescan={() => rescan(detailsRecord)}
@@ -941,7 +948,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                             type="button"
                             disabled={unavailable}
                             aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
-                            onClick={() => setViewerState({ galleryId: record.id, index })}
+                            onClick={() => openViewer(record.id, index)}
                           >
                             <img
                               src={assetUrl(item.path)}
@@ -967,7 +974,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     <button
                       type="button"
                       class="lib-card-title"
-                      onClick={() => unavailable ? openDetails(record) : setViewerState({ galleryId: record.id, index: 0 })}
+                      onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
                     >{record.title}</button>
                     <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
                   </div>
