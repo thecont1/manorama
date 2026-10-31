@@ -198,7 +198,7 @@ test.describe('native ad plate rules', () => {
       // data-index is 1-based: a plate at photo-position pos sits after the
       // pos-th photograph and before the next.
       await expect(page.locator(`[data-index="${pos}"] + [data-ad-position="${pos}"] + [data-index="${pos + 1}"]`)).toHaveCount(1)
-      await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-badge`)).toHaveText('Sponsored')
+      await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-badge`)).toHaveText('Advertisement')
       await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-headline`)).toContainText('photographs')
       // The dummy creative renders as a vertical image on the plate.
       const image = page.locator(`[data-ad-position="${pos}"] .ad-plate-image`)
@@ -234,7 +234,7 @@ test.describe('native ad plate rules', () => {
     await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
     const shortPos = Number(await page.locator('[data-ad-frame]').getAttribute('data-ad-position'))
     expect(shortPos).toBe(singlePlatePositionsFor(5, `ads-fixture:${todayKey()}`)[0])
-    expect(shortPos).toBeGreaterThan(0)
+    expect(shortPos).toBeGreaterThan(1)
     expect(shortPos).toBeLessThan(4)
 
     await openApp(page, 22)
@@ -362,7 +362,7 @@ test.describe('native ad plate rules', () => {
     const frame = page.locator('[data-ad-frame]')
     await expect(frame).toHaveCount(1)
     await expect(frame).toHaveClass(/viewer-endcap/)
-    await expect(frame).toHaveAttribute('aria-label', 'Sponsored: manorama')
+    await expect(frame).toHaveAttribute('aria-label', 'Advertisement: manorama')
     await expect(page.locator('[data-track] [data-index]')).toHaveCount(36)
   })
 

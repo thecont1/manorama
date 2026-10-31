@@ -2488,11 +2488,10 @@ test("owner admin lists galleries without a selector and remains noindex", async
   await expect(
     page.locator(".lib-card").first().locator(".lib-card-sub"),
   ).toContainText(/\d+ photographs?/);
-  // The top bar's mark is the only branded element left to assert.
-  await expect(page.locator(".m-topbar-logo")).toHaveAttribute(
-    "src",
-    "/manorama-merged-logo.png",
-  );
+  // The Library hero's mark is the only branded element left to assert.
+  await expect(
+    page.locator(".admin-hero-brand .landing-brand-mark"),
+  ).toHaveAttribute("src", "/manorama-merged-logo.png");
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);
   await expect(page.locator(".lib-card .admin-eyebrow")).toHaveCount(0);

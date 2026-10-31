@@ -516,7 +516,22 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }, [plate, mode, images.length])
 
   useLayoutEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
-  useLayoutEffect(() => { plateRef.current = plate })
+  const previousPlateRef = useRef(plate)
+  useLayoutEffect(() => {
+    // A plate resolving after mount inserts before its seeded position and
+    // shifts every later frame right by its own width. Re-dock the anchored
+    // photograph or the ad lands where that photo was measured to be. The
+    // insert widened the track, so drop the cached bounds first — settleTo
+    // clamps through getBounds and a stale max would dock the anchor a
+    // plate-width short near the end of the strip.
+    if (!previousPlateRef.current && plate && modeRef.current === 'strip' && !foldActiveRef.current
+      && !draggingRef.current && momentumRef.current === null) {
+      boundsDirtyRef.current = true
+      settleTo(-imageStart(pendingEntryRef.current ?? indexRef.current), true)
+    }
+    previousPlateRef.current = plate
+    plateRef.current = plate
+  })
   useEffect(() => { modeRef.current = mode }, [mode])
 
   // Background preference is global chrome: adopt the stored value after
@@ -571,6 +586,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const updateFullscreenState = () => {
       setFullscreenAvailable(allowFullscreen && Boolean(document.fullscreenEnabled && stageRef.current?.requestFullscreen))
       setFullscreenActive(Boolean(document.fullscreenElement))
+      // A sheet can't show over the fullscreen stage, and its overlay's
+      // inert would freeze the strip — closing it releases the input.
+      if (document.fullscreenElement) requestCloseModals()
     }
     updateFullscreenState()
     document.addEventListener('fullscreenchange', updateFullscreenState)
@@ -2658,7 +2676,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           magnifierAvailable={magnifierAvailable}
           magnifierActive={magnifierActive}
           deviceControls={deviceControls}
-          privacyHref="/privacy"
           panelStyle={foldPanelStyle}
         />
       </div>

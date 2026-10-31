@@ -54,11 +54,12 @@ describe('PublicWelcome content', () => {
     expect(html).toContain(EXPLANATION)
   })
 
-  test('shows the wordmark and the .xyz badge', () => {
+  test('shows the wordmark with no TLD badge', () => {
     const html = String(PublicWelcome({}))
     expect(html).toContain('src="/manorama-merged-logo.png"')
     expect(html).toContain('alt="manorama"')
-    expect(html).toContain('aria-hidden="true">.xyz</span>')
+    // Brand directive: the mark never carries ".xyz".
+    expect(html).not.toContain('.xyz</span>')
   })
 })
 

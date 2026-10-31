@@ -119,7 +119,6 @@ export default createRoute(async (c, next) => {
         <div class="quickadd-card">
           <span class="brand-mark-wrap quickadd-logo-wrap">
             <img src="/manorama-merged-logo.png" alt="manorama" class="quickadd-logo" />
-            <span class="brand-tld" aria-hidden="true">.xyz</span>
           </span>
 
           {session ? (

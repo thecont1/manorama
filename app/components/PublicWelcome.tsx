@@ -37,7 +37,6 @@ export default function PublicWelcome({
       <div class="landing-brand">
         <span class="brand-mark-wrap">
           <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
-          <span class="brand-tld" aria-hidden="true">.xyz</span>
         </span>
         <h1 style={welcomeHeadingStyle}>
           the WOW-est way to enjoy a photo gallery with anyone

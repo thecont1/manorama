@@ -19,7 +19,7 @@ export default function OpsDoor({
   return (
     <main class="ops-page">
       <div class="ops-top">
-        <p class="ops-logo"><span class="brand-mark-wrap"><img class="ops-logo-mark" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
+        <p class="ops-logo"><span class="brand-mark-wrap"><img class="ops-logo-mark" src="/manorama-merged-logo.png" alt="manorama" /></span></p>
         <a class="ops-back" href="/">Return home</a>
       </div>
       <header class="ops-header">

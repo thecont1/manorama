@@ -26,14 +26,13 @@ export type DisplaySheetProps = {
   magnifierActive?: boolean
   /** Native only — "On this device" (TODO(P7): lives in Gallery details). */
   deviceControls?: Child
-  privacyHref?: string
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
 export default function DisplaySheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  magnifierAvailable, magnifierActive, deviceControls, privacyHref, panelStyle,
+  magnifierAvailable, magnifierActive, deviceControls, panelStyle,
 }: DisplaySheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
@@ -42,13 +41,12 @@ export default function DisplaySheet({
     : mode === 'vertical' ? 'Each photograph fits the width'
     : 'One at a time, swipe or tap'
   const canvasHint =
-    background === 'none' ? 'Photographs touch'
-    : background === 'dark' ? '10 px apart on grey'
-    : '10 px apart on paper'
+    background === 'none' ? 'Photographs line up against one another'
+    : background === 'dark' ? 'Black background, space around images'
+    : 'White background, space around images'
   return (
     <div class="m-dark">
-      <Sheet open={open} onClose={onClose} title="Display" panelStyle={panelStyle}
-        footer={privacyHref ? <a class="m-sheet-quiet-link" href={privacyHref} target="_blank" rel="noreferrer">Privacy policy</a> : undefined}>
+      <Sheet open={open} onClose={onClose} title="Display" panelStyle={panelStyle}>
         {deviceControls ? <section class="m-sheet-section"><h3 class="m-sheet-label">On this device</h3>{deviceControls}</section> : null}
         <section class="m-sheet-section">
           <div class="m-sheet-labelrow"><h3 class="m-sheet-label">Layout</h3><span class="m-sheet-hint">{layoutHint}</span></div>
@@ -70,25 +68,27 @@ export default function DisplaySheet({
             value={background}
             onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
             options={[
-              { value: 'none', label: 'Black' },
+              { value: 'none', label: 'Blank' },
               { value: 'dark', label: 'Dark' },
               { value: 'light', label: 'Light' },
             ]}
           />
         </section>
         <section class="m-sheet-section">
-          <Switch
-            checked={arrowsOn}
-            onChange={onArrows}
-            label="Arrows"
-            describedBy={arrowsDescId}
-          />
-          <p class="m-control-desc" id={arrowsDescId}>Show next and previous buttons</p>
+          <div class="m-sheet-labelrow">
+            <Switch
+              checked={arrowsOn}
+              onChange={onArrows}
+              label="Arrows"
+              describedBy={arrowsDescId}
+            />
+            <span class="m-sheet-hint" id={arrowsDescId}>Show next and previous buttons</span>
+          </div>
           {fullscreenAvailable ? (
-            <>
+            <div class="m-sheet-labelrow">
               <Switch checked={fullscreenActive} onChange={() => onFullscreen()} label="Fullscreen" describedBy={fsDescId} />
-              <p class="m-control-desc" id={fsDescId}>Fill the screen</p>
-            </>
+              <span class="m-sheet-hint" id={fsDescId}>Fill the screen</span>
+            </div>
           ) : null}
         </section>
         {showShortcuts ? (

@@ -88,7 +88,7 @@ const houseFrame = (overrides: Partial<AdFrame> = {}): AdFrame => ({
   id: 'manorama-house-plate',
   advertiser: 'manorama',
   headline: 'More photographs, quietly shared.',
-  badge: 'Sponsored',
+  badge: 'Advertisement',
   provider: 'manorama-house',
   ...overrides,
 })
@@ -142,11 +142,11 @@ describe('account slot entitlement', () => {
     const found = slots(container)
     expect(found).toHaveLength(1)
     const slot = found[0]
-    expect(slot.getAttribute('aria-label')).toBe('Sponsored: manorama')
+    expect(slot.getAttribute('aria-label')).toBe('Advertisement: manorama')
     expect(slot.getAttribute('class')).toContain('native-account-ad')
     expect(slot.textContent).toContain('More photographs, quietly shared.')
     // The label is visible, not only announced.
-    expect(slot.textContent).toContain('Sponsored')
+    expect(slot.textContent).toContain('Advertisement')
     // The house creative's CTA renders like the viewer's plate does: an
     // external, rel-guarded link, never an in-webview navigation.
     const cta = slot.querySelector('a.native-account-ad-cta')

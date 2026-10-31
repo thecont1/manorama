@@ -795,7 +795,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <div class="admin-left">
             <header class="admin-header">
               <div>
-                <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /><span class="brand-tld" aria-hidden="true">.xyz</span></span></p>
+                <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></span></p>
                 <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
                 <div class="admin-greeting">
                   <p>Hello <mark class="admin-greeting-name">{session?.ownerSlug || 'there'}</mark>. Welcome to manorama.xyz.</p>
@@ -854,7 +854,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <section class="admin-welcome" aria-label="Welcome to manorama">
             <span class="admin-welcome-brand brand-mark-wrap">
               <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
-              <span class="brand-tld" aria-hidden="true">.xyz</span>
             </span>
             <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
             <p class="admin-profile-address">manorama.xyz/{session?.ownerSlug ?? ''}</p>
