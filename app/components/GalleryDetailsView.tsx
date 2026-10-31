@@ -151,10 +151,11 @@ export function GalleryDetailsView({
               onClick={onOpen}
               disabled={busy}
             />
+            {/* The full address is already on the header — the row states the
+                action, not a second copy of the path. */}
             <ActionRow
               label="Share link"
               icon={ICONS.share()}
-              value={`…/${address.split('/').at(-1)}`}
               onClick={onShare}
               disabled={busy}
             />
@@ -162,7 +163,9 @@ export function GalleryDetailsView({
 
           <ActionGroup>
             <ActionRow label="Name" icon={ICONS.name()} value={title} onClick={onEditName} disabled={locked} />
-            <ActionRow label="Caption" icon={ICONS.caption()} value={caption || 'None'} onClick={onEditCaption} disabled={locked} />
+            {/* A present caption reads in full on the header — only an empty
+                one needs the row to state it. */}
+            <ActionRow label="Caption" icon={ICONS.caption()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
             {onEditAddress ? (
               <ActionRow label="Address" value={address} onClick={onEditAddress} disabled={locked} />
             ) : null}
