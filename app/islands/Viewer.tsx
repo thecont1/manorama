@@ -10,7 +10,8 @@ import DisplaySheet from '../components/viewer/DisplaySheet'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
-import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
+import { type BackgroundPreference } from '../lib/background-preference'
+import { readStoredTheme } from '../lib/owner-theme'
 import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
 import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
@@ -155,20 +156,29 @@ const STRIP_WINDOW = 3
  *  bounded so decoded HEIC blobs still get revoked once out of play. */
 const STRIP_RETAIN = 6
 
-/** Anonymous per-gallery viewing preferences: the view mode is
- *  remembered in localStorage keyed by gallery slug, so a link recipient
- *  keeps their own preference without an account. The doodle background
- *  is deliberately NOT here — it is app-wide chrome, stored globally in
- *  lib/background-preference.ts alongside the theme. */
-type ViewPrefs = { mode?: Mode }
+/** Anonymous per-gallery viewing preferences: the view mode and the
+ *  canvas choice are remembered in localStorage keyed by gallery slug,
+ *  so a link recipient keeps their own preference without an account.
+ *  The canvas *default* is not stored — it follows the owner theme
+ *  (Light in the Library means a Light canvas here); a change inside a
+ *  gallery lands on this bag only, never on the app-wide default. */
+type ViewPrefs = { mode?: Mode; background?: BackgroundPreference }
 const readViewPrefs = (slug: string): ViewPrefs => {
   try {
     const stored = JSON.parse(localStorage.getItem(`manorama:view:${slug}`) ?? '{}') as ViewPrefs
     return {
       mode: stored.mode && ['strip', 'vertical', 'single'].includes(stored.mode) ? stored.mode : undefined,
+      background: stored.background && ['none', 'light', 'dark'].includes(stored.background) ? stored.background : undefined,
     }
   } catch {
     return {}
+  }
+}
+const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
+  try {
+    localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ ...readViewPrefs(slug), ...patch }))
+  } catch {
+    // Storage can be unavailable (private mode) — preferences are best-effort.
   }
 }
 
@@ -534,26 +544,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   })
   useEffect(() => { modeRef.current = mode }, [mode])
 
-  // Background preference is global chrome: adopt the stored value after
-  // mount (SSR cannot read localStorage), then stay in sync with other
-  // tabs and with any other island that changes it.
+  // The canvas default follows the owner theme — Light in the Library
+  // means a Light canvas, dark keeps the bare Blank default — unless this
+  // gallery carries its own stored choice. SSR can read neither store,
+  // so both resolve on mount.
   useEffect(() => {
-    setBackground(loadBackgroundPreference())
-    const syncFromStorage = () => setBackground(loadBackgroundPreference())
-    const syncFromEvent = (event: Event) => setBackground(backgroundPreferenceFromEvent(event as CustomEvent<unknown>))
-    window.addEventListener('storage', syncFromStorage)
-    window.addEventListener(BACKGROUND_EVENT, syncFromEvent)
-    return () => {
-      window.removeEventListener('storage', syncFromStorage)
-      window.removeEventListener(BACKGROUND_EVENT, syncFromEvent)
-    }
-  }, [])
+    setBackground(viewPrefs.background ?? (readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage) === 'light' ? 'light' : 'none'))
+  }, [slug, viewPrefs])
+
   useEffect(() => {
-    try {
-      localStorage.setItem(`manorama:view:${slug}`, JSON.stringify({ mode }))
-    } catch {
-      // Storage can be unavailable (private mode) — preferences are best-effort.
-    }
+    writeViewPrefs(slug, { mode })
   }, [slug, mode])
 
   useEffect(() => {
@@ -2665,7 +2665,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           mode={mode}
           onMode={setMode}
           background={background}
-          onBackground={(next) => { setBackground(next); saveBackgroundPreference(next) }}
+          onBackground={(next) => { setBackground(next); writeViewPrefs(slug, { background: next }) }}
           arrowsOn={arrowsOn}
           onArrows={(on) => { if (mode === 'vertical') setShowArrowsVertical(on); else setShowArrows(on) }}
           fullscreenAvailable={fullscreenAvailable}
