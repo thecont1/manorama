@@ -175,8 +175,18 @@ const pressEnter = (input: HTMLInputElement) => {
 const sheetButton = (container: HTMLElement, text: string) =>
   [...container.querySelectorAll<HTMLButtonElement>('.m-sheet button')].find((button) => button.textContent?.trim() === text)
 
-const detailsButton = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>(`[aria-label="Details ${TITLE}"]`)
+/** An item inside the currently open card ··· sheet, by visible text. */
+const menuItem = (container: HTMLElement, text: string) =>
+  [...container.querySelectorAll<HTMLElement>('.m-sheet .lib-menu > *')]
+    .find((el) => el.textContent?.trim() === text)
+
+/** Details lives one level deep now: the card ··· menu → Gallery details. */
+const openCardDetails = async (container: HTMLElement) => {
+  container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+  await settle()
+  menuItem(container, 'Gallery details')!.click()
+  await settle()
+}
 
 beforeAll(() => {
   dom = new Window({ width: 1280, height: 840, url: 'http://localhost/' })
@@ -354,29 +364,29 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
     expect(card.getAttribute('data-availability')).toBe('available')
-    expect(card.querySelector('.admin-gallery-title')?.textContent).toBe(TITLE)
-    expect(card.querySelector('.admin-gallery-count')?.textContent).toBe('(2 photos)')
+    expect(card.querySelector('.lib-card-title')?.textContent).toBe(TITLE)
+    expect(card.querySelector('.lib-card-sub')?.textContent).toBe('2 photographs · Folder on this Mac')
 
-    // The caption is the source kind only — the root path never renders as
+    // The sub-line names the source kind only — the root path never renders as
     // metadata (the thumbnail src is the asset protocol referencing originals
     // in place, which is separate and intended).
-    expect(card.querySelector('.admin-gallery-caption')?.textContent).toBe('Folder on this Mac')
+    expect(card.querySelector('.lib-card-sub')?.textContent).toContain('Folder on this Mac')
     expect(card.textContent).not.toContain(ROOT_PATH)
 
     const strip = card.querySelector('.admin-gallery-strip')!
-    expect(strip.getAttribute('role')).toBe('list')
-    const framesInStrip = [...strip.querySelectorAll<HTMLButtonElement>('.admin-gallery-strip-item')]
+    expect(strip.tagName).toBe('UL')
+    const framesInStrip = [...strip.querySelectorAll<HTMLElement>('.admin-gallery-strip-item')]
     expect(framesInStrip).toHaveLength(2)
-    expect(framesInStrip[0].tagName).toBe('BUTTON')
+    expect(framesInStrip[0].tagName).toBe('LI')
     expect(framesInStrip[0].classList.contains('is-active')).toBe(false)
     expect(framesInStrip[1].classList.contains('is-active')).toBe(false)
-    expect(framesInStrip[1].getAttribute('aria-label')).toBe(`Open MS201810-Italy0100.jpg — photograph 2 of 2 in ${TITLE}`)
+    expect(framesInStrip[1].querySelector('button')?.getAttribute('aria-label')).toBe(`Open MS201810-Italy0100.jpg — photograph 2 of 2 in ${TITLE}`)
     // Originals are referenced in place through the asset protocol: no copy,
     // no derivative, no thumbnail.
     expect(strip.querySelector('img')?.getAttribute('src')).toBe(`asset://localhost${record.items[0].path}`)
 
-    // A single Details action replaces the four v1 icon verbs.
-    expect(detailsButton(container)).not.toBeNull()
+    // The ··· menu replaces the four v1 icon verbs; Details sits behind it.
+    expect(card.querySelector(`[aria-label="${TITLE} actions"]`)).not.toBeNull()
     for (const name of [`View ${TITLE}`, `Rescan ${TITLE}`, `Share ${TITLE}`, `Remove ${TITLE}`]) {
       expect(card.querySelector(`[aria-label="${name}"]`)).toBeNull()
     }
@@ -417,20 +427,22 @@ describe('desktop catalogue workbench', () => {
     }) as unknown as typeof fetch
     try {
       const container = await mount(true)
-      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      const titles = [...container.querySelectorAll('.lib-card-title')].map((el) => el.textContent)
       // The cloud gallery leads the list — it is the thing the owner came to see.
       expect(titles.indexOf('kashmir, in winter')).toBeGreaterThanOrEqual(0)
       expect(titles.indexOf('kashmir, in winter')).toBeLessThan(titles.indexOf(TITLE))
 
-      const card = container.querySelector<HTMLElement>('.admin-gallery-card')!
-      expect(card.querySelector('.admin-gallery-count')?.textContent).toBe('(1 photo)')
-      expect(card.querySelector('.admin-gallery-caption')?.textContent).toBe('Dropbox · cloud gallery')
+      const card = container.querySelector<HTMLElement>('.lib-card')!
+      expect(card.querySelector('.lib-card-sub')?.textContent).toBe('1 photograph · Dropbox · cloud gallery')
       // Server-relative previews arrive rewritten against the API origin.
       expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
       // A cloud card opens the public gallery; Details stays local-only.
-      const open = byText(card, 'Open')!
+      card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
+      await settle()
+      const open = menuItem(container, 'Open')!
       expect(open).toBeDefined()
-      expect(card.querySelector(`[aria-label="Details kashmir, in winter"]`)).toBeNull()
+      expect(menuItem(container, 'Open source')).toBeDefined()
+      expect(menuItem(container, 'Gallery details')).toBeUndefined()
 
       open.click()
       await settle()
@@ -460,7 +472,7 @@ describe('desktop catalogue workbench', () => {
     }) as unknown as typeof fetch
     try {
       const container = await mount(true)
-      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      const titles = [...container.querySelectorAll('.lib-card-title')].map((el) => el.textContent)
       // The device feed died; the account read survived it.
       expect(titles).toContain('kashmir, in winter')
       expect(container.querySelector('.desktop-source-note')?.textContent).toContain('could not be loaded')
@@ -489,7 +501,7 @@ describe('desktop catalogue workbench', () => {
     }) as unknown as typeof fetch
     try {
       const container = await mount(true)
-      const titles = [...container.querySelectorAll('.admin-gallery-title')].map((el) => el.textContent)
+      const titles = [...container.querySelectorAll('.lib-card-title')].map((el) => el.textContent)
       expect(titles).toContain('kashmir, in winter')
       expect(container.querySelector('.desktop-source-note')).toBeNull()
     } finally {
@@ -518,8 +530,9 @@ describe('desktop catalogue workbench', () => {
       const notes = [...container.querySelectorAll('.desktop-source-note')].map((el) => el.textContent)
       expect(notes.some((text) => text?.includes('older account address'))).toBe(true)
 
-      const open = byText(container, 'Open')!
-      open.click()
+      container.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Open')!.click()
       await settle()
       // The stored session slug still builds a working link.
       const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
@@ -554,7 +567,7 @@ describe('desktop catalogue workbench', () => {
 
   test('details mounts from a card with exactly the local actions and no banned surfaces', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
 
     const details = container.querySelector('[data-screen="local-details"]')
@@ -593,7 +606,7 @@ describe('desktop catalogue workbench', () => {
 
   test('Back from a pushed details state returns to the library', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     expect(new URL(dom.window.location.href).searchParams.get('details')).toBe(GALLERY_ID)
 
@@ -606,7 +619,7 @@ describe('desktop catalogue workbench', () => {
 
   test('Open from details launches the shared viewer', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Open') as HTMLButtonElement).click()
     await settle()
@@ -617,7 +630,7 @@ describe('desktop catalogue workbench', () => {
 
   test('a rename persists to the catalogue file, syncs, and updates the card', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
 
     let fetchCount = 0
@@ -639,7 +652,7 @@ describe('desktop catalogue workbench', () => {
 
     container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
     await settle()
-    expect(container.querySelector('.admin-gallery-title')?.textContent).toBe('Vernazza')
+    expect(container.querySelector('.lib-card-title')?.textContent).toBe('Vernazza')
 
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { title: string }[] }
     expect(saved.galleries[0]?.title).toBe('Vernazza')
@@ -651,7 +664,7 @@ describe('desktop catalogue workbench', () => {
 
   test('Read folder again rescans the source and updates details and card counts', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
 
     dirs[ROOT_PATH]!.push({ name: 'MS201810-Italy0200.jpg', isDirectory: false, isFile: true })
@@ -664,14 +677,14 @@ describe('desktop catalogue workbench', () => {
     container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
     await settle()
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
-    expect(card.querySelector('.admin-gallery-count')?.textContent).toBe('(3 photos)')
+    expect(card.querySelector('.lib-card-sub')?.textContent).toBe('3 photographs · Folder on this Mac')
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(3)
   })
 
   test('confirmed remove returns to the library and touches only the catalogue entry', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Remove from Library') as HTMLButtonElement).click()
     await settle()
@@ -697,7 +710,7 @@ describe('desktop catalogue workbench', () => {
 
   test('share opens in the shared sheet from Details and a plain close resets it', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
     await settle()
@@ -725,7 +738,7 @@ describe('desktop catalogue workbench', () => {
 
   test('dismissing while connecting cancels the pending provider connection', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
     await settle()
@@ -762,7 +775,7 @@ describe('desktop catalogue workbench', () => {
     // The read gate is consulted only when the upload starts, so it can be
     // armed after mount (installTauri resets it).
     readFileGate = deferred()
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
     await settle()
@@ -797,7 +810,7 @@ describe('desktop catalogue workbench', () => {
 
   test('navigating history while connecting settles the pending provider connection', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
     await settle()
@@ -816,7 +829,7 @@ describe('desktop catalogue workbench', () => {
 
     // The cancelled connect is settled, so a fresh attempt starts clean instead
     // of reporting a stale pending flow.
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
     await settle()
@@ -838,7 +851,7 @@ describe('desktop catalogue workbench', () => {
     // The read gate is consulted only when the upload starts, so it can be
     // armed after mount (installTauri resets it).
     readFileGate = deferred()
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
     ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
     await settle()
@@ -878,7 +891,7 @@ describe('desktop catalogue workbench', () => {
 
   test('a failed source scan reports the error and marks the source unavailable', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
 
     const internals = (dom as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__
@@ -905,7 +918,7 @@ describe('desktop catalogue workbench', () => {
 
   test('a failed private-store write during rescan keeps the old count and availability', async () => {
     const container = await mount(true)
-    detailsButton(container)!.click()
+    await openCardDetails(container)
     await settle()
 
     // A new photo appears on disk — the scan would succeed; only the write fails.

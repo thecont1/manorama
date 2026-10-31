@@ -91,7 +91,7 @@ const openCatalogue = async (page: Page) => {
 /** One gapless row: equal heights, source-true widths, no gaps, pink first frame. */
 const measureRail = (page: Page) =>
   page.evaluate(() => {
-    const card = document.querySelector('.admin-gallery-card') as HTMLElement
+    const card = document.querySelector('.lib-card') as HTMLElement
     const frame = card.querySelector('.admin-gallery-strip-frame') as HTMLElement
     const items = [...card.querySelectorAll('.admin-gallery-strip-item')] as HTMLElement[]
     const box = (element: HTMLElement) => {
@@ -108,12 +108,12 @@ const measureRail = (page: Page) =>
           ...box(item),
           aspect: image.naturalWidth / image.naturalHeight,
           outline: `${style.outlineWidth} ${style.outlineColor}`,
-          disabled: (item as HTMLButtonElement).disabled,
+          disabled: (item.firstElementChild as HTMLButtonElement | null)?.disabled ?? false,
         }
       }),
       frame: { ...box(frame), scrollWidth: frame.scrollWidth, clientWidth: frame.clientWidth },
       documentOverflow: document.documentElement.scrollWidth - window.innerWidth,
-      firstFrameIsButton: items[0]?.tagName,
+      firstFrameIsButton: items[0]?.firstElementChild?.tagName,
     }
   })
 
@@ -166,22 +166,21 @@ for (const size of sizes) {
     // The launch really did call the account's seam, and the fixture answered.
     expect(api.calls()).toBeGreaterThan(0)
     // Both sources are on the page: the folder of originals and the card.
-    await expect(page.locator('.admin-gallery-card')).toHaveCount(built.galleries.length)
+    await expect(page.locator('.lib-card')).toHaveCount(built.galleries.length)
     // Sources are named by kind, never by path — the roots are local-only by
     // contract and stay off the surface.
-    await expect(page.locator('.admin-gallery-card').nth(0).locator('.admin-gallery-caption')).toHaveText('Folder on this Mac')
-    await expect(page.locator('.admin-gallery-card').nth(1).locator('.admin-gallery-caption')).toHaveText('Memory card')
+    await expect(page.locator('.lib-card').nth(0).locator('.lib-card-sub')).toContainText('Folder on this Mac')
+    await expect(page.locator('.lib-card').nth(1).locator('.lib-card-sub')).toContainText('Memory card')
     await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
     await expect(page.locator('body')).not.toContainText(SOURCE)
-    // Each card carries exactly one labelled control — Details — and none of
-    // the old workbench card actions (View/Rescan/Share/Remove).
+    // Each card carries exactly one ··· menu — the old workbench card actions
+    // (View/Rescan/Share/Remove) stay off it.
     for (let index = 0; index < built.galleries.length; index++) {
-      const card = page.locator('.admin-gallery-card').nth(index)
-      await expect(card.locator('.gallery-card-actions').getByRole('button')).toHaveCount(1)
-      await expect(card.locator('.gallery-card-actions').getByRole('button', { name: `Details ${built.galleries[index].title}` })).toBeVisible()
+      const card = page.locator('.lib-card').nth(index)
+      await expect(card.locator('.lib-card-menu')).toHaveCount(1)
     }
     for (const old of ['View', 'Rescan', 'Share', 'Remove']) {
-      await expect(page.locator('.admin-gallery-card .gallery-card-actions button', { hasText: old })).toHaveCount(0)
+      await expect(page.locator('.lib-card button', { hasText: old })).toHaveCount(0)
     }
 
     // ── The workbench, arranged like the web dashboard and iOS admin ────────
@@ -335,9 +334,10 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
       await expect(pane).toBeHidden()
     }
 
-    // Library → Details through the card's single labelled Details action.
-    const card = page.locator('.admin-gallery-card').first()
-    await card.locator('.gallery-card-actions').getByRole('button', { name: `Details ${record.title}` }).click()
+    // Library → Details through the card's ··· menu → Gallery details.
+    const card = page.locator('.lib-card').first()
+    await card.locator('.lib-card-menu').click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Gallery details' }).click()
     await expect(details).toBeVisible()
     expect(new URL(page.url()).searchParams.get('details')).toBe(record.id)
     await expect(details.locator('.m-topbar-title')).toHaveText(record.title)

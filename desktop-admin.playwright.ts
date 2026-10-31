@@ -117,29 +117,26 @@ for (const size of sizes) {
         expect(api.calls()).toBeGreaterThan(0)
 
         // The local catalogue is on the page, in the web dashboard's type.
-        // The galleries are the web dashboard's own cards, each hanging its
-        // rail of originals beneath the card body. The rail's geometry is
-        // measured in desktop-catalogue.playwright.ts.
-        const cards = page.locator('.admin-gallery-card')
+        // The galleries are the shared Library cards, each hanging its rail of
+        // originals above the title row. The rail's geometry is measured in
+        // desktop-catalogue.playwright.ts.
+        const cards = page.locator('.lib-card')
         await expect(cards).toHaveCount(2)
         await expect(cards.first()).toContainText('Bangkok Rain')
-        await expect(cards.first()).toContainText('(25 photos)')
+        await expect(cards.first()).toContainText('25 photographs')
         // The source is named by kind, never by its path: the root path and
         // mount point are local-only by contract and stay off the surface.
-        await expect(cards.nth(0).locator('.admin-gallery-caption')).toHaveText('Folder on this Mac')
-        await expect(cards.nth(1).locator('.admin-gallery-caption')).toHaveText('Memory card')
+        await expect(cards.nth(0).locator('.lib-card-sub')).toContainText('Folder on this Mac')
+        await expect(cards.nth(1).locator('.lib-card-sub')).toContainText('Memory card')
         await expect(page.locator('body')).not.toContainText('/Volumes/NO NAME/DCIM')
         await expect(page.locator('body')).not.toContainText('/Users/photographer/Pictures')
-        // Each card carries exactly one labelled control — Details — and none
-        // of the old workbench card actions (View/Rescan/Share/Remove).
+        // Each card carries exactly one ··· menu — the old workbench card
+        // actions (View/Rescan/Share/Remove) stay off it.
         for (let index = 0; index < 2; index++) {
-          const actions = cards.nth(index).locator('.gallery-card-actions')
-          await expect(actions.getByRole('button')).toHaveCount(1)
-          const title = index === 0 ? 'Bangkok Rain' : 'Monsoon Card'
-          await expect(actions.getByRole('button', { name: `Details ${title}` })).toBeVisible()
+          await expect(cards.nth(index).locator('.lib-card-menu')).toHaveCount(1)
         }
         for (const old of ['View', 'Rescan', 'Share', 'Remove']) {
-          await expect(page.locator('.admin-gallery-card .gallery-card-actions button', { hasText: old })).toHaveCount(0)
+          await expect(page.locator('.lib-card button', { hasText: old })).toHaveCount(0)
         }
 
         for (const theme of ['dark', 'light'] as const) {
@@ -269,9 +266,10 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
         await expect(dialog).toBeHidden()
       }
 
-      // Library → Details through the card's single labelled Details action.
-      const card = page.locator('.admin-gallery-card').first()
-      await card.locator('.gallery-card-actions').getByRole('button', { name: 'Details Bangkok Rain' }).click()
+      // Library → Details through the card's ··· menu → Gallery details.
+      const card = page.locator('.lib-card').first()
+      await card.locator('.lib-card-menu').click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Gallery details' }).click()
       await expect(details).toBeVisible()
       expect(new URL(page.url()).searchParams.get('details')).toBe(GALLERY_ID)
       // The surface states the gallery's own facts: title, count, source kind.

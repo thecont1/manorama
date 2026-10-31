@@ -2390,7 +2390,7 @@ test("public root is a minimal Manorama landing page", async ({
   await expect(page.locator(".landing-brand-intro")).toHaveText(
     /manorama turns a folder of images \(either on this device or in the cloud\) into a beautiful full-screen hi-res gallery with a custom link of your own/,
   );
-  await expect(page.locator(".admin-gallery-card")).toHaveCount(0);
+  await expect(page.locator(".lib-card")).toHaveCount(0);
 });
 test("owner admin lists galleries without a selector and remains noindex", async ({
   page,
