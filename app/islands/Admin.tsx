@@ -742,12 +742,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                       // A transient upstream 5xx otherwise leaves a permanent
                       // hole — the viewer's stall watchdog answers the same
                       // problem for frames; one bounded retry covers thumbs.
+                      // The marker tracks the source that failed, so a src
+                      // swapped in later earns its own retry, the retried
+                      // load failing again does not reschedule, and the
+                      // callback only fires while that source is still set.
                       const img = event.currentTarget as HTMLImageElement
-                      if (img.dataset.retried) return
-                      img.dataset.retried = '1'
+                      const baseOf = (src: string) => src.replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
+                      const failed = baseOf(img.getAttribute('src') ?? '')
+                      if (!failed || img.dataset.retriedSrc === failed) return
+                      img.dataset.retriedSrc = failed
                       window.setTimeout(() => {
-                        const src = (img.getAttribute('src') ?? '').replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
-                        if (src) img.src = `${src}${src.includes('?') ? '&' : '?'}mreload=1`
+                        if (baseOf(img.getAttribute('src') ?? '') === failed) {
+                          img.src = `${failed}${failed.includes('?') ? '&' : '?'}mreload=1`
+                        }
                       }, 1500)
                     }} />
                     {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
