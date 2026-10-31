@@ -61,7 +61,8 @@ test('a Global View same-gallery jump remounts the Viewer exactly once', async (
 
   const stage = page.locator('.viewer-stage')
   await page.evaluate(() => { (document.querySelector('.viewer-stage') as HTMLElement & { __id?: string }).__id = 'first-mount' })
-  await page.locator('.stage-seq').click()
+  await showChrome(page)
+  await page.locator('[data-chrome-position]').click()
   const grid = page.locator('[data-global-view]')
   await expect(grid).toBeVisible({ timeout: 15000 })
   await page.locator('[data-grid-frame]').nth(10).click()

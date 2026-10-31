@@ -280,8 +280,7 @@ body.manorama-native:has(.native-account-shell) {
    the native shells should match: while the curtain is up the photograph and the
    title are the whole interface. `gallery-entered` is set on the body when the
    curtain dissolves, so nothing else has to know about this. */
-body.manorama-native:not(.gallery-entered) .stage-arrows,
-body.manorama-native:not(.gallery-entered) .stage-seq {
+body.manorama-native:not(.gallery-entered) .stage-arrows {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -519,15 +518,6 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
 @media (min-width: 900px) {
   .native-editor-note { padding-inline: 40px; }
   .native-editor-sizer { padding-inline: 40px; }
-}
-
-/* The rest bubble docks left of the forward arrow, same as the web. */
-body.manorama-native .stage-seq {
-  right: max(12px, var(--native-safe-right, 0px));
-  bottom: max(12px, var(--native-safe-bottom, 0px));
-}
-body.manorama-native:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
-  right: calc(max(12px, var(--native-safe-right, 0px)) + var(--native-chrome-height, 56px) + 10px);
 }
 
 /* ── P6: Library cards ─────────────────────────────────────────────────

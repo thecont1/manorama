@@ -213,10 +213,6 @@ html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04)
 .desktop-share-provider-note, .desktop-share-hint { color: rgba(var(--ink), .68); font-size: 11px; }
 .desktop-paste-hint { margin: 0; color: rgba(var(--ink), .68); font-size: 11px; line-height: 1.4; }
 
-body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
-  right: calc(18px + var(--desktop-chrome-height) + 8px);
-}
-
 /* ── Account drawer ────────────────────────────────────────────────────────
    The web dashboard moved its account behind the shared top bar and dropped
    this chrome from app/styles.css; the catalogue keeps its account behind

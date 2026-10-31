@@ -71,7 +71,7 @@ test('a slow decode after the old reseed cap still docks the entered photograph'
   await dismissCurtain(page)
   await expect(page.locator('.viewer-frame[data-index]').first()).toBeVisible({ timeout: 30_000 })
   const listed = await mountedFrames(page)
-  const sequenceLabel = (await page.locator('.stage-seq').getAttribute('aria-label')) ?? ''
+  const sequenceLabel = (await page.locator('[data-chrome-position]').getAttribute('aria-label')) ?? ''
   const total = Number(sequenceLabel.match(/of (\d+)/)?.[1] ?? 0)
   test.skip(total < 4, 'gallery is too short to enter mid-strip and still dock')
 
@@ -86,8 +86,8 @@ test('a slow decode after the old reseed cap still docks the entered photograph'
   // Second pass: enter at that photograph's real sequence number.
   await page.goto(`${base}/${owner}/${slug}?photo=${encodeURIComponent(at.id)}`, { waitUntil: 'domcontentloaded' })
   await dismissCurtain(page)
-  const sequence = page.locator('.stage-seq-num')
-  await expect(sequence).toHaveText(String(at.index), { timeout: 30_000 })
+  const sequence = page.locator('[data-chrome-position]')
+  await expect(sequence).toHaveText(new RegExp(`^${at.index} of `), { timeout: 30_000 })
 
   const entryFrame = page.locator(`.viewer-frame[data-image-id="${at.id}"]`).first()
   const earlier = page.locator(`.viewer-frame[data-index="${at.index - 1}"]`).first()

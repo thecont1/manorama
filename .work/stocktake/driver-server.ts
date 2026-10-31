@@ -71,7 +71,7 @@ const DRIVER = `
       curtainHidden: q('[data-curtain]') ? q('[data-curtain]').hidden : null,
       controlLogo: rect('button.control-logo'),
       stageArrows: rect('.stage-arrows'),
-      seq: rect('.stage-seq'),
+      seq: rect('[data-chrome-position]'),
       prev: rect('.stage-nav-arrow--previous'),
       next: rect('.stage-nav-arrow--next'),
       panel: rect('.controls-panel'),

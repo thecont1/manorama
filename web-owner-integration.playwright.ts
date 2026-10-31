@@ -161,7 +161,7 @@ test('owner viewer chrome Details navigates to dashboard Details with details/ph
     await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
     await dismissCurtain(page)
     await expect(page.locator('[data-viewer-role="owner"]')).toHaveCount(1)
-    await expect(page.locator('.stage-seq')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('[data-chrome-position]')).toBeVisible({ timeout: 15_000 })
 
     await page.getByRole('button', { name: /show controls/i }).dispatchEvent('click')
     const detailsButton = page.locator('nav[aria-label="Viewer controls"] button', { hasText: 'Details' })
@@ -181,7 +181,7 @@ test('owner viewer chrome Details navigates to dashboard Details with details/ph
     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 25_000 })
     await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`), { timeout: 25_000 })
     await dismissCurtain(page)
-    await expect(page.locator('.stage-seq')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('[data-chrome-position]')).toBeVisible({ timeout: 15_000 })
   } finally {
     await context.close()
   }
@@ -262,7 +262,7 @@ test('web storage audit: only known preference keys, no gallery manifests/image 
     // storage (per-slug viewer prefs).
     await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
     await dismissCurtain(page)
-    await expect(page.locator('.stage-seq')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('[data-chrome-position]')).toBeVisible({ timeout: 15_000 })
 
     const keys = await page.evaluate(() => ({
       local: Object.keys(localStorage),

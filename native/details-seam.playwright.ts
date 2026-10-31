@@ -137,7 +137,7 @@ test('active video pauses while suspended and resumes on unsuspend', async ({ pa
   // may be needed per photograph, and a press mid-glide only retargets
   // the in-flight destination. Step one settled glide at a time until the
   // counter reaches the video slide at index 3.
-  const seq = page.locator('.stage-seq')
+  const seq = page.locator('[data-chrome-position]')
   for (let guard = 0; guard < 14; guard += 1) {
     if ((await seq.getAttribute('aria-label'))?.includes('Photograph 4')) break
     await page.keyboard.press('ArrowRight')

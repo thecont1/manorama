@@ -277,7 +277,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const scrollTopAtDownRef = useRef(0)
   const gridSuppressClickRef = useRef(false)
   const gridCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const seqRef = useRef<HTMLButtonElement | null>(null)
   const nextArrowRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   // "A modal is open" for always-on window key handlers: hono/jsx applies
@@ -1069,7 +1068,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // waits for finish() — it is what reveals the chrome and mounts
       // ambient media, and those belong to the photograph being clear.
       document.body.classList.add('gallery-entered')
-      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : seqRef.current
+      const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : displayButtonRef.current
       focusTarget?.focus({ preventScroll: true })
       const finish = () => {
         curtain.removeEventListener('transitionend', onFadeEnd)
@@ -1249,7 +1248,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // Combos belong to the browser — Alt+Left is history-back, not a
       // strip move — so they neither hide the chrome nor navigate.
       if (event.altKey || event.ctrlKey || event.metaKey) return
-      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, .stage-seq')
+      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip')
       if (!inChrome) chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
@@ -1355,7 +1354,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // gallery happened to focus last (e.g. the next-arrow auto-focused
       // by the curtain dismiss), so a stray Enter after commit re-opens
       // the selector instead of stepping the strip.
-      previousFocusRef.current = seqRef.current
+      previousFocusRef.current = displayButtonRef.current
       closeModals()
       goTo(imageIndex)
     }, 180)
@@ -1673,19 +1672,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const stage = stageRef.current
-    const seq = seqRef.current
     if (!stage) return
-    // A press landing on the sequence counter is a drag candidate: the
-    // counter floats over the stage and captures the pointer onto it,
-    // panning with the strip. A release that never travelled still counts
-    // as the button's own click (pointer capture suppresses the native
-    // click event, so each press is replayed here).
-    let seqPress: { x: number; y: number } | null = null
-    // The ad CTA gets the same replay: capturing the pointer onto the stage
-    // suppresses the anchor's native click, so an untravelled release opens
-    // the href from here. `armed` samples actionability before beginDrag
-    // clears it — a tap that lands while the strip is still gliding stays
-    // inert even though it is what stops the motion.
+    // A press landing on the ad CTA is a drag candidate: capturing the
+    // pointer onto the stage suppresses the anchor's native click, so an
+    // untravelled release opens the href from here. `armed` samples
+    // actionability before beginDrag clears it — a tap that lands while
+    // the strip is still gliding stays inert even though it is what stops
+    // the motion.
     let adPress: { x: number; y: number; href: string; armed: boolean } | null = null
     const beginDrag = (event: PointerEvent) => {
       chromeActionsRef.current.hide()
@@ -1710,11 +1703,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           armed: plateMountCentered(adFrame) && !draggingRef.current && momentumRef.current === null,
         }
       }
-      beginDrag(event)
-    }
-    const onSeqDown = (event: PointerEvent) => {
-      if (mode !== 'strip') return
-      seqPress = { x: event.clientX, y: event.clientY }
       beginDrag(event)
     }
     const onPointerMove = (event: PointerEvent) => {
@@ -1748,12 +1736,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         queuePlateActionability()
         return
       }
-      if (seqPress) {
-        const travelled = Math.hypot(event.clientX - seqPress.x, event.clientY - seqPress.y)
-        seqPress = null
-        if (event.type === 'pointerup' && travelled < 6) openGrid()
-        return
-      }
       if (event.type === 'pointercancel' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
       const samples = dragSamplesRef.current
       const first = samples[0]
@@ -1783,13 +1765,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', onPointerUp)
     stage.addEventListener('pointercancel', onPointerUp)
-    seq?.addEventListener('pointerdown', onSeqDown)
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', onPointerUp)
       stage.removeEventListener('pointercancel', onPointerUp)
-      seq?.removeEventListener('pointerdown', onSeqDown)
       if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current)
       stopMomentum()
     }
@@ -2577,17 +2557,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           ) : null}
         </div>
       </div>
-
-      {/* Rest bubble — keeps the stage-seq aria-label contract. A 36px
-          circle docked bottom-right; while the chrome shows, its N-of-M
-          pill takes over and the bubble goes inert and transparent. */}
-      <button ref={seqRef} type="button" class={`stage-seq ${chromeVisible ? 'is-chrome-showing' : ''}`} inert={chromeVisible ? true : undefined} aria-label={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`} onClick={openGrid}>
-        <span class="stage-seq-num" aria-hidden="true">{index + 1}</span>
-        <span class="stage-seq-detail" aria-hidden="true">
-          <span class="stage-seq-tally">{index + 1} of {images.length} items</span>
-          <span class="stage-seq-hint">open picker</span>
-        </span>
-      </button>
 
       <ViewerChrome
         visible={chromeVisible && !suspended}

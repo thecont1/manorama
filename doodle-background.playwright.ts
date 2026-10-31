@@ -42,7 +42,7 @@ test.setTimeout(90_000)
 const gotoGallery = async (page: Page, url: string) => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
-    if (await page.locator('.stage-seq').count()) return
+    if (await page.locator('[data-chrome-position]').count()) return
     await page.waitForTimeout(1000)
   }
   throw new Error(`gallery never became available at ${url} — is the dev server seeded?`)
@@ -54,7 +54,7 @@ const gotoGallery = async (page: Page, url: string) => {
 const openSettings = async (page: Page) => {
   // The first test against a cold dev server waits on Vite's on-demand
   // transform, so give hydration room before touching the chrome.
-  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('[data-chrome-position]').waitFor({ state: 'attached', timeout: 60000 })
   // A Display selection no longer closes the sheet — dismiss any open
   // sheet first or the scrim eats the stage tap that opens the next one.
   if (await page.locator('.m-sheet-host').count()) await page.keyboard.press('Escape')
@@ -68,7 +68,7 @@ const openSettings = async (page: Page) => {
       await curtain.first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {})
     })
   }
-  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 30000 })
+  await page.locator('[data-chrome-position]').waitFor({ state: 'attached', timeout: 30000 })
   await showChrome(page)
   await page.getByRole('button', { name: 'Display', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
@@ -255,7 +255,7 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
 
   // The preference persists, so the field must return identically.
   await page.reload({ waitUntil: 'domcontentloaded' })
-  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('[data-chrome-position]').waitFor({ state: 'attached', timeout: 60000 })
   await page.waitForTimeout(1200)
   const second = await layerSignature(page)
 

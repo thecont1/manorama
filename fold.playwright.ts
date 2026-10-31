@@ -182,7 +182,7 @@ describeIfConfigured('native fold runtime', () => {
 
   test('steps accumulate from the pending fold destination within one task', async ({ page }) => {
     await openFoldFixture(page)
-    const seq = page.locator('.stage-seq')
+    const seq = page.locator('[data-chrome-position]')
     await page.evaluate(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
@@ -209,7 +209,7 @@ describeIfConfigured('native fold runtime', () => {
   ]) {
     test(`normalises wheel deltaMode ${deltaMode} before the fold step threshold`, async ({ page }) => {
       await openFoldFixture(page)
-      const seq = page.locator('.stage-seq')
+      const seq = page.locator('[data-chrome-position]')
       await page.evaluate(([mode, delta]) => {
         document.querySelector('[data-stage]')?.dispatchEvent(
           new WheelEvent('wheel', { deltaY: delta, deltaMode: mode, bubbles: true, cancelable: true }))
@@ -226,7 +226,7 @@ describeIfConfigured('native fold runtime', () => {
   test('accepts fold input immediately after an index commit', async ({ page }) => {
     await openFoldFixture(page)
     await page.evaluate(() => {
-      const seq = document.querySelector('.stage-seq')!
+      const seq = document.querySelector('[data-chrome-position]')!
       const observer = new MutationObserver(() => {
         if (!seq.getAttribute('aria-label')?.startsWith('Photograph 2 of 6')) return
         observer.disconnect()
@@ -235,14 +235,14 @@ describeIfConfigured('native fold runtime', () => {
       observer.observe(seq, { attributes: true, attributeFilter: ['aria-label'] })
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
     })
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', seqLabel(3))
+    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', seqLabel(3))
   })
 
   test('ignores a canceled fold gesture and steps once on a completed drag', async ({ page }) => {
     const pageErrors: string[] = []
     page.on('pageerror', (error) => pageErrors.push(String(error)))
     await openFoldFixture(page)
-    const seq = page.locator('.stage-seq')
+    const seq = page.locator('[data-chrome-position]')
     await page.evaluate(() => {
       document.querySelector('[data-stage]')?.addEventListener('pointerdown', (event) => {
         ;(window as unknown as { __foldPointerId?: number }).__foldPointerId = (event as PointerEvent).pointerId
@@ -315,7 +315,7 @@ describeIfConfigured('native fold runtime', () => {
     await page.goto(`${nativeUrl}/?owner=fixture&slug=fold-fixture`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await page.locator('[data-curtain]').click()
-    const seq = page.locator('.stage-seq')
+    const seq = page.locator('[data-chrome-position]')
     await expect(seq).toHaveAttribute('aria-label', seqLabel(1))
     await expect(page.locator('[data-diptych-stage]')).toHaveCount(0)
     await page.evaluate(() => {

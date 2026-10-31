@@ -33,7 +33,7 @@ Every gallery lives at a clean public URL — `manorama.xyz/{you}/{gallery}` —
 The stage shows only your photographs — the chrome is temporary. A tap, mouse move, or `Tab` raises a top bar (Library, position) and a bottom row (Display, Info, and Details for owners); they hide again after three idle seconds.
 
 - **Three ways to look**: a horizontal photostrip where images abut edge-to-edge, a vertical scroll, or one photograph at a time — all inside the Display sheet.
-- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). A quiet position count sits on the stage — press it (or `G`) to open the photograph picker.
+- **Navigate** by dragging, scrolling, arrow keys, or optional on-screen arrows (off by default on touch and in vertical scroll). The position count rides the temporary chrome — press it (or `G`) to open the photograph picker.
 - **`I`** opens the information sheet — position, caption, EXIF, Content Credentials. **`⇧I`** opens the standalone C2PA viewer in a new tab.
 - **`M`** on desktop summons a magnifier that follows your cursor at 3×.
 - **The strip ends honestly**: a "The End." card slides in past the last photograph, with **Rewind** to run home.

@@ -439,13 +439,10 @@ for (const vp of viewports) {
           .map((el) => el.getAttribute("aria-label") ?? el.tagName);
         return { visible, arrowBar: stage.classList.contains("has-arrow-bar") };
       });
-      // Rule 1: nothing floats on the photograph. With arrows on, the
-      // controls live in their own bar beneath the stage — zero overlap;
-      // with them off, only the position count rides the corner.
-      expect(audit.visible).toHaveLength(audit.arrowBar ? 0 : 1);
-      if (!audit.arrowBar) expect(audit.visible[0]).toMatch(/^Photograph 1 of \d+/);
-      await expect(page.locator(".stage-seq")).toBeVisible();
-      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
+      // Rule 1: nothing floats on the photograph at rest — the count
+      // lives in the temporary chrome now, so the resting stage is bare
+      // whether the arrows reserve their bar or not.
+      expect(audit.visible).toHaveLength(0);
     });
 
     test("chrome bars dock top and bottom and open their panels", async ({
@@ -809,38 +806,6 @@ for (const vp of viewports) {
       expect(xAfterRelease - xDuringDrag).toBeGreaterThanOrEqual(-160);
     });
 
-    test("the rest bubble neither swallows drags nor opens on a drag", async ({
-      page,
-    }) => {
-      await dismissCurtain(page);
-      // Wait out the chrome's 3s window so the bubble is the only control.
-      await page.waitForTimeout(3300);
-      const bubble = page.locator(".stage-seq");
-      const box = (await bubble.boundingBox())!;
-      // A drag starting ON the bubble pans the strip — the press replay
-      // means the counter rides the stage instead of eating the gesture.
-      const trackLeft = () =>
-        page.evaluate(
-          () =>
-            document.querySelector("[data-track]")!.getBoundingClientRect().left,
-        );
-      const x0 = await trackLeft();
-      const bx = box.x + box.width / 2;
-      const by = box.y + box.height / 2;
-      await page.mouse.move(bx, by);
-      await page.mouse.down();
-      await page.mouse.move(bx - 140, by, { steps: 8 });
-      expect(Math.abs((await trackLeft()) - x0 + 140)).toBeLessThanOrEqual(3);
-      await page.mouse.up();
-      await page.waitForTimeout(300);
-      // That drag did not open the picker.
-      await expect(page.locator(".viewer-filmstrip:visible")).toHaveCount(0);
-      // An honest tap on the bubble opens it.
-      await bubble.click();
-      await expect(page.locator(".viewer-filmstrip:visible")).toHaveCount(1);
-      await page.keyboard.press("Escape");
-    });
-
     test("vertical scroll answers a mouse drag", async ({ page }) => {
       await dismissCurtain(page);
       await showChrome(page);
@@ -1156,10 +1121,11 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       // Buttons deliberately skip mouse focus (preventButtonFocus), so
       // the focus-restore path is exercised the way a keyboard user hits
-      // it: focus the rest bubble, open the info sheet with I, then
-      // dismiss — focus returns to the control that opened the chain.
-      await page.waitForTimeout(3300);
-      await page.locator(".stage-seq").focus();
+      // it: raise the chrome, focus the position pill, open the info
+      // sheet with I, then dismiss — focus returns to the control that
+      // opened the chain.
+      await showChrome(page);
+      await page.locator("[data-chrome-position]").focus();
       await page.keyboard.press("i");
       const modal = page.getByRole("dialog", { name: CONTROL_NAME });
       await expect(modal).toBeVisible();
@@ -1171,7 +1137,7 @@ for (const vp of viewports) {
       await page.keyboard.press("Escape");
       await expect(modal).not.toBeVisible();
       // focus returns to the stage control that opened the chain
-      await expect(page.locator(".stage-seq")).toBeFocused();
+      await expect(page.locator("[data-chrome-position]")).toBeFocused();
       // Second dismissal path: the panel's close control.
       await openInfoDialog(page);
       await expect(modal).toBeVisible();
@@ -1359,103 +1325,27 @@ for (const vp of viewports) {
       expect(boxes[1].bottom).toBeGreaterThan(stage.bottom - 100);
     });
 
-    test("the sequence bubble counts the active photograph and rides beside the nav buttons", async ({
+    test("the position count tracks the active photograph and opens the picker", async ({
       page,
     }) => {
       await dismissCurtain(page);
-      const seq = page.locator(".stage-seq");
-      const seqNum = seq.locator(".stage-seq-num");
-      await expect(seq).toBeVisible();
-      await expect(seqNum).toHaveText("1");
+      const seq = page.locator("[data-chrome-position]");
+      await expect(seq).toHaveText(`1 of ${await imageCount(page)}`);
       await expect(seq).toHaveAttribute(
         "aria-label",
         `Photograph 1 of ${await imageCount(page)} — open kashmir`,
       );
 
-      // The bubble tracks the reported index as the strip advances.
+      // The count tracks the reported index as the strip advances.
       await advanceToNextImage(page);
-      await expect(seqNum).toHaveText("2");
+      await expect(seq).toHaveText(`2 of ${await imageCount(page)}`);
 
-      // With arrows on, it floats left of the button cluster; with them
-      // off it still docks at the bottom-right corner alone.
-      const coarse = await page.evaluate(() =>
-        matchMedia("(pointer: coarse)").matches,
-      );
-      if (!coarse) {
-        // Hover stretches the circle into a pill: the bare count swaps
-        // for the full tally plus the open hint.
-        const restBox = await seq.boundingBox();
-        await seq.hover();
-        await expect(seq.locator(".stage-seq-tally")).toBeVisible();
-        await expect(seq.locator(".stage-seq-tally")).toHaveText(
-          `2 of ${await imageCount(page)} items`,
-        );
-        await expect(seq.locator(".stage-seq-hint")).toHaveText(
-          /open picker/i,
-        );
-        const lit = await seq.evaluate((el) => ({
-          opacity: getComputedStyle(el).opacity,
-          events: getComputedStyle(el).pointerEvents,
-        }));
-        expect(lit.opacity).toBe("1");
-        expect(lit.events).toBe("auto");
-        // The circle animates into the pill — poll the box until the
-        // expansion completes rather than reading one mid-flight frame.
-        await expect
-          .poll(async () => (await seq.boundingBox())!.width)
-          .toBeGreaterThan(restBox!.width + 40);
-        await page.mouse.move(0, 0);
-        await expect(seqNum).toHaveText("2");
-      }
-
-      // The bubble is a button — clicking it raises the selector.
+      // The pill is a button — clicking it raises the selector.
+      await showChrome(page);
       await seq.click();
       await expect(page.locator(".viewer-filmstrip")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(page.locator(".viewer-filmstrip")).toBeHidden();
-      await ensureNavArrows(page);
-      const nextArrow = page.getByRole("button", {
-        name: /next photograph/i,
-      });
-      if (!coarse) {
-        // Hovering NEAR the counter (anywhere in the nav cluster)
-        // wakes the pill too.
-        await nextArrow.hover();
-        await expect(seq.locator(".stage-seq-detail")).toHaveCSS(
-          "opacity",
-          "1",
-        );
-        await page.mouse.move(0, 0);
-      }
-      const seqBox = await seq.boundingBox();
-      const nextBox = await nextArrow.boundingBox();
-      expect(seqBox!.x + seqBox!.width).toBeLessThanOrEqual(nextBox!.x + 1);
-      if (!coarse) {
-        // In the reserved bar ← owns the far corner — the bubble rides
-        // with → on the right, so it only has to precede the forward
-        // arrow (asserted above).
-        const prevBox = await page
-          .getByRole("button", { name: /previous photograph/i })
-          .boundingBox();
-        const stageRect = await page
-          .locator("[data-stage]")
-          .evaluate((el) => el.getBoundingClientRect());
-        expect(prevBox!.x).toBeLessThan(stageRect.left + stageRect.width * 0.3);
-      }
-
-      await showChrome(page);
-      await page.getByRole("button", { name: "Display", exact: true }).click();
-      await page
-        .getByRole("switch", { name: /^arrows$/i })
-        .click();
-      await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
-      await expect(seq).toBeVisible();
-      const bare = await seq.boundingBox();
-      const stage = await page
-        .locator("[data-stage]")
-        .evaluate((el) => el.getBoundingClientRect());
-      expect(bare!.x + bare!.width).toBeGreaterThan(stage.right - 80);
-      expect(bare!.y + bare!.height).toBeGreaterThan(stage.bottom - 80);
     });
 
     test("one-at-a-time steps dissolve the next photograph in over the current one", async ({
@@ -1704,7 +1594,7 @@ for (const vp of viewports) {
       const total = 9;
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
-      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText(`${total}`);
+      await expect(page.locator("[data-chrome-position]")).toHaveText(`${total} of ${total}`);
       const hidden = await endcap.boundingBox();
       expect(hidden!.x).toBeGreaterThanOrEqual(
         stageBox!.x + stageBox!.width - 1,
@@ -1724,7 +1614,7 @@ for (const vp of viewports) {
       await expect(reset).toBeVisible();
       await reset.click();
       await waitForTrackSettled(page);
-      await expect(page.locator(".stage-seq .stage-seq-num")).toHaveText("1");
+      await expect(page.locator("[data-chrome-position]")).toHaveText("1 of 9");
       await expect(
         page.locator("[aria-current='true']"),
       ).toHaveAttribute("data-index", "1");
@@ -3609,7 +3499,7 @@ test.describe("density-aware staging", () => {
     });
     const page = await context.newPage();
     await dismissCurtain(page, url);
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open d-tiny');
+    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', 'Photograph 1 of 2 — open d-tiny');
     await expect(page.locator('[data-image-id="tiny"]')).toHaveAttribute('aria-current', 'true');
     const frame = page.locator("[aria-current='true']");
     const img = frame.locator(".frame-img");
@@ -3701,32 +3591,10 @@ test.describe("PR #48 review fixes — touch counter", () => {
     });
   }
 
-  test("dragging from the sequence counter pans the strip instead of opening the selector", async ({ page }) => {
+  test("tapping the position count opens the selector", async ({ page }) => {
     await dismissCurtain(page);
-    await page.waitForTimeout(3300);
-    await ensureStripSettled(page);
-    const x0 = await currentTrackX(page);
-    const seq = page.locator(".stage-seq");
-    const box = await seq.boundingBox();
-    expect(box, "counter visible").not.toBeNull();
-    const sx = box!.x + box!.width / 2;
-    const sy = box!.y + box!.height / 2;
-    await page.mouse.move(sx, sy);
-    await page.mouse.down();
-    await page.mouse.move(sx - 240, sy, { steps: 8 });
-    await page.mouse.up();
-    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
-    const x1 = await currentTrackX(page);
-    expect(x1, `strip should pan from the counter drag (${x0} -> ${x1})`).not.toBe(x0);
-  });
-
-  test("tapping the sequence counter opens the selector", async ({ page }) => {
-    await dismissCurtain(page);
-    await page.waitForTimeout(3300);
-    const seq = page.locator(".stage-seq");
-    const box = await seq.boundingBox();
-    expect(box, "counter visible").not.toBeNull();
-    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await showChrome(page);
+    await page.locator("[data-chrome-position]").click();
     await expect(page.locator(".viewer-filmstrip")).toBeVisible();
   });
 });

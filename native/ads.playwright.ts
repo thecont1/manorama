@@ -246,14 +246,14 @@ test.describe('native ad plate rules', () => {
     await openApp(page, 36)
 
     await expect(page.locator('[data-track] [data-index]')).toHaveCount(36)
-    const seq = page.locator('.stage-seq')
+    const seq = page.locator('[data-chrome-position]')
     await expect(seq).toHaveAttribute('aria-label', /of 36/)
-    await expect(page.locator('.stage-seq-tally')).toContainText('of 36')
+    await expect(page.locator('[data-chrome-position]')).toContainText('of 36')
 
     // With the plate centered the counter still speaks photographs.
     await centerPlate(page)
     await expect(seq).toHaveAttribute('aria-label', /of 36/)
-    await expect(page.locator('.stage-seq-tally')).toContainText('of 36')
+    await expect(page.locator('[data-chrome-position]')).toContainText('of 36')
   })
 
   test('keeps the CTA inert through drag, momentum and off-center rest', async ({ page }) => {
@@ -437,7 +437,7 @@ for (const width of [375, 1440, 2560]) {
     }
     expect(passed.size).toBe(1)
     expect(-current).toBeCloseTo(bounds.max, 0)
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', /Photograph 60 of 60/)
+    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', /Photograph 60 of 60/)
     // Backward traversal must cross the plates too, rather than becoming trapped.
     for (let step = 0; step < 160 && current < -1; step++) {
       const previous = current

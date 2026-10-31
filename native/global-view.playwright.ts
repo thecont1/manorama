@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { expect, test, type Page } from '@playwright/test'
+import { showChrome } from '../playwright-helpers'
 import type { GalleryImage } from '../app/lib/imagesource'
 
 const nativeUrl = process.env.NATIVE_GALLERY_URL
@@ -59,18 +60,11 @@ const openFixture = async (
 
 // The cache fill runs in the background and writes vault metadata last; the
 // island retries while a gallery is open, so the grid's arrival is the signal.
-// The count affordance exists twice — the rest bubble and the chrome's
-// position pill share one aria-label, and each is inert while the other is
-// live — so pick by which bar state is actually showing.
+// The position pill is the only count affordance now — it sits in the
+// temporary chrome, so the bar must be raised before the click can land.
 const enableGlobalView = async (page: Page) => {
-  const chromeUp = await page
-    .locator('[data-chrome-bottom]')
-    .evaluate((el) => el.classList.contains('is-visible'))
-    .catch(() => false)
-  await (chromeUp
-    ? page.locator('[data-chrome-position]')
-    : page.locator('.stage-seq')
-  ).click()
+  await showChrome(page)
+  await page.locator('[data-chrome-position]').click()
 }
 
 test.beforeEach(() => {
@@ -90,7 +84,7 @@ test('shows the open gallery offline and lands the stage on the tapped frame', a
   await expect(page.locator('[data-grid-frame] img')).toHaveCount(12, { timeout: 10000 })
 
   await page.locator('[data-grid-frame]').nth(7).click()
-  await expect(page.locator('.stage-seq-tally')).toContainText('8 of 12', { timeout: 5000 })
+  await expect(page.locator('[data-chrome-position]')).toContainText('8 of 12', { timeout: 5000 })
 })
 
 test('lands the stage on a tapped frame that cannot dock at the left edge', async ({ page }) => {
@@ -101,7 +95,7 @@ test('lands the stage on a tapped frame that cannot dock at the left edge', asyn
   // has materialized and scrolled beyond its first screenful.
   await page.locator('[data-global-scroll]').evaluate((element) => { element.scrollTop = element.scrollHeight })
   await page.locator('[data-grid-frame]').nth(10).click()
-  await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
+  await expect(page.locator('[data-chrome-position]')).toContainText('11 of 12', { timeout: 5000 })
 })
 
 test('lands the stage on the last of two rapid frame taps', async ({ page }) => {
@@ -117,7 +111,7 @@ test('lands the stage on the last of two rapid frame taps', async ({ page }) => 
     cells[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
     cells[10]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
   })
-  await expect(page.locator('.stage-seq-tally')).toContainText('11 of 12', { timeout: 5000 })
+  await expect(page.locator('[data-chrome-position]')).toContainText('11 of 12', { timeout: 5000 })
 })
 
 test('the disabled preference still scopes Global View to the open gallery', async ({ page }) => {

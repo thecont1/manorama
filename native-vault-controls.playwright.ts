@@ -210,7 +210,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     }, { timeout: 20000 }).toBe(true)
     // The temporary chrome is the web's control set: a quiet rest bubble
     // at rest, bars on demand — nothing floats over a photograph for long.
-    await expect(page.locator('.stage-seq')).toBeVisible()
+    await expect(page.locator('[data-chrome-position]')).toBeVisible()
     await showChrome(page)
     await page.getByRole('button', { name: 'Display', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Display' })
@@ -219,7 +219,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // controls except this browser-only escape hatch.
     await expect(dialog.getByRole('switch', { name: 'Fullscreen', exact: true })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
-    const positionBeforeDetails = await page.locator('.stage-seq-tally').textContent()
+    const positionBeforeDetails = await page.locator('[data-chrome-position]').textContent()
     await page.getByRole('button', { name: 'Details', exact: true }).click()
     const viewerDetails = page.locator('[data-screen="details"]')
     await expect(viewerDetails).toBeVisible()
@@ -232,7 +232,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await viewerDetails.locator('.m-topbar button').click()
     await expect(viewerDetails).toHaveCount(0)
     await expect(page.locator('[data-curtain]')).toBeHidden()
-    await expect(page.locator('.stage-seq-tally')).toHaveText(positionBeforeDetails ?? '')
+    await expect(page.locator('[data-chrome-position]')).toHaveText(positionBeforeDetails ?? '')
     await page.keyboard.press('g')
     const picker = page.locator('[data-global-view]')
     await expect(picker).toBeVisible()
@@ -271,7 +271,8 @@ test('375: a viewer that asks for less motion gets a still pill', async ({ brows
     await curtain.click({ timeout: 2000 }).catch(() => {})
     return curtain.isHidden()
   }, { timeout: 20000 }).toBe(true)
-  const bubble = page.locator('.stage-seq')
+  await showChrome(page)
+  const bubble = page.locator('[data-chrome-position]')
   await expect(bubble).toHaveCSS('opacity', '1')
   // The web's fade-in may still run; what must not run is the drift.
   expect(await bubble.evaluate((node) => node.getAnimations().map((animation) => (animation as CSSAnimation).animationName))).not.toContain('native-logo-bob')

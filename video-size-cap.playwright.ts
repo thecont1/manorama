@@ -19,10 +19,10 @@ test.setTimeout(180_000)
 const enter = async (page: Page) => {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await page.goto(ALBUM, { waitUntil: 'domcontentloaded' })
-    if (await page.locator('.stage-seq').count()) break
+    if (await page.locator('[data-chrome-position]').count()) break
     await page.waitForTimeout(1000)
   }
-  await page.locator('.stage-seq').waitFor({ state: 'attached', timeout: 60000 })
+  await page.locator('[data-chrome-position]').waitFor({ state: 'attached', timeout: 60000 })
   const curtain = page.locator('[data-curtain]')
   for (let i = 0; i < 10 && await curtain.count(); i += 1) {
     await curtain.first().click({ force: true }).catch(() => {})

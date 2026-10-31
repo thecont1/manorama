@@ -1346,7 +1346,7 @@ html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark) { filter: bright
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .stage-arrows .stage-seq,
+  .stage-arrows,
   .viewer-filmstrip,
   .viewer-filmstrip.is-closing,
   .filmstrip-scrim.is-closing,
@@ -1808,74 +1808,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 
 .admin-profile-address { margin: 20px 0; font-size: 14px; overflow-wrap: anywhere; color: rgb(var(--ink)); }
 
-/* Rest bubble — the quiet position counter. A 36px circle docked
-   bottom-right on a 44px hit box, keeping the stage-seq aria-label
-   contract. While the chrome shows, the top-bar's N-of-M pill takes
-   over and the bubble goes inert and transparent — never unmounted. */
-.stage-seq {
-  position: fixed;
-  z-index: 21;
-  right: max(20px, env(safe-area-inset-right, 0px));
-  bottom: max(20px, env(safe-area-inset-bottom, 0px));
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(10, 10, 10, .62);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: rgba(var(--ink), .9);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  cursor: pointer;
-  transition: opacity 200ms ease;
-}
-.stage-seq .stage-seq-detail { display: none; }
-.stage-seq.is-chrome-showing { opacity: 0; pointer-events: none; }
-.stage-seq:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 2px; }
-@supports not (backdrop-filter: blur(12px)) { .stage-seq { background: rgba(10, 10, 10, .85); } }
-@media (prefers-reduced-motion: reduce) { .stage-seq { transition: none; } }
-/* Inside the reserved bar the counter sits just left of the forward
-   arrow — the prototype's "count + →" corner cluster. In vertical
-   scroll it rides above the floating ↑/↓ pair as before. */
-body:has(.viewer-stage.has-arrow-bar:not(.mode-vertical)) .stage-seq {
-  right: calc(max(20px, env(safe-area-inset-right, 0px)) + clamp(44px, 6.3svh, 59px) + 14px);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
-}
-body:has(.stage-arrows--vertical:not(.stage-arrows--bare)) .stage-seq {
-  right: max(20px, env(safe-area-inset-right, 0px));
-  bottom: calc(max(20px, env(safe-area-inset-bottom, 0px)) + (2 * clamp(44px, 6.3svh, 59px)) + 14px);
-}
-
-/* The hover flyout rides along: the circle grows into a pill carrying
-   the full tally and affordance — bare N at rest, detail on demand. */
-.stage-seq { position: fixed; }
-.stage-seq .stage-seq-detail {
-  position: absolute;
-  inset: 0;
-  display: none;
-  place-content: center;
-  gap: 3px;
-  white-space: nowrap;
-}
-.stage-seq .stage-seq-tally { font-size: 13px; font-weight: 600; }
-.stage-seq .stage-seq-hint { font-size: 9px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; opacity: .62; }
-@media (hover: hover) and (pointer: fine) {
-  .stage-seq:is(:hover, :focus-visible) {
-    width: auto;
-    min-width: 118px;
-    padding: 0 14px;
-    border-radius: var(--m-pill, 999px);
-  }
-  .stage-seq:is(:hover, :focus-visible) .stage-seq-num { opacity: 0; }
-  .stage-seq:is(:hover, :focus-visible) .stage-seq-detail { display: grid; }
-}
 
 /* Temporary viewer chrome (P3): top bar (Library + N of M) and bottom
    row (Display / Info / Details). Always inside .m-dark — the pills

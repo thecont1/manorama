@@ -59,7 +59,7 @@ const dismissCurtain = async (page: Page) => {
 const openGallery = async (page: Page, url: string) => {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await dismissCurtain(page)
-  const sequence = page.locator('.stage-seq')
+  const sequence = page.locator('[data-chrome-position]')
   await expect(sequence).toBeVisible({ timeout: 15_000 })
   return sequence
 }
@@ -111,7 +111,7 @@ test.describe('standing preferences', () => {
       await dismissCurtain(page)
     }
     await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`))
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', /Photograph 1 of \d+/)
+    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', /Photograph 1 of \d+/)
 
     await context.close()
   })
@@ -136,7 +136,7 @@ test.describe('standing preferences', () => {
     if (await page.locator('[data-curtain]').isVisible().catch(() => false)) {
       await dismissCurtain(page)
     }
-    await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', /Photograph 1 of \d+/)
+    await expect(page.locator('[data-chrome-position]')).toHaveAttribute('aria-label', /Photograph 1 of \d+/)
     await context.close()
   })
 })
