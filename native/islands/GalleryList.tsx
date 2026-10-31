@@ -613,7 +613,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   useEffect(() => {
     if (!manifest) return
     let active = true
-    void adFrameFor({ tier: billingState?.isPro ? 'pro' : 'free', visible: visibility?.show }).then((frame) => {
+    void adFrameFor({ tier: billingState?.isPro ? 'pro' : 'free', visible: visibility?.show, seedKey: selection.slug }).then((frame) => {
       if (active) setPlate(frame)
     })
     return () => { active = false }
@@ -642,6 +642,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     void accountAdLoader({
       tier: billingState.isPro ? 'pro' : 'free',
       visible: platesVisible,
+      seedKey: 'library',
     }).then((frame) => {
       if (active) setAccountAd(frame)
     })

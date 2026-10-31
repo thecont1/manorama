@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { expect, test, type Page } from '@playwright/test'
-import { platePositionsFor } from '../app/lib/adframe'
+import { singlePlatePositionsFor } from '../app/lib/adframe'
 import type { GalleryImage } from '../app/lib/imagesource'
 
 /**
@@ -15,10 +15,11 @@ import type { GalleryImage } from '../app/lib/imagesource'
  *    without a test seam in production code.
  *
  * The current rules: house plates ride the strip for every tier (Pro is
- * house-only — the AdMob adapter is never called for it), placed on a seeded
- * ~25-image cadence that re-rolls per gallery per UTC day, styled like the
- * "The End." card, inert while the strip moves, and actionable only when the
- * plate holding the CTA is dead-center and settled.
+ * house-only — the AdMob adapter is never called for it). While the dummy
+ * creatives stand in for AdMob, each gallery carries exactly one plate at a
+ * seeded interior position that re-rolls per gallery per UTC day — styled
+ * like the "The End." card, inert while the strip moves, and actionable only
+ * when the plate holding the CTA is dead-center and settled.
  *
  * Unlike the fold spec this suite must never pass quietly: without the
  * fixture server it fails outright, because "no plate observed" is only
@@ -179,16 +180,15 @@ const plateCta = (page: Page, nth = 0) => page.locator('[data-ad-frame] .ad-plat
 test.describe('native ad plate rules', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('seeds plates on the ~25-image cadence, styled like the endcard', async ({ page }) => {
+  test('seeds exactly one interior plate, styled like the endcard', async ({ page }) => {
     await openApp(page, 60)
 
-    // 60 photographs always carries exactly two plates: first lands in the
-    // 21–29 window, the next ~25 later, and a third can never fit.
-    const expected = platePositionsFor(60, `ads-fixture:${todayKey()}`)
-    expect(expected).toHaveLength(2)
+    // The interim rule: one plate per gallery at a seeded interior position.
+    const expected = singlePlatePositionsFor(60, `ads-fixture:${todayKey()}`)
+    expect(expected).toHaveLength(1)
 
     const frames = page.locator('[data-ad-frame]')
-    await expect(frames).toHaveCount(2)
+    await expect(frames).toHaveCount(1)
     const positions = await frames.evaluateAll((nodes) =>
       nodes.map((node) => Number((node as HTMLElement).dataset.adPosition)))
     expect(positions).toEqual([...expected])
@@ -200,6 +200,10 @@ test.describe('native ad plate rules', () => {
       await expect(page.locator(`[data-index="${pos}"] + [data-ad-position="${pos}"] + [data-index="${pos + 1}"]`)).toHaveCount(1)
       await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-badge`)).toHaveText('Sponsored')
       await expect(page.locator(`[data-ad-position="${pos}"] .ad-plate-headline`)).toContainText('photographs')
+      // The dummy creative renders as a vertical image on the plate.
+      const image = page.locator(`[data-ad-position="${pos}"] .ad-plate-image`)
+      await expect(image).toHaveCount(1)
+      await expect(image).toHaveAttribute('src', /\/ads\/house-\d\.jpg/)
     }
     // Plates are never endpoints: a photo leads and a photo trails each.
     await expect(page.locator('[data-track] [data-index]')).toHaveCount(60)
@@ -210,26 +214,31 @@ test.describe('native ad plate rules', () => {
     await openApp(page, 200)
     const first = await page.locator('[data-ad-frame]').evaluateAll((nodes) =>
       nodes.map((node) => Number((node as HTMLElement).dataset.adPosition)))
-    expect(first).toEqual([...platePositionsFor(200, `ads-fixture:${todayKey()}`)])
+    expect(first).toEqual([...singlePlatePositionsFor(200, `ads-fixture:${todayKey()}`)])
 
-    // A different UTC day is a different seed — positions re-roll.
+    // A different UTC day is a different seed — the position re-rolls.
     await page.clock.install({ time: new Date('2026-10-01T12:00:00Z') })
     await openApp(page, 200)
     const second = await page.locator('[data-ad-frame]').evaluateAll((nodes) =>
       nodes.map((node) => Number((node as HTMLElement).dataset.adPosition)))
-    const expected = platePositionsFor(200, 'ads-fixture:2026-10-01')
+    const expected = singlePlatePositionsFor(200, 'ads-fixture:2026-10-01')
     expect(second).toEqual([...expected])
     expect(second).not.toEqual(first)
   })
 
-  test('suppresses plates entirely in short galleries', async ({ page }) => {
+  test('seeds one interior plate even in short galleries', async ({ page }) => {
+    // The interim rule places a plate in every gallery that has an interior
+    // slot — a 5-photo strip carries one too, never first, never last.
     await openApp(page, 5)
     await expect(page.locator('[data-track]')).toBeVisible()
-    await expect(page.locator('[data-ad-frame]')).toHaveCount(0)
+    await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
+    const shortPos = Number(await page.locator('[data-ad-frame]').getAttribute('data-ad-position'))
+    expect(shortPos).toBe(singlePlatePositionsFor(5, `ads-fixture:${todayKey()}`)[0])
+    expect(shortPos).toBeGreaterThan(0)
+    expect(shortPos).toBeLessThan(4)
 
-    // 22 photographs is still below the earliest possible cadence window.
     await openApp(page, 22)
-    await expect(page.locator('[data-ad-frame]')).toHaveCount(0)
+    await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
     await expect(page.locator('[data-track] [data-index]')).toHaveCount(22)
   })
 
@@ -330,26 +339,25 @@ test.describe('native ad plate rules', () => {
     expect(await openedUrls(opened)).toHaveLength(2)
   })
 
-  test('arms only the plate actually centered when several ride the strip', async ({ page }) => {
+  test('arms the single plate only after it is centered and settled', async ({ page }) => {
     await openApp(page, 60)
 
-    // Center the SECOND plate — only its own CTA may arm.
-    await centerPlate(page, 1)
-    await expect(plateCta(page, 1)).toHaveAttribute('tabindex', '0', { timeout: 5000 })
-    await expect(plateCta(page, 0)).toHaveAttribute('tabindex', '-1')
+    // Exactly one plate rides the strip under the interim rule; it starts
+    // inert and arms only once dragged dead-center.
+    await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
+    const cta = plateCta(page, 0)
+    await expect(cta).toHaveAttribute('tabindex', '-1')
 
-    // Slide back to the first plate: the arm moves with it.
     await centerPlate(page, 0)
-    await expect(plateCta(page, 0)).toHaveAttribute('tabindex', '0', { timeout: 5000 })
-    await expect(plateCta(page, 1)).toHaveAttribute('tabindex', '-1')
+    await expect(cta).toHaveAttribute('tabindex', '0', { timeout: 5000 })
   })
 
-  test('pro sees the house plate on the cadence, never third-party inventory', async ({ page }) => {
+  test('pro sees the house plate at the seeded position, never third-party inventory', async ({ page }) => {
     await openFixture(page, { photoCount: 36, tier: 'pro' })
 
     // Pro's promise is "no ad network": the adapter is never consulted and
     // the manorama-owned creative rides the same seeded placement.
-    const expected = platePositionsFor(36, `ads-fixture:${todayKey()}`)
+    const expected = singlePlatePositionsFor(36, `ads-fixture:${todayKey()}`)
     expect(expected).toHaveLength(1)
     const frame = page.locator('[data-ad-frame]')
     await expect(frame).toHaveCount(1)
@@ -408,7 +416,7 @@ for (const width of [375, 1440, 2560]) {
     await page.setViewportSize({ width, height: 900 })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openFixture(page, { photoCount: 60, tier: 'free' })
-    await expect(page.locator('[data-ad-frame]')).toHaveCount(2)
+    await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
     const position = () => page.locator('[data-track]').evaluate(element => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41)
     const bounds = await page.evaluate(() => {
       const track = document.querySelector<HTMLElement>('[data-track]')!
@@ -427,7 +435,7 @@ for (const width of [375, 1440, 2560]) {
       current = await position()
       for (const offset of bounds.plates) if (-current > offset + 1) passed.add(offset)
     }
-    expect(passed.size).toBe(2)
+    expect(passed.size).toBe(1)
     expect(-current).toBeCloseTo(bounds.max, 0)
     await expect(page.locator('.stage-seq')).toHaveAttribute('aria-label', /Photograph 60 of 60/)
     // Backward traversal must cross the plates too, rather than becoming trapped.

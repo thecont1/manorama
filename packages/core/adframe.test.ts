@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { composePlate, PLATE_CADENCE, platePositionsFor, type AdFrame } from './adframe'
+import {
+  composePlate,
+  HOUSE_AD_CREATIVES,
+  HOUSE_AD_FRAME,
+  houseAdCreativeFor,
+  houseAdFrameFor,
+  PLATE_CADENCE,
+  platePositionsFor,
+  singlePlatePositionsFor,
+  type AdFrame,
+} from './adframe'
 import { BundledSource, type GalleryImage } from './imagesource'
 
 const photo = (id: string): GalleryImage => ({
@@ -73,6 +83,22 @@ describe('seeded plate cadence', () => {
     expect(composePlate(items, plate, [])).toBe(items)
   })
 
+  test('the interim single-plate rule picks one interior position per seed', () => {
+    // Exactly one placement per gallery — never first, never last.
+    for (const seed of ['a:1', 'b:2', 'c:3', 'd:4', 'e:5']) {
+      const positions = singlePlatePositionsFor(60, seed)
+      expect(positions).toHaveLength(1)
+      expect(positions[0]).toBeGreaterThan(0)
+      expect(positions[0]).toBeLessThan(59)
+    }
+    expect(singlePlatePositionsFor(60, 'x:1')).toEqual(singlePlatePositionsFor(60, 'x:1'))
+    // Three photographs leaves exactly one interior slot; under three there
+    // is no honest place a plate can sit, so the gallery stays clean.
+    expect(singlePlatePositionsFor(3, 'x:1')).toEqual([1])
+    expect(singlePlatePositionsFor(2, 'x:1')).toEqual([])
+    expect(singlePlatePositionsFor(0, 'x:1')).toEqual([])
+  })
+
   test('keeps the stored BundledSource sequence photo-only', () => {
     const items = photos(60)
     const source = new BundledSource({ slug: 'test', title: 'Test', caption: '', date: '', images: items })
@@ -81,5 +107,32 @@ describe('seeded plate cadence', () => {
     expect(runtime.filter((item) => 'provider' in item)).toHaveLength(platePositionsFor(60, 'test:2026-09-24').length)
     expect(JSON.stringify(source.list())).toBe(before)
     expect(source.list()).toHaveLength(60)
+  })
+})
+
+describe('interim house creatives', () => {
+  test('the seeded pick is deterministic per scope and day and always in pool', () => {
+    const picked = houseAdCreativeFor('gallery:2026-10-31')
+    expect(HOUSE_AD_CREATIVES).toContain(picked)
+    expect(houseAdCreativeFor('gallery:2026-10-31')).toBe(picked)
+    // Every creative is a vertical asset served from the shared /ads folder.
+    for (const creative of HOUSE_AD_CREATIVES) {
+      expect(creative.src).toMatch(/^\/ads\//)
+      expect(creative.height).toBeGreaterThan(creative.width)
+    }
+  })
+
+  test('houseAdFrameFor varies the image by scope and day but keeps the frame', () => {
+    const frame = houseAdFrameFor('gallery', '2026-10-31')
+    expect(frame.id).toBe(HOUSE_AD_FRAME.id)
+    expect(frame.provider).toBe('manorama-house')
+    expect(frame.badge).toBe('Sponsored')
+    expect(HOUSE_AD_CREATIVES).toContain(frame.image)
+    expect(frame).not.toBe(HOUSE_AD_FRAME)
+    // Same scope, same day: same creative. Different day may re-roll.
+    expect(houseAdFrameFor('gallery', '2026-10-31').image).toEqual(frame.image)
+    const days = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
+    const seen = new Set(days.map((day) => houseAdFrameFor('gallery', day).image?.src))
+    expect(seen.size).toBeGreaterThan(1)
   })
 })

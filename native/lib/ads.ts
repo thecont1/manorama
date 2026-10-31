@@ -1,5 +1,5 @@
 import type { AdFrame } from '../../packages/core/adframe'
-import { AD_BANNER_HEIGHT, AD_BANNER_WIDTH } from '../../packages/core/adframe'
+import { AD_BANNER_HEIGHT, AD_BANNER_WIDTH, houseAdFrameFor, HOUSE_AD_FRAME } from '../../packages/core/adframe'
 import { normalizeApiBase } from './api'
 
 export type AdTier = 'free' | 'pro'
@@ -22,16 +22,12 @@ export type AdPolicyInput = {
    *  region. Undefined (offline, unanswered) means show — suppression is a
    *  courtesy, not a gate. */
   visible?: boolean
+  /** Surface scope ('gallery-slug', 'library') seeding which house creative
+   *  the plate carries this UTC day. Unseeded keeps the base house frame. */
+  seedKey?: string
 }
 
-export const HOUSE_AD_FRAME: AdFrame = {
-  id: 'manorama-house-plate',
-  advertiser: 'manorama',
-  headline: 'More photographs, quietly shared.',
-  cta: { label: 'Explore manorama', url: 'https://manorama.xyz' },
-  badge: 'Sponsored',
-  provider: 'manorama-house',
-}
+export { HOUSE_AD_FRAME }
 
 export const createMediumRectangleFrame = (overrides: Partial<AdFrame> = {}): AdFrame => ({
   id: 'admob-medium-rectangle',
@@ -66,9 +62,10 @@ export const fetchAdVisibility = async (apiBase: string): Promise<AdVisibility> 
 /** House plates are editorial, not ad-network inventory, so every tier sees
  *  them. Pro's promise is "no third-party ad network": the adapter is never
  *  called for pro, only the manorama-owned creative. */
-export const adFrameFor = async ({ tier, adapter, visible }: AdPolicyInput): Promise<AdFrame | null> => {
+export const adFrameFor = async ({ tier, adapter, visible, seedKey }: AdPolicyInput): Promise<AdFrame | null> => {
   if (visible === false) return null
-  if (tier === 'pro') return HOUSE_AD_FRAME
+  const house = seedKey ? houseAdFrameFor(seedKey) : HOUSE_AD_FRAME
+  if (tier === 'pro') return house
   if (adapter) {
     try {
       const frame = await adapter.loadMediumRectangle()
@@ -78,7 +75,7 @@ export const adFrameFor = async ({ tier, adapter, visible }: AdPolicyInput): Pro
       // the plate in front of a reviewer.
     }
   }
-  return HOUSE_AD_FRAME
+  return house
 }
 
 export const adMountSize = { width: AD_BANNER_WIDTH, height: AD_BANNER_HEIGHT } as const

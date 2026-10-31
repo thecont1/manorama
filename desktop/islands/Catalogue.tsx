@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import { defaultGallerySettings } from '../../app/lib/gallery-settings'
+import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
 import type { GalleryManifest } from '../../app/lib/imagesource'
 import {
   classifyRoot,
@@ -133,6 +134,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [catalogue, setCatalogue] = useState<LocalCatalogue | null>(null)
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
+  const [plate, setPlate] = useState<AdFrame | null>(null)
   const [session, setSession] = useState<DesktopSession | null>(null)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [deviceRows, setDeviceRows] = useState<DeviceGallery[]>([])
@@ -163,6 +165,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => {
     catalogueRef.current = catalogue
   }, [catalogue])
+  // The interim house plate rides every open gallery, seeded by its id. The
+  // master's day/region switch still suppresses it — the same fail-open
+  // courtesy as the native viewer: unanswered means show, never a gate.
+  useEffect(() => {
+    const galleryId = viewerState?.galleryId
+    if (!galleryId) {
+      setPlate(null)
+      return
+    }
+    let active = true
+    const apply = (show: boolean) => { if (active) setPlate(show ? houseAdFrameFor(galleryId) : null) }
+    void fetch(`${base}/api/ads/visibility`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => apply((body as { show?: boolean } | null)?.show !== false))
+      .catch(() => apply(true))
+    return () => { active = false }
+  }, [base, viewerState?.galleryId])
   // The share sheet's live state, mirrored in refs so the window-level history
   // listener (registered once, empty deps) sees the CURRENT flow instead of
   // closing over a stale render.
@@ -581,6 +600,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             slug={record.id}
             images={manifest.images}
             settings={settings}
+            plate={plate}
             initialIndex={viewerState?.index ?? 0}
             allowFullscreen={false}
             onReturnToGalleries={() => setViewerState(null)}
