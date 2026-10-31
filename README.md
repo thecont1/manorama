@@ -69,6 +69,6 @@ Originals are never persisted — media streams through Manorama at view time an
 
 ---
 
-`G` raises the selector: a filmstrip mid-screen. Drag to browse, hover or arrow keys move the pink box, click or Enter jumps to it.
+`G` opens the photograph picker: a scrollable matrix of the gallery's frames. Arrow keys move the pink highlight, click or Enter jumps to it.
 
 *For developers: architecture, media pipeline, the viewer contract, the native and desktop shells, and deployment live in [TECH-SPEC.md](TECH-SPEC.md).*
