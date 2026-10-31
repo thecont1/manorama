@@ -55,7 +55,7 @@ manorama Visionary is an annual subscription that unlocks up to 99 retained gall
 
 ### Review Information (paste)
 
-- **Review note:** `Unlocks Visionary: up to 99 retained galleries, larger or unlimited encrypted offline vault, and house-only placements. Sign in, then tap "View subscription options".`
+- **Review note:** `Unlocks Visionary: up to 99 retained galleries, larger or unlimited encrypted offline vault, and house-only placements. Sign in, then open Settings › Plan and tap "Go Visionary". The Library footer shows "Go Visionary" only once a Free account reaches its gallery limit.`
 - **Review screenshot:** see "Pending before submit" below
 - **1024×1024 promotional image (optional):** upload `screens/icon-1024.png` (the app icon). The field is optional and improves the subscription's listing — leave blank if the file is rejected.
 
@@ -102,7 +102,7 @@ The same shadowing will break the tag-triggered ASC upload in CI if the runner h
 
 ## Final checklist
 
-- [ ] **Physical-device screen recording (Guideline 2.1, requested 1 Oct 2026)** — record on the iPhone running current iOS: launch → Sign in with Apple → open `thecontrarian/italy` → viewer → "View subscription options" paywall → account deletion. Use a throwaway sign-in for the deletion take — the flow really deletes the account. Attach to the Resolution Center reply.
+- [ ] **Physical-device screen recording (Guideline 2.1, requested 1 Oct 2026)** — record on the iPhone running current iOS: launch → Sign in with Apple → Library → open `https://manorama.xyz/thecontrarian/italy` (universal link) → viewer → "Go Visionary" paywall → Settings › Delete account. Use a throwaway sign-in for the deletion take — the flow really deletes the account. Attach to the Resolution Center reply.
 - [ ] **Paste the Guideline 2.1 reply** from `02-app-review-notes.md` into the Notes field (Apple asked for it there too) and send the Resolution Center reply.
 - [ ] **Publish the RevenueCat paywall** — the `Oct 2026 Launch` draft still has unresolved issues; the reviewer cannot see the real paywall until it is published.
 - [ ] **Submit Visionary Annual with the version** — the IAP must be attached to this submission, with the IAP review screenshot (live paywall) in its Review Information row.

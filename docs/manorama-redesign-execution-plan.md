@@ -42,7 +42,7 @@ Goal: the new look available everywhere without changing behaviour yet.
 
 Tasks
 1. Tokens in `app/styles.css`: add ground, surface, raised, ink, secondary, meta, data hue, negative, radii, bar height, logo box. Keep the `--admin-*` names as aliases until Stage 7, so nothing breaks mid-migration.
-2. Fonts: bundle Bricolage Grotesque (variable) in `public/fonts` and the native bundle; remove the Google Fonts request from native; delete DM Mono, Playfair Display and Great Vibes usage when the last screen is migrated.
+2. Fonts: bundle Bricolage Grotesque (variable) in `public/fonts` and the native bundle; remove the Google Fonts request from native; delete DM Mono, Playfair Display and Great Vibes usage when the last screen is migrated. *(31 Oct 2026: remote request removed in P12 across all bundles — every face now serves from `public/fonts`. The deletions did not happen: DM Mono stays the metadata voice, Playfair stays for dictionary/privacy editorial copy, and Great Vibes stays bundled for the parked Ask-Manu launcher. See decisions.md.)*
 3. Shared components (the repo's Hono JSX island style — `hono/jsx/dom`; 28 Oct 2026: no React, Preact, router package or component library): `TopBar` (logo box centred at 140 x 47 in a 52px bar, optional back and trailing slots), `Sheet` (grab handle, rise animation, max-height prop, focus trap, scrim), `ActionRow` (56px, icon, label, value, chevron or switch), `Panel`, `Pill` buttons (primary cream, secondary raised), `Meter` (data hue line), `Switch`, `Segmented`, `Toast`.
 4. A single logo asset with explicit width and height attributes so layout never depends on the image decoding.
 5. Unit tests for any logic (none expected) and a visual page listing the components, for parity checks.
@@ -154,7 +154,7 @@ Exit criteria: web matrix green at all three sizes; desktop builds and passes it
 
 1. Accessibility: keyboard and screen-reader pass on every screen; contrast check of all text tiers; focus order; reduced motion; 44px targets (automate with a Playwright check where possible).
 2. Performance: curtain frame time on an older iPhone; rail memory on a 500-photograph gallery; thumbnail request counts; no layout shift from the logo or arrows bar.
-3. Cleanup: remove the `--admin-*` aliases and the unused font files; delete dead components and their tests; correct `todo.md` line 42.
+3. Cleanup: remove the `--admin-*` aliases and the unused font files; delete dead components and their tests; correct `todo.md` line 42. *(31 Oct 2026: done in P12 with one correction — `--admin-*` turned out to be live dynamic geometry variables (`--admin-left-end`, `--admin-right-start`, `--admin-pane-limit`), not aliases, so they stay. Unused font files and dead CSS/components were removed; `todo.md` line 42 was already corrected 28 Oct.)*
 4. Evidence: recapture the six-state matrix under `demo-captures/{ios,ipad,macos}/` from fresh bundles (opening screen, gallery curtain, first image with controls, display popover, signed-in surface, Global View).
 5. Submission documents: update `submission/` text for the new names and flows; re-read the App Store review notes for any step that no longer exists (the brand pill, "View subscription options").
 6. Release candidate on TestFlight; smoke test on at least one small and one large iPhone, in portrait and landscape, with a kept gallery and a streamed one, a gallery with Content Credentials and one without, and an iCloud gallery.

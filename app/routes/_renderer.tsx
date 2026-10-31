@@ -40,6 +40,9 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme 
       {description ? <meta name="twitter:description" content={description} /> : null}
       <meta name="twitter:image" content={absoluteImage} />
       <HasIslands>
+        {/* Parses before client.ts so clicks landing before island hydration
+            are buffered and replayed once the island is live. */}
+        <script src="/hydrate-guard.js"></script>
         <Script src="/app/client.ts" async />
       </HasIslands>
     </head>

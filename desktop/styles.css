@@ -193,18 +193,12 @@ body.manorama-desktop {
 
 /* ── The viewing stage ─────────────────────────────────────────────────── */
 
-
 /* Viewer/curtain geometry matches native. */
 body.manorama-desktop .curtain-content { display: grid; grid-template-rows: 1fr 1fr; align-items: center; width: min(1200px, 100%); height: 100%; text-align: center; transform: none; }
-body.manorama-desktop .curtain-logo-wrap { grid-row: 1; width: fit-content; margin: 0 auto; transform: none; }
-body.manorama-desktop .curtain-logo { width: clamp(260px, 32vw, 520px); }
-body.manorama-desktop .curtain-details { grid-row: 2; display: grid; justify-items: center; align-content: center; min-width: 0; }
 body.manorama-desktop .curtain h1 { max-width: 14ch; margin: 0 0 20px; }
 body.manorama-desktop .curtain-caption { margin: 0 auto; }
 @media (orientation: landscape) {
   body.manorama-desktop .curtain-content { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; column-gap: clamp(36px, 7vw, 120px); }
-  body.manorama-desktop .curtain-logo-wrap { grid-column: 1; grid-row: 1; }
-  body.manorama-desktop .curtain-details { grid-column: 2; grid-row: 1; }
 }
 body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(2, auto); justify-content: space-between; align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
 body.manorama-desktop .stage-arrows > button { box-sizing: border-box; width: var(--desktop-chrome-height); height: 100%; margin: 0; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: rgba(10, 10, 10, .62); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .9); pointer-events: auto; }
@@ -229,3 +223,124 @@ html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04)
 body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   right: calc(18px + var(--desktop-chrome-height) + 8px);
 }
+
+/* ── Account drawer ────────────────────────────────────────────────────────
+   The web dashboard moved its account behind the shared top bar and dropped
+   this chrome from app/styles.css; the catalogue keeps its account behind
+   the left-edge tab, so the drawer anatomy lives here now. */
+.admin-edge-tab {
+  position: fixed;
+  z-index: 45;
+  left: env(safe-area-inset-left, 0px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  width: 44px;
+  min-height: 112px;
+  place-items: center;
+  gap: 10px;
+  padding: 16px 8px;
+  border: 1px solid rgba(var(--ink), .32);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--admin-surface);
+  color: rgb(var(--ink));
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.admin-edge-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .035em; }
+.admin-edge-tab svg { width: 16px; height: 16px; }
+.admin-edge-tab:hover { border-color: rgb(var(--ink)); }
+.admin-edge-tab:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-edge-tab .admin-hamburger { display: none; }
+
+.admin-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-start; }
+/* `hidden` has to out-rank the flex display above, or a closed pane would
+   still paint over the galleries. */
+.admin-drawer[hidden] { display: none; }
+.admin-drawer-scrim { position: absolute; inset: 0; background: rgba(6, 7, 7, .45); animation: admin-scrim-in 220ms ease; }
+
+.admin-drawer-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, calc(100% - 24px));
+  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: max(28px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid rgba(var(--ink), .2);
+  background: var(--admin-surface);
+  color: rgb(var(--ink));
+  animation: admin-drawer-in 280ms cubic-bezier(.22, 1, .36, 1);
+}
+
+.admin-drawer-close { display: grid; place-items: center; align-self: flex-end; flex: 0 0 44px; width: 44px; height: 44px; margin-bottom: 12px; padding: 0; border: 1px solid rgba(var(--ink), .3); background: transparent; color: rgb(var(--ink)); cursor: pointer; }
+.admin-drawer-close svg { width: 20px; height: 20px; }
+.admin-drawer-close:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-drawer-panel .admin-header > div { width: 100%; min-width: 0; }
+.admin-drawer-panel .admin-brand-title { font-size: 0; white-space: normal; }
+.admin-drawer-panel .brand-mark-wrap { display: block; max-width: 100%; }
+.admin-drawer-panel .admin-brand-logo { display: block; width: 100%; max-width: 320px; height: auto; }
+.admin-drawer-panel .admin-brand-title .brand-mark-wrap { width: min(320px, 100%); }
+.admin-drawer-panel .admin-greeting-url { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 16px; overflow-wrap: anywhere; }
+.admin-drawer-panel .admin-owner-slug-input { min-width: 0; max-width: 100%; margin: 0; }
+.admin-drawer-panel .admin-greeting { font-size: 15px; line-height: 1.65; }
+.admin-drawer-panel .admin-intro { font-size: 16px; }
+.admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
+
+.admin-drawer-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(var(--ink), .12);
+}
+
+.admin-drawer-action {
+  min-height: 46px;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(var(--ink), .8);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.admin-drawer-action:hover { border-color: rgb(var(--ink)); color: rgb(var(--ink)); background: rgba(var(--ink), .06); }
+.admin-drawer-action:focus-visible { border-color: rgb(var(--ink)); color: rgb(var(--ink)); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-signout-form { margin: 0; }
+.admin-signout-form .admin-drawer-action { width: 100%; }
+.admin-page--selector .admin-drawer-panel { max-width: var(--admin-pane-limit, 100vw); }
+
+@keyframes admin-drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: none; opacity: 1; }
+}
+@keyframes admin-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes admin-phone-drop { from { transform: translateY(-100%); } to { transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-drawer-panel, .admin-drawer-scrim { animation: none; }
+}
+@media (max-width: 640px) {
+  .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
+  .admin-welcome-brand { width: min(280px, 100%); }
+}
+@media (max-width: 819px) {
+  .admin-edge-tab { top: 14px; right: 14px; left: auto; transform: none; width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; border: 1px solid rgba(var(--ink), .32); border-radius: 50%; padding: 10px; }
+  .admin-edge-tab .admin-tab-label, .admin-edge-tab .admin-tab-arrow { display: none; }
+  .admin-edge-tab .admin-hamburger { display: block; width: 22px; height: 22px; }
+  .admin-welcome-brand { max-width: calc(100% - 50px); }
+  .admin-page--selector .admin-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; animation: admin-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
+}
+@media (max-width: 819px) and (prefers-reduced-motion: reduce) { .admin-page--selector .admin-drawer-panel { animation: none; } }
+
+/* The page keeps a wider left gutter for the edge tab — the welcome/import
+   split lands right of centre, the way the catalogue shipped; the shared
+   sheet's symmetric `padding: 0` drops that reservation. */
+.admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }

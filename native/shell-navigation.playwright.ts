@@ -51,7 +51,7 @@ test('viewer back returns to the library and unmounts the stage', async ({ page 
 
   await expect(page.locator('.viewer-stage')).toHaveCount(0)
   // The library surface is back — the signed-out landing renders.
-  await expect(page.locator('.native-landing, .native-account, .landing-page').first()).toBeVisible()
+  await expect(page.locator('.native-welcome')).toBeVisible()
 })
 
 test('a Global View same-gallery jump remounts the Viewer exactly once', async ({ page }) => {
@@ -93,7 +93,7 @@ test('the reorder editor opens and closes back onto the library', async ({ page 
   await page.getByRole('menuitem', { name: 'Reorder photographs' }).click()
   const editor = page.locator('[data-gallery-editor]')
   await expect(editor).toBeVisible()
-  await editor.locator('[aria-label="Close the editor"]').click()
+  await editor.getByRole('button', { name: 'Cancel' }).click()
   await expect(editor).toHaveCount(0)
   await expect(page.locator('.native-gallery-list')).toBeVisible()
 })
