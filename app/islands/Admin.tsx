@@ -716,7 +716,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           with the Library heading below it — both inset by the same
           content padding, so the "m" lands exactly over the "L". */}
       <div class="admin-hero-brand"><img class="landing-brand-mark" src="/manorama-merged-logo.png" alt="manorama" /></div>
-      <section class="gallery-list" aria-labelledby="galleries-heading">
+      <section class={adsShow && accountAd ? 'gallery-list gallery-list--has-ad' : 'gallery-list'} aria-labelledby="galleries-heading">
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
         </div>

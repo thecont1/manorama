@@ -1762,11 +1762,12 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .account-ad-cta { margin-top: 8px; color: rgb(var(--ink)); font-size: 14px; line-height: 1.2; text-underline-offset: 3px; }
 
 @media (min-width: 900px) {
-  /* The sponsored slot docks as a right rail: pinned beside the whole
-     list and stretched to its height so the creative gets real room —
-     the image fills the card rather than a fixed inner frame. */
-  .admin-page--selector .gallery-list { position: relative; padding-right: clamp(300px, 32vw, 460px); }
-  .admin-page--selector .gallery-list > .account-ad {
+  /* The sponsored slot docks as a right rail — only when a placement
+     actually renders. --has-ad marks that, so a suppressed, absent or
+     unavailable ad never leaves an empty gutter, and the macOS catalogue
+     (same classes, never renders .account-ad) inherits nothing. */
+  .admin-page--selector .gallery-list--has-ad { position: relative; padding-right: clamp(300px, 32vw, 460px); }
+  .admin-page--selector .gallery-list--has-ad > .account-ad {
     position: absolute;
     top: 0;
     right: 0;
@@ -1776,7 +1777,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   }
   /* In the rail the media height-fills the card; the box hugs the image's
      own width and centres horizontally in whatever room is left. */
-  .admin-page--selector .gallery-list > .account-ad .account-ad-media {
+  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media {
     flex: 1 1 auto;
     min-height: 0;
     width: fit-content;
@@ -1785,7 +1786,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     display: grid;
     place-items: center;
   }
-  .admin-page--selector .gallery-list > .account-ad .account-ad-media img { width: auto; height: 100%; max-width: none; }
+  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media img { width: auto; height: 100%; max-width: none; }
 }
 
 @media (min-width: 820px) {
