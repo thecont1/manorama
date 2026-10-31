@@ -141,9 +141,12 @@ describe('the quick-add catch-all renders for provider links', () => {
     const response = await app.request('/https://mega.nz/folder/AbCdEf12', {}, env)
     const html = await response.text()
     expect(html).toContain('data-mode="signin"')
-    expect(html).toContain('href="/auth/dropbox"')
-    expect(html).toContain('href="/auth/google"')
-    expect(html).toContain('href="/auth/apple"')
+    // Links stay inert until quickadd.ts wires each one's `?next=` return —
+    // a click before then must not navigate without it.
+    expect(html).toContain('data-href="/auth/dropbox"')
+    expect(html).toContain('data-href="/auth/google"')
+    expect(html).toContain('data-href="/auth/apple"')
+    expect(html).not.toContain('data-quickadd-signin href=')
   })
 
   test('a signed-in visitor gets the working panel — zero clicks', async () => {

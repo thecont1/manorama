@@ -42,12 +42,16 @@ export const SignInLinks = ({
   anchorClass,
   anchorAttrs,
   next,
+  pending,
 }: {
   returning?: boolean
   anchorClass?: string
   anchorAttrs?: Record<string, unknown>
   /** Same-origin path the OAuth callback lands on instead of the dashboard. */
   next?: string
+  /** Emit `data-href` + aria-disabled instead of `href` — the client promotes
+   *  each link once it has attached its return URL. */
+  pending?: boolean
 }) => (
   <div class="signin">
     <div class="signin-icons">
@@ -60,11 +64,12 @@ export const SignInLinks = ({
           // The button reads the whole phrase; the accessible name is the
           // same string, so WCAG 2.5.3 holds by construction.
           const text = `${returning ? 'Sign in' : 'Continue'} with ${label}`
+          const destination = next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`
           return (
             <a
               key={id}
               class={anchorClass ? `signin-pill ${anchorClass}` : 'signin-pill'}
-              href={next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`}
+              {...(pending ? { 'data-href': destination, 'aria-disabled': 'true' } : { href: destination })}
               aria-label={text}
               {...anchorAttrs}
             >

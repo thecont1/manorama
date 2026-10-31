@@ -137,7 +137,7 @@ export default createRoute(async (c, next) => {
                   : 'Sign in and Manorama will turn that link into a gallery you can share. We only ever read public links.'}
               </p>
               {detected.provider === 'local' ? (
-                <a class="landing-signin quickadd-signin" data-quickadd-signin href="/.dev-seed/login">
+                <a class="landing-signin quickadd-signin" data-quickadd-signin data-href="/.dev-seed/login" aria-disabled="true">
                   Sign in (dev)
                 </a>
               ) : (
@@ -145,6 +145,7 @@ export default createRoute(async (c, next) => {
                   returning={!!getCookie(c, RETURNING_COOKIE)}
                   anchorClass="quickadd-signin"
                   anchorAttrs={{ 'data-quickadd-signin': true }}
+                  pending
                 />
               )}
               <p class="quickadd-copy quickadd-note" data-quickadd-status role="status" aria-live="polite"></p>
@@ -155,11 +156,16 @@ export default createRoute(async (c, next) => {
             sooner. In sign-in mode the script must run before
             DOMContentLoaded — it rewrites the sign-in hrefs to carry
             `?next=${location.href}` (the fragment key never reaches the
-            server), and a click or read that lands first loses it. */}
+            server), and a click or read that lands first loses it. Links
+            render inert until that rewrite lands; the guard surfaces the
+            module's failure instead of leaving a dead page. */}
         {session ? (
           <script type="module" async src={quickaddScriptSrc} />
         ) : (
-          <script type="module" src={quickaddScriptSrc} />
+          <>
+            <script src="/quickadd-guard.js"></script>
+            <script type="module" src={quickaddScriptSrc} data-quickadd-module />
+          </>
         )}
       </main>,
     { title: 'manorama', description: 'Turn a shared album link into a Manorama gallery.' },
