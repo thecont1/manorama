@@ -150,7 +150,7 @@ a quiet status line beneath (toast text can share it), sponsored slot between
 heading and first card — all matching the shipped iOS section.
 
 **Card** — rail first (existing strip mechanics, rail appearance), then
-`.lib-card-head` (title button + `···`), then `.lib-card-sub`:
+`.lib-card-head` (title link + `···`), then `.lib-card-sub`:
 `N photographs · {provider} · Temporary gallery · expires YYYY-MM-DD` when
 locked. Caption below when present. No URL row, no icon row, no inline inputs
 (D1/D2, shipped).
