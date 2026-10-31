@@ -124,13 +124,11 @@ async function ensureStripSettled(page: import("@playwright/test").Page) {
 async function waitForMountedDecodes(page: import("@playwright/test").Page) {
   await expect
     .poll(async () =>
+      // `complete` is the settled bit: a decoded image and a failed fetch
+      // both land there, and a failed frame never heals, so it must not
+      // hold the poll open waiting for dims it will never have.
       page.locator("[data-track] img.frame-img").evaluateAll((imgs) =>
-        imgs.length > 0 &&
-        imgs.every(
-          (img) =>
-            (img as HTMLImageElement).complete &&
-            (img as HTMLImageElement).naturalWidth > 0,
-        ),
+        imgs.length > 0 && imgs.every((img) => (img as HTMLImageElement).complete),
       ),
     )
     .toBe(true);

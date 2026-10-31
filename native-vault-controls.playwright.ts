@@ -138,6 +138,11 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     }
     await scroller.evaluate((node) => { node.scrollTop = 0 })
     await expect(cells.first()).toBeVisible()
+    // The mounted window re-mounts asynchronously after the jump — wait for
+    // the original top window to be back in place or `nth(cellCount - 1)`
+    // can target a cell that has not mounted yet.
+    await expect.poll(() => cells.count()).toBeGreaterThanOrEqual(cellCount)
+    await expect(cells.first()).toHaveAttribute('data-order-key', orderBefore[0]!)
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-editor.png`, fullPage: false })
     await cells.nth(cellCount - 1).click()
     await expect(cells.nth(cellCount - 1)).toHaveClass(/is-active/)

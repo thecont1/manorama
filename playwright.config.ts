@@ -1,4 +1,9 @@
 import { defineConfig } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
+
+const configDir = fileURLToPath(new URL('.', import.meta.url))
+const anchorRe = (dir: string) =>
+  new RegExp(`^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.worktrees/`)
 
 // The browser suite lives in *.playwright.ts so bun's unit-test discovery
 // (*.test.ts / *.spec.ts) never loads Playwright specs — `bun test` stays
@@ -17,8 +22,12 @@ export default defineConfig({
   // Playwright's testIgnore also filters explicit file arguments, so they
   // run on demand behind PW_EVIDENCE: PW_EVIDENCE=1 bunx playwright test
   // <spec>.playwright.ts
+  // The .worktrees ignore must anchor at this config's directory: spec paths
+  // are matched as absolute paths, so a bare '**/.worktrees/**' also swallows
+  // every spec when the suite runs inside a linked checkout — a silent
+  // zero-test "green". Anchored, it ignores only nested linked checkouts.
   testIgnore: [
-    '**/.worktrees/**',
+    anchorRe(configDir),
     '**/node_modules/**',
     ...(process.env.PW_EVIDENCE
       ? []
