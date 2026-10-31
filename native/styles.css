@@ -326,6 +326,9 @@ html.light body.manorama-native:has(.native-welcome),
 html.light body.manorama-native:has(.native-list-shell) { background: var(--m-ground); }
 html.light body.manorama-native .native-list-shell,
 html.light body.manorama-native .native-editor { background: var(--m-ground); color: var(--m-ink); }
+/* Under the light theme the merged logo renders single-tone black on
+   these surfaces — same treatment the web admin page applies. */
+html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native-editor) :is(.m-topbar-logo, .native-welcome-logo img) { filter: brightness(0); }
 
 /* Account shell: one padded column. The top edge is the TopBar's — it holds
    the safe-area inset itself, so the shell adds no headroom above it. */

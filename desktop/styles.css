@@ -334,6 +334,6 @@ html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04)
    sheet's symmetric `padding: 0` drops that reservation. */
 .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
 
-/* Both brand marks live inside the desktop page — the shared light rule
-   names only the web top bar's logo. */
-html.light .desktop-catalogue :is(.admin-brand-logo, .admin-topbar-logo) { filter: brightness(0); }
+/* Brand marks render single-tone black under the light theme — the same
+   rule the web admin page applies to its wordmark. */
+html.light :is(.desktop-catalogue, .desktop-welcome) :is(.admin-brand-logo, .admin-topbar-logo, .landing-brand-mark) { filter: brightness(0); }
