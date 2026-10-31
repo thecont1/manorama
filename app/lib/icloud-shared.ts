@@ -117,13 +117,13 @@ const postSharedstreams = async <T>(token: string, endpoint: string, body: unkno
     headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-cache', 'User-Agent': PHOTOS_UA },
     body: JSON.stringify(body),
   }
-  let response = await fetchImpl(`https://p${partitionFromToken(token)}-sharedstreams.icloud.com/${token}/sharedstreams/${endpoint}`, options)
+  let response = await request(fetchImpl, `https://p${partitionFromToken(token)}-sharedstreams.icloud.com/${token}/sharedstreams/${endpoint}`, options)
   let partition = response.headers.get('x-apple-user-partition') || partitionFromToken(token)
   if (response.status === 330) {
     const hint = await response.json() as Record<string, string>
     const host = hint['X-Apple-MMe-Host']
     if (!host) throw new SourceFetchError('iCloud could not locate that shared album', 503)
-    response = await fetchImpl(`https://${host}/${token}/sharedstreams/${endpoint}`, options)
+    response = await request(fetchImpl, `https://${host}/${token}/sharedstreams/${endpoint}`, options)
   }
   if (!response.ok) throw transientError('Manorama could not read that iCloud album — check that it is a public Shared Album link', response)
   const data = await response.json() as T
@@ -301,9 +301,9 @@ const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typ
     const extension = /\.([a-z0-9]+)(?:\?|$)/i.exec(url)?.[1]?.toLowerCase()
     if (extension && /^(mp4|mov|m4v|qt)$/.test(extension)) return true
     if (extension && /^(jpe?g|png|webp|heic|heif|gif|tiff?)$/.test(extension)) return false
-    let response = await fetchImpl(url, { method: 'HEAD' })
+    let response = await request(fetchImpl, url, { method: 'HEAD' })
     if (response.status === 501 || response.status === 405) {
-      response = await fetchImpl(url, { headers: { Range: 'bytes=0-0' } })
+      response = await request(fetchImpl, url, { headers: { Range: 'bytes=0-0' } })
     }
     return /^video\//i.test(response.headers.get('Content-Type') ?? '')
   }
@@ -476,14 +476,31 @@ const retryOnceOnTransient = async <T>(run: () => Promise<T>): Promise<T> => {
   } catch (error) {
     const status = error instanceof SourceFetchError ? error.status : undefined
     // Fetch-level rejections — DNS, reset, TLS — surface as TypeError and
-    // get the same single retry; SyntaxError (a bad body) and every other
-    // thrown error propagate, since they cannot be fixed by re-asking.
-    const transient = status !== undefined ? status === 429 || status >= 500 : error instanceof TypeError
+    // get the same single retry, but only when they were thrown at the
+    // fetchImpl boundary; a TypeError raised parsing or validating the
+    // answer propagates, since re-asking cannot fix it.
+    const transient = status !== undefined
+      ? status === 429 || status >= 500
+      : error instanceof TypeError && (error as { networkRejection?: boolean }).networkRejection === true
     if (!transient) throw error
     const requested = (error as { retryAfterMs?: number | null }).retryAfterMs
     if (requested != null && requested > MAX_RETRY_WAIT_MS) throw error
     await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
     return run()
+  }
+}
+
+/** A rejection thrown by fetchImpl itself is marked — a TypeError raised
+ *  while parsing or validating its answer is a bug in this module, not a
+ *  dead connection, and retrying it would only repeat the bug. */
+const request = async (fetchImpl: typeof fetch, ...args: Parameters<typeof fetch>) => {
+  try {
+    return await fetchImpl(...args)
+  } catch (error) {
+    if (error instanceof TypeError) {
+      ;(error as { networkRejection?: boolean }).networkRejection = true
+    }
+    throw error
   }
 }
 
@@ -494,7 +511,7 @@ export const fetchICloudImage = async (token: string, photoGuid: string, checksu
   return retryOnceOnTransient(async () => {
     const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
     if (!url) throw new SourceFetchError('That iCloud image is unavailable', 404)
-    const response = await fetchImpl(url)
+    const response = await request(fetchImpl, url)
     if (!response.ok) {
       evictAssetUrl(token, checksum)
       throw transientError('iCloud image fetch failed', response)
@@ -520,7 +537,7 @@ export const fetchICloudVideo = async (
   return retryOnceOnTransient(async () => {
     const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
     if (!url) throw new SourceFetchError('That iCloud video is unavailable', 404)
-    const response = await fetchImpl(url, range ? { headers: { Range: range } } : undefined)
+    const response = await request(fetchImpl, url, range ? { headers: { Range: range } } : undefined)
     // 206 is the expected answer to a Range request and `ok` is false for it.
     if (!response.ok && response.status !== 206) {
       evictAssetUrl(token, checksum)
