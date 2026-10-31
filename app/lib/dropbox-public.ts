@@ -57,10 +57,20 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
 }
 
 const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit) => {
-  const response = await fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
+  const once = () => fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
     headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg), ...headers },
   })
+  let response = await once()
+  // A gallery open bursts dozens of content calls — Dropbox answers the
+  // stampede with 429 or a transient 5xx, so exactly one retry waits out
+  // Retry-After (or a short jitter) rather than dropping the photograph.
+  if (!response.ok && (response.status === 429 || response.status >= 500)) {
+    const retryAfter = Number(response.headers.get('Retry-After'))
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 3) * 1000 : 300 + Math.random() * 300
+    await new Promise((resolve) => setTimeout(resolve, wait))
+    response = await once()
+  }
   // Dropbox reports a missing path inside a valid shared folder as 409 —
   // for the proxy that is a confirmed miss, not a conflict.
   if (!response.ok) throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status})`, response.status === 409 ? 404 : response.status)

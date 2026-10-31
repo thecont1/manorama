@@ -731,7 +731,18 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class="admin-gallery-strip-item" key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}, opens in a new tab`}>
-                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} onError={(event: Event) => {
+                      // A transient upstream 5xx otherwise leaves a permanent
+                      // hole — the viewer's stall watchdog answers the same
+                      // problem for frames; one bounded retry covers thumbs.
+                      const img = event.currentTarget as HTMLImageElement
+                      if (img.dataset.retried) return
+                      img.dataset.retried = '1'
+                      window.setTimeout(() => {
+                        const src = (img.getAttribute('src') ?? '').replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
+                        if (src) img.src = `${src}${src.includes('?') ? '&' : '?'}mreload=1`
+                      }, 1500)
+                    }} />
                     {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
                   </a>
                 </li>)}

@@ -390,25 +390,74 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
 }
 
 /** Resolves the short-lived CDN URL for one derivative checksum. Asset
- *  URLs carry an expiry, so they are resolved per view and never
+ *  URLs carry an expiry, so they are held only for a short window — long
+ *  enough that a video's burst of Range requests resolves once instead
+ *  of stampeding the sharedstreams API into a 5xx, never long enough to
+ *  outlive the URL. Resolved URLs are pointers, not bytes — nothing is
  *  persisted. Shared by the image and video proxies. */
+const ASSET_URL_TTL_MS = 45_000
+const assetUrlCache = new Map<string, { url: string; at: number }>()
+
 const resolveAssetUrl = async (token: string, photoGuid: string, checksum: string, fetchImpl: typeof fetch) => {
+  // Only the production fetch caches — an injected fetchImpl is a test
+  // seam that must observe every upstream call.
+  const cacheable = fetchImpl === fetch
+  const key = `${token} ${checksum}`
+  if (cacheable) {
+    const hit = assetUrlCache.get(key)
+    if (hit) {
+      if (Date.now() - hit.at < ASSET_URL_TTL_MS) return hit.url
+      assetUrlCache.delete(key)
+    }
+  }
   const assets = await postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
   const item = assets.items?.[checksum]
   const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
   if (!item?.url_path) return null
-  return assetLocationUrl(location, item.url_path)
+  const url = assetLocationUrl(location, item.url_path)
+  if (!url || !cacheable) return url
+  if (assetUrlCache.size > 500) {
+    const now = Date.now()
+    for (const [k, v] of assetUrlCache) if (now - v.at >= ASSET_URL_TTL_MS) assetUrlCache.delete(k)
+  }
+  assetUrlCache.set(key, { url, at: Date.now() })
+  return url
 }
 
-/** Resolves a fresh CDN URL for one derivative and streams it. Asset URLs
- *  carry an expiry, so they are resolved per view and never persisted. */
+/** Drops a cached asset URL whose CDN fetch failed — the next resolve
+ *  re-asks upstream instead of replaying a dead URL. */
+const evictAssetUrl = (token: string, checksum: string) => {
+  assetUrlCache.delete(`${token} ${checksum}`)
+}
+
+/** Apple's sharedstreams endpoints and CDN occasionally answer a healthy
+ *  request with a transient 5xx under burst load — a permanent miss is a
+ *  404, so anything 5xx gets exactly one retry after a short jittered wait
+ *  rather than leaving a hole in the page. */
+const retryOnceOnTransient = async <T>(run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run()
+  } catch (error) {
+    if (!(error instanceof SourceFetchError && error.status !== undefined && error.status >= 500)) throw error
+    await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 300))
+    return run()
+  }
+}
+
+/** Resolves a CDN URL for one derivative (shared short-TTL cache) and
+ *  streams it. Asset URLs carry an expiry — see resolveAssetUrl. */
 export const fetchICloudImage = async (token: string, photoGuid: string, checksum: string, fetchImpl: typeof fetch = fetch) => {
   validateProxyReference('image', token, photoGuid, checksum)
-  const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
-  if (!url) throw new SourceFetchError('That iCloud image is unavailable', 404)
-  const response = await fetchImpl(url)
-  if (!response.ok) throw new SourceFetchError(`iCloud image fetch failed (${response.status})`, response.status)
-  return response
+  return retryOnceOnTransient(async () => {
+    const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
+    if (!url) throw new SourceFetchError('That iCloud image is unavailable', 404)
+    const response = await fetchImpl(url)
+    if (!response.ok) {
+      evictAssetUrl(token, checksum)
+      throw new SourceFetchError(`iCloud image fetch failed (${response.status})`, response.status)
+    }
+    return response
+  })
 }
 
 /**
@@ -425,12 +474,15 @@ export const fetchICloudVideo = async (
   fetchImpl: typeof fetch = fetch,
 ) => {
   validateProxyReference('video', token, photoGuid, checksum)
-  const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
-  if (!url) throw new SourceFetchError('That iCloud video is unavailable', 404)
-  const response = await fetchImpl(url, range ? { headers: { Range: range } } : undefined)
-  // 206 is the expected answer to a Range request and `ok` is false for it.
-  if (!response.ok && response.status !== 206) {
-    throw new SourceFetchError(`iCloud video fetch failed (${response.status})`, response.status)
-  }
-  return response
+  return retryOnceOnTransient(async () => {
+    const url = await resolveAssetUrl(token, photoGuid, checksum, fetchImpl)
+    if (!url) throw new SourceFetchError('That iCloud video is unavailable', 404)
+    const response = await fetchImpl(url, range ? { headers: { Range: range } } : undefined)
+    // 206 is the expected answer to a Range request and `ok` is false for it.
+    if (!response.ok && response.status !== 206) {
+      evictAssetUrl(token, checksum)
+      throw new SourceFetchError(`iCloud video fetch failed (${response.status})`, response.status)
+    }
+    return response
+  })
 }
