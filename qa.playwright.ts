@@ -124,21 +124,36 @@ async function ensureStripSettled(page: import("@playwright/test").Page) {
 async function waitForMountedDecodes(page: import("@playwright/test").Page) {
   await expect
     .poll(async () =>
-      page.locator("[data-track] img.frame-img").evaluateAll((imgs) =>
-        imgs.length > 0 &&
-        imgs.every((el) => {
-          const img = el as HTMLImageElement;
-          if (!img.complete) return false;
-          if (img.naturalWidth > 0) return true;
-          // A failed fetch is not settled while the Viewer's stall watchdog
-          // can still re-request it: `mreload` bumps to 2 attempts, lazy and
-          // non-URL sources are never retried, and only then is the hole
-          // permanent enough to measure geometry around.
-          if (img.loading === "lazy") return true;
-          const src = img.getAttribute("src") ?? "";
-          if (!/^https?:\/\//i.test(src) && !src.startsWith("/")) return true;
-          const reload = /[?&]mreload=(\d+)/.exec(src);
-          return reload !== null && Number(reload[1]) >= 2;
+      // Read frames, not just mounted imgs: a HEIC frame's real image only
+      // mounts after libheif converts — while it converts the frame shows a
+      // fetched preview as .frame-ph (a URL src, not the inline data: SVG),
+      // so a frame with no img and a URL placeholder is active conversion
+      // work the geometry must not measure around.
+      page.locator("[data-track] .viewer-frame").evaluateAll((frames) =>
+        frames.length > 0 &&
+        frames.every((frame) => {
+          // Video frames settle through VideoSlide, not this poll — their
+          // poster .frame-ph is a URL too, so they are excluded up front.
+          if (frame.getAttribute("data-media-type") === "video") return true;
+          const imgs = frame.querySelectorAll("img.frame-img");
+          if (!imgs.length) {
+            const phSrc = frame.querySelector("img.frame-ph")?.getAttribute("src") ?? "";
+            return !phSrc || phSrc.startsWith("data:");
+          }
+          return Array.from(imgs).every((el) => {
+            const img = el as HTMLImageElement;
+            if (!img.complete) return false;
+            if (img.naturalWidth > 0) return true;
+            // A failed fetch is not settled while the Viewer's stall
+            // watchdog can still re-request it: `mreload` bumps to 2
+            // attempts, lazy and non-URL sources are never retried, and
+            // only then is the hole permanent enough to measure around.
+            if (img.loading === "lazy") return true;
+            const src = img.getAttribute("src") ?? "";
+            if (!/^https?:\/\//i.test(src) && !src.startsWith("/")) return true;
+            const reload = /[?&]mreload=(\d+)/.exec(src);
+            return reload !== null && Number(reload[1]) >= 2;
+          });
         }),
       ),
     )
