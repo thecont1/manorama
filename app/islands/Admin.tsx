@@ -731,7 +731,14 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class="admin-gallery-strip-item" key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}, opens in a new tab`}>
-                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} onError={(event: Event) => {
+                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
+                      const img = event.currentTarget as HTMLImageElement
+                      // Stored dims are the placeholder's shape — the decoded
+                      // derivative (an EXIF-rotated frame, a video poster) owns
+                      // the real ratio once it lands.
+                      if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                      img.classList.add('is-loaded')
+                    }} onError={(event: Event) => {
                       // A transient upstream 5xx otherwise leaves a permanent
                       // hole — the viewer's stall watchdog answers the same
                       // problem for frames; one bounded retry covers thumbs.
