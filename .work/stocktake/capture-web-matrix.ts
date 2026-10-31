@@ -120,7 +120,13 @@ for (const engine of engines) {
       }
 
       const controls = () => page.locator('[data-chrome-bottom].is-visible').count()
-      const paneOpen = async () => page.locator('[data-account-drawer]:not([hidden])').count()
+      const paneOpen = async () => page.locator('.web-settings').count()
+      // .web-settings mounts instantly with "Reading sign-in methods…" while
+      // identities are null — the capture has to wait out that loading state,
+      // not just the surface itself.
+      const settingsReady = async () =>
+        (await paneOpen()) > 0 &&
+        (await page.locator('.web-settings').getByText('Reading sign-in methods').count()) === 0
 
       // Vite compiles a route's SSR graph on first request, and a cold compile
       // can answer with an empty response. Warm the routes once per engine, and
@@ -196,23 +202,18 @@ for (const engine of engines) {
       // left the page inside a gallery.
       await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await shoot('05-account-admin', async () => {
-        await page.waitForSelector('[aria-label="Account menu"]', { timeout: 25_000 })
-        // Wait for the island to answer a click before trusting the page.
-        await until(
-          page,
-          'the dashboard never hydrated',
-          async () => undefined,
-          async () => page.evaluate(() => Boolean(document.querySelector('[data-account-drawer]'))),
-          3,
-        )
+        // The gear is server-rendered markup — seeing it proves nothing about
+        // interactivity. The island stamps data-admin-ready when it mounts;
+        // that is the readiness signal this capture has to hold for.
+        await page.waitForSelector('[data-admin-ready="true"]', { timeout: 25_000 })
       })
 
       await shoot('05-account-pane', async () => {
         await until(
           page,
-          'the account pane never opened',
-          () => page.getByRole('button', { name: 'Account menu', exact: true }).click({ timeout: 5_000 }),
-          async () => (await paneOpen()) > 0,
+          'the settings surface never opened or identities never loaded',
+          () => page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5_000 }),
+          settingsReady,
         )
         await page.waitForTimeout(500)
       })
@@ -220,8 +221,8 @@ for (const engine of engines) {
       await shoot('05-editor-row', async () => {
         await until(
           page,
-          'the account pane never closed',
-          () => page.getByRole('button', { name: 'Close account menu', exact: true }).click({ timeout: 5_000 }),
+          'the settings surface never closed',
+          () => page.getByRole('button', { name: 'Back', exact: true }).click({ timeout: 5_000 }),
           async () => (await paneOpen()) === 0,
         )
         await page.waitForTimeout(400)

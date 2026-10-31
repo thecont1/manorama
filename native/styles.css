@@ -245,6 +245,10 @@ body:has(.native-diptych) {
 body.manorama-native:has(.native-account-shell) {
   overflow-y: auto;
   overflow-x: clip;
+  /* The shell's TopBar already carries env(safe-area-inset-top); the body pad
+     here would sit under the same status bar a second time. Same precedent
+     as body:has(.native-diptych) — the chrome surface owns the top inset. */
+  padding-top: 0;
 }
 
 @media (max-width: 819px) {
@@ -425,8 +429,9 @@ html.light body.manorama-native:has(.native-list-shell) { background: var(--m-gr
 html.light body.manorama-native .native-list-shell,
 html.light body.manorama-native .native-editor { background: var(--m-ground); color: var(--m-ink); }
 
-/* Account shell: one padded column. */
-.native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: max(20px, var(--native-safe-top)) 24px max(20px, var(--native-safe-bottom)) 24px; }
+/* Account shell: one padded column. The top edge is the TopBar's — it holds
+   the safe-area inset itself, so the shell adds no headroom above it. */
+.native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: 0 24px max(20px, var(--native-safe-bottom)) 24px; }
 .native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
 .native-gallery-remove-confirm { padding-bottom: 18px; }
 .native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }
