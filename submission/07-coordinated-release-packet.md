@@ -7,9 +7,9 @@ migrates data, or submits to a store — those remain distinct owner actions.
 ## Integration commit
 
 - Branch: `fix/redesign-p12` (worktree `.worktrees/p12`)
-- Head: `240e8e6a708dfa58dbf0d668d56f728e9cc939a5` (`test(evidence): refresh parity pairs and six-state captures`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the review-fix and packet commits after it are documented below
+- Head: `89848ef735f6d9f52b5efb2b7b74b61c1e7de554` (`docs(release): correct App Store wording and the RC packet record`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the commit carrying this packet record and refreshed hashes follows it and changes no shipped code
 - Base: `origin/main` @ `3174cb6`
-- Logical commits on the branch: client hydration hardening, provider retry/cache, desktop catalogue restore, style pruning + details overflow fix, local font bundling, evidence-spec alignment, docs refresh, evidence captures.
+- Logical commits on the branch: client hydration hardening, provider retry/cache, desktop catalogue restore, style pruning + details overflow fix, local font bundling, evidence-spec alignment, docs refresh, evidence captures, review corrections (Retry-After budget, swipe/buffer replay, spec fixes, submission wording).
 
 ## Required gates at the integration commit
 

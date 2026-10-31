@@ -1,12 +1,12 @@
 # manorama release-candidate artifact hashes
-# integration commit: 240e8e6a708dfa58dbf0d668d56f728e9cc939a5
+# integration commit: 89848ef735f6d9f52b5efb2b7b74b61c1e7de554
 # branch: fix/redesign-p12  base: origin/main@3174cb6
-# generated: 2026-10-31T04:36:28Z
+# generated: 2026-10-31T10:47:18Z
 
 ## web worker bundle (dist/)
-67744eefab8c50da649bada38311523abbd4b983162981af123ce26b06e0ef8c  dist/curtain-boot.js
-01409a549d4a9a2eb19d171554362dc804553074e17e3b6c7f5ac4cda834a4ca  dist/hydrate-guard.js
-c33b9b69c541a4898689446ef12c1c767d72eb6d171fc4067d814d4f1dab6289  dist/index.js
+ef0a27880d4809f7f18fa63ac1d4e1cba37100953eb083ee863dde0e29ec60a8  dist/curtain-boot.js
+fd523bf5b596a8356cc1ae6b9c5a96f48792ce64359775b73343f4440b4507e7  dist/hydrate-guard.js
+4e017f93809536a769a1dd76a65434df7c513ce8bf4ba2b63277ba68752aa198  dist/index.js
 fc055423e77497829c0182c9035b26e1aca15f3d76d6384d1a9ff5c7d2365042  dist/static/Admin-B7ZurwQb.js
 699b44e4d6b7581ac8cd98561b90bb66c3b8189fe106a7cfd5423801d20cc906  dist/static/AdminOps-Bbb2g_KI.js
 c564602087688ad35e9ec7d231efa82a0c852640b973cea5d065379e163a39ac  dist/static/SeededDoodleBackground-DmsqMD-1.js
@@ -25,7 +25,7 @@ a5cf0558a5839947ae0c41ccd1254e925e84018fc1cf21ae839fa779174dc2cc  dist/static/qu
 d9d859abf3fd5c09b099b1b33a84c9b49b335dbe9f3cb7b838c96436e2e4b81b  dist/static/styles-_T8gcxjA.css
 6a66eed23f2987d75f1694818277510b95eb576f1a42e6e49cf34caeb5f45ece  dist/theme-init.js
 
-## native bundle (native/dist/)
+## native SPA bundle (native/dist/)
 78482df2119cf332e4f940161312cc55d40c8d7fd3c81efdcd0a7d291e22f215  native/dist/assets/base-C54HeyiC.js
 943cbb01d4be10da8d5149bf25b63fb943219ed2f1c641f7bc9fc5d93a5d0fa6  native/dist/assets/dist-CtGMRVD1.js
 bed4548f876285f92434d0a314a1b362efc0ff583dcf101f920d07ddff6ff3e3  native/dist/assets/dist-DNMV3HVB.js
@@ -44,12 +44,12 @@ a8a94e2b2a23db4dee252cf56a6b2aebfb78aeacd4323c3cdfc1a33fb59db291  native/dist/as
 e04eaefa1fc49294c9d52a10c2e4a8ee145fe2740568ec93920f46265cfb1ca5  native/dist/assets/web-Dn5PHVrO.js
 1849ef16b906043a337f51ffb23778529cb7ccaabe2ab54adc7c68bbdd3001c8  native/dist/assets/web-pLoG5CEa.js
 3f0f5df1538a8dc930d48f1937fece883fbb39e3ab58347b2670450d996ad0cc  native/dist/assets/web-zWkvul7c.js
-67744eefab8c50da649bada38311523abbd4b983162981af123ce26b06e0ef8c  native/dist/curtain-boot.js
-01409a549d4a9a2eb19d171554362dc804553074e17e3b6c7f5ac4cda834a4ca  native/dist/hydrate-guard.js
+ef0a27880d4809f7f18fa63ac1d4e1cba37100953eb083ee863dde0e29ec60a8  native/dist/curtain-boot.js
+fd523bf5b596a8356cc1ae6b9c5a96f48792ce64359775b73343f4440b4507e7  native/dist/hydrate-guard.js
 b4d967d6540e71e8f4019557b02340ee887040a5d15266f3dc1d08d7d586e287  native/dist/index.html
 6a66eed23f2987d75f1694818277510b95eb576f1a42e6e49cf34caeb5f45ece  native/dist/theme-init.js
 
-## desktop bundle (desktop/dist/)
+## desktop SPA bundle (desktop/dist/)
 943cbb01d4be10da8d5149bf25b63fb943219ed2f1c641f7bc9fc5d93a5d0fa6  desktop/dist/assets/dist-CtGMRVD1.js
 bed4548f876285f92434d0a314a1b362efc0ff583dcf101f920d07ddff6ff3e3  desktop/dist/assets/dist-DNMV3HVB.js
 91300b5a91f60f05ae83f9f3d4ba4a3e9a68befcea2adcdd53b4c41531c72126  desktop/dist/assets/dist-js-BGQBUmGo.js
@@ -58,7 +58,8 @@ c2ab4d2aefab7951792fc5f97fb0219297baf4ea055bba3d11d93ebd14f856f2  desktop/dist/a
 0cb30b32d884cbd409cb75ce0c8e3b43e491ae1d6826f96234b55ae2510c9fd1  desktop/dist/assets/heic2any-CaRcEdT_.js
 42df31fdebbb2c5d607a807a8ead08003eb66f3ed4d57baf7c8a902520f9bbd9  desktop/dist/assets/index-DMpfdvxk.css
 62b34dce82c05f51a18b43a903a946dcf588ccc4d1a9d6a2b6137ea5d734d67c  desktop/dist/assets/index-DegSD4jW.js
-67744eefab8c50da649bada38311523abbd4b983162981af123ce26b06e0ef8c  desktop/dist/curtain-boot.js
-01409a549d4a9a2eb19d171554362dc804553074e17e3b6c7f5ac4cda834a4ca  desktop/dist/hydrate-guard.js
+ef0a27880d4809f7f18fa63ac1d4e1cba37100953eb083ee863dde0e29ec60a8  desktop/dist/curtain-boot.js
+fd523bf5b596a8356cc1ae6b9c5a96f48792ce64359775b73343f4440b4507e7  desktop/dist/hydrate-guard.js
 83a8defa23fa7b351add28f4ba3b4cff6380b75404fc133b970be5d9fab3df98  desktop/dist/index.html
 6a66eed23f2987d75f1694818277510b95eb576f1a42e6e49cf34caeb5f45ece  desktop/dist/theme-init.js
+
