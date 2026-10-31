@@ -25,7 +25,7 @@ Based on `ios/App/App/PrivacyInfo.xcprivacy` and `docs/privacy-policy.md`. Reche
 
 The server can decrypt and hold a small MEGA preview photo in a bounded in-memory cache for App Functionality. Ordinary gallery media is passed through and is not durably stored. On macOS, opening, rescanning, launching, or mounting a local folder does not upload original files; catalogue metadata may sync, while original uploads occur only after the explicit Share action. Native vault copies are encrypted on the device and are not sent back to Manorama.
 
-`NSPrivacyTracking` is `false`; no advertising identifier is requested. Account, gallery metadata, device catalogue and plan references are linked for App Functionality. RevenueCat/Apple process purchases; Manorama receives plan status and purchase-event references, not card details. C2PA verification is performed on-device when requested. Mobile vault bytes, photo picker thumbnails, and local compute feature records remain device-local and are not collected by Manorama.
+`NSPrivacyTracking` is `false`; no advertising identifier is requested. Account, gallery metadata, device catalogue and plan references are linked for App Functionality. RevenueCat/Apple process purchases; Manorama receives plan status and purchase-event references, not card details. C2PA verification is performed on-device when requested. Mobile vault bytes, photo picker thumbnails, and local compute feature records remain device-local and are not collected by Manorama. All typefaces are bundled with the app and the web client; no third-party font service receives requests.
 
 ## Export compliance
 
