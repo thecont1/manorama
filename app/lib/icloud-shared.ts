@@ -1,4 +1,5 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem, type VideoItem } from './imagesource'
+import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 /**
  * iCloud public Shared Album scanning via the same `sharedstreams`
@@ -283,7 +284,7 @@ const assetLocationUrl = (location: { scheme?: string; hosts?: string[] } | unde
  *  outright (501) while happily serving ranged GETs. */
 const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typeof fetch) => {
   let paths: Promise<Map<string, string>> | undefined
-  const assetPaths = () => (paths ??= retryOnceOnTransient(() => postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl))
+  const assetPaths = () => (paths ??= retryOnceOnTransient(() => postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl), PROBE_RETRY_WAIT_MS)
     .then((assets) => {
       const map = new Map<string, string>()
       for (const [checksum, item] of Object.entries(assets.items ?? {})) {
@@ -457,19 +458,8 @@ const evictAssetUrl = (token: string, checksum: string, url: string) => {
   if (assetUrlCache.get(key)?.url === url) assetUrlCache.delete(key)
 }
 
-/** Retry-After arrives as delay-seconds or an HTTP-date; missing or
- *  unparsable headers mean the retry falls back to jitter. */
-const retryAfterMs = (headers: Headers) => {
-  const value = headers.get('Retry-After')?.trim()
-  if (!value) return null
-  if (/^\d+$/.test(value)) return parseInt(value, 10) * 1000
-  const at = Date.parse(value)
-  return Number.isNaN(at) ? null : Math.max(0, at - Date.now())
-}
-
 /** A transient error carries the server's requested backoff so the retry
  *  can honour it; beyond the latency budget the request is not retried. */
-const MAX_RETRY_WAIT_MS = 30_000
 const transientError = (what: string, response: Response) =>
   Object.assign(new SourceFetchError(`${what} (${response.status})`, response.status), {
     retryAfterMs: retryAfterMs(response.headers),
@@ -482,7 +472,7 @@ const transientError = (what: string, response: Response) =>
  *  than leaving a hole in the page. A rejection from fetch itself — the
  *  connection dying before a status ever arrived — retries on the same
  *  budget; parse and validation failures never do. */
-const retryOnceOnTransient = async <T>(run: () => Promise<T>): Promise<T> => {
+const retryOnceOnTransient = async <T>(run: () => Promise<T>, maxWaitMs = MAX_RETRY_WAIT_MS): Promise<T> => {
   try {
     return await run()
   } catch (error) {
@@ -496,7 +486,7 @@ const retryOnceOnTransient = async <T>(run: () => Promise<T>): Promise<T> => {
       : error instanceof TypeError && (error as { networkRejection?: boolean }).networkRejection === true
     if (!transient) throw error
     const requested = (error as { retryAfterMs?: number | null }).retryAfterMs
-    if (requested != null && requested > MAX_RETRY_WAIT_MS) throw error
+    if (requested != null && requested > maxWaitMs) throw error
     await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
     return run()
   }

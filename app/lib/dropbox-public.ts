@@ -1,6 +1,7 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { parseJpegDimensions, probeImageDimensions } from './image-dims'
 import { createScanBudget, mapWithConcurrency, PROBE_CONCURRENCY, ScanBudgetExhausted } from './scan-budget'
+import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 export { parseJpegDimensions }
 
@@ -56,20 +57,6 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
   return response.json() as Promise<T>
 }
 
-/** Retry-After is delay-seconds or an HTTP-date; both land as ms from now.
- *  Missing or unparsable headers mean the caller falls back to jitter. */
-const retryAfterMs = (headers: Headers) => {
-  const value = headers.get('Retry-After')?.trim()
-  if (!value) return null
-  if (/^\d+$/.test(value)) return parseInt(value, 10) * 1000
-  const at = Date.parse(value)
-  return Number.isNaN(at) ? null : Math.max(0, at - Date.now())
-}
-
-/** A single retry may wait this long before the limiter's answer is the
- *  honest one — a burst asking for minutes of backoff is surfaced, not held. */
-const MAX_RETRY_WAIT_MS = 30_000
-
 const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit, retryWaitMs = MAX_RETRY_WAIT_MS) => {
   const once = () => fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
@@ -110,11 +97,6 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
  *  media_info costs nothing — `collectEntries` already asks for it — and it is
  *  the file's own metadata, so it wins outright. The preview survives as the
  *  last resort, where its proportions still beat a guess. */
-/** Dimension probes retry only a fast limiter answer — a real wait request
- *  inside a probe chains across hundreds of entries and outlives the scan's
- *  90s deadline, so a bigger ask surfaces to the fallback chain instead. */
-const PROBE_RETRY_WAIT_MS = 2_000
-
 const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
   try {
