@@ -608,6 +608,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // signed-out visitors keep Rewind only.
   const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
   const openOwnerDetails = onOpenDetails ?? (viewerRole === 'owner' && libraryHref ? () => {
+    // The gallery history entry being left must carry the open photograph:
+    // Back lands on `?photo=`'s deep link instead of resetting to the
+    // curtain.
+    const here = new URL(window.location.href)
+    here.searchParams.set('photo', images[index]?.id ?? '')
+    window.history.replaceState(window.history.state, '', `${here.pathname}${here.search}${here.hash}`)
     const target = new URL(libraryHref, window.location.origin)
     target.searchParams.set('details', slug)
     target.searchParams.set('photo', images[index]?.id ?? '')

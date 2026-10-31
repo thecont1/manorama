@@ -63,7 +63,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={mediaCountOf(source.list())}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={mediaCountOf(source.list())} entered={photoIndex >= 0}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}

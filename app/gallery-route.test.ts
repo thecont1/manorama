@@ -88,10 +88,13 @@ describe('gallery route viewer role and photo intent', () => {
     const res = await get(`/${ownerSlug}/role-gallery?photo=r2`)
     expect(res.status).toBe(200)
     const html = await res.text()
-    // The committed position is SSR-observable through the rest bubble's
+    // The committed position is SSR-observable through the position pill's
     // aria-label rather than serialized island props.
     expect(html).toContain('data-image-id="r2"')
     expect(html).toContain('Photograph 2 of 3 — open')
+    // The intent is "this photograph" — the entrance curtain stays home so
+    // Back from an owner surface lands on the open frame, not the veil.
+    expect(html).not.toContain('data-curtain')
   })
 
   test('an unknown ?photo= is ignored but the URL still gets cleaned', async () => {
@@ -99,5 +102,6 @@ describe('gallery route viewer role and photo intent', () => {
     expect(res.status).toBe(200)
     const html = await res.text()
     expect(html).toContain('Photograph 1 of 3 — open')
+    expect(html).toContain('data-curtain')
   })
 })
