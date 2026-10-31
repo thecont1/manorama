@@ -76,11 +76,11 @@ const openCatalogue = async (page: Page) => {
   // app's own CSS.
   await expect
     .poll(() => page.evaluate(() => {
-      const tab = document.querySelector('.admin-edge-tab')
+      const bar = document.querySelector('.m-topbar')
       const rail = document.querySelector('.admin-gallery-strip-frame')
-      return `${tab ? getComputedStyle(tab).position : 'none'}/${rail ? getComputedStyle(rail).overflowX : 'none'}`
+      return `${bar ? getComputedStyle(bar).height : 'none'}/${rail ? getComputedStyle(rail).overflowX : 'none'}`
     }), { timeout: 15_000 })
-    .toBe('fixed/auto')
+    .toBe('52px/auto')
   // The rail's geometry is only meaningful once the originals have decoded.
   await expect
     .poll(async () => page.locator('.desktop-catalogue img.is-loaded').count(), { timeout: 30_000, intervals: [250, 500] })
@@ -130,7 +130,7 @@ const paneContrast = (page: Page) =>
         .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0)
     const background = rgb(getComputedStyle(panel).backgroundColor)
     const bg = luminance(background)
-    return [...panel.querySelectorAll<HTMLElement>('.admin-intro, .admin-greeting, .admin-drawer-action, .site-footer-link, .site-footer-copy, .desktop-device-line')].map((node) => {
+    return [...panel.querySelectorAll<HTMLElement>('.admin-greeting-url, .admin-drawer-action, .site-footer-link, .site-footer-copy, .desktop-device-line')].map((node) => {
       const color = rgb(getComputedStyle(node).color)
       const alpha = color[3] ?? 1
       const fg = luminance(color.slice(0, 3).map((channel, index) => channel * alpha + background[index] * (1 - alpha)))
@@ -155,14 +155,12 @@ for (const size of sizes) {
     await expect(page.locator('[data-admin-ready="true"]')).toBeVisible()
 
     // ── The account surface speaks the shared vocabulary ───────────────────
-    // The same sentences the web dashboard's and iOS's panes use, with the
-    // Mac's own local fact after them.
-    const planSentence = 'You are a Visionary.'
-    await expect(page.locator('.admin-welcome-note')).toContainText('Welcome to manorama.xyz.')
-    await expect(page.locator('.admin-welcome-note')).toContainText(planSentence)
-    await expect(page.locator('.admin-welcome-note')).toContainText(`${built.galleries.length} galleries on this Mac.`)
-    await expect(page.locator('.admin-limit-count')).toContainText('on this Mac')
-    await expect(page.locator('.desktop-sync-state')).toContainText('Catalogue synced.')
+    // Scope and sync ride the quiet status line; the plan and the Mac's own
+    // facts live in the account pane, not a persistent introduction.
+    const sub = page.locator('.admin-library-sub')
+    await expect(sub).toContainText(`${built.galleries.length} galleries`)
+    await expect(sub).toContainText('photographs')
+    await expect(sub).toContainText('Catalogue synced.')
     // The launch really did call the account's seam, and the fixture answered.
     expect(api.calls()).toBeGreaterThan(0)
     // Both sources are on the page: the folder of originals and the card.
@@ -183,47 +181,28 @@ for (const size of sizes) {
       await expect(page.locator('.lib-card button', { hasText: old })).toHaveCount(0)
     }
 
-    // ── The workbench, arranged like the web dashboard and iOS admin ────────
-    const welcome = page.getByRole('region', { name: 'Welcome to manorama' })
-    const importer = page.getByRole('region', { name: 'Add a gallery' })
-    const heading = page.getByRole('heading', { name: 'Your galleries', exact: true })
-    await expect(welcome).toBeVisible()
-    await expect(importer).toBeVisible()
+    // ── The compact owner shell, like the web Library ─────────────────────
+    // Shared mark in the bar, Library and Add on one row, cards directly
+    // under the quiet status line.
+    const bar = page.locator('.m-topbar')
+    const heading = page.getByRole('heading', { name: 'Library', exact: true })
+    await expect(bar).toBeVisible()
+    await expect(bar.locator('img.m-topbar-logo')).toBeVisible()
     await expect(heading).toBeVisible()
-    const welcomeBox = (await welcome.boundingBox())!
-    const importBox = (await importer.boundingBox())!
+    await expect(page.getByRole('button', { name: '+ Add Gallery', exact: true })).toBeVisible()
+    const barBox = (await bar.boundingBox())!
     const headingBox = (await heading.boundingBox())!
-    // Which branch applies is the stylesheet's call, and the engine's scrollbar
-    // decides the layout width it is measured against: WebKit's classic
-    // scrollbar takes ~15px off a 1440 window, so the same CSS splits in
-    // Chromium and stacks in WebKit. Both are correct — this asserts the
-    // intended geometry of whichever branch is in force, at every size.
-    const split = welcomeBox.x + welcomeBox.width < size.width / 2 + 1
-    if (split) {
-      expect(importBox.x).toBeGreaterThan(size.width / 2)
-      expect(Math.abs(welcomeBox.y - importBox.y)).toBeLessThan(2)
-    } else {
-      expect(importBox.y).toBeGreaterThanOrEqual(welcomeBox.y + welcomeBox.height - 1)
-    }
-    expect(headingBox.y).toBeGreaterThanOrEqual(Math.max(welcomeBox.y + welcomeBox.height, importBox.y + importBox.height) - 1)
+    expect(headingBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1)
 
-    // One labelled control opens the account pane, and the pane is shut until
-    // it is asked for. Above the phone breakpoint the control is a tab on the
-    // left edge, vertically centred; below it, the same control is the
-    // hamburger at the top of the page, because a 760px window has no edge to
-    // spare. Either way it is a 44px target.
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+    // One labelled control opens the account pane — the gear in the top bar's
+    // end slot — and the pane is shut until it is asked for.
+    const tab = page.getByRole('button', { name: 'Settings', exact: true })
     const pane = page.getByRole('dialog', { name: 'Account', exact: true })
     await expect(pane).toBeHidden()
     await expect(tab).toHaveAttribute('aria-expanded', 'false')
     const tabBox = (await tab.boundingBox())!
-    if (size.width < 820) {
-      expect(tabBox.x, 'the phone hamburger sits at the top right').toBeGreaterThan(size.width / 2)
-      expect(tabBox.y, 'the phone hamburger sits at the top').toBeLessThan(80)
-    } else {
-      expect(tabBox.x).toBeLessThanOrEqual(1)
-      expect(Math.abs(tabBox.y + tabBox.height / 2 - size.height / 2)).toBeLessThan(2)
-    }
+    expect(tabBox.x).toBeGreaterThan(size.width / 2)
+    expect(tabBox.y).toBeLessThan(52)
     expect(tabBox.width).toBeGreaterThanOrEqual(44)
 
     // ── One gapless, aspect-true rail of clickable originals ───────────────

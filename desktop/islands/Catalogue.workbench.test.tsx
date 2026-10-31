@@ -270,21 +270,20 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.desktop-catalogue')).not.toBeNull()
     expect(container.querySelector('.desktop-shell')).toBeNull()
 
-    // Header quadrants: welcome copy left of the source picker, galleries below
-    // both — the same order the web dashboard and iOS admin use.
-    const welcome = container.querySelector('.admin-welcome')
-    const importer = container.querySelector('.gallery-import')
+    // The compact owner shell: shared mark in the top bar, then a Library +
+    // Add row ahead of the cards — the same contract as the web Library.
     const galleries = container.querySelector('#galleries-heading')
-    expect(welcome?.getAttribute('aria-label')).toBe('Welcome to manorama')
-    expect(container.querySelector('#import-heading')?.textContent).toBe('Add a gallery')
-    expect(galleries?.textContent).toBe('Your galleries')
+    expect(galleries?.textContent).toBe('Library')
+    expect(container.querySelector('.m-topbar-logo')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
+    const addButton = byText(container, '+ Add Gallery')
+    expect(addButton).toBeDefined()
     const html = container.innerHTML
-    expect(html.indexOf('admin-welcome')).toBeLessThan(html.indexOf('import-heading'))
-    expect(html.indexOf('import-heading')).toBeLessThan(html.indexOf('galleries-heading'))
+    expect(html.indexOf('m-topbar')).toBeLessThan(html.indexOf('galleries-heading'))
+    expect(html.indexOf('admin-library-heading')).toBeLessThan(html.indexOf('lib-list'))
 
-    // The account controls live behind one labelled edge tab.
-    const tab = container.querySelector<HTMLButtonElement>('.admin-edge-tab')
-    expect(tab?.getAttribute('aria-label')).toBe('Account menu')
+    // The account controls live behind the gear in the top bar.
+    const tab = container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')
+    expect(tab?.getAttribute('aria-label')).toBe('Settings')
     expect(tab?.getAttribute('aria-expanded')).toBe('false')
     expect(tab?.getAttribute('aria-controls')).toBe('admin-account-drawer')
     const drawer = container.querySelector<HTMLElement>('#admin-account-drawer')
@@ -301,7 +300,7 @@ describe('desktop catalogue workbench', () => {
 
   test('opens the pane, keeps Tab inside it, and hands the caret back', async () => {
     const container = await mount(true)
-    const tab = container.querySelector<HTMLButtonElement>('.admin-edge-tab')!
+    const tab = container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')!
     const drawer = container.querySelector<HTMLElement>('#admin-account-drawer')!
 
     tab.click()
@@ -339,7 +338,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     expect(dom.document.documentElement.classList.contains('light')).toBe(false)
 
-    container.querySelector<HTMLButtonElement>('.admin-edge-tab')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')!.click()
     await settle()
     byText(container, 'Switch to light mode')!.click()
     await settle()

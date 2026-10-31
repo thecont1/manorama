@@ -606,9 +606,6 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; font-family: var(--m-font); }
-.admin-intro { max-width: 50ch; margin: 0; color: rgb(var(--ink)); font-size: 13px; line-height: 1.7; }
-.admin-intro strong { color: rgba(var(--ink), .9); font-weight: 500; }
-.admin-intro code { color: rgba(214, 224, 213, .62); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
 /* The toast is a quiet pill docked at the bottom edge — a status note,
    not a banner. */
 .admin-toast {
@@ -632,25 +629,12 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
-.admin-section { padding: clamp(28px, 4vw, 52px) 0; border-top: 1px solid rgba(var(--ink), .12); }
-.admin-section h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -.035em; }
 .admin-button { border: 1px solid rgba(var(--ink), .2); border-radius: 0; padding: 12px 15px; background: transparent; color: rgba(var(--ink), .78); font-size: 12px; cursor: pointer; }
 .admin-button:hover, .admin-button:focus-visible { border-color: rgba(var(--ink), .72); color: #fff; }
 .admin-button--solid { border-color: rgb(var(--ink)); background: rgb(var(--ink)); color: #161817; }
 .admin-button--solid:hover, .admin-button--solid:focus-visible { border-color: #fff; background: #fff; color: #111312; }
 
 .admin-page--selector { min-height: 100dvh; }
-.gallery-selector-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 32px; }
-.gallery-selector-heading > div { display: flex; align-items: baseline; gap: 18px; }
-.gallery-selector-heading h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -.035em; }
-.gallery-selector-heading > p { margin: 3px 0 0; color: rgba(var(--ink), .44); font-size: 12px; }
-@media (max-width: 720px) {
-  .gallery-selector-heading { display: block; }
-  .gallery-selector-heading > p { margin: 10px 0 0 36px; }
-}
-
-.gallery-import { width: min(1040px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0; border-top: 1px solid rgba(var(--ink), .12); }
-.admin-privacy-note { max-width: 52ch; margin: 14px 0 0; color: rgba(var(--ink), .36); font-size: 11px; line-height: 1.6; }
 
 /* Recency-first gallery list */
 .gallery-list { width: min(1040px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0 72px; border-top: 1px solid rgba(var(--ink), .12); }
@@ -695,15 +679,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-weight: 200 800;
   font-display: swap;
 }
-.admin-intro {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  text-transform: none;
-}
-.admin-intro { font-style: italic; font-weight: 400; font-size: clamp(15px, 1.7vw, 21px); letter-spacing: -.02em; line-height: 1.55; }
-
-/* Brand hierarchy and logo marks */
-.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolage Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
-.admin-intro em { font-style: italic; }
 /* The brand is a peeking wordmark in a pill, not a banner — but the
    BUTTON is only the hit area: a 44px strip fully inside the viewport
    bottom. The painted pill (.brand-mark-wrap + ::before) does the
@@ -971,16 +946,7 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   color: rgba(var(--ink), .6);
 }
 
-/* Dashboard owner row: name, editable URL, sign out. */
-.admin-greeting {
-  max-width: 56ch;
-  margin: 30px 0 0;
-  color: rgba(var(--ink), .82);
-  font-size: 16px;
-  line-height: 1.9;
-  letter-spacing: -.01em;
-}
-.admin-greeting p { margin: 0; }
+/* Dashboard owner row: the account address the owner's galleries answer to. */
 .admin-greeting-url {
   display: block;
   margin: 0 0 3em;
@@ -988,32 +954,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-family: 'DM Mono', ui-monospace, monospace;
   font-size: 19px;
   letter-spacing: .04em;
-}
-.admin-greeting-url .admin-owner-slug { font-size: inherit; }
-.admin-greeting-name {
-  padding: 0 .12em;
-  background: linear-gradient(transparent 52%, rgba(255, 228, 94, .45) 52%);
-  color: inherit;
-}
-.admin-owner-slug-input {
-  width: auto;
-  min-width: 8ch;
-  max-width: min(42ch, 100%);
-  field-sizing: content;
-  margin-left: 2px;
-  padding: 2px 10px;
-  border: 1px solid rgba(var(--ink), .45);
-  border-radius: 5px;
-  background: rgba(var(--ink), .06);
-  color: rgb(var(--ink));
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: inherit;
-  letter-spacing: .04em;
-  outline: none;
-}
-.admin-owner-slug-input:focus-visible {
-  border-color: rgba(var(--ink), .85);
-  background: rgba(var(--ink), .1);
 }
 .admin-delete-confirm { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; color: rgba(var(--ink), .55); font-size: 12px; }
 .admin-delete-confirm input {
@@ -1027,20 +967,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-size: 13px;
 }
 .admin-delete-confirm input:focus-visible { border-color: rgba(var(--ink), .85); background: rgba(var(--ink), .1); outline: none; }
-.admin-limit-count {
-  display: block;
-  margin: -18px 0 26px;
-  color: rgba(var(--ink), .46);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: .08em;
-}
-.admin-retention-policy { margin: -18px 0 26px; }
-.admin-retention-policy .admin-limit-count { margin: 0 0 6px; }
-.admin-retention-policy p:not(.admin-limit-count) { margin: 6px 0 0; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; }
-.admin-gallery-retention { grid-column: 1 / -1; margin: 16px 0 4px; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; }
-.admin-gallery-retention p { margin: 4px 0 0; }
-.admin-gallery-retention a { color: rgb(var(--ink)); }
 
 /* Light theme (editor only): the toggle adds .light to <html>; --ink flips every
    ink-derived color. Hard-coded surfaces and white-hover states need overrides. */
@@ -1686,22 +1612,13 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 
 .admin-page--selector { --admin-surface: #111312; --admin-muted: .68; display: block; width: 100%; height: auto; overflow: visible; background: var(--admin-surface); padding: 0; }
 .admin-page--selector .admin-content { width: min(1440px, 100%); margin-inline: auto; padding: clamp(12px, 2vw, 20px) clamp(20px, 7vw, 112px) clamp(48px, 8vw, 96px); }
-.admin-page--selector :is(.gallery-import, .gallery-list) { width: 100%; }
-/* The wordmark moved above the list, so the list's own top padding is
+.admin-page--selector .gallery-list { width: 100%; }
+/* The shared top bar owns the mark, so the list's own top padding is
    just a small gap under it — not hero spacing. */
 .admin-page--selector .gallery-list { padding-top: clamp(12px, 2vw, 20px); }
-.admin-page--selector :is(.admin-limit-count, .admin-privacy-note, .site-footer-link, .site-footer-copy, .site-footer-copy a) { color: rgba(var(--ink), var(--admin-muted)); }
+.admin-page--selector :is(.site-footer-link, .site-footer-copy, .site-footer-copy a) { color: rgba(var(--ink), var(--admin-muted)); }
 .admin-page--selector input::placeholder { color: rgba(var(--ink), var(--admin-muted)); opacity: 1; }
 
-.admin-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; padding-bottom: 32px; }
-.admin-welcome { min-width: 0; }
-.admin-welcome-brand { display: block; position: relative; width: min(340px, 100%); margin-bottom: 24px; }
-.admin-welcome-brand .admin-topbar-logo { display: block; width: 100%; max-width: 100%; height: auto; }
-.admin-welcome .admin-intro { max-width: 44ch; font-size: 16px; line-height: 1.55; }
-.admin-welcome-note { max-width: 46ch; margin: 24px 0 0; color: rgba(var(--ink), .86); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
-.admin-overview .gallery-import { min-width: 0; padding: 0; border-top: 0; }
-.admin-overview .gallery-selector-heading { margin-bottom: 22px; }
-.admin-overview .admin-retention-policy { margin: 0 0 22px; }
 .admin-galleries-heading { margin: 0; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .admin-library-sub { margin: 10px 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
@@ -1784,16 +1701,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media img { width: auto; height: 100%; max-width: none; }
 }
 
-@media (min-width: 820px) {
-  /* The page's asymmetric edge-tab gutter would pull a simple 50/50 split
-     right of the physical centre. Compensate so neither top block crosses it. */
-  .admin-overview { --overview-gutter: 32px; grid-template-columns: minmax(0, calc(50% - 16px - var(--overview-gutter) / 2)) minmax(0, 1fr); column-gap: var(--overview-gutter); }
-  .admin-welcome { padding-right: 12px; }
-  .admin-overview .gallery-import { padding-left: 12px; }
-}
-@media (horizontal-viewport-segments: 2) {
-  .admin-overview { grid-template-columns: minmax(0, calc(env(viewport-segment-width 0 0) - 56px)) minmax(0, 1fr); column-gap: max(32px, calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0))); }
-}
 /* A surface panel never straddles the hinge — the sponsored slot stays
    inside the leading segment's padded column. */
 .admin-page[data-admin-segmented] .account-ad { width: min(480px, calc(var(--admin-left-end) - 160px)); }
@@ -1830,13 +1737,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 
 .admin-gallery-strip-item { flex: 0 0 auto; height: clamp(96px, 16dvh, 208px); }
 .admin-gallery-strip-item img { height: 100%; width: auto; }
-
-/* Two physical control regions: copy and inputs avoid the hinge, scrolling
-   photographic rails deliberately continue across it. */
-.admin-page--selector[data-admin-segmented] .admin-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
-
-.admin-profile-address { margin: 20px 0; font-size: 14px; overflow-wrap: anywhere; color: rgb(var(--ink)); }
-
 
 /* Temporary viewer chrome (P3): top bar (Library + N of M) and bottom
    row (Display / Info / Details). Always inside .m-dark — the pills
