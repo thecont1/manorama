@@ -516,7 +516,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   }, [plate, mode, images.length])
 
   useLayoutEffect(() => { indexRef.current = index; pendingFoldIndexRef.current = null }, [index])
-  useLayoutEffect(() => { plateRef.current = plate })
+  const previousPlateRef = useRef(plate)
+  useLayoutEffect(() => {
+    // A plate resolving after mount inserts before its seeded position and
+    // shifts every later frame right by its own width. Re-dock the anchored
+    // photograph or the ad lands where that photo was measured to be.
+    if (!previousPlateRef.current && plate && modeRef.current === 'strip' && !foldActiveRef.current
+      && !draggingRef.current && momentumRef.current === null) {
+      settleTo(-imageStart(pendingEntryRef.current ?? indexRef.current), true)
+    }
+    previousPlateRef.current = plate
+    plateRef.current = plate
+  })
   useEffect(() => { modeRef.current = mode }, [mode])
 
   // Background preference is global chrome: adopt the stored value after

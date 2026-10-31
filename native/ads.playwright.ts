@@ -234,7 +234,7 @@ test.describe('native ad plate rules', () => {
     await expect(page.locator('[data-ad-frame]')).toHaveCount(1)
     const shortPos = Number(await page.locator('[data-ad-frame]').getAttribute('data-ad-position'))
     expect(shortPos).toBe(singlePlatePositionsFor(5, `ads-fixture:${todayKey()}`)[0])
-    expect(shortPos).toBeGreaterThan(0)
+    expect(shortPos).toBeGreaterThan(1)
     expect(shortPos).toBeLessThan(4)
 
     await openApp(page, 22)

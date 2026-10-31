@@ -84,17 +84,19 @@ describe('seeded plate cadence', () => {
   })
 
   test('the interim single-plate rule picks one interior position per seed', () => {
-    // Exactly one placement per gallery — never first, never last.
+    // Exactly one placement per gallery — never first, never last, and
+    // never the second slot: it sits inside the opening view.
     for (const seed of ['a:1', 'b:2', 'c:3', 'd:4', 'e:5']) {
       const positions = singlePlatePositionsFor(60, seed)
       expect(positions).toHaveLength(1)
-      expect(positions[0]).toBeGreaterThan(0)
+      expect(positions[0]).toBeGreaterThan(1)
       expect(positions[0]).toBeLessThan(59)
     }
     expect(singlePlatePositionsFor(60, 'x:1')).toEqual(singlePlatePositionsFor(60, 'x:1'))
-    // Three photographs leaves exactly one interior slot; under three there
-    // is no honest place a plate can sit, so the gallery stays clean.
-    expect(singlePlatePositionsFor(3, 'x:1')).toEqual([1])
+    // Under four photographs the only interior spot is that second slot,
+    // so there is no honest place a plate can sit — the gallery stays clean.
+    expect(singlePlatePositionsFor(3, 'x:1')).toEqual([])
+    expect(singlePlatePositionsFor(4, 'x:1')).toEqual([2])
     expect(singlePlatePositionsFor(2, 'x:1')).toEqual([])
     expect(singlePlatePositionsFor(0, 'x:1')).toEqual([])
   })

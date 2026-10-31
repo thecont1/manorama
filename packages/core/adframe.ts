@@ -80,13 +80,15 @@ export const AD_BANNER_HEIGHT = 250
 
 /** The interim single-plate placement while dummy house creatives stand in
  *  for AdMob: exactly one plate per gallery at a seeded interior position —
- *  never first, never last, re-rolled per seed key like the cadence. A
- *  gallery under three photographs has no interior slot and stays clean.
- *  Returns a readonly array so callers can swap policies with one line. */
+ *  never first, never last, and never the second slot either: that slot is
+ *  inside the opening view, where the first photograph must own the frame.
+ *  A gallery under four photographs has no interior slot left and stays
+ *  clean. Returns a readonly array so callers can swap policies with one
+ *  line. */
 export const singlePlatePositionsFor = (photoCount: number, seedKey: string): readonly number[] => {
-  if (photoCount < 3) return []
+  if (photoCount < 4) return []
   const random = mulberry32(hashSeedKey(seedKey))
-  return [1 + Math.floor(random() * (photoCount - 2))]
+  return [2 + Math.floor(random() * (photoCount - 3))]
 }
 
 export type AdCreative = { src: string; width: number; height: number }
