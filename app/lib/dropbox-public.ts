@@ -1,6 +1,7 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { parseJpegDimensions, probeImageDimensions } from './image-dims'
 import { createScanBudget, mapWithConcurrency, PROBE_CONCURRENCY, ScanBudgetExhausted } from './scan-budget'
+import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 export { parseJpegDimensions }
 
@@ -15,7 +16,7 @@ type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
 type SharedLinkMetadata = { name?: string }
 
-export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
+export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number; partial?: boolean }
 
 const validateFolderUrl = (input: string) => {
   const url = new URL(input.trim())
@@ -56,11 +57,26 @@ const rpc = async <T>(endpoint: string, body: unknown, env: DropboxEnv, fetchImp
   return response.json() as Promise<T>
 }
 
-const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit) => {
-  const response = await fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
+const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, fetchImpl: typeof fetch = fetch, headers?: HeadersInit, retryWaitMs = MAX_RETRY_WAIT_MS) => {
+  const once = () => fetchImpl(`https://content.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
     headers: { ...authHeaders(env), 'Dropbox-API-Arg': JSON.stringify(arg), ...headers },
   })
+  let response = await once()
+  // A gallery open bursts dozens of content calls — Dropbox answers the
+  // stampede with 429 or a transient 5xx, so exactly one retry waits out
+  // Retry-After (or a short jitter) rather than dropping the photograph. A
+  // requested wait beyond the proxy's latency budget is not retried at
+  // all — the limiter's answer surfaces instead of stalling the request.
+  if (!response.ok && (response.status === 429 || response.status >= 500)) {
+    const requested = retryAfterMs(response.headers)
+    // Over the budget the limiter's answer is the honest one — it falls
+    // through to the throw below instead of stalling the request on a wait.
+    if (requested === null || requested <= retryWaitMs) {
+      await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
+      response = await once()
+    }
+  }
   // Dropbox reports a missing path inside a valid shared folder as 409 —
   // for the proxy that is a confirmed miss, not a conflict.
   if (!response.ok) throw new SourceFetchError(`Dropbox ${endpoint} failed (${response.status})`, response.status === 409 ? 404 : response.status)
@@ -84,7 +100,7 @@ const contentRequest = async (endpoint: string, arg: unknown, env: DropboxEnv, f
 const imageDimensions = async (sourceUrl: string, filename: string, env: DropboxEnv, fallback: { width?: number; height?: number } | undefined, fetchImpl: typeof fetch) => {
   if (fallback?.width && fallback?.height) return { width: fallback.width, height: fallback.height }
   try {
-    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' })
+    const response = await contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetchImpl, { Range: 'bytes=0-131071' }, PROBE_RETRY_WAIT_MS)
     const dimensions = probeImageDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
   } catch (error) {
@@ -100,7 +116,7 @@ const imageDimensions = async (sourceUrl: string, filename: string, env: Dropbox
       format: { '.tag': 'jpeg' },
       size: 'w256h256',
       mode: 'strict',
-    }, env, fetchImpl)
+    }, env, fetchImpl, undefined, PROBE_RETRY_WAIT_MS)
     const dimensions = parseJpegDimensions(new Uint8Array(await response.arrayBuffer()))
     if (dimensions) return dimensions
   } catch (error) {
@@ -182,7 +198,10 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
     }
   })).filter((image): image is GalleryImage => image !== null)
   const truncated = found.length > MAX_GALLERY_ITEMS || dropped ? found.length : undefined
-  return { sourceUrl, title, images, ...(truncated ? { truncated } : {}) }
+  // `dropped` means the budget cut the scan short — distinct from the
+  // gallery cap's honest prefix, so a refresh can refuse to persist a
+  // partial listing over a complete one.
+  return { sourceUrl, title, images, ...(truncated ? { truncated } : {}), ...(dropped ? { partial: true } : {}) }
 }
 
 export const fetchDropboxFile = async (sourceUrlInput: string, filename: string, env: DropboxEnv, range?: string | null) => {

@@ -60,7 +60,6 @@ body.manorama-native .stage-arrows .stage-nav-arrow {
   font-size: clamp(16px, 2.8svh, 24px);
 }
 
-
 :root {
   --native-safe-top: env(safe-area-inset-top, 0px);
   --native-safe-right: env(safe-area-inset-right, 0px);
@@ -277,106 +276,6 @@ body.manorama-native:has(.native-account-shell) {
 
 }
 
-.native-paywall-shell {
-  min-height: 100svh;
-  display: grid;
-  place-items: center;
-  padding: 32px;
-  background: var(--gallery-canvas);
-}
-
-.native-paywall-card {
-  position: relative;
-  width: min(100%, 460px);
-  padding: clamp(8px, 4vw, 28px) 0;
-}
-
-.native-paywall-kicker {
-  margin: 0 0 28px;
-  color: rgba(var(--ink), .62);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
-.native-paywall-card h1 {
-  margin: 0 0 16px;
-  font-size: clamp(30px, 7vw, 48px);
-  letter-spacing: -.055em;
-  line-height: 1;
-}
-
-.native-paywall-card > p:not(.native-paywall-kicker) {
-  min-height: 2.8em;
-  margin: 0 0 28px;
-  color: rgba(var(--ink), .7);
-  line-height: 1.55;
-}
-
-.native-paywall-close {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  border: 0;
-  background: transparent;
-  color: rgba(var(--ink), .7);
-  cursor: pointer;
-}
-
-.native-paywall-actions {
-  display: grid;
-  gap: 12px;
-}
-
-.native-paywall-actions button {
-  border: 1px solid rgba(var(--ink), .22);
-  border-radius: 0;
-  padding: 13px 22px;
-  background: transparent;
-  color: rgba(var(--ink), .82);
-  font-size: 13px;
-  letter-spacing: .01em;
-  cursor: pointer;
-}
-
-/* Guideline 3.1.2 footer: quiet links under the purchase actions. */
-.native-paywall-legal {
-  margin: 18px 0 0;
-  color: rgba(var(--ink), .5);
-  font-size: 12px;
-  text-align: center;
-}
-
-.native-paywall-legal button {
-  /* The link stays visually quiet, but the hit area meets the 44×44pt
-     minimum — a paywall legal link is a compliance surface. */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
-  margin: -10px 0;
-  border: 0;
-  padding: 0;
-  background: none;
-  color: rgba(var(--ink), .72);
-  font-size: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
-.native-paywall-card button:focus-visible {
-  outline: 2px solid rgb(var(--ink));
-  outline-offset: 3px;
-}
-
-.native-paywall-card button:disabled {
-  cursor: progress;
-  opacity: .5;
-}
-
 /* The web app keeps its chrome out of the way until the gallery is entered, and
    the native shells should match: while the curtain is up the photograph and the
    title are the whole interface. `gallery-entered` is set on the body when the
@@ -444,7 +343,6 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
   align-items: start;
 }
 
-
 .native-gallery-caption {
   display: block;
   width: 100%;
@@ -463,7 +361,6 @@ html.light body.manorama-native .native-editor { background: var(--m-ground); co
 }
 .native-gallery-caption:hover { color: rgba(var(--ink), .8); }
 .native-gallery-caption:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-.native-gallery-caption.is-empty { color: rgba(var(--ink), .34); font-style: italic; }
 
 /* ── The gallery editor ────────────────────────────────────────────────────
    Full-screen owner surface: a TopBar (Close / Reorder / Reset), the gallery

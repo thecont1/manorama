@@ -24,12 +24,15 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       }
       if (state === 2) await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
       if (state === 3) {
-        const input = page.getByLabel('Public Dropbox, Google Drive, iCloud, or MEGA link', { exact: true })
+        await page.getByRole('button', { name: 'Add', exact: true }).click()
+        const input = page.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA', { exact: true })
         await expect(input).toBeInViewport()
         await input.fill('https://mega.nz/folder/example#preserve-fragment')
         await page.getByRole('button', { name: 'Add gallery', exact: true }).click()
         await expect(page.locator('[data-curtain]')).toBeVisible()
-        expect(await page.evaluate(() => (window as unknown as { __captureImport: unknown }).__captureImport)).toEqual({ url: 'https://mega.nz/folder/example#preserve-fragment', quick: true })
+        // The explicit Add sheet posts { url } — `quick` belongs only to the
+        // zero-click deep-link path, which this surface is not.
+        expect(await page.evaluate(() => (window as unknown as { __captureImport: unknown }).__captureImport)).toEqual({ url: 'https://mega.nz/folder/example#preserve-fragment' })
       }
       if (state === 4) await expect(page.locator('[data-grid-frame]')).toHaveCount(22)
       const stale = await request.post(`${base}/__capture/report`, { data: { state, generation: generation - 1, ready: true } })

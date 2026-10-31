@@ -93,6 +93,21 @@ describe('scanICloudAlbum', () => {
     expect(scan.images).toHaveLength(1)
   })
 
+  test('retries the listing once on a transient answer', async () => {
+    // Same bounded retry the media proxies carry — a burst-load 429 must
+    // not kill the whole scan.
+    const calls: string[] = []
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      calls.push(url)
+      if (calls.length === 1) return jsonResponse({}, 429)
+      return jsonResponse(stream([photo()]))
+    }
+    const scan = await scanICloudAlbum(`https://www.icloud.com/sharedalbum/#${TOKEN}`, fetchImpl as typeof fetch)
+    expect(calls).toHaveLength(2)
+    expect(scan.images).toHaveLength(1)
+  })
+
   test('fails friendly when the album is not public', async () => {
     const fetchImpl = async () => jsonResponse({}, 404)
     await expect(scanICloudAlbum(`https://www.icloud.com/sharedalbum/#${TOKEN}`, fetchImpl as typeof fetch))

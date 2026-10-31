@@ -642,6 +642,10 @@ export const createManoramaApi = () => {
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (!gallery.sourceUrl) return c.json({ error: 'Only link-sourced galleries can be refreshed' }, 400)
       const scan = await scanSource(gallery.sourceUrl, envOf(c))
+      // A budget-cut scan returns a partial listing — persisting it would
+      // drop source items the scan never reached, so the refresh is
+      // rejected and the gallery keeps its existing images.
+      if (scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
       // Retained images keep the owner's ordering but pick up fresh
       // scanner metadata and source references; images removed from the
       // source drop out, newly discovered ones append at the end.

@@ -744,7 +744,32 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class="admin-gallery-strip-item" key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}, opens in a new tab`}>
-                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
+                      const img = event.currentTarget as HTMLImageElement
+                      // Stored dims are the placeholder's shape — the decoded
+                      // derivative (an EXIF-rotated frame, a video poster) owns
+                      // the real ratio once it lands.
+                      if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                      img.classList.add('is-loaded')
+                    }} onError={(event: Event) => {
+                      // A transient upstream 5xx otherwise leaves a permanent
+                      // hole — the viewer's stall watchdog answers the same
+                      // problem for frames; one bounded retry covers thumbs.
+                      // The marker tracks the source that failed, so a src
+                      // swapped in later earns its own retry, the retried
+                      // load failing again does not reschedule, and the
+                      // callback only fires while that source is still set.
+                      const img = event.currentTarget as HTMLImageElement
+                      const baseOf = (src: string) => src.replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
+                      const failed = baseOf(img.getAttribute('src') ?? '')
+                      if (!failed || img.dataset.retriedSrc === failed) return
+                      img.dataset.retriedSrc = failed
+                      window.setTimeout(() => {
+                        if (baseOf(img.getAttribute('src') ?? '') === failed) {
+                          img.src = `${failed}${failed.includes('?') ? '&' : '?'}mreload=1`
+                        }
+                      }, 1500)
+                    }} />
                     {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
                   </a>
                 </li>)}

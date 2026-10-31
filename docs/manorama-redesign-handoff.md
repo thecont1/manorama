@@ -47,7 +47,7 @@ Style: True-black flat app (taste-skill, seed 1740959148). *(28 Oct 2026: this i
 | Secondary / meta | `#b8b4ab` / `#98948c` | Supporting text. Every tier must pass 4.5:1 on its surface. |
 | Data hue | `#fc0fc0` | Only: progress (saving, plan usage, storage), the picked-up photograph in Reorder, moved positions. Never on buttons, tabs, navigation. |
 | Negative | red used only for Remove gallery and Delete account | |
-| Type | Bricolage Grotesque only, variable | Titles 28/700, sections 17/650, body 16, meta 13, tabular figures. DM Mono, Playfair and Great Vibes are removed. |
+| Type | Bricolage Grotesque only, variable | Titles 28/700, sections 17/650, body 16, meta 13, tabular figures. DM Mono, Playfair and Great Vibes are removed. *(31 Oct 2026: not removed — see decisions.md; all faces are bundled locally and no remote font request remains.)* |
 | Shapes | buttons and segmented controls are full pills; panels 14px radius; sheets 22px; photographs square | |
 | Elevation | by lightness only; borders and shadows only on sheets and dialogs | |
 | Touch | every target at least 44px | |
@@ -201,7 +201,7 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 
 | Surface | Likely home (confirmed in megaplan §4) |
 |---|---|
-| Tokens, fonts | `app/styles.css` (replace `--admin-*`), `public/fonts` |
+| Tokens, fonts | `app/styles.css` (`--admin-*` are live dynamic geometry vars, kept), `public/fonts` |
 | Viewer chrome, Display, Info, curtain, arrows bar, end card | `app/islands/Viewer.tsx` |
 | C2PA panel | `app/islands/Viewer.tsx` (`credentialState`, `openCredentials`, `data-c2pa-panel`, `C2PA_VIEWER_URL`) and `packages/core/imagesource.ts` |
 | Strip, one-by-one, sizing math | `app/islands/Viewer.tsx`, `packages/core/image-staging.ts`, `packages/core/image-dims` |

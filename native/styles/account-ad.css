@@ -3,14 +3,6 @@
    own surface panel shaped for a vertical photograph — never the first
    gallery, never inside a card. */
 
-.native-account-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
 .native-account-ad {
   display: grid;
   gap: 10px;
@@ -32,6 +24,7 @@
 
 .native-account-ad-slot {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   align-items: stretch;
 }
