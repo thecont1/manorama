@@ -382,6 +382,9 @@ a.m-actionrow, button.m-actionrow { cursor: pointer; }
   padding: 14px var(--m-pad) 8px;
 }
 .m-sheet-title { flex: 1; margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+/* The heading holds programmatic focus for the announcement only — it is
+   not an interactive control, so it never wears a focus ring. */
+.m-sheet-title:focus { outline: none; }
 .m-sheet-body { overflow: auto; overscroll-behavior: contain; padding: 0 var(--m-pad) var(--m-pad); }
 .m-sheet-foot { padding: 8px var(--m-pad) calc(12px + env(safe-area-inset-bottom)); }
 @media (min-width: 720px) {
@@ -534,12 +537,9 @@ button { color: inherit; }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
 .m-sheet-hint { color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; text-align: right; }
-.m-control-desc { margin: -4px 0 0; color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; }
 .m-shortcut-list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }
 .m-shortcut-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; color: rgba(var(--m-ink, var(--ink)), .62); font-size: 12px; }
 @media (max-width: 560px) { .m-shortcut-list { grid-template-columns: 1fr; } }
-.m-sheet-quiet-link { color: rgba(var(--m-ink, var(--ink)), .55); font-size: 11px; text-decoration: none; }
-.m-sheet-quiet-link:hover, .m-sheet-quiet-link:focus-visible { color: var(--m-ink, rgb(var(--ink))); }
 /* The information sheet lists facts as quiet label/value rows, matching the
    redesign's .kv treatment — labels left and muted, values right. */
 .m-info-rows { display: grid; gap: 8px; margin: 0; font-size: 15px; }

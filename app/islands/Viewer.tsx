@@ -571,6 +571,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const updateFullscreenState = () => {
       setFullscreenAvailable(allowFullscreen && Boolean(document.fullscreenEnabled && stageRef.current?.requestFullscreen))
       setFullscreenActive(Boolean(document.fullscreenElement))
+      // A sheet can't show over the fullscreen stage, and its overlay's
+      // inert would freeze the strip — closing it releases the input.
+      if (document.fullscreenElement) requestCloseModals()
     }
     updateFullscreenState()
     document.addEventListener('fullscreenchange', updateFullscreenState)
@@ -2658,7 +2661,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           magnifierAvailable={magnifierAvailable}
           magnifierActive={magnifierActive}
           deviceControls={deviceControls}
-          privacyHref="/privacy"
           panelStyle={foldPanelStyle}
         />
       </div>
