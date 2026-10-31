@@ -125,7 +125,7 @@ const postSharedstreams = async <T>(token: string, endpoint: string, body: unkno
     if (!host) throw new SourceFetchError('iCloud could not locate that shared album', 503)
     response = await fetchImpl(`https://${host}/${token}/sharedstreams/${endpoint}`, options)
   }
-  if (!response.ok) throw new SourceFetchError('Manorama could not read that iCloud album — check that it is a public Shared Album link', response.status)
+  if (!response.ok) throw transientError('Manorama could not read that iCloud album — check that it is a public Shared Album link', response)
   const data = await response.json() as T
   return { ...data, partition }
 }
@@ -397,6 +397,10 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
  *  persisted. Shared by the image and video proxies. */
 const ASSET_URL_TTL_MS = 45_000
 const assetUrlCache = new Map<string, { url: string; at: number }>()
+// A range burst misses the value cache for its first dozen requests, so the
+// in-flight resolution is shared per asset — one webasseturls call, many
+// waiters. Entries always settle out of this map.
+const assetUrlInflight = new Map<string, Promise<string | null>>()
 
 const resolveAssetUrl = async (token: string, photoGuid: string, checksum: string, fetchImpl: typeof fetch) => {
   // Only the production fetch caches — an injected fetchImpl is a test
@@ -409,19 +413,30 @@ const resolveAssetUrl = async (token: string, photoGuid: string, checksum: strin
       if (Date.now() - hit.at < ASSET_URL_TTL_MS) return hit.url
       assetUrlCache.delete(key)
     }
+    const inflight = assetUrlInflight.get(key)
+    if (inflight) return inflight
   }
-  const assets = await postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
-  const item = assets.items?.[checksum]
-  const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
-  if (!item?.url_path) return null
-  const url = assetLocationUrl(location, item.url_path)
-  if (!url || !cacheable) return url
-  if (assetUrlCache.size > 500) {
-    const now = Date.now()
-    for (const [k, v] of assetUrlCache) if (now - v.at >= ASSET_URL_TTL_MS) assetUrlCache.delete(k)
+  const resolve = (async () => {
+    const assets = await postSharedstreams<AssetUrls>(token, 'webasseturls', { photoGuids: [photoGuid] }, fetchImpl)
+    const item = assets.items?.[checksum]
+    const location = item?.url_location ? assets.locations?.[item.url_location] : undefined
+    if (!item?.url_path) return null
+    const url = assetLocationUrl(location, item.url_path)
+    if (!url || !cacheable) return url
+    if (assetUrlCache.size > 500) {
+      const now = Date.now()
+      for (const [k, v] of assetUrlCache) if (now - v.at >= ASSET_URL_TTL_MS) assetUrlCache.delete(k)
+    }
+    assetUrlCache.set(key, { url, at: Date.now() })
+    return url
+  })()
+  if (!cacheable) return resolve
+  assetUrlInflight.set(key, resolve)
+  try {
+    return await resolve
+  } finally {
+    assetUrlInflight.delete(key)
   }
-  assetUrlCache.set(key, { url, at: Date.now() })
-  return url
 }
 
 /** Drops a cached asset URL whose CDN fetch failed — the next resolve
@@ -430,16 +445,38 @@ const evictAssetUrl = (token: string, checksum: string) => {
   assetUrlCache.delete(`${token} ${checksum}`)
 }
 
+/** Retry-After arrives as delay-seconds or an HTTP-date; missing or
+ *  unparsable headers mean the retry falls back to jitter. */
+const retryAfterMs = (headers: Headers) => {
+  const value = headers.get('Retry-After')?.trim()
+  if (!value) return null
+  if (/^\d+$/.test(value)) return parseInt(value, 10) * 1000
+  const at = Date.parse(value)
+  return Number.isNaN(at) ? null : Math.max(0, at - Date.now())
+}
+
+/** A transient error carries the server's requested backoff so the retry
+ *  can honour it; beyond the latency budget the request is not retried. */
+const MAX_RETRY_WAIT_MS = 30_000
+const transientError = (what: string, response: Response) =>
+  Object.assign(new SourceFetchError(`${what} (${response.status})`, response.status), {
+    retryAfterMs: retryAfterMs(response.headers),
+  })
+
 /** Apple's sharedstreams endpoints and CDN occasionally answer a healthy
- *  request with a transient 5xx under burst load — a permanent miss is a
- *  404, so anything 5xx gets exactly one retry after a short jittered wait
- *  rather than leaving a hole in the page. */
+ *  request with a transient 429 or 5xx under burst load — a permanent miss
+ *  is a 404, so transient statuses get exactly one retry, waiting the
+ *  server's requested delay when it names one (jitter otherwise), rather
+ *  than leaving a hole in the page. */
 const retryOnceOnTransient = async <T>(run: () => Promise<T>): Promise<T> => {
   try {
     return await run()
   } catch (error) {
-    if (!(error instanceof SourceFetchError && error.status !== undefined && error.status >= 500)) throw error
-    await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 300))
+    const status = error instanceof SourceFetchError ? error.status : undefined
+    if (status === undefined || (status !== 429 && status < 500)) throw error
+    const requested = (error as { retryAfterMs?: number | null }).retryAfterMs
+    if (requested != null && requested > MAX_RETRY_WAIT_MS) throw error
+    await new Promise((resolve) => setTimeout(resolve, requested ?? 300 + Math.random() * 300))
     return run()
   }
 }
@@ -454,7 +491,7 @@ export const fetchICloudImage = async (token: string, photoGuid: string, checksu
     const response = await fetchImpl(url)
     if (!response.ok) {
       evictAssetUrl(token, checksum)
-      throw new SourceFetchError(`iCloud image fetch failed (${response.status})`, response.status)
+      throw transientError('iCloud image fetch failed', response)
     }
     return response
   })
@@ -481,7 +518,7 @@ export const fetchICloudVideo = async (
     // 206 is the expected answer to a Range request and `ok` is false for it.
     if (!response.ok && response.status !== 206) {
       evictAssetUrl(token, checksum)
-      throw new SourceFetchError(`iCloud video fetch failed (${response.status})`, response.status)
+      throw transientError('iCloud video fetch failed', response)
     }
     return response
   })
