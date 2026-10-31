@@ -151,7 +151,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const originalFirst = editor.locator(`[data-order-key="${orderBefore[0]}"]`)
     await expect(originalFirst).toBeVisible()
     await originalFirst.click()
-    await expect(editor.locator('.native-editor-note')).toContainText('position 1 of')
+    // The move result is announced in the hidden live region, never shown.
+    await expect(page.locator('.m-sr-only')).toContainText('position 1 of')
+    await expect(editor.locator('.native-editor-note')).not.toContainText('Moved')
     const orderAfter = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
     expect(orderAfter[0]).toBe(orderBefore[cellCount - 1])
     await editor.locator('.native-editor-save').click()

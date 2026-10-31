@@ -6,6 +6,7 @@ import { TopBar } from '../../app/components/ui/TopBar'
 import { Button } from '../../app/components/ui/Button'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { pushOverlay } from '../../app/lib/overlay-stack'
+import { announce } from '../../app/lib/announce'
 import { installReorderCloseGuard } from '../lib/reorder-close-guard'
 import {
   createReorderSession,
@@ -229,7 +230,9 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     markMoved(heldId)
     const movedAt = next.items.findIndex((item) => item.id === heldId)
     const moved = next.items[movedAt]
-    if (moved) setNote(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`)
+    /* The move is a screen-reader announcement, not a visible transaction
+       log — the note falls back to the standing instruction. */
+    if (moved) { announce(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`); setNote(null) }
   }
 
   const save = async () => {
@@ -322,7 +325,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     markMoved(current.heldId)
     const movedAt = next.items.findIndex((item) => item.id === current.heldId)
     const moved = next.items[movedAt]
-    if (moved) setNote(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`)
+    if (moved) { announce(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`); setNote(null) }
     // Keep the held photograph visible and focused: the destination row can
     // sit outside the mounted window, and a remounting row drops focus.
     const nextLayout = layoutPhotoRows(next.items, viewport.width, rowHeight)
@@ -377,7 +380,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
               Cancel
             </Button>
           }
-          title={`Reorder ${title}`}
+          title="Reorder"
           end={
             <Button
               variant="primary"

@@ -30,6 +30,9 @@ const settle = async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
 }
+/* Move results are announced in the visually-hidden live region appended to
+   the document, never written into the visible instruction note. */
+const announced = () => dom.document.querySelector('.m-sr-only')?.textContent ?? ''
 
 let dom: Window
 beforeAll(() => {
@@ -253,9 +256,11 @@ describe('gallery editor', () => {
     await settle()
 
     expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
-    // Top bar: Cancel on the left, the gallery name in the title, Save on the right.
+    // Top bar: Cancel on the left, a one-word title, Save on the right —
+    // the gallery is known from context, per the taste drive.
     expect(container.querySelector('.native-editor-cancel')?.textContent).toBe('Cancel')
-    expect(container.querySelector('.m-topbar')?.textContent).toContain('Reorder Kashmir')
+    expect(container.querySelector('.m-topbar')?.textContent).toContain('Reorder')
+    expect(container.querySelector('.m-topbar')?.textContent).not.toContain('Kashmir')
     expect((container.querySelector('.native-editor-save') as HTMLButtonElement).textContent).toBe('Save')
     // The status line opens with the pick-up hint.
     expect(container.querySelector('.native-editor-note')?.textContent).toContain('Tap a photograph to pick it up')
@@ -304,7 +309,8 @@ describe('gallery editor', () => {
       'https://cdn.example/a.jpg',
       'https://cdn.example/b.jpg',
     ])
-    expect(container.querySelector('.native-editor-note')?.textContent).toContain('position 1 of 3')
+    expect(announced()).toContain('position 1 of 3')
+    expect(container.querySelector('.native-editor-note')?.textContent).not.toContain('Moved')
     expect(cellsOf(container).filter((cell) => cell.className.includes('is-active'))).toHaveLength(0)
     // Only the photograph that was actually moved wears the position badge.
     const moved = cellsOf(container).filter((cell) => cell.className.includes('is-moved'))
@@ -542,25 +548,25 @@ describe('gallery editor', () => {
     await settle()
     expect(orderKeys(container)).toEqual(['ref-a', 'ref-c', 'b.jpg'])
     expect(cellsOf(container)[2].className).toContain('is-active')
-    expect(container.querySelector('.native-editor-note')?.textContent).toContain('position 3 of 3')
+    expect(announced()).toContain('position 3 of 3')
 
     pressKey('ArrowLeft', { metaKey: true })
     await settle()
     expect(orderKeys(container)).toEqual(['ref-a', 'b.jpg', 'ref-c'])
     expect(cellsOf(container)[1].className).toContain('is-active')
-    expect(container.querySelector('.native-editor-note')?.textContent).toContain('position 2 of 3')
+    expect(announced()).toContain('position 2 of 3')
 
     pressKey('Home')
     await settle()
     expect(orderKeys(container)).toEqual(['b.jpg', 'ref-a', 'ref-c'])
     expect(cellsOf(container)[0].className).toContain('is-active')
-    expect(container.querySelector('.native-editor-note')?.textContent).toContain('position 1 of 3')
+    expect(announced()).toContain('position 1 of 3')
 
     pressKey('End')
     await settle()
     expect(orderKeys(container)).toEqual(['ref-a', 'ref-c', 'b.jpg'])
     expect(cellsOf(container)[2].className).toContain('is-active')
-    expect(container.querySelector('.native-editor-note')?.textContent).toContain('position 3 of 3')
+    expect(announced()).toContain('position 3 of 3')
 
     // Without a hold, arrows never move anything.
     cellsOf(container)[2].click()
