@@ -1540,6 +1540,26 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
   opacity: .55;
   margin-bottom: 14px;
 }
+/* The creative rides the plate as a vertical photograph: it takes whatever
+   height the badge/headline/CTA leave, keeps its own ratio — never upscaled,
+   stretched or cropped — and centres horizontally in the card. */
+.ad-plate-figure {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+.ad-plate-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
 .ad-plate-headline { display: block; max-width: 100%; }
 /* The photo grid and content sit above the decorative doodle layer. */
 .viewer-track { position: relative; z-index: 1; }

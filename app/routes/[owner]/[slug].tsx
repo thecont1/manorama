@@ -49,7 +49,7 @@ export default createRoute(async (c) => {
   const source = new BundledSource(gallery as GalleryRecord)
   const photoIndex = photoParam ? source.list().findIndex((item) => item.id === photoParam) : -1
 
-  const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c))
+  const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c), undefined, gallery.slug)
 
   const settings = defaultGallerySettings(gallery)
   // Per-gallery social card: the first frame with the wordmark over it.

@@ -11,7 +11,7 @@ import InfoSheet from '../components/viewer/InfoSheet'
 import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { BACKGROUND_EVENT, backgroundPreferenceFromEvent, loadBackgroundPreference, saveBackgroundPreference, type BackgroundPreference } from '../lib/background-preference'
-import { platePositionsFor, type AdFrame } from '../lib/adframe'
+import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
 import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
 
@@ -450,10 +450,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     margin: '0',
     overflow: 'auto',
   } : undefined
-  // Plate positions re-roll once per gallery per UTC day — a re-opened strip
-  // keeps the morning's layout instead of re-shuffling on every mount.
+  // The interim single-plate rule while dummy house creatives stand in for
+  // the rented network: exactly one seeded interior position per gallery,
+  // re-rolled per UTC day — a re-opened strip keeps the morning's layout
+  // instead of re-shuffling on every mount.
   const platePositions = useMemo(
-    () => (plate && !foldActive ? platePositionsFor(images.length, `${slug}:${new Date().toISOString().slice(0, 10)}`) : []),
+    () => (plate && !foldActive ? singlePlatePositionsFor(images.length, `${slug}:${new Date().toISOString().slice(0, 10)}`) : []),
     [plate, foldActive, images.length, slug],
   )
   // The info panel speaks about whichever medium is on screen, and EXIF
@@ -2462,6 +2464,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                   aria-label={`${plate.badge}: ${plate.advertiser}`}
                 >
                   <span class="ad-plate-badge">{plate.badge}</span>
+                  {plate.image ? (
+                    <span class="ad-plate-figure">
+                      <img
+                        class="ad-plate-image"
+                        src={plate.image.src}
+                        width={plate.image.width}
+                        height={plate.image.height}
+                        alt=""
+                        draggable={false}
+                      />
+                    </span>
+                  ) : null}
                   <span class="ad-plate-headline">{plate.headline ?? plate.advertiser}</span>
                   {plate.cta ? (
                     <a

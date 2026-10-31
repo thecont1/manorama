@@ -36,7 +36,7 @@ if (!root) throw new Error('Fixture root is missing')
 
 const gallery = await fetchGallery(window.location.origin, 'fixture', 'ads-fixture')
 const manifest = gallery.manifest
-const plate = await adFrameFor({ tier: config.tier ?? 'free' })
+const plate = await adFrameFor({ tier: config.tier ?? 'free', seedKey: manifest.slug })
 const source = new BundledSource(manifest)
 
 window.__MANORAMA_AD_FIXTURE_STATE__ = {

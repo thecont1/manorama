@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import type { AdFrame } from './adframe'
+import { HOUSE_AD_FRAME, houseAdFrameFor } from './adframe'
 import { resolveManoramaSession, type SessionEnv } from './session'
 
 /**
@@ -97,29 +98,27 @@ export const adSuppressionFor = async (day: string, region: string, env?: AdVisi
 
 export type WebAdTier = 'anonymous' | 'free' | 'pro'
 
-export const WEB_HOUSE_AD_FRAME: AdFrame = {
-  id: 'manorama-house-plate',
-  advertiser: 'manorama',
-  headline: 'More photographs, quietly shared.',
-  cta: { label: 'Explore manorama', url: 'https://manorama.xyz' },
-  badge: 'Sponsored',
-  provider: 'manorama-house',
-}
+export const WEB_HOUSE_AD_FRAME: AdFrame = HOUSE_AD_FRAME
 
 export const webAdFrameFor = (
   tier: WebAdTier,
   networkFrame?: AdFrame | null,
   visible = true,
+  seedKey?: string,
 ): AdFrame | null => {
   if (!visible) return null
-  if (tier === 'pro') return WEB_HOUSE_AD_FRAME
-  return networkFrame ?? WEB_HOUSE_AD_FRAME
+  // A seeded scope picks the creative for that surface's day; unseeded keeps
+  // the base house frame so reference-equality callers stay stable.
+  const house = seedKey ? houseAdFrameFor(seedKey) : WEB_HOUSE_AD_FRAME
+  if (tier === 'pro') return house
+  return networkFrame ?? house
 }
 
 export const webAdFrameForRequest = async (
   request: Request,
   env: SessionEnv & AdVisibilityEnv,
   networkFrame?: AdFrame | null,
+  seedKey?: string,
 ): Promise<AdFrame | null> => {
   // The plate lookup is auxiliary to the render — a session-store failure
   // must not fail the gallery page. Track it separately from "no session":
@@ -135,5 +134,6 @@ export const webAdFrameForRequest = async (
     lookup.session?.tier ?? 'anonymous',
     lookup.failed ? undefined : networkFrame,
     suppressedBy === null,
+    seedKey,
   )
 }

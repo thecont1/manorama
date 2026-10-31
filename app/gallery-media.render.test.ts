@@ -10,7 +10,7 @@ import { resetUserStore, getUserByAccountId, setUserTier, upsertUser } from './l
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { clearAdSuppression, resetAdSuppressionStore, setAdSuppression } from './lib/ads-visibility'
-import { platePositionsFor } from './lib/adframe'
+import { singlePlatePositionsFor } from './lib/adframe'
 import type { GalleryMediaItem, VideoItem } from './lib/imagesource'
 
 /**
@@ -69,6 +69,13 @@ const longImages: GalleryMediaItem[] = Array.from({ length: 60 }, (_, index) => 
   filename: `long-${index}.jpg`,
 }))
 
+const shortImages: GalleryMediaItem[] = Array.from({ length: 5 }, (_, index) => ({
+  ...photo,
+  id: `p-short-${index}`,
+  ref: `guid-short-${index}`,
+  filename: `short-${index}.jpg`,
+}))
+
 const mountRoute = (app: Hono, path: string, route: unknown) => {
   const get = app.get.bind(app) as (p: string, ...h: Handler[]) => void
   if (Array.isArray(route)) get(path, ...(route as Handler[]))
@@ -114,6 +121,13 @@ beforeAll(async () => {
     caption: '',
     date: '',
     images: longImages,
+  })
+  await createGallery(TEST_OWNER.accountId, {
+    slug: 'short-album',
+    title: 'Short Album',
+    caption: '',
+    date: '',
+    images: shortImages,
   })
 })
 
@@ -204,9 +218,9 @@ describe('the OG route composites a real card', () => {
   })
 })
 
-describe('house plates follow the seeded cadence for every viewer', () => {
+describe('house plates follow the interim single-plate rule for every viewer', () => {
   const day = new Date().toISOString().slice(0, 10)
-  const positions = platePositionsFor(longImages.length, `long-album:${day}`)
+  const positions = singlePlatePositionsFor(longImages.length, `long-album:${day}`)
 
   const galleryHtml = async (slug: string, cookie?: string) => {
     const response = await buildApp().request(
@@ -220,12 +234,14 @@ describe('house plates follow the seeded cadence for every viewer', () => {
   }
 
   const expectHousePlates = (html: string) => {
-    expect(positions.length).toBeGreaterThan(0)
+    expect(positions).toHaveLength(1)
     expect(html.match(/data-ad-frame/g) ?? []).toHaveLength(positions.length)
     for (const pos of positions) expect(html).toContain(`data-ad-position="${pos}"`)
     expect(html).toContain('aria-label="Sponsored: manorama"')
     expect(html).toContain('More photographs, quietly shared.')
     expect(html).toContain('Explore manorama')
+    // The interim creative ships as a vertical /ads image on the plate.
+    expect(html).toMatch(/ad-plate-image[^>]*src="\/ads\/house-\d\.jpg"/)
   }
 
   test('anonymous, signed-in free and signed-in pro viewers all see the house plates', async () => {
@@ -234,7 +250,18 @@ describe('house plates follow the seeded cadence for every viewer', () => {
     expectHousePlates(await galleryHtml('long-album', proViewerCookie))
   })
 
-  test('a short gallery stays plate-free for every viewer', async () => {
+  test('a short gallery carries exactly one interior plate for every viewer', async () => {
+    const shortPositions = singlePlatePositionsFor(shortImages.length, `short-album:${day}`)
+    expect(shortPositions).toHaveLength(1)
+    for (const cookie of [undefined, freeViewerCookie, proViewerCookie]) {
+      const html = await galleryHtml('short-album', cookie)
+      expect(html.match(/data-ad-frame/g) ?? []).toHaveLength(1)
+      expect(html).toContain(`data-ad-position="${shortPositions[0]}"`)
+    }
+  })
+
+  test('a gallery with no interior slot stays plate-free for every viewer', async () => {
+    // Two items leave no position that is neither first nor last.
     for (const cookie of [undefined, freeViewerCookie, proViewerCookie]) {
       expect(await galleryHtml('mixed', cookie)).not.toContain('data-ad-frame')
     }

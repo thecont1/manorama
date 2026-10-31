@@ -77,3 +77,50 @@ const mulberry32 = (seed: number) => {
 
 export const AD_BANNER_WIDTH = 300
 export const AD_BANNER_HEIGHT = 250
+
+/** The interim single-plate placement while dummy house creatives stand in
+ *  for AdMob: exactly one plate per gallery at a seeded interior position —
+ *  never first, never last, re-rolled per seed key like the cadence. A
+ *  gallery under three photographs has no interior slot and stays clean.
+ *  Returns a readonly array so callers can swap policies with one line. */
+export const singlePlatePositionsFor = (photoCount: number, seedKey: string): readonly number[] => {
+  if (photoCount < 3) return []
+  const random = mulberry32(hashSeedKey(seedKey))
+  return [1 + Math.floor(random() * (photoCount - 2))]
+}
+
+export type AdCreative = { src: string; width: number; height: number }
+
+/** Owner-supplied stand-in creatives, served from /ads on every surface
+ *  (web bundle, Capacitor webDir, desktop publicDir share the one folder).
+ *  All verticals — the plate is a portrait slot. */
+export const HOUSE_AD_CREATIVES: readonly AdCreative[] = [
+  { src: '/ads/house-1.jpg', width: 329, height: 512 },
+  { src: '/ads/house-2.jpg', width: 411, height: 512 },
+  { src: '/ads/house-3.jpg', width: 335, height: 512 },
+  { src: '/ads/house-4.jpg', width: 317, height: 512 },
+]
+
+export const houseAdCreativeFor = (seedKey: string): AdCreative =>
+  HOUSE_AD_CREATIVES[Math.floor(mulberry32(hashSeedKey(seedKey))() * HOUSE_AD_CREATIVES.length)]
+
+export const HOUSE_AD_FRAME: AdFrame = {
+  id: 'manorama-house-plate',
+  advertiser: 'manorama',
+  headline: 'More photographs, quietly shared.',
+  image: HOUSE_AD_CREATIVES[0],
+  cta: { label: 'Explore manorama', url: 'https://manorama.xyz' },
+  badge: 'Sponsored',
+  provider: 'manorama-house',
+}
+
+/** The house frame carrying a seeded creative. `scope` is the surface the
+ *  plate belongs to (gallery slug, 'library'); the UTC day is folded in so
+ *  the creative re-rolls on the same boundary as the placement. */
+export const houseAdFrameFor = (
+  scope: string,
+  day = new Date().toISOString().slice(0, 10),
+): AdFrame => ({
+  ...HOUSE_AD_FRAME,
+  image: houseAdCreativeFor(`${scope}:${day}`),
+})
