@@ -230,14 +230,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
-  const [adsShow, setAdsShow] = useState(true)
+  const [adsShow, setAdsShow] = useState(false)
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [theme, setTheme] = useState<Theme>(() =>
     readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
 
   // The web account surface carries the same sponsored slot the native
-  // Library does. Undefined (offline, unanswered) means show — suppression
-  // is a courtesy switch, not a gate.
+  // Library does. The slot stays empty until the switch answers — a
+  // suppressed day should never flash the plate — but a failed fetch
+  // still means show: suppression is a courtesy switch, not a gate.
   useEffect(() => {
     let live = true
     // Seeded client-side — the daily creative can't be part of the SSR
