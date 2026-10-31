@@ -581,35 +581,31 @@ body:has(.not-found) { background: #111312; color: rgb(var(--ink)); }
 .not-found p { margin: 0; font-size: clamp(26px, 5vw, 44px); font-weight: 700; letter-spacing: -.03em; }
 body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--ink)); }
 .policy-page { min-height: 100svh; display: grid; place-items: start center; padding: clamp(32px, 6vw, 80px) 24px 64px; box-sizing: border-box; }
-.policy-document { width: 100%; max-width: 1080px; }
-.policy-document h1 { margin: 0 0 4px; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(28px, 5vw, 40px); font-weight: 800; letter-spacing: -.03em; }
-.policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolage Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
+.policy-document { width: 100%; max-width: 680px; font-family: var(--m-font); font-size: var(--m-fs-body); line-height: 1.65; }
+.policy-document h1 { margin: 0 0 4px; font-size: clamp(26px, 5vw, 34px); font-weight: 800; letter-spacing: -.03em; }
+.policy-document p { margin: 0 0 16px; color: rgba(var(--ink), .9); }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
-.policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolage Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
+.policy-document li { margin: 0 0 8px; color: rgba(var(--ink), .9); }
 /* The wrapped-link example is one unbreakable token — without
    overflow-wrap it pushes the document ~27px past a 320px viewport. */
 .policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; overflow-wrap: anywhere; }
 .policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
 .policy-document a:hover { text-decoration-color: rgba(243,240,232,.7); }
 .policy-document a:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 3px; text-decoration-color: rgba(243,240,232,.7); }
-.policy-document .policy-updated { margin: 0 0 24px; font-family: 'DM Mono', ui-monospace, monospace; font-size: 14px; letter-spacing: .06em; color: rgba(var(--ink), .68); }
-.policy-document .policy-lede { max-width: 680px; font-size: 20px; }
-.policy-document h2 { margin: clamp(38px, 6vw, 56px) 0 16px; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(20px, 3vw, 26px); font-weight: 700; }
-.policy-personas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
-.policy-card { padding: clamp(18px, 2.5vw, 26px); border: 1px solid rgba(var(--ink), .14); background: rgba(var(--ink), .045); }
-.policy-card h3 { margin: 0 0 10px; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .01em; }
-.policy-card p { font-size: 16px; line-height: 1.6; }
+.policy-document .policy-updated { margin: 0 0 24px; font-size: var(--m-fs-small); color: var(--m-meta); }
+.policy-document .policy-lede { font-size: 19px; }
+.policy-document h2 { margin: 40px 0 12px; font-size: clamp(19px, 3vw, 22px); font-weight: 700; }
+.policy-document h3 { margin: 0 0 8px; font-size: var(--m-fs-section); font-weight: 700; }
+/* The persona entries are subsections of continuous prose — a flat column,
+   not nested cards on a tinted grid. */
+.policy-personas { display: grid; gap: 20px; margin: 0 0 16px; }
 .policy-card p:last-child { margin-bottom: 0; }
 .policy-section { max-width: 680px; }
-@media (max-width: 1050px) { .policy-personas { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 720px) { .policy-personas { grid-template-columns: 1fr; } }
 @media print {
   body:has(.policy-page) { overflow: visible; background: #fff; color: #000; }
   .policy-page { display: block; min-height: 0; padding: 16px 8px; }
   .policy-document { max-width: none; }
-  .policy-personas { grid-template-columns: 1fr; }
-  .policy-card { border-color: #999; background: none; }
-  .policy-document h1, .policy-document h2, .policy-card h3 { color: #000; }
+  .policy-document h1, .policy-document h2, .policy-document h3 { color: #000; }
   .policy-document p, .policy-document li { color: #000; }
   .policy-document .policy-updated { color: #333; }
   .policy-document code { background: none; color: #000; }

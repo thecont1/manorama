@@ -156,6 +156,14 @@ const accountAdAdapter = createAccountAdAdapter({
   unitId: import.meta.env.VITE_ADMOB_ACCOUNT_UNIT,
 })
 
+/** Print stays a desktop utility: `window.print` exists in a phone webview
+ *  but produces nothing useful, so the control only appears where a real
+ *  hovering pointer is present. */
+const printSupported = () =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
+  typeof window.print === 'function' &&
+  window.matchMedia('(hover: hover) and (pointer: fine)').matches
+
 /** Legal and attribution links open in an in-app browser sheet — the same
  *  pattern the paywall and the OAuth flow use, because a Capacitor webview does
  *  not reliably act on a bare `target="_blank"` anchor. The href stays on the
@@ -1018,7 +1026,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onBack={() => dispatchNav({ type: 'back' })}
       backLabel={nav.screen.from === 'settings' ? 'Settings' : 'Back'}
       onOpenExternal={openExternal}
-      onPrint={typeof window !== 'undefined' && typeof window.print === 'function' ? () => window.print() : undefined}
+      onPrint={printSupported() ? () => window.print() : undefined}
     />
   }
 
