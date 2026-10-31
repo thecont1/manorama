@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
+import { Window } from 'happy-dom'
 import { Hono } from 'hono'
 import type { Context, Handler, Next } from 'hono'
 import { contextStorage } from 'honox/server/context-storage'
@@ -142,11 +143,14 @@ describe('the quick-add catch-all renders for provider links', () => {
     const html = await response.text()
     expect(html).toContain('data-mode="signin"')
     // Links stay inert until quickadd.ts wires each one's `?next=` return —
-    // a click before then must not navigate without it.
-    expect(html).toContain('data-href="/auth/dropbox"')
-    expect(html).toContain('data-href="/auth/google"')
-    expect(html).toContain('data-href="/auth/apple"')
-    expect(html).not.toContain('data-quickadd-signin href=')
+    // a click before then must not navigate without it. Parse the markup
+    // rather than matching strings: the contract is "no href attribute",
+    // wherever the attribute would land in the tag.
+    const dom = new Window({ url: 'http://localhost/' })
+    dom.document.body.innerHTML = html
+    const signins = [...dom.document.querySelectorAll('[data-quickadd-signin]')]
+    expect(signins.map((link) => link.getAttribute('data-href'))).toEqual(['/auth/apple', '/auth/dropbox', '/auth/google'])
+    for (const link of signins) expect(link.hasAttribute('href')).toBe(false)
   })
 
   test('a signed-in visitor gets the working panel — zero clicks', async () => {
