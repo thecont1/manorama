@@ -116,6 +116,50 @@ async function ensureStripSettled(page: import("@playwright/test").Page) {
     .toBe(true);
 }
 
+// A frame heals into its decoded dims on load and the strip shifts the
+// transform to compensate — on raw track.left that reads as motion (the
+// teleports the repeated-drags spec guards against below). Specs that
+// measure drag/glide geometry wait out the mounted window's decodes so
+// every pixel they read is finger-driven, not a heal.
+async function waitForMountedDecodes(page: import("@playwright/test").Page) {
+  await expect
+    .poll(async () =>
+      // Read frames, not just mounted imgs: a HEIC frame's real image only
+      // mounts after libheif converts — while it converts the frame shows a
+      // fetched preview as .frame-ph (a URL src, not the inline data: SVG),
+      // so a frame with no img and a URL placeholder is active conversion
+      // work the geometry must not measure around.
+      page.locator("[data-track] .viewer-frame").evaluateAll((frames) =>
+        frames.length > 0 &&
+        frames.every((frame) => {
+          // Video frames settle through VideoSlide, not this poll — their
+          // poster .frame-ph is a URL too, so they are excluded up front.
+          if (frame.getAttribute("data-media-type") === "video") return true;
+          const imgs = frame.querySelectorAll("img.frame-img");
+          if (!imgs.length) {
+            const phSrc = frame.querySelector("img.frame-ph")?.getAttribute("src") ?? "";
+            return !phSrc || phSrc.startsWith("data:");
+          }
+          return Array.from(imgs).every((el) => {
+            const img = el as HTMLImageElement;
+            if (!img.complete) return false;
+            if (img.naturalWidth > 0) return true;
+            // A failed fetch is not settled while the Viewer's stall
+            // watchdog can still re-request it: `mreload` bumps to 2
+            // attempts, lazy and non-URL sources are never retried, and
+            // only then is the hole permanent enough to measure around.
+            if (img.loading === "lazy") return true;
+            const src = img.getAttribute("src") ?? "";
+            if (!/^https?:\/\//i.test(src) && !src.startsWith("/")) return true;
+            const reload = /[?&]mreload=(\d+)/.exec(src);
+            return reload !== null && Number(reload[1]) >= 2;
+          });
+        }),
+      ),
+    )
+    .toBe(true);
+}
+
 /** Opens the in-gallery info sheet via its I shortcut. */
 async function openInfoDialog(page: import("@playwright/test").Page) {
   await page.keyboard.press("i");
@@ -741,6 +785,8 @@ for (const vp of viewports) {
       // reduced-motion fixture would correctly zero it.
       await page.emulateMedia({ reducedMotion: "no-preference" });
       await dismissCurtain(page);
+      await waitForMountedDecodes(page);
+      await ensureStripSettled(page);
       const x0 = await page.evaluate(
         () =>
           document.querySelector("[data-track]")!.getBoundingClientRect().left,
@@ -868,6 +914,8 @@ for (const vp of viewports) {
         await page.goto(GALLERY, { waitUntil: "domcontentloaded" });
         await page.locator("[data-curtain]").click();
         await expect(page.locator("[data-curtain]")).toBeHidden();
+        await waitForMountedDecodes(page);
+        await ensureStripSettled(page);
         const client = await page.context().newCDPSession(page);
         await client.send("Input.dispatchTouchEvent", {
           type: "touchStart",
@@ -905,6 +953,7 @@ for (const vp of viewports) {
     }) => {
       test.skip(!vp.hasTouch, "Touch input is specific to the phone viewport.");
       await dismissCurtain(page);
+      await waitForMountedDecodes(page);
       const client = await page.context().newCDPSession(page);
       // The product promise is the canvas under the finger being
       // continuous — but [data-track].left is not that contract. When a
@@ -962,6 +1011,13 @@ for (const vp of viewports) {
         await page.waitForTimeout(16);
         const released = await sample(20);
         positions.push(released ? { ...released, gesture } : null);
+        // Frames the drag just revealed mount and heal here — let those
+        // reflows land in the inter-gesture gap, where the comparisons
+        // restart, instead of mid-sample inside the next gesture.
+        if (gesture < 4) {
+          await waitForMountedDecodes(page);
+          await ensureStripSettled(page);
+        }
       }
       const failures: string[] = [];
       for (let i = 1; i < positions.length; i += 1) {
@@ -1559,6 +1615,9 @@ for (const vp of viewports) {
       page,
     }) => {
       await dismissCurtain(page);
+      // A mid-measure heal teleports track.left the same way as the drag
+      // specs — wait out the mounted window's decodes before reading it.
+      await waitForMountedDecodes(page);
       // Hidden by default on coarse pointers — enable where the run needs them.
       await ensureNavArrows(page);
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
@@ -1811,9 +1870,14 @@ for (const vp of viewports) {
         // last photograph, the second reveals the card. Wide stages do
         // it in one — the loop covers both without pressing past.
         const next = page.getByRole("button", { name: /next photograph/i });
-        for (let i = 0; i < 8; i++) {
+        // A hop can pull several fresh frames into the lazy-load window at
+        // once on a wide stage — their heals inflate the card's offset
+        // faster than one advance covers, so the bound has to outlive the
+        // decode cascade, not just the strip's length.
+        for (let i = 0; i < 16; i++) {
           await next.click();
           await waitForTrackSettled(page);
+          await waitForMountedDecodes(page);
           const box = await rewindBtn().boundingBox();
           if (box && box.x + box.width / 2 < page.viewportSize()!.width) return;
         }
@@ -1824,6 +1888,9 @@ for (const vp of viewports) {
       await ensureNavArrows(page);
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
+      // Frames at the strip's tail mount + decode on the End ride — let
+      // their heals land before the reveal measures the card's slide.
+      await waitForMountedDecodes(page);
       await revealEndcard();
       await rewindBtn().click();
       // Still travelling well after the click — not an instant snap.

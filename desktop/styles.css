@@ -138,21 +138,13 @@ body.manorama-desktop {
 .desktop-badge-unavailable { margin: 10px 0 0; color: rgba(240, 188, 92, .88); font-size: 12px; }
 .desktop-empty { margin: 0; color: rgba(var(--ink), .7); font-size: 13px; }
 
-/* The rail is a row of buttons inside list items, not the web editor's
-   draggable figures: same geometry, but a click opens that photograph in the
-   shared viewer. */
-.desktop-catalogue .admin-gallery-strip-item > button {
-  cursor: zoom-in;
-}
+/* The rail is a row of list items wrapping one control each — a button that
+   opens the shared viewer on local records, an external anchor on cloud
+   galleries — not the web editor's draggable figures. Same geometry either
+   way. */
+.desktop-catalogue .admin-gallery-strip-item > button { cursor: zoom-in; }
 .desktop-catalogue .admin-gallery-strip-item > button:disabled { cursor: default; opacity: .45; }
-/* The first frame is the gallery's face, so it carries the shocking pink the
-   picker gives the photograph in hand (native/styles.css, same rule). */
-.desktop-catalogue .admin-gallery-strip-item.is-active {
-  z-index: 1;
-  outline: 3px solid #fc0fc0;
-  outline-offset: -3px;
-}
-.desktop-catalogue .admin-gallery-strip-item > button:focus-visible {
+.desktop-catalogue .admin-gallery-strip-item > :is(a, button):focus-visible {
   z-index: 2;
   outline: 3px solid rgb(var(--ink));
   outline-offset: -3px;
@@ -194,18 +186,12 @@ body.manorama-desktop {
 
 /* ── The viewing stage ─────────────────────────────────────────────────── */
 
-
 /* Viewer/curtain geometry matches native. */
 body.manorama-desktop .curtain-content { display: grid; grid-template-rows: 1fr 1fr; align-items: center; width: min(1200px, 100%); height: 100%; text-align: center; transform: none; }
-body.manorama-desktop .curtain-logo-wrap { grid-row: 1; width: fit-content; margin: 0 auto; transform: none; }
-body.manorama-desktop .curtain-logo { width: clamp(260px, 32vw, 520px); }
-body.manorama-desktop .curtain-details { grid-row: 2; display: grid; justify-items: center; align-content: center; min-width: 0; }
 body.manorama-desktop .curtain h1 { max-width: 14ch; margin: 0 0 20px; }
 body.manorama-desktop .curtain-caption { margin: 0 auto; }
 @media (orientation: landscape) {
   body.manorama-desktop .curtain-content { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; column-gap: clamp(36px, 7vw, 120px); }
-  body.manorama-desktop .curtain-logo-wrap { grid-column: 1; grid-row: 1; }
-  body.manorama-desktop .curtain-details { grid-column: 2; grid-row: 1; }
 }
 body.manorama-desktop .stage-arrows { z-index: 21; left: 18px; right: 18px; bottom: 18px; display: grid; grid-template-columns: repeat(2, auto); justify-content: space-between; align-items: stretch; gap: 8px; height: var(--desktop-chrome-height); pointer-events: none; }
 body.manorama-desktop .stage-arrows > button { box-sizing: border-box; width: var(--desktop-chrome-height); height: 100%; margin: 0; border: 1px solid rgba(var(--ink), .2); border-radius: 999px; background: rgba(10, 10, 10, .62); box-shadow: 2px 2px 0 rgba(var(--ink), .18); color: rgba(var(--ink), .9); pointer-events: auto; }
@@ -231,18 +217,10 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   right: calc(18px + var(--desktop-chrome-height) + 8px);
 }
 
-/* ── Account drawer chrome ───────────────────────────────────────────────
-   The desktop keeps the account drawer the web retired with the top bar:
-   it is the only surface left that emits these classes, so they live here
-   instead of the shared sheet. Restored verbatim from the pre-topbar
-   styles — the drawer is unchanged markup expecting unchanged chrome. */
-
-/* The shared sheet moved the page edge clearance from the shell into a
-   padded .admin-content; this page keeps the tab-clearing page padding so
-   the overview quadrants keep their pre-topbar geometry. */
-.admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
-.admin-page--selector .admin-content { padding: 0; }
-
+/* ── Account drawer ────────────────────────────────────────────────────────
+   The web dashboard moved its account behind the shared top bar and dropped
+   this chrome from app/styles.css; the catalogue keeps its account behind
+   the left-edge tab, so the drawer anatomy lives here now. */
 .admin-edge-tab {
   position: fixed;
   z-index: 45;
@@ -263,6 +241,7 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   cursor: pointer;
   transition: border-color 180ms ease, background 180ms ease;
 }
+
 .admin-edge-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .035em; }
 .admin-edge-tab svg { width: 16px; height: 16px; }
 .admin-edge-tab:hover { border-color: rgb(var(--ink)); }
@@ -292,23 +271,10 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
   color: rgb(var(--ink));
   animation: admin-drawer-in 280ms cubic-bezier(.22, 1, .36, 1);
 }
-.admin-page--selector .admin-drawer-panel { max-width: var(--admin-pane-limit, 100vw); }
 
 .admin-drawer-close { display: grid; place-items: center; align-self: flex-end; flex: 0 0 44px; width: 44px; height: 44px; margin-bottom: 12px; padding: 0; border: 1px solid rgba(var(--ink), .3); background: transparent; color: rgb(var(--ink)); cursor: pointer; }
 .admin-drawer-close svg { width: 20px; height: 20px; }
 .admin-drawer-close:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-.admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
-
-.admin-drawer-actions { display: grid; gap: 10px; margin-top: 26px; padding-top: 22px; border-top: 1px solid rgba(var(--ink), .12); }
-.admin-drawer-action { min-height: 46px; border: 1px solid rgba(var(--ink), .2); border-radius: 0; background: transparent; color: rgba(var(--ink), .8); font-size: 13px; cursor: pointer; }
-.admin-drawer-action:hover { border-color: rgb(var(--ink)); color: rgb(var(--ink)); background: rgba(var(--ink), .06); }
-.admin-drawer-action:focus-visible { border-color: rgb(var(--ink)); color: rgb(var(--ink)); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-
-.admin-left { display: block; overflow: visible; min-width: 0; }
-.admin-header { position: relative; width: min(1040px, 100%); margin: 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 36px; padding-bottom: clamp(32px, 5vw, 56px); }
-.admin-brand-title { font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-weight: 800; letter-spacing: -.038em; line-height: 1.0; text-transform: lowercase; }
-.admin-brand-logo { display: block; width: clamp(300px, 34vw, 480px); height: auto; }
-.admin-drawer-panel .admin-header { width: 100%; margin: 0; padding-bottom: 0; }
 .admin-drawer-panel .admin-header > div { width: 100%; min-width: 0; }
 .admin-drawer-panel .admin-brand-title { font-size: 0; white-space: normal; }
 .admin-drawer-panel .brand-mark-wrap { display: block; max-width: 100%; }
@@ -318,6 +284,31 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 .admin-drawer-panel .admin-owner-slug-input { min-width: 0; max-width: 100%; margin: 0; }
 .admin-drawer-panel .admin-greeting { font-size: 15px; line-height: 1.65; }
 .admin-drawer-panel .admin-intro { font-size: 16px; }
+.admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
+
+.admin-drawer-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(var(--ink), .12);
+}
+
+.admin-drawer-action {
+  min-height: 46px;
+  border: 1px solid rgba(var(--ink), .2);
+  border-radius: 0;
+  background: transparent;
+  color: rgba(var(--ink), .8);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.admin-drawer-action:hover { border-color: rgb(var(--ink)); color: rgb(var(--ink)); background: rgba(var(--ink), .06); }
+.admin-drawer-action:focus-visible { border-color: rgb(var(--ink)); color: rgb(var(--ink)); outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
+.admin-signout-form { margin: 0; }
+.admin-signout-form .admin-drawer-action { width: 100%; }
+.admin-page--selector .admin-drawer-panel { max-width: var(--admin-pane-limit, 100vw); }
 
 @keyframes admin-drawer-in {
   from { transform: translateX(-100%); }
@@ -332,7 +323,6 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 @media (max-width: 640px) {
   .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
   .admin-welcome-brand { width: min(280px, 100%); }
-  .admin-overview .gallery-import-form .admin-button { justify-self: stretch; }
 }
 @media (max-width: 819px) {
   .admin-edge-tab { top: 14px; right: 14px; left: auto; transform: none; width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; border: 1px solid rgba(var(--ink), .32); border-radius: 50%; padding: 10px; }
@@ -343,6 +333,11 @@ body.manorama-desktop:has(.stage-arrows:not(.stage-arrows--bare)) .stage-seq {
 }
 @media (max-width: 819px) and (prefers-reduced-motion: reduce) { .admin-page--selector .admin-drawer-panel { animation: none; } }
 
+/* The page keeps a wider left gutter for the edge tab — the welcome/import
+   split lands right of centre, the way the catalogue shipped; the shared
+   sheet's symmetric `padding: 0` drops that reservation. */
+.admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
+
 /* Both brand marks live inside the desktop page — the shared light rule
-   now names only the web top bar's logo. */
+   names only the web top bar's logo. */
 html.light .desktop-catalogue :is(.admin-brand-logo, .admin-topbar-logo) { filter: brightness(0); }

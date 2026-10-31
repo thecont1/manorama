@@ -222,7 +222,12 @@ test('the desktop admin surface survives a resize without losing the pane state'
     await expect(page.locator('.admin-greeting-url')).toHaveText('manorama.xyz/thecontrarian')
 
     // Backdrop interaction is the third way out, alongside Esc and the close
-    // button — and it hands focus back to the tab like the other two.
+    // button — and it hands focus back to the tab like the other two. The
+    // scrim is unreachable while the pane is a full-screen sheet at phone
+    // width, so the click happens after crossing back to window size; the
+    // pane surviving a second breakpoint trip is covered for free.
+    await page.setViewportSize({ width: 1280, height: 840 })
+    await expect(dialog).toBeVisible()
     await page.mouse.click(700, 300)
     await expect(dialog).toBeHidden()
     await expect(tab).toBeFocused()
