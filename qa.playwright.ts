@@ -1477,8 +1477,8 @@ for (const vp of viewports) {
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
       await page.keyboard.press("ArrowRight");
-      // Two beats: the outgoing frame fades out in 90ms, then the
-      // incoming one fades in over 160ms once decoded — a guarded fade,
+      // The incoming frame waits on decode, then both fade together
+      // over 160ms — a guarded crossfade,
       // never a directional wipe (clip-path stays 'none' the whole way).
       // Assert the leaver first: it unmounts ~170ms after the incoming
       // frame commits.

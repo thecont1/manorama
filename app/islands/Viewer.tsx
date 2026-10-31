@@ -885,22 +885,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     singleEndcapRef.current = false
     setSingleEndcap(false)
     if (mode === 'single' && next !== index && !instant) {
-      // Two beats, never a wipe: the current photograph fades out in
-      // 90ms, then the next fades in over 160ms once it has decoded —
-      // decode is awaited in parallel with the out-fade, capped so a
-      // stalled fetch cannot freeze stepping. Rapid presses collapse
+      // One crossfade, never a dip to bare canvas: the incumbent holds
+      // fully opaque while the incoming photograph decodes (the wait is
+      // capped so a stalled fetch cannot freeze stepping), then the
+      // out-fade and the in-fade run together. Rapid presses collapse
       // onto the latest destination via the sequence guard.
       const targetImg = trackRef.current?.querySelector<HTMLImageElement>(`[data-index="${next + 1}"] img`)
       const decoded = targetImg?.decode ? targetImg.decode().catch(() => {}) : Promise.resolve()
       const cap = new Promise<void>((resolve) => window.setTimeout(resolve, 800))
-      const ready = Promise.all([Promise.race([decoded, cap]), new Promise<void>((resolve) => window.setTimeout(resolve, 90))])
       const seq = ++singleFadeSeqRef.current
-      setLeavingIndex(indexRef.current)
-      ready.then(() => {
+      void Promise.race([decoded, cap]).then(() => {
         if (seq !== singleFadeSeqRef.current || unmountedRef.current) return
+        setLeavingIndex(indexRef.current)
         setIndex(next)
         if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
-        leavingTimerRef.current = window.setTimeout(() => { leavingTimerRef.current = null; setLeavingIndex(null) }, 170)
+        leavingTimerRef.current = window.setTimeout(() => { leavingTimerRef.current = null; setLeavingIndex(null) }, 200)
       })
     } else {
       setIndex(next)
