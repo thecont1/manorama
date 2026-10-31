@@ -705,22 +705,21 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           The edge tab and account drawer are gone (D6) — Settings is the
           pushed surface it always was, Privacy lives on it and in the site
           footer. */}
-      <TopBar logo={false} end={(
+      <TopBar end={(
         <button type="button" class="m-btn m-btn--quiet m-iconbtn" aria-label="Settings" onClick={openSettings}>
           <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
         </button>
       )} />
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
-      {/* The wordmark sits at the very top of the page, left edge flush
-          with the Library heading below it — both inset by the same
-          content padding, so the "m" lands exactly over the "L". */}
-      <div class="admin-hero-brand"><img class="landing-brand-mark" src="/manorama-merged-logo.png" alt="manorama" /></div>
       <section class={adsShow && accountAd ? 'gallery-list gallery-list--has-ad' : 'gallery-list'} aria-labelledby="galleries-heading">
+        {/* The owner header is compact: Library and Add share one row under
+            the shared topbar mark — the landing-sized wordmark stays on
+            Welcome (TASTE-01). */}
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
+          <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>+ Add Gallery</button>
         </div>
-        <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>+ Add Gallery</button>
         <p class="admin-library-sub">{liveGalleries.length === 1 ? '1 gallery' : `${liveGalleries.length} galleries`}{liveGalleries.filter(isLocked).length ? `, ${liveGalleries.filter(isLocked).length} temporary` : ''}.</p>
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the

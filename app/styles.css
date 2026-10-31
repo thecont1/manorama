@@ -1702,15 +1702,10 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-overview .gallery-import { min-width: 0; padding: 0; border-top: 0; }
 .admin-overview .gallery-selector-heading { margin-bottom: 22px; }
 .admin-overview .admin-retention-policy { margin: 0 0 22px; }
-.admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
-/* The Library hero reuses .landing-brand-mark so the wordmark tracks the
-   opening screen's size at every viewport. */
-.admin-hero-brand { display: grid; justify-items: start; margin: 0 0 24px; }
-.admin-hero-brand .landing-brand-mark { max-width: 100%; }
+.admin-galleries-heading { margin: 0; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-.admin-library-heading .admin-galleries-heading { margin-bottom: 4px; }
 .admin-library-sub { margin: 10px 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
-.admin-add-pill { border-radius: 999px; padding: 9px 18px; justify-self: start; margin: 8px 0 0; }
+.admin-add-pill { border-radius: 999px; padding: 9px 18px; margin: 0; }
 
 /* Account surface sponsored slot: one labelled panel under the Library
    heading, above every gallery — its own surface shaped for a vertical
