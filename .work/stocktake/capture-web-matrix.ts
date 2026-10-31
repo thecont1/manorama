@@ -120,7 +120,7 @@ for (const engine of engines) {
       }
 
       const controls = () => page.locator('[data-chrome-bottom].is-visible').count()
-      const paneOpen = async () => page.locator('[data-account-drawer]:not([hidden])').count()
+      const paneOpen = async () => page.locator('.web-settings').count()
 
       // Vite compiles a route's SSR graph on first request, and a cold compile
       // can answer with an empty response. Warm the routes once per engine, and
@@ -196,22 +196,17 @@ for (const engine of engines) {
       // left the page inside a gallery.
       await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await shoot('05-account-admin', async () => {
-        await page.waitForSelector('[aria-label="Account menu"]', { timeout: 25_000 })
-        // Wait for the island to answer a click before trusting the page.
-        await until(
-          page,
-          'the dashboard never hydrated',
-          async () => undefined,
-          async () => page.evaluate(() => Boolean(document.querySelector('[data-account-drawer]'))),
-          3,
-        )
+        // The edge-tab drawer retired with the top bar: the dashboard's account
+        // surface sits behind the shared Settings gear now. Waiting for it —
+        // then watching the gear's click land — is the hydration probe.
+        await page.waitForSelector('[aria-label="Settings"]', { timeout: 25_000 })
       })
 
       await shoot('05-account-pane', async () => {
         await until(
           page,
-          'the account pane never opened',
-          () => page.getByRole('button', { name: 'Account menu', exact: true }).click({ timeout: 5_000 }),
+          'the settings surface never opened',
+          () => page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 5_000 }),
           async () => (await paneOpen()) > 0,
         )
         await page.waitForTimeout(500)
@@ -220,8 +215,8 @@ for (const engine of engines) {
       await shoot('05-editor-row', async () => {
         await until(
           page,
-          'the account pane never closed',
-          () => page.getByRole('button', { name: 'Close account menu', exact: true }).click({ timeout: 5_000 }),
+          'the settings surface never closed',
+          () => page.getByRole('button', { name: 'Back', exact: true }).click({ timeout: 5_000 }),
           async () => (await paneOpen()) === 0,
         )
         await page.waitForTimeout(400)
