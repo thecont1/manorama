@@ -41,6 +41,21 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       const menuButton = await box('.lib-card-menu')
       expect(Math.abs(menuButton.y - title.y), `card ${index} keeps its menu on the title's line`).toBeLessThanOrEqual(title.height)
       expect(menuButton.x, `card ${index} keeps its menu right of the title`).toBeGreaterThan(title.x)
+      // Title → metadata → caption is one tight group; the breathing room is
+      // reserved for the next gallery's card.
+      const caption = card.locator('.native-gallery-caption')
+      const captionCount = await caption.count()
+      if (captionCount > 0) {
+        const captionBox = (await caption.first().boundingBox())!
+        expect(captionBox.y - (sub.y + sub.height), `card ${index} keeps its caption in the metadata group`).toBeLessThanOrEqual(12)
+      }
+      if (index + 1 < cardCount) {
+        // Card padding carries the inter-gallery breathing room: measure from
+        // the last text block to the next card's rail, not box edge to edge.
+        const lastBlock = captionCount > 0 ? (await caption.first().boundingBox())! : sub
+        const nextRail = (await cards.nth(index + 1).locator('.lib-rail').first().boundingBox())!
+        expect(nextRail.y - (lastBlock.y + lastBlock.height), `card ${index} leaves a deliberate gap to the next gallery`).toBeGreaterThanOrEqual(30)
+      }
     }
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-admin.png`, fullPage: true })
 

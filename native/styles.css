@@ -639,8 +639,11 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   color: var(--m-secondary);
   font-size: var(--m-fs-small);
 }
-/* The card text column hugs its title: details sit 2px under, caption 6px. */
-.lib-card > .native-gallery-caption { margin-top: 6px; padding: 0; font-size: 15px; color: var(--m-secondary); }
+/* The card text column is one tight group: details 2px under the title's
+   44px box (whose ~9px inner pad already reads as a gap), the caption 4px
+   under that, and the vault meter tucked into the metadata line at 6px —
+   the 40px breathing room is reserved for the next gallery. */
+.lib-card > .native-gallery-caption { margin-top: 4px; padding: 0; font-size: 15px; color: var(--m-secondary); }
 /* One hairline marks where a gallery ends and the next begins. */
 .native-gallery-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
 /* The vault fill is the only pink on the card — a thin block meter, not
@@ -649,7 +652,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   display: block;
   width: 120px;
   height: 3px;
-  margin-top: 8px;
+  margin-top: 6px;
   border-radius: 2px;
   background: var(--m-raised);
   overflow: hidden;
