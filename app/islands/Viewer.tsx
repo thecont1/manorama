@@ -520,9 +520,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useLayoutEffect(() => {
     // A plate resolving after mount inserts before its seeded position and
     // shifts every later frame right by its own width. Re-dock the anchored
-    // photograph or the ad lands where that photo was measured to be.
+    // photograph or the ad lands where that photo was measured to be. The
+    // insert widened the track, so drop the cached bounds first — settleTo
+    // clamps through getBounds and a stale max would dock the anchor a
+    // plate-width short near the end of the strip.
     if (!previousPlateRef.current && plate && modeRef.current === 'strip' && !foldActiveRef.current
       && !draggingRef.current && momentumRef.current === null) {
+      boundsDirtyRef.current = true
       settleTo(-imageStart(pendingEntryRef.current ?? indexRef.current), true)
     }
     previousPlateRef.current = plate
