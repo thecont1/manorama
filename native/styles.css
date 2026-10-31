@@ -388,7 +388,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   padding: max(12px, var(--native-safe-top)) max(12px, var(--native-safe-right)) 8px max(12px, var(--native-safe-left));
 }
 .native-editor .native-editor-cancel,
-.native-editor .native-editor-save { min-height: 36px; padding: 0 14px; font-size: 15px; }
+.native-editor .native-editor-save { padding: 0 14px; }
 .native-editor-note {
   flex: 0 0 auto;
   margin: 0;

@@ -573,7 +573,7 @@ describe('desktop catalogue workbench', () => {
     expect(details).not.toBeNull()
     expect(details?.querySelector('.d-name')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open', 'Publish', 'Name', 'Read folder again', 'Remove from Library']) {
+    for (const label of ['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
@@ -664,13 +664,13 @@ describe('desktop catalogue workbench', () => {
     globals.fetch = originalFetch
   })
 
-  test('Read folder again rescans the source and updates details and card counts', async () => {
+  test('Read the folder again rescans the source and updates details and card counts', async () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
 
     dirs[ROOT_PATH]!.push({ name: 'MS201810-Italy0200.jpg', isDirectory: false, isFile: true })
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
 
     expect(container.querySelector('.d-head')?.textContent).toContain('3 photographs')
@@ -905,7 +905,7 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
 
     // The error surfaces; no success note; the prior record/count stays and
@@ -932,7 +932,7 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
 
     // The error surfaces; no success note; the prior record/count stays on

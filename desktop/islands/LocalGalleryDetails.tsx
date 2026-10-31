@@ -193,7 +193,7 @@ export default function LocalGalleryDetails({
 
         <ActionGroup label="Gallery">
           <ActionRow label="Name" value={record.title} onClick={startRename} disabled={locked} />
-          <ActionRow label="Read folder again" onClick={() => void rescan()} disabled={locked} />
+          <ActionRow label="Read the folder again" onClick={() => void rescan()} disabled={locked} />
         </ActionGroup>
 
         {note ? <p class="m-note" role="status">{note}</p> : null}

@@ -718,7 +718,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             Welcome (TASTE-01). */}
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
-          <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>+ Add Gallery</button>
+          <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
         </div>
         <p class="admin-library-sub">{liveGalleries.length === 1 ? '1 gallery' : `${liveGalleries.length} galleries`}{liveGalleries.filter(isLocked).length ? `, ${liveGalleries.filter(isLocked).length} temporary` : ''}.</p>
         {adsShow && accountAd ? (

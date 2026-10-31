@@ -64,14 +64,19 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       .evaluate((node) => getComputedStyle(node).paddingLeft)
     if (viewport.width < 820) expect(shellPadding).toBe('24px')
 
-    // Add is a deliberate, keyboard-safe sheet with one pinned CTA.
-    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    // Add is a deliberate, keyboard-safe sheet with one pinned CTA — and a
+    // real 44px finger target, not just a tall-enough label.
+    const addTrigger = page.getByRole('button', { name: 'Add Gallery', exact: true })
+    const addBox = (await addTrigger.boundingBox())!
+    expect(addBox.height, 'Add Gallery meets the 44px touch floor').toBeGreaterThanOrEqual(44)
+    expect(addBox.width, 'Add Gallery meets the 44px touch floor').toBeGreaterThanOrEqual(44)
+    await addTrigger.click()
     const addSheet = page.getByRole('dialog', { name: 'Add a gallery' })
     await expect(addSheet).toBeVisible()
     await expect(addSheet.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA')).toBeVisible()
     await expect(addSheet.getByRole('button', { name: 'Paste', exact: true })).toBeVisible()
     await expect(addSheet.getByLabel('Name (optional)')).toBeVisible()
-    await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add gallery', exact: true })).toBeInViewport()
+    await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add a gallery', exact: true })).toBeInViewport()
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-add.png`, fullPage: false })
     await addSheet.getByRole('button', { name: 'Close', exact: true }).click()
 
@@ -114,6 +119,12 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await page.getByRole('menuitem', { name: 'Reorder photographs', exact: true }).click()
     const editor = page.locator('[data-gallery-editor]')
     await expect(editor).toBeVisible()
+    // Cancel and Save share the shared 44px bar buttons — the editor used to
+    // shrink them to 36px.
+    for (const cls of ['.native-editor-cancel', '.native-editor-save']) {
+      const box = (await editor.locator(cls).boundingBox())!
+      expect(box.height, `${cls} meets the 44px touch floor`).toBeGreaterThanOrEqual(44)
+    }
     const cells = editor.locator('.native-global-grid .native-global-cell')
     await expect(cells.first()).toBeVisible()
     const cellCount = await cells.count()

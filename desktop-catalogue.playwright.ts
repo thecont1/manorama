@@ -189,7 +189,7 @@ for (const size of sizes) {
     await expect(bar).toBeVisible()
     await expect(bar.locator('img.m-topbar-logo')).toBeVisible()
     await expect(heading).toBeVisible()
-    await expect(page.getByRole('button', { name: '+ Add Gallery', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add Gallery', exact: true })).toBeVisible()
     const barBox = (await bar.boundingBox())!
     const headingBox = (await heading.boundingBox())!
     expect(headingBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1)
@@ -332,15 +332,15 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     }
     await expect(details.locator('.m-actionrow')).toHaveCount(5)
     const labels = await details.locator('.m-actionrow-label').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library'])
+    expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library'])
 
     mkdirSync(evidence, { recursive: true })
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })
 
-    // Publish/Share opens the shared Sheet — sheet presentation, never the
+    // Publish opens the shared Sheet — sheet presentation, never the
     // inline header — with the upload-confirmation copy. No provider connect
     // or upload is attempted.
-    await details.getByRole('button', { name: 'Publish/Share' }).click()
+    await details.getByRole('button', { name: 'Publish' }).click()
     const share = page.locator('.desktop-share--sheet')
     await expect(share).toBeVisible()
     await expect(page.locator('.desktop-share-header')).toHaveCount(0)

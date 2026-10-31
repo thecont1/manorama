@@ -86,7 +86,7 @@ for (const size of sizes) {
         await expect(bar).toBeVisible()
         await expect(bar.locator('img.m-topbar-logo')).toBeVisible()
         await expect(heading).toBeVisible()
-        await expect(page.getByRole('button', { name: '+ Add Gallery', exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Add Gallery', exact: true })).toBeVisible()
         const barBox = (await bar.boundingBox())!
         const headingBox = (await heading.boundingBox())!
         expect(headingBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1)
@@ -281,7 +281,7 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       // Exactly the five action rows, in the contract's order, and no more.
       await expect(details.locator('.m-actionrow')).toHaveCount(5)
       const labels = await details.locator('.m-actionrow-label').allTextContents()
-      expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Read folder again', 'Remove from Library'])
+      expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library'])
 
       await mkdir(evidence, { recursive: true })
       await page.screenshot({ path: resolve(evidence, `window-${theme}-details.png`), animations: 'disabled', timeout: 10_000 })

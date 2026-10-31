@@ -869,7 +869,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
             <div class="desktop-library-actions">
               {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>{syncState === 'syncing' ? 'Syncing…' : 'Sync now'}</button> : null}
-              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : '+ Add Gallery'}</button>
+              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
             </div>
           </div>
           <p class="admin-library-sub">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'} · {syncMessage(syncState, session)}</p>

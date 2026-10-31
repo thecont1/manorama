@@ -1495,7 +1495,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <div class="native-library-heading">
           <h1>Library</h1>
-          <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add</button>
+          <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add Gallery</button>
         </div>
         {/* The status line under the title reports vault activity first,
             then how many galleries live on the device. */}
