@@ -536,7 +536,20 @@ button { color: inherit; }
 .m-sheet-section:last-child { border-bottom: 0; }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
-.m-sheet-hint { color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; text-align: right; }
+.m-sheet-hint { color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; text-align: right; min-width: 0; }
+/* A field pairs a control with the hint that explains its current choice.
+   Wide: label and hint share the first row, the control spans beneath.
+   Narrow: the hint drops below the control rather than squeezing beside
+   the label or wrapping into a cramped side column. */
+.m-sheet-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: baseline; }
+.m-sheet-field > .m-sheet-label { grid-area: 1 / 1; }
+.m-sheet-field > .m-switch { grid-area: 1 / 1; justify-self: start; }
+.m-sheet-field > .m-sheet-hint { grid-area: 1 / 2; justify-self: end; }
+.m-sheet-field > .m-switch ~ .m-sheet-hint { align-self: center; }
+.m-sheet-field > .m-segmented { grid-area: 2 / 1 / auto / -1; margin-top: 8px; }
+@media (max-width: 30em) {
+  .m-sheet-field > .m-sheet-hint { grid-area: 3 / 1 / auto / -1; justify-self: start; align-self: auto; text-align: left; }
+}
 .m-shortcut-list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }
 .m-shortcut-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; color: rgba(var(--m-ink, var(--ink)), .62); font-size: 12px; }
 @media (max-width: 560px) { .m-shortcut-list { grid-template-columns: 1fr; } }

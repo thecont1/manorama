@@ -2125,6 +2125,32 @@ test.describe("display and info sheets", () => {
     ).toHaveCount(fine ? 1 : 0);
   });
 
+  test("display hints sit beside labels wide and below the control narrow", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Display", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Display" });
+    const field = dialog.locator(".m-sheet-field", { hasText: "Canvas" }).first();
+    const label = await field.locator(".m-sheet-label").boundingBox();
+    const hint = await field.locator(".m-sheet-hint").boundingBox();
+    const control = await field.locator(".m-segmented").boundingBox();
+    const narrow = await page.evaluate(() => matchMedia("(max-width: 30em)").matches);
+    if (narrow) {
+      // The hint drops under the control instead of squeezing beside the label.
+      expect(hint!.y).toBeGreaterThanOrEqual(control!.y + control!.height - 1);
+      expect(hint!.x).toBeLessThanOrEqual(label!.x + 4);
+    } else {
+      expect(Math.abs(hint!.y - label!.y)).toBeLessThanOrEqual(4);
+      expect(hint!.x).toBeGreaterThan(label!.x + label!.width);
+    }
+    // Neither arrangement may overlap or overflow the field.
+    const hint2 = await field.locator(".m-sheet-hint").boundingBox();
+    const fieldBox = await field.boundingBox();
+    expect(hint2!.x + hint2!.width).toBeLessThanOrEqual(fieldBox!.x + fieldBox!.width + 1);
+  });
+
   test("axe is clean with the display sheet and the info sheet open", async ({
     page,
   }) => {
