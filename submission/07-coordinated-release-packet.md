@@ -7,7 +7,7 @@ migrates data, or submits to a store — those remain distinct owner actions.
 ## Integration commit
 
 - Branch: `fix/redesign-p12` (worktree `.worktrees/p12`)
-- Head: `168dca3c48842b1ec3447d59937f3a39fa2e21de` (`test(acceptance): wait out bounded image retries and anchor worktrees portably`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the commit carrying this packet record and refreshed hashes follows it and changes no shipped code
+- Head: `bfcc43ed4126a69f33013720f7374cb2b2e77ea5` (`test(acceptance): wait out in-flight HEIC conversions before measuring`) — the integration commit recorded in `outputs/rc/artifacts-sha256.txt`; the commit carrying this packet record and refreshed hashes follows it and changes no shipped code
 - Base: `origin/main` @ `3174cb6`
 - Logical commits on the branch: client hydration hardening, provider retry/cache, desktop catalogue restore, style pruning + details overflow fix, local font bundling, evidence-spec alignment, docs refresh, evidence captures, review corrections (Retry-After budget, swipe/buffer replay, spec fixes, submission wording).
 
@@ -103,7 +103,7 @@ Every surface can be rolled back independently:
 - Native/desktop: re-archive the previous signed build; the installed app is
   forward/backward compatible because nothing client-persisted changed shape.
 - Git: `git revert` the integration range
-  `3174cb6..168dca3c48842b1ec3447d59937f3a39fa2e21de` restores base
+  `3174cb6..bfcc43ed4126a69f33013720f7374cb2b2e77ea5` restores base
   behaviour; the logical commits can also be reverted individually.
 
 ## Owner actions remaining
