@@ -32,12 +32,12 @@ THE VIEWING EXPERIENCE IS THE PRODUCT
 • Photographs are shown at their honest size: never upscaled, recompressed, cropped or stretched.
 • Colour profiles and Content Credentials are preserved through the image path where the source provides them.
 • A physical film-strip stage supports touch, pointer, trackpad and keyboard navigation, with ProMotion-aware motion on compatible iPhones.
-• A magnifier and photo picker help you inspect a gallery without turning it into a feed. The photo picker is enabled once from the native account page and shows frames already held in the device vault.
+• A magnifier and photo picker help you inspect a gallery without turning it into a feed. The photo picker is enabled once in Settings and shows frames already held in the device vault.
 
 TAKE GALLERIES OFFLINE
 • The native app defaults to downloading still-image galleries into an encrypted on-device vault.
 • Vault copies are visible only inside manorama, not in Files or another image viewer. Keys remain in secure device storage and the vault is excluded from cloud backup.
-• The account page can instead stream newly opened galleries from the cloud. Existing encrypted copies are not deleted by that choice.
+• Settings can instead stream newly opened galleries from the cloud. Existing encrypted copies are not deleted by that choice.
 • The Free vault ceiling is 256 MiB. Visionary can use a larger cap or unlimited vault storage, subject to device space.
 
 MAKE YOUR OWN GALLERIES
@@ -73,7 +73,7 @@ photo,gallery,photography,portfolio,viewer,offline,slideshow,album,share,dropbox
 - **Introductory offer:** Pay-up-front introductory offer — US$11.99 for the first year, for new subscribers. The subscription reverts to US$19.99/year when the introductory period ends. Verify final storefront eligibility; it is not available to every customer.
 - **Promotional offer:** Offer code `VISIONARY2020` — one free month for new subscribers, after which the subscription renews at the introductory price. Confirm the resulting price path in a sandbox before advertising the combination.
 - **RevenueCat package:** `$rc_annual`
-- **Review note:** `Unlocks Visionary: up to 99 retained galleries, larger or unlimited encrypted offline vault, and house-only placements. Sign in, then tap “View subscription options”.`
+- **Review note:** `Unlocks Visionary: up to 99 retained galleries, larger or unlimited encrypted offline vault, and house-only placements. Sign in, then open Settings › Plan and tap “Go Visionary”. The Library footer shows “Go Visionary” only once a Free account reaches its gallery limit.`
 
 ## Release and evidence
 - **Release:** Manual release.
