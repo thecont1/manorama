@@ -138,7 +138,11 @@ body:has(.native-diptych) {
   line-height: 1;
 }
 
-.native-list-card p {
+/* Status paragraphs own this quiet measure — scoped to direct children so
+   gallery-card text (.lib-card-sub, .native-gallery-caption) keeps its own
+   deliberate spacing instead of inheriting a 28px bottom margin and a
+   2.8em floor that reads as false empty space. */
+.native-list-card > p {
   min-height: 2.8em;
   margin: 0 0 28px;
   color: rgba(var(--ink), .7);
@@ -335,6 +339,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: 0 24px max(20px, var(--native-safe-bottom)) 24px; }
 .native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
 .native-gallery-remove-confirm { padding-bottom: 18px; }
+.native-gallery-remove-confirm p { margin: 10px 0 14px; color: rgba(var(--ink), .7); line-height: 1.55; }
 .native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }
 
 /* The list is one column of ruled cards; each li wraps a .lib-card article. */
