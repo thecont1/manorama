@@ -198,7 +198,7 @@ test('the desktop admin surface survives a resize without losing the pane state'
     await page.goto(base, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
     await settleStyles(page)
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+    const tab = page.getByRole('button', { name: 'Settings', exact: true })
     const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
     await tab.click()
     await expect(dialog).toBeVisible()
@@ -244,7 +244,7 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
     await settleStyles(page)
 
     const details = page.locator('[data-screen="local-details"]')
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+    const tab = page.getByRole('button', { name: 'Settings', exact: true })
     const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
 
     for (const theme of ['dark', 'light'] as const) {
@@ -266,8 +266,9 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       await page.getByRole('dialog').getByRole('button', { name: 'Gallery details' }).click()
       await expect(details).toBeVisible()
       expect(new URL(page.url()).searchParams.get('details')).toBe(GALLERY_ID)
-      // The surface states the gallery's own facts: title, count, source kind.
-      await expect(details.locator('.m-topbar-title')).toHaveText('Bangkok Rain')
+      // The surface states the gallery's own facts once: the top bar carries
+      // Back, the body carries the title — never both.
+      await expect(details.locator('.m-topbar-title')).toHaveCount(0)
       await expect(details.locator('.d-name')).toHaveText('Bangkok Rain')
       await expect(details.locator('.d-sub').first()).toHaveText('25 photographs · Folder on this Mac')
       await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')

@@ -2088,7 +2088,7 @@ test.describe("display and info sheets", () => {
     await showChrome(page);
     await page.getByRole("button", { name: "Display", exact: true }).click();
     await dialog.getByRole("radio", { name: "Strip" }).click();
-    await dialog.getByRole("radio", { name: "Black" }).click();
+    await dialog.getByRole("radio", { name: "Blank" }).click();
     await expect(page.locator("[data-stage]")).toHaveClass(/mode-strip/);
     await expect(page.locator(".viewer-stage.bg-dark")).toHaveCount(0);
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -2404,9 +2404,9 @@ test("owner admin lists galleries without a selector and remains noindex", async
   await expect(
     page.locator(".lib-card").first().locator(".lib-card-sub"),
   ).toContainText(/\d+ photographs?/);
-  // The Library hero's mark is the only branded element left to assert.
+  // The shared top bar carries the only mark — the compact header contract.
   await expect(
-    page.locator(".admin-hero-brand .landing-brand-mark"),
+    page.locator(".m-topbar-logo"),
   ).toHaveAttribute("src", "/manorama-merged-logo.png");
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);
@@ -2745,7 +2745,7 @@ test.describe("privacy policy page", () => {
     await expect(doc).toContainText(/revenuecat/i);
   });
 
-  test("desktop lays the persona cards out in three columns", async ({
+  test("the persona entries read as continuous prose, not nested cards", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -2755,7 +2755,18 @@ test.describe("privacy policy page", () => {
       .evaluate(
         (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
       );
-    expect(columns).toBe(3);
+    expect(columns).toBe(1);
+    // No card chrome interrupts the column — the entries are plain
+    // subsections in the shared reading style.
+    const chrome = await page
+      .locator(".policy-card")
+      .first()
+      .evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { border: s.borderTopWidth, background: s.backgroundColor };
+      });
+    expect(chrome.border).toBe("0px");
+    expect(chrome.background).toBe("rgba(0, 0, 0, 0)");
   });
 
   test("phone stacks the cards in one column without horizontal overflow", async ({

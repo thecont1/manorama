@@ -299,7 +299,7 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
 
   const record = built.galleries[0]
   const details = page.locator('[data-screen="local-details"]')
-  const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+  const tab = page.getByRole('button', { name: 'Settings', exact: true })
   const pane = page.getByRole('dialog', { name: 'Account', exact: true })
 
   for (const theme of ['dark', 'light'] as const) {
@@ -319,7 +319,8 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     await page.getByRole('dialog').getByRole('button', { name: 'Gallery details' }).click()
     await expect(details).toBeVisible()
     expect(new URL(page.url()).searchParams.get('details')).toBe(record.id)
-    await expect(details.locator('.m-topbar-title')).toHaveText(record.title)
+    // The top bar carries Back; the title lives once in the body.
+    await expect(details.locator('.m-topbar-title')).toHaveCount(0)
     await expect(details.locator('.d-name')).toHaveText(record.title)
     await expect(details.locator('.d-sub').first()).toHaveText(`${record.itemCount} photographs · Folder on this Mac`)
     await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
