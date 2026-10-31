@@ -1756,7 +1756,9 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   overflow: hidden;
   background: rgba(var(--ink), .12);
 }
-.account-ad-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 'contain', never 'cover': a creative is shown whole at its own ratio,
+   letterboxed by the frame's tint rather than cropped or stretched. */
+.account-ad-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .account-ad-placeholder {
   padding: 10px;
   color: rgba(var(--ink), .45);

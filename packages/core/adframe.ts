@@ -110,7 +110,7 @@ export const HOUSE_AD_FRAME: AdFrame = {
   headline: 'More photographs, quietly shared.',
   image: HOUSE_AD_CREATIVES[0],
   cta: { label: 'Explore manorama', url: 'https://manorama.xyz' },
-  badge: 'Sponsored',
+  badge: 'Advertisement',
   provider: 'manorama-house',
 }
 

@@ -237,7 +237,7 @@ describe('house plates follow the interim single-plate rule for every viewer', (
     expect(positions).toHaveLength(1)
     expect(html.match(/data-ad-frame/g) ?? []).toHaveLength(positions.length)
     for (const pos of positions) expect(html).toContain(`data-ad-position="${pos}"`)
-    expect(html).toContain('aria-label="Sponsored: manorama"')
+    expect(html).toContain('aria-label="Advertisement: manorama"')
     expect(html).toContain('More photographs, quietly shared.')
     expect(html).toContain('Explore manorama')
     // The interim creative ships as a vertical /ads image on the plate.

@@ -16,6 +16,7 @@ import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { WebReorderView } from '../components/WebReorderView'
 import { TopBar } from '../components/ui/TopBar'
 import { copyText } from '../lib/gallery-share'
+import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -230,6 +231,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const [ownerSlugDraft, setOwnerSlugDraft] = useState(owner)
   const [adsShow, setAdsShow] = useState(true)
+  const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [theme, setTheme] = useState<Theme>(() =>
     readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
 
@@ -238,6 +240,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // is a courtesy switch, not a gate.
   useEffect(() => {
     let live = true
+    // Seeded client-side — the daily creative can't be part of the SSR
+    // markup or a midnight straddle would hydrate it into the wrong frame.
+    setAccountAd(houseAdFrameFor('library'))
     void fetch('/api/ads/visibility')
       .then((response) => (response.ok ? response.json() : null))
       .then((payload: unknown) => {
@@ -706,19 +711,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
           <button type="button" class="admin-button admin-button--solid" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add</button>
         </div>
-        {adsShow ? (
+        {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
              cards — the same portrait-shaped house slot as native. */
-          <aside class="account-ad" aria-label="Sponsored: manorama">
-            <span class="account-ad-badge">Sponsored</span>
+          <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
+            <span class="account-ad-badge">{accountAd.badge}</span>
             <div class="account-ad-slot">
               <div class="account-ad-frame">
-                <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
+                {accountAd.image ? (
+                  <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+                ) : (
+                  <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
+                )}
               </div>
               <div class="account-ad-copy">
-                <strong class="account-ad-headline">More photographs, quietly shared.</strong>
+                <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
                 <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
-                <a class="account-ad-cta" href="https://manorama.xyz" target="_blank" rel="noopener">Explore manorama</a>
+                {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}
               </div>
             </div>
           </aside>

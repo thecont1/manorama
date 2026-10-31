@@ -126,7 +126,7 @@ describe('interim house creatives', () => {
     const frame = houseAdFrameFor('gallery', '2026-10-31')
     expect(frame.id).toBe(HOUSE_AD_FRAME.id)
     expect(frame.provider).toBe('manorama-house')
-    expect(frame.badge).toBe('Sponsored')
+    expect(frame.badge).toBe('Advertisement')
     expect(HOUSE_AD_CREATIVES).toContain(frame.image)
     expect(frame).not.toBe(HOUSE_AD_FRAME)
     // Same scope, same day: same creative. Different day may re-roll.
