@@ -1319,6 +1319,19 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   letter-spacing: .04em;
   pointer-events: none;
 }
+/* Hidden photographs stay in the owner's rail — dimmed like the reorder
+   draft — with an eye-off chip at the hide mark's top-right place so the
+   two surfaces read the same way. */
+.admin-gallery-strip-item.is-hidden img { opacity: .32; }
+.admin-strip-badge--hidden {
+  left: auto;
+  right: 6px;
+  bottom: auto;
+  top: 6px;
+  display: inline-flex;
+  padding: 3px;
+}
+.admin-strip-badge--hidden svg { width: 12px; height: 12px; display: block; }
 
 /* ── Quick-add interstitial ──────────────────────────────────────────
    The page a pasted share URL lands on: branded, one message, one

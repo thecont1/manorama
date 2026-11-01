@@ -211,6 +211,20 @@ describe('the dashboard renders retention state', () => {
     expect(card).toContain('href="/test-owner/kept-0"')
   })
 
+  test('a hidden photograph stays in the owner rail, dimmed and badged', async () => {
+    const html = await renderDashboard(async () => {
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'mixed', title: 'Mixed', caption: '', date: '',
+        images: [image('vis-1'), { ...image('hid-1'), hidden: true }, image('vis-2')],
+      })
+    })
+    const card = cardSection(html, 'mixed')
+    expect(card).toContain('admin-gallery-strip-item is-hidden')
+    expect(card).toContain('admin-strip-badge--hidden')
+    expect(card).toContain('hidden image 2 of 3')
+    expect((card.match(/is-hidden/g) ?? []).length).toBe(1)
+  })
+
   test('a pro dashboard reports paid availability, and the cap message when full', async () => {
     const html = await renderDashboard(async () => {
       await setUserTier(TEST_OWNER.accountId, 'pro')
