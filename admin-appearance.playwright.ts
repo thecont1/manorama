@@ -34,13 +34,12 @@ for (const size of sizes) {
         page.on('pageerror', error => errors.push(error.message))
         await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded' })
         await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
-        // Chrome is the shared top bar: Settings gear right. The wordmark
-        // left the bar — it heroes the Library at opening-screen size.
-        const topbar = page.locator('.m-topbar')
-        const gear = topbar.getByRole('button', { name: 'Settings', exact: true })
-        await expect(topbar).toBeVisible()
+        // Chrome is a quiet circle pill beside Add Gallery — the 52px bar
+        // is gone so the wordmark and cards claim that space. The wordmark
+        // leads the column, its "m" squared on the heading's "L".
+        const gear = page.getByRole('button', { name: 'Settings', exact: true })
+        await expect(page.locator('.m-topbar')).toHaveCount(0)
         await expect(gear).toBeVisible()
-        await expect(topbar.locator('.m-topbar-logo')).toHaveCount(0)
         const heroMark = page.locator('.admin-brand-mark')
         await expect(heroMark).toHaveAttribute('src', '/manorama-merged-logo.png')
         const heroBox = (await heroMark.boundingBox())!
@@ -65,8 +64,9 @@ for (const size of sizes) {
           // Wide: the slot is the grid's second column, beside the list —
           // and its left edge never invades the content column.
           expect(sponsoredBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1)
-          // The mark's left edge squares on the heading's — "m" over "L".
-          expect(Math.abs(heroBox.x - headingBox.x)).toBeLessThan(2)
+          // The mark's visible ink squares on the heading's left edge —
+          // "m" over "L". The box starts 14px left (transparent bearing).
+          expect(Math.abs(heroBox.x + 14 - headingBox.x)).toBeLessThan(2)
           // The creative fits its media box whole — never cropped.
           const mediaBox = (await sponsored.locator('.account-ad-media').boundingBox())!
           const adImgBox = (await sponsored.locator('img').boundingBox())!

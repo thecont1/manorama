@@ -100,8 +100,8 @@ const seedPipelineOwner = async () => {
 describe('the dashboard renders retention state', () => {
   test('the owner grid keeps its theme control and never paints a doodle field', async () => {
     const html = await renderDashboard(async () => {})
-    // The top bar gear leads to Settings; Settings owns appearance.
-    expect(html).toContain('class="m-topbar"')
+    // The Settings pill leads to Settings; Settings owns appearance.
+    expect(html).not.toContain('class="m-topbar"')
     expect(html).toContain('aria-label="Settings"')
     expect(renderSettings()).toContain('aria-label="Appearance"')
     // Doodles belong to gallery pages only: the account page must ship no
@@ -112,9 +112,9 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-background-toggle')
   })
 
-  test('the account opens from the top bar gear and editor rails need no repeated heading', async () => {
+  test('the account opens from the Settings pill and editor rails need no repeated heading', async () => {
     const html = await renderDashboard(seedPipelineOwner)
-    expect(html).toContain('class="m-topbar"')
+    expect(html).not.toContain('class="m-topbar"')
     expect(html).toContain('aria-label="Settings"')
     expect(html).not.toContain('admin-edge-tab')
     expect(html).not.toContain('admin-account-drawer')
@@ -132,10 +132,17 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('class="admin-overview"')
     expect(html).not.toContain('aria-label="Welcome to manorama"')
     expect(html).not.toContain('admin-owner-slug-input')
-    expect(html.indexOf('class="m-topbar"')).toBeLessThan(html.indexOf('class="admin-library-heading"'))
+    expect(html.indexOf('admin-brand-mark')).toBeLessThan(html.indexOf('class="admin-library-heading"'))
     expect(html.indexOf('class="admin-library-heading"')).toBeLessThan(html.indexOf('class="lib-list"'))
     expect(html).not.toContain('class="admin-lib-foot"')
     expect(html).toContain('aria-labelledby="galleries-heading"')
+  })
+
+  test('the Library sub line states the plan, the hosted counts, and the upgrade path', async () => {
+    const html = await renderDashboard(seedPipelineOwner)
+    expect(html).toContain('You are a manorama Free user.')
+    expect(html).toContain('You are hosting 3 of 3 permanent galleries and 1 temporary gallery.')
+    expect(html).toContain('Upgrade to Visionary?')
   })
 
   test('a pipeline card folds the lock into its metadata line and Details carries the upgrade path', async () => {

@@ -14,7 +14,6 @@ import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { WebReorderView } from '../components/WebReorderView'
-import { TopBar } from '../components/ui/TopBar'
 import { copyText } from '../lib/gallery-share'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 
@@ -690,6 +689,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const liveGalleries = galleries.filter((gallery) => !isGalleryExpired(gallery, new Date(now).toISOString()))
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
+  const temporaryCount = liveGalleries.filter(isLocked).length
   const detailsGallery = detailsSlug ? liveGalleries.find((gallery) => gallery.slug === detailsSlug) ?? null : null
   const menuGallery = menuSlug ? liveGalleries.find((gallery) => gallery.slug === menuSlug) ?? null : null
   const shareGallery = shareSlug ? liveGalleries.find((gallery) => gallery.slug === shareSlug) ?? null : null
@@ -705,11 +705,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           The edge tab and account drawer are gone (D6) — Settings is the
           pushed surface it always was, Privacy lives on it and in the site
           footer. */}
-      <TopBar logo={false} end={(
-        <button type="button" class="m-btn m-btn--quiet m-iconbtn" aria-label="Settings" onClick={openSettings}>
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
-        </button>
-      )} />
+      {/* The top bar is gone — its 52px was dead space once the wordmark
+          moved into the column. Settings is a pill beside Add Gallery, and
+          the pushed surface it opens is unchanged: Privacy lives on it and
+          in the site footer. */}
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
       <section class={adsShow && accountAd ? 'gallery-list gallery-list--has-ad' : 'gallery-list'} aria-labelledby="galleries-heading">
@@ -719,9 +718,18 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
-          <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
+          <div class="admin-heading-actions">
+            <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
+            <button type="button" class="admin-button admin-settings-pill" aria-label="Settings" onClick={openSettings}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+            </button>
+          </div>
         </div>
-        <p class="admin-library-sub">{liveGalleries.length === 1 ? '1 gallery' : `${liveGalleries.length} galleries`}{liveGalleries.filter(isLocked).length ? `, ${liveGalleries.filter(isLocked).length} temporary` : ''}.</p>
+        <p class="admin-library-sub">{tier === 'pro' ? (
+          <>You are a manorama Visionary user. You are hosting {retainedCount} of {PAID_RETAINED_LIMIT} permanent galleries.</>
+        ) : (
+          <>You are a manorama Free user. You are hosting {retainedCount} of {FREE_RETAINED_LIMIT} permanent galleries{temporaryCount ? ` and ${temporaryCount} temporary ${temporaryCount === 1 ? 'gallery' : 'galleries'}` : ''}. <a class="admin-upgrade-link" href={upgradeHref}>Upgrade to Visionary?</a></>
+        )}</p>
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
              cards — the same portrait-shaped house slot as native. */
@@ -748,7 +756,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onClickCapture={suppressDraggedClick} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class="admin-gallery-strip-item" key={image.id} data-image-id={image.id}>
-                  <a href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}, opens in a new tab`}>
+                  <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
                     <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
                       const img = event.currentTarget as HTMLImageElement
                       // Stored dims are the placeholder's shape — the decoded
@@ -781,11 +789,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               </ul>
             </div>
             <div class="lib-card-head">
-              <a class="lib-card-title" href={galleryPath(gallery.slug)} target="_blank" rel="noreferrer" draggable="false" title="Opens in a new tab">{title}</a>
+              <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}</a>
               <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
             </div>
             <p class="lib-card-sub">
-              {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} · {sourceLabelFor(gallery.sourceUrl)}
+              {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} from {sourceLabelFor(gallery.sourceUrl)}
               {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}

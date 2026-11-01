@@ -2421,18 +2421,22 @@ test("owner admin lists galleries without a selector and remains noindex", async
   const headingBox = (await page
     .locator("h1.admin-galleries-heading")
     .boundingBox())!;
-  expect(Math.abs(brandBox.x - headingBox.x)).toBeLessThan(2);
-  expect(brandBox.width).toBeGreaterThanOrEqual(280);
+  // The mark's box starts 14px left of the ink — the PNG's transparent
+  // bearing — so the visible "m" lands on the heading's left edge.
+  expect(Math.abs(brandBox.x + 14 - headingBox.x)).toBeLessThan(2);
+  expect(brandBox.width).toBeGreaterThanOrEqual(306);
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);
   await expect(page.locator(".lib-card .admin-eyebrow")).toHaveCount(0);
   // D2: no URL row on the card — the address lives in Share and Details.
   await expect(page.locator(".lib-card .admin-gallery-url")).toHaveCount(0);
   const firstCard = page.locator(".lib-card").first();
-  // D3: the card's links open the public gallery in a new tab.
-  await expect(
-    firstCard.getByRole("link", { name: /opens in a new tab/i }).first(),
-  ).toHaveAttribute("target", "_blank");
+  // D3: the card's links open the public gallery in place — the Library
+  // behaves as an app surface, not a website of tabs.
+  await expect(firstCard.locator(".lib-card-title")).not.toHaveAttribute(
+    "target",
+    "_blank",
+  );
   await expect(firstCard.locator(".admin-gallery-strip-frame")).toBeVisible();
   // The Photo Editor is one horizontal row (owner-approved 2026-10-10):
   // the frame hugs the thumb row — clamp(96px,16dvh,208px) items plus
