@@ -50,6 +50,9 @@ export default createRoute(async (c) => {
   // merge around them) but never reach a public surface — not even for the
   // owner, whose view must match what the gallery publishes.
   const visible = gallery.images.filter((image) => !image.hidden)
+  // An all-hidden manifest publishes nothing — the honest answer is a
+  // missing page, not a viewer over zero frames.
+  if (!visible.length) return c.notFound()
   const source = new BundledSource({ ...gallery, images: visible } as GalleryRecord)
   const photoIndex = photoParam ? source.list().findIndex((item) => item.id === photoParam) : -1
 

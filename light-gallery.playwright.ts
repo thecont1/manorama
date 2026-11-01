@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const base = process.env.GALLERY_URL ?? 'http://localhost:5175'
+const base = process.env.GALLERY_URL ?? 'http://localhost:5173'
 
 /** Contrast ratio of each selected node's computed color against the first
  *  non-transparent background up its ancestor chain — the same luminance
@@ -24,6 +24,15 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
       const login = await context.request.get(`${base}/.dev-seed/login`, { maxRedirects: 0, timeout: 15_000 })
       return login.status()
     }, { timeout: 35_000, intervals: [1000, 2000] }).toBe(302)
+    // The album this spec drives must exist whether or not a live source
+    // is configured: four photographs also guarantee one interior ad
+    // plate for the frame assertions below. When a live seed already
+    // owns the slug the spawn reports a conflict and that gallery stands.
+    const png = (id: string) => ({ id, filename: `${id}.png`, src: '/favicon.ico', width: 4, height: 3, alt: id })
+    const spawn = await context.request.post(`${base}/.dev-seed/spawn`, {
+      data: { galleries: [{ slug: 'mixed-album', images: [png('a'), png('b'), png('c'), png('d')] }] },
+    })
+    expect(spawn.status()).toBe(200)
     const page = await context.newPage()
     await page.goto(`${base}/thecontrarian`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })

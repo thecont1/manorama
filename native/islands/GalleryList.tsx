@@ -1198,25 +1198,28 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   // link that was never going to work.
   const addVerifySeq = useRef(0)
   const addVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The URL currently being checked (or last checked). A blur commit for
+  // the same URL must not reset the result or spend a second scan.
+  const addVerifyUrl = useRef<string | null>(null)
   const resetAddVerification = () => {
     if (addVerifyTimer.current) clearTimeout(addVerifyTimer.current)
     addVerifySeq.current += 1
+    addVerifyUrl.current = null
     setAddVerifiedTitle(null)
     setAddChecking(false)
   }
   const verifyAddUrl = async (url: string) => {
     const seq = ++addVerifySeq.current
+    addVerifyUrl.current = url
     setAddChecking(true)
     try {
       const scan = await scanSourceUrl(base, url)
       if (seq !== addVerifySeq.current) return
       setError(null)
       setAddVerifiedTitle(scan.title)
-      // The scanned name pre-fills only an untouched field — a name the
-      // owner typed while the scan was in flight is never clobbered.
-      setSourceName((current) => current.trim() ? current : scan.title)
     } catch (reason) {
       if (seq === addVerifySeq.current) {
+        addVerifyUrl.current = null
         setAddVerifiedTitle(null)
         setError(reason instanceof Error ? reason.message : 'That link could not be checked — try again')
       }
@@ -1238,8 +1241,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const onAddUrlCommit = (value: string) => {
     setSourceUrl(value)
     setError(null)
-    resetAddVerification()
     const url = value.trim()
+    // The blur that follows a paste must not wipe a verification that is
+    // already running or done for this exact URL.
+    if (url === addVerifyUrl.current) return
+    resetAddVerification()
     if (/^https?:\/\/\S+\.\S+/.test(url)) void verifyAddUrl(url)
   }
 

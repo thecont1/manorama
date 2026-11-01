@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { extractAlbumToken, fetchICloudImage, fetchICloudVideo, scanICloudAlbum } from './icloud-shared'
+import { extractAlbumToken, fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, scanICloudAlbum } from './icloud-shared'
 import { isVideoItem, type VideoItem } from './imagesource'
 
 const TOKEN = 'B0z5qAGN1JIFd3y'
@@ -425,5 +425,86 @@ describe('CloudKit shared albums (photos.icloud.com/shared/album)', () => {
     const denied = jsonResponse({ results: [{ zoneID: ZONE, anonymousPublicAccess: {} }] })
     const { fetchImpl } = ckFetch([], denied)
     await expect(scanICloudAlbum(LINK, fetchImpl)).rejects.toThrow('not shared publicly')
+  })
+
+  describe('CloudKit media fetches (fetchICloudCkImage / fetchICloudCkVideo)', () => {
+    const RECORD = 'rec-001'
+    const FIELD = 'resJPEGLargeRes'
+    const VID_FIELD = 'resVidMedRes'
+    const APPLE_URL = 'https://cvws-h2.icloud-content.com/B/sum/resJPEGLarge'
+
+    const lookupWith = (downloadURL: string) => jsonResponse({
+      records: [{ recordName: RECORD, fields: { [FIELD]: { value: { downloadURL, fileSize: 1000 } }, [VID_FIELD]: { value: { downloadURL, fileSize: 9000 } } } }],
+    })
+
+    const ckMediaFetch = (opts: {
+      downloadURL?: string
+      lookupResponses?: Response[]
+      onDownload?: (url: string, init?: RequestInit) => Response
+    } = {}) => {
+      const calls: string[] = []
+      let lookups = 0
+      const queue = [...(opts.lookupResponses ?? [])]
+      const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const url = String(input)
+        calls.push(url)
+        if (url.includes('records/resolve')) return ckResolve()
+        if (url.includes('records/lookup')) { lookups += 1; return queue[lookups - 1] ?? lookupWith(opts.downloadURL ?? APPLE_URL) }
+        return opts.onDownload?.(url, init) ?? new Response('image-bytes', { status: 200 })
+      }
+      return { fetchImpl: fetchImpl as typeof fetch, calls }
+    }
+
+    test('rejects an invalid reference before any request leaves', async () => {
+      const { fetchImpl, calls } = ckMediaFetch()
+      await expect(fetchICloudCkImage('bad token!', RECORD, FIELD, fetchImpl)).rejects.toThrow('invalid')
+      await expect(fetchICloudCkVideo(GUID, 'rec.001', FIELD, undefined, fetchImpl)).rejects.toThrow('invalid')
+      await expect(fetchICloudCkImage(GUID, RECORD, 'thumbnail', fetchImpl)).rejects.toThrow('invalid')
+      expect(calls).toHaveLength(0)
+    })
+
+    test('refuses a derivative downloadURL outside Apple hosts', async () => {
+      const { fetchImpl } = ckMediaFetch({ downloadURL: 'https://evil.example.com/x.jpg' })
+      await expect(fetchICloudCkImage(GUID, RECORD, FIELD, fetchImpl)).rejects.toThrow('unavailable')
+    })
+
+    test('re-resolves the share once after a 403 lookup, then answers', async () => {
+      const { fetchImpl, calls } = ckMediaFetch({ lookupResponses: [jsonResponse({}, 403)] })
+      const response = await fetchICloudCkImage(GUID, RECORD, FIELD, fetchImpl)
+      expect(response.status).toBe(200)
+      expect(calls.filter((url) => url.includes('records/resolve'))).toHaveLength(2)
+      expect(calls.filter((url) => url.includes('records/lookup'))).toHaveLength(2)
+    })
+
+    test('forwards Range upstream and passes the 206 through', async () => {
+      let forwarded: string | undefined
+      const { fetchImpl } = ckMediaFetch({
+        onDownload: (_url, init) => {
+          forwarded = new Headers(init?.headers).get('Range') ?? undefined
+          return new Response('partial', {
+            status: 206,
+            headers: { 'Content-Type': 'video/mp4', 'Content-Range': 'bytes 0-1023/9000000' },
+          })
+        },
+      })
+      const response = await fetchICloudCkVideo(GUID, RECORD, VID_FIELD, 'bytes=0-1023', fetchImpl)
+      expect(forwarded).toBe('bytes=0-1023')
+      expect(response.status).toBe(206)
+    })
+
+    test('a failed download drops the signed URL — the retry resolves again', async () => {
+      let downloads = 0
+      const { fetchImpl, calls } = ckMediaFetch({
+        onDownload: () => (++downloads === 1
+          ? new Response('stale', { status: 500 })
+          : new Response('fresh', { status: 200 })),
+      })
+      const response = await fetchICloudCkVideo(GUID, RECORD, VID_FIELD, undefined, fetchImpl)
+      expect(response.status).toBe(200)
+      expect(downloads).toBe(2)
+      // The retry looked the derivative up again rather than re-fetching
+      // the URL that just failed — the failed signature stays evicted.
+      expect(calls.filter((url) => url.includes('records/lookup'))).toHaveLength(2)
+    })
   })
 })

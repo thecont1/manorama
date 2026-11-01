@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext } from '@playwright/test'
 
-const base = process.env.GALLERY_URL ?? 'http://localhost:5174'
+const base = process.env.GALLERY_URL ?? 'http://localhost:5173'
 
 const png = (id: string) => ({ id, filename: `${id}.png`, src: '/favicon.ico', width: 4, height: 3, alt: id })
 

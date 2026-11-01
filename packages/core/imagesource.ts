@@ -55,8 +55,9 @@ export type GalleryImage = {
   hidden?: boolean
 }
 
-/** A still frame standing in for a video before it decodes. Always a real
- *  provider derivative (iCloud ships one per video) — never generated. */
+/** A still frame standing in for a video before it decodes. A real
+ *  provider derivative when one exists (iCloud ships one per video);
+ *  providers with no video still (Dropbox) carry the item placeholder. */
 export type VideoPoster = {
   src: string
   width: number

@@ -107,9 +107,10 @@ describe('scanDropboxFolder dimensions', () => {
 
   test('keeps videos in the listing without spending a byte probe on them', async () => {
     // Camera-roll shares mix .mp4/.mov with the stills; the file endpoint
-    // already streams Range, so a video becomes a VideoItem with the same
-    // w256 preview as its poster — and the dimension probe, which reads
-    // image headers, never runs against it.
+    // already streams Range, so a video becomes a VideoItem. The thumbnail
+    // endpoint is documented image-only, so the poster is the item's own
+    // placeholder frame — and the dimension probe, which reads image
+    // headers, never runs against it.
     const asked: string[] = []
     const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
@@ -142,7 +143,9 @@ describe('scanDropboxFolder dimensions', () => {
     expect(video.c2pa).toBe(false)
     expect(video.src).toContain('/api/dropbox/file')
     expect(video.src).toContain(encodeURIComponent('IMG_1960.MOV'))
-    expect(video.poster.src).toContain('/api/dropbox/thumbnail')
+    expect(video.poster.src).toContain('data:image/svg+xml')
+    expect(video.poster.src).toContain('viewBox=\'0 0 1920 1080\'')
+    expect(video.variants?.[0]?.src).toBe(video.poster.src)
     // One byte probe for the still, none for the video.
     expect(asked.filter((url) => url.includes('sharing/get_shared_link_file'))).toHaveLength(1)
   })

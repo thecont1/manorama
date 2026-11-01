@@ -66,7 +66,14 @@ export function AddGallerySheet({
         aria-busy={busy}
         onSubmit={(event) => {
           event.preventDefault()
-          if (!busy && url.trim()) onSubmit({ url: url.trim(), name: name.trim(), caption: caption.trim() })
+          if (!busy && url.trim()) onSubmit({
+            url: url.trim(),
+            // A verification reset unmounts these fields but their state
+            // survives — sending them anyway would submit values the owner
+            // cannot see.
+            name: verifiedTitle !== null ? name.trim() : '',
+            caption: verifiedTitle !== null ? caption.trim() : '',
+          })
         }}
       >
         <label class="m-field">

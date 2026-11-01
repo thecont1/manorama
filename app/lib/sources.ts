@@ -1,6 +1,6 @@
 import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
-import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
+import { extractAlbumToken, icloudLinkKind, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
 import { extractMegaLink, scanMegaSource } from './mega-public'
 import type { GalleryMediaItem } from './imagesource'
@@ -46,9 +46,9 @@ export const detectSource = (input: string): SourceProvider | null => {
   const host = url.hostname.replace(/^www\./, '')
   if (host === 'dropbox.com') return 'dropbox'
   if (host === 'drive.google.com') return 'gdrive'
-  if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) return 'icloud'
-  if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'icloud'
-  if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) return 'icloud'
+  // icloudLinkKind owns the link spellings — legacy sharedalbum/photos
+  // paths and the CloudKit /shared/album/ form.
+  if (icloudLinkKind(input)) return 'icloud'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
   return null
 }
@@ -79,7 +79,8 @@ const isShareResource = (url: URL, provider: SourceProvider): boolean => {
         return false
       }
     case 'icloud':
-      // Reaching here already means a /sharedalbum/ or /photos/ path.
+      // Reaching here already means icloudLinkKind recognized a share
+      // path — /sharedalbum/, /photos/, or /shared/album/.
       return true
     case 'mega':
       // The folder/collection key lives in the fragment, which the server

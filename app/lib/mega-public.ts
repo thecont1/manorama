@@ -269,8 +269,10 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
 /** Best-effort dimensions: the decrypted JPEG preview when the node
  *  carries one (small, and works for HEIC/HEIF too), else a ranged
  *  head fetch of the original; anything else gets a 4:3 placeholder.
- *  Reported dims are the rendition's — aspect is what matters for
- *  layout, matching the Dropbox thumbnail-dims precedent. */
+ *  Reported dims are whatever the probe answered — the original's own
+ *  pixels when the ranged head fetch reads them, the preview rendition's
+ *  otherwise. Aspect is what matters for layout, matching the Dropbox
+ *  thumbnail-dims precedent. */
 const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch, cachePreviews: boolean): Promise<{ width: number; height: number; previewFormat?: string }> => {
   // MEGA throttles bursty ufa/range traffic; one retry after a beat
   // recovers most probes, anything still failing falls back to 4:3.

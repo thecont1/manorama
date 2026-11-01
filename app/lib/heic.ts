@@ -14,9 +14,14 @@ export const isHeicFilename = (name: string | null | undefined) => /\.hei[cf]$/i
  *  `maxDim` bounds the retained image: stage frames decode full-size,
  *  admin thumbs pass ~512 so a strip of them stays small. */
 export const heicObjectUrl = async (src: string, maxDim?: number): Promise<string | null> => {
-  const response = await fetch(src)
-  if (!response.ok) return null
-  const blob = await response.blob()
+  let blob: Blob
+  try {
+    const response = await fetch(src)
+    if (!response.ok) return null
+    blob = await response.blob()
+  } catch {
+    return null
+  }
   const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
   // A 'ftyp' box means real HEIC; anything else (JPEG, WebP) renders directly.
   const isHeicBlob = head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70

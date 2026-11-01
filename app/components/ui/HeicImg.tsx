@@ -23,9 +23,12 @@ export function HeicImg({ src, preview, filename, ...rest }: Props) {
   const hostRef = useRef<HTMLImageElement | null>(null)
 
   useEffect(() => {
+    // A new src (or a preview arriving) must not keep last decode's blob.
+    setDecoded(null)
     if (!needsDecode) return
     let cancelled = false
     let retried = false
+    let retryTimer: number | undefined
     const decode = () => {
       void enqueueHeicObjectUrl(src, 512).then((url) => {
         if (cancelled) return
@@ -34,14 +37,18 @@ export function HeicImg({ src, preview, filename, ...rest }: Props) {
         // not freeze a broken <img> on the undecodable bytes, so retry
         // once before handing the browser the URL (Safari renders HEIC
         // natively; elsewhere the item's own onError retry answers).
-        if (!retried) { retried = true; window.setTimeout(decode, 2000); return }
+        if (!retried) { retried = true; retryTimer = window.setTimeout(decode, 2000); return }
         setDecoded(src)
       })
+    }
+    const cleanup = () => {
+      cancelled = true
+      if (retryTimer !== undefined) clearTimeout(retryTimer)
     }
     const el = hostRef.current
     if (!el || typeof IntersectionObserver === 'undefined') {
       decode()
-      return
+      return cleanup
     }
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return
@@ -49,7 +56,7 @@ export function HeicImg({ src, preview, filename, ...rest }: Props) {
       decode()
     }, { rootMargin: '400px' })
     observer.observe(el)
-    return () => { cancelled = true; observer.disconnect() }
+    return () => { cleanup(); observer.disconnect() }
   }, [needsDecode, src])
 
   // The retained blob is small (downscaled JPEG) but still owned by us —

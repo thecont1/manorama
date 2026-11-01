@@ -508,14 +508,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // link that was never going to work.
   const addVerifySeq = useRef(0)
   const addVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The URL currently being checked (or last checked). A blur commit for
+  // the same URL must not reset the result or spend a second scan.
+  const addVerifyUrl = useRef<string | null>(null)
   const resetAddVerification = () => {
     if (addVerifyTimer.current) clearTimeout(addVerifyTimer.current)
     addVerifySeq.current += 1
+    addVerifyUrl.current = null
     setAddVerifiedTitle(null)
     setAddChecking(false)
   }
   const verifyAddUrl = async (url: string) => {
     const seq = ++addVerifySeq.current
+    addVerifyUrl.current = url
     setAddChecking(true)
     try {
       const response = await fetch('/api/galleries/scan', {
@@ -526,6 +531,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const payload = await response.json() as { scan?: { title?: string }; error?: string }
       if (seq !== addVerifySeq.current) return
       if (!response.ok || !payload.scan) {
+        addVerifyUrl.current = null
         setAddVerifiedTitle(null)
         setAddError(payload.error || 'That link could not be read')
         return
@@ -537,7 +543,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       // owner typed while the scan was in flight is never clobbered.
       setAddName((current) => current.trim() ? current : title)
     } catch {
-      if (seq === addVerifySeq.current) setAddError('That link could not be checked — try again')
+      if (seq === addVerifySeq.current) {
+        addVerifyUrl.current = null
+        setAddError('That link could not be checked — try again')
+      }
     } finally {
       if (seq === addVerifySeq.current) setAddChecking(false)
     }
@@ -556,8 +565,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const onAddUrlCommit = (value: string) => {
     setSourceUrl(value)
     setAddError(null)
-    resetAddVerification()
     const url = value.trim()
+    // The blur that follows a paste must not wipe a verification that is
+    // already running or done for this exact URL.
+    if (url === addVerifyUrl.current) return
+    resetAddVerification()
     if (/^https?:\/\/\S+\.\S+/.test(url)) void verifyAddUrl(url)
   }
 

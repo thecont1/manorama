@@ -180,10 +180,13 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
       const id = `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`
       if (VIDEO_EXTENSIONS.test(entry.name)) {
         // Videos never take the dimension probe — it reads image headers.
-        // list_folder's own media_info carries the frame size; the poster is
-        // the same w256 preview every still consumer already asks for.
+        // list_folder's own media_info carries the frame size. The poster is
+        // the item's placeholder frame: get_thumbnail_v2 is documented for
+        // image formats only, so a video URL answers unsupported_file under
+        // mode 'strict' and no provider still exists to point at.
         const width = entry.media_info?.metadata?.dimensions?.width ?? 16
         const height = entry.media_info?.metadata?.dimensions?.height ?? 9
+        const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`
         const item: VideoItem = {
           type: 'video',
           id,
@@ -192,11 +195,11 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
           mimeType: 'video/mp4',
           width,
           height,
-          poster: { src: thumbnailProxy(sourceUrl, entry.name), width, height },
+          poster: { src: placeholder, width, height },
           alt: filenameLabel(entry.name),
           c2pa: false,
-          placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
-          variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
+          placeholder,
+          variants: [{ width, src: placeholder, format: 'svg' }],
         }
         return item
       }
