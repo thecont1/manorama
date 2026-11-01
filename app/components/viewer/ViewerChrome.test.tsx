@@ -22,7 +22,7 @@ afterAll(() => {
 const base = {
   visible: true,
   position: { index: 0, total: 4 },
-  onOpenDisplay: () => {},
+  onOpenSettings: () => {},
   onOpenInfo: () => {},
   onOpenPicker: () => {},
   pickerAriaLabel: 'Photograph 1 of 4 — open gallery',
@@ -43,34 +43,22 @@ const mounted = (props: Partial<Parameters<typeof ViewerChrome>[0]>) => {
   return container as unknown as HTMLElement
 }
 
-describe('the role pill in the viewer chrome', () => {
-  test('the owner sees Details in the third slot', () => {
-    const root = mounted({ onOpenDetails: () => {} })
-    expect(pills(root)).toEqual(['Display', 'Info', 'Details'])
+describe('the viewer chrome bottom row', () => {
+  // Settings is the single popover for every role — the role-bound rows
+  // (owner management, member adopt, visitor sign-in) live inside it, so
+  // the bottom bar no longer varies by viewer.
+  test('Settings and Info are the whole bottom bar', () => {
+    expect(pills(mounted({}))).toEqual(['Settings', 'Info'])
   })
 
-  test('a member sees Add to Library — and the request drives the label', () => {
-    const root = mounted({ onAddToLibrary: () => {} })
-    expect(pills(root)).toEqual(['Display', 'Info', 'Add to Library'])
-    const busy = mounted({ onAddToLibrary: () => {}, addToLibraryBusy: true, addToLibraryLabel: 'Adding…' })
-    const pill = busy.querySelector<HTMLButtonElement>('[data-chrome-bottom] .m-chrome-pill:last-child')!
-    expect(pill.textContent).toBe('Adding…')
-    expect(pill.disabled).toBe(true)
-  })
-
-  test('Details wins over Add to Library when both are offered', () => {
-    const root = mounted({ onOpenDetails: () => {}, onAddToLibrary: () => {}, signInHref: '/' })
-    expect(pills(root)).toEqual(['Display', 'Info', 'Details'])
-  })
-
-  test('a visitor sees a Sign in link with its return path', () => {
-    const root = mounted({ signInHref: '/?next=%2Fowner%2Fgallery' })
-    expect(pills(root)).toEqual(['Display', 'Info', 'Sign in'])
-    const link = root.querySelector<HTMLAnchorElement>('a.m-chrome-pill')!
-    expect(link.getAttribute('href')).toBe('/?next=%2Fowner%2Fgallery')
-  })
-
-  test('the slot stays empty when no role pill applies', () => {
-    expect(pills(mounted({}))).toEqual(['Display', 'Info'])
+  test('the Settings pill reports through the shared handler and ref slot', () => {
+    let opened = 0
+    let pill: HTMLButtonElement | null = null
+    const root = mounted({ onOpenSettings: () => { opened += 1 }, settingsRef: (el) => { pill = el } })
+    const settings = root.querySelector<HTMLButtonElement>('[data-chrome-bottom] .m-chrome-pill')!
+    expect(settings.textContent).toBe('Settings')
+    settings.click()
+    expect(opened).toBe(1)
+    expect(pill).toBe(settings)
   })
 })

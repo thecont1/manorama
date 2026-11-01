@@ -321,6 +321,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (slug && galleries.some((gallery) => gallery.slug === slug)) {
       initialDetailsRef.current = slug
       setDetailsSlug(slug)
+      // `reorder=1` is the viewer Settings popover's reorder deep-link —
+      // land inside the overlay, not on the Details surface carrying it.
+      if (params.get('reorder') === '1') {
+        const gallery = galleries.find((item) => item.slug === slug)
+        if (gallery) reorderFromDetails(gallery)
+      }
     } else if (params.get('settings') === '1') {
       setSettingsOpen(true)
     }
@@ -757,6 +763,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     // `photo` is the viewer's own back-target — dead weight on the library URL.
     params.delete('details')
     params.delete('photo')
+    params.delete('reorder')
     const query = params.toString()
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
   }

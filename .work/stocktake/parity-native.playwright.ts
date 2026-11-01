@@ -141,8 +141,8 @@ for (const vp of VIEWPORTS) {
       await showChrome(page)
       await shot(page, 'viewer-chrome')
 
-      // display sheet
-      await page.locator('[data-chrome-bottom] button', { hasText: 'Display' }).click()
+      // settings sheet
+      await page.locator('[data-chrome-bottom] button', { hasText: 'Settings' }).click()
       await expect(page.locator('.m-sheet, [role="dialog"]').first()).toBeVisible()
       await page.waitForTimeout(400)
       await shot(page, 'display')

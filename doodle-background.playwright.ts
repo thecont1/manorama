@@ -70,8 +70,8 @@ const openSettings = async (page: Page) => {
   }
   await page.locator('[data-chrome-position]').waitFor({ state: 'attached', timeout: 30000 })
   await showChrome(page)
-  await page.getByRole('button', { name: 'Display', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
 }
 
 const sessionCookie = async () => {
@@ -90,12 +90,10 @@ const openDashboard = async (page: Page) => {
   await page.goto(`${BASE}/thecontrarian`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.admin-page')).toBeVisible()
   // `.admin-page` is server-rendered, so its presence proves nothing about
-  // the island being live. The background toggle used to be our hydration
-  // beacon; it is gone now, and the theme control lives inside Settings,
-  // so wait on the island-rendered top bar instead.
+  // the island being live — the island sets data-admin-ready once mounted.
   // Deliberately no `networkidle` here — the dashboard polls on an interval,
   // so it never goes idle and the wait would eat the whole test budget.
-  await page.locator('.m-topbar').waitFor({ state: 'visible', timeout: 30000 })
+  await page.locator('[data-admin-ready="true"]').waitFor({ state: 'visible', timeout: 30000 })
 }
 
 /** Clicks an island control that may still be hydrating: a click landing on
@@ -110,16 +108,20 @@ const clickUntil = async (page: Page, click: () => Promise<void>, expected: stri
 
 /** The doodle field only paints under a visible background — specs that
  *  exercise it seed the preference before navigation so the gallery
- *  boots straight into Dark instead of the None default. */
-const seedBackground = (page: Page, value: 'none' | 'light' | 'dark' = 'dark') =>
-  page.addInitScript((v) => { try { window.localStorage.setItem('manorama:background', v) } catch { /* private mode */ } }, value)
+ *  boots straight into Dark instead of the None default. The canvas is a
+ *  per-gallery override, so the seed writes each slug's `manorama:view:`
+ *  bag rather than the retired global `manorama:background` key. */
+const seedBackground = (page: Page, value: 'none' | 'light' | 'dark' = 'dark', slugs: string[] = ['mixed-album']) =>
+  page.addInitScript(({ v, keys }) => {
+    try { for (const key of keys) window.localStorage.setItem(key, JSON.stringify({ background: v })) } catch { /* private mode */ }
+  }, { v: value, keys: slugs.map((slug) => `manorama:view:${slug}`) })
 
 const selectBackground = async (page: Page, value: 'none' | 'light' | 'dark') => {
   // The sheet stays open after a canvas change, so a second selection
   // only re-opens when the sheet is not already showing.
   const group = page.getByRole('radiogroup', { name: 'Canvas' })
   if (await group.count() === 0 || !(await group.isVisible().catch(() => false))) await openSettings(page)
-  await page.getByRole('radio', { name: { light: 'Light', dark: 'Dark', none: 'Black' }[value] }).click()
+  await page.getByRole('radio', { name: { light: 'Light', dark: 'Dark', none: 'Blank' }[value] }).click()
   await page.waitForTimeout(350)
 }
 
@@ -157,8 +159,8 @@ test('Background offers None/Dark/Light — None is default and photographs abut
   const group = page.getByRole('radiogroup', { name: 'Canvas' })
   const radios = group.getByRole('radio')
   await expect(radios).toHaveCount(3)
-  // Order is Black, Dark, Light — and Black is the checked default.
-  await expect(radios.nth(0)).toHaveText('Black')
+  // Order is Blank, Dark, Light — and Blank is the checked default.
+  await expect(radios.nth(0)).toHaveText('Blank')
   await expect(radios.nth(1)).toHaveText('Dark')
   await expect(radios.nth(2)).toHaveText('Light')
   await expect(radios.nth(0)).toHaveAttribute('aria-checked', 'true')
@@ -266,7 +268,7 @@ test('reloading the same url reproduces an identical pattern', async ({ page }) 
 })
 
 test('a different album produces a visibly different pattern', async ({ page }) => {
-  await seedBackground(page)
+  await seedBackground(page, 'dark', ['mixed-album', 'dev-mega'])
   await gotoGallery(page, ALBUM_A)
   const a = await layerSignature(page)
 
@@ -300,8 +302,8 @@ test('the layer never intercepts a click meant for the gallery', async ({ page }
 
   // And the controls still respond after the layer is painted.
   await showChrome(page)
-  await page.getByRole('button', { name: 'Display', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
 })
 
 test('the layer is inert and hidden from assistive tech', async ({ page }) => {
@@ -413,11 +415,14 @@ test('the field paints visible glyphs and yields a screenshot', async ({ page })
 })
 
 test('the dashboard never paints a doodle field, even when the gallery preference is on', async ({ page }) => {
-  // Doodles are gallery-only. Turn the shared preference ON, then prove the
-  // account page still renders no layer and offers no background control,
-  // while a public album with the same flag does paint one.
+  // Doodles are gallery-only. Seed both the retired shared key and the
+  // album's own canvas override, then prove the account page still renders
+  // no layer and offers no background control, while the album paints one.
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
-  await page.evaluate(() => localStorage.setItem('manorama:background', 'light'))
+  await page.evaluate(() => {
+    localStorage.setItem('manorama:background', 'light')
+    localStorage.setItem('manorama:view:mixed-album', JSON.stringify({ background: 'light' }))
+  })
   await openDashboard(page)
 
   await expect(page.getByRole('button', { name: 'Use doodle background' })).toHaveCount(0)

@@ -240,15 +240,16 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     // at rest, bars on demand — nothing floats over a photograph for long.
     await expect(page.locator('[data-chrome-position]')).toBeVisible()
     await showChrome(page)
-    await page.getByRole('button', { name: 'Display', exact: true }).click()
-    const dialog = page.getByRole('dialog', { name: 'Display' })
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
     await expect(dialog).toBeVisible()
     // Fullscreen is a web capability; native shells keep the same Display
     // controls except this browser-only escape hatch.
     await expect(dialog.getByRole('switch', { name: 'Fullscreen', exact: true })).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     const positionBeforeDetails = await page.locator('[data-chrome-position]').textContent()
-    await page.getByRole('button', { name: 'Details', exact: true }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Manage gallery' }).click()
     const viewerDetails = page.locator('[data-screen="details"]')
     await expect(viewerDetails).toBeVisible()
     const keepCopy = page.getByRole('switch', { name: 'Keep a copy on this device' })
@@ -270,8 +271,8 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await expect(picker).not.toContainText('still settling')
     await page.getByRole('button', { name: 'Close photo picker', exact: true }).click()
     await showChrome(page)
-    await page.getByRole('button', { name: 'Display', exact: true }).click()
-    await page.getByRole('dialog', { name: 'Display' }).getByRole('button', { name: 'Close', exact: true }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close', exact: true }).click()
     // The chrome's Library pill is the exit; the endcard carries a second
     // Library control that stays behind the track until it is revealed.
     await page.locator('[data-chrome-library]').click()

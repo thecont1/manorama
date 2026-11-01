@@ -168,9 +168,12 @@ test('owner viewer chrome Details navigates to dashboard Details with details/ph
     await expect(page.locator('[data-chrome-position]')).toBeVisible({ timeout: 15_000 })
 
     await page.getByRole('button', { name: /show controls/i }).dispatchEvent('click')
-    const detailsButton = page.locator('nav[aria-label="Viewer controls"] button', { hasText: 'Details' })
-    await expect(detailsButton).toBeVisible()
-    await detailsButton.click({ noWaitAfter: true })
+    const settingsPill = page.locator('nav[aria-label="Viewer controls"] button', { hasText: 'Settings' })
+    await expect(settingsPill).toBeVisible()
+    await settingsPill.click()
+    const manageRow = page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Manage gallery' })
+    await expect(manageRow).toBeVisible()
+    await manageRow.click({ noWaitAfter: true })
 
     await page.waitForURL((url) => {
       return url.pathname === `/${owner}` && url.searchParams.get('details') === slug

@@ -62,6 +62,27 @@ test('Details deep link reaches Reorder without leaving the dashboard', async ({
   }
 })
 
+test('?reorder=1 deep link lands inside the reorder overlay', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await signIn(context)
+  const page = await context.newPage()
+  try {
+    await page.goto(`${base}/${owner}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20_000 })
+    const slug = (await page.locator('[data-gallery-card]').first().getAttribute('data-gallery-card'))!
+
+    // The Settings popover's Reorder row emits ?details=&reorder=1 — the
+    // details surface must hand straight off into the overlay.
+    await page.goto(`${base}/${owner}?details=${slug}&reorder=1`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-screen="reorder"]')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-screen="details"]')).toHaveCount(0)
+    expect(new URL(page.url()).searchParams.get('reorder')).toBeNull()
+    expect(new URL(page.url()).searchParams.get('details')).toBeNull()
+  } finally {
+    await context.close().catch(() => {})
+  }
+})
+
 test('the hide mark surfaces on hover, conceals in draft, and writes on Save', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   await signIn(context)

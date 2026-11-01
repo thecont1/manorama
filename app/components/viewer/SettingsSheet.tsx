@@ -4,11 +4,13 @@ import { Switch } from '../ui/Switch'
 import type { Child } from 'hono/jsx'
 import { useId } from 'hono/jsx'
 
-/** The Display sheet: view layout, canvas, arrows and fullscreen — the
- *  old controls-modal's semantics on the P1 sheet. Changes apply
- *  immediately and the sheet stays open; persistence is the caller's. */
+/** The Settings popover: view layout, canvas, arrows and fullscreen first —
+ *  the old controls-modal's semantics on the P1 sheet — then one role-bound
+ *  `actions` group the caller composes (owner management rows, a member's
+ *  Add to Library, a visitor's Sign in). Changes apply immediately and the
+ *  popover stays open; persistence is the caller's. */
 
-export type DisplaySheetProps = {
+export type SettingsSheetProps = {
   open: boolean
   onClose: () => void
   mode: 'strip' | 'vertical' | 'single'
@@ -26,14 +28,16 @@ export type DisplaySheetProps = {
   magnifierActive?: boolean
   /** Native only — "On this device" (TODO(P7): lives in Gallery details). */
   deviceControls?: Child
+  /** The role-bound ActionGroup rendered after the display controls. */
+  actions?: Child
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
-export default function DisplaySheet({
+export default function SettingsSheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  magnifierAvailable, magnifierActive, deviceControls, panelStyle,
-}: DisplaySheetProps) {
+  magnifierAvailable, magnifierActive, deviceControls, actions, panelStyle,
+}: SettingsSheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
   const layoutHint =
@@ -46,7 +50,7 @@ export default function DisplaySheet({
     : 'White background, space around images'
   return (
     <div class="m-dark">
-      <Sheet open={open} onClose={onClose} title="Display" panelStyle={panelStyle}>
+      <Sheet open={open} onClose={onClose} title="Settings" popover panelStyle={panelStyle}>
         {deviceControls ? <section class="m-sheet-section"><h3 class="m-sheet-label">On this device</h3>{deviceControls}</section> : null}
         <section class="m-sheet-section">
           <div class="m-sheet-field">
@@ -111,6 +115,7 @@ export default function DisplaySheet({
             </ul>
           </section>
         ) : null}
+        {actions ? <section class="m-sheet-section m-sheet-actions" data-settings-actions>{actions}</section> : null}
       </Sheet>
     </div>
   )

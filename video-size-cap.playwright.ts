@@ -37,7 +37,7 @@ const setMode = async (page: Page, mode: string) => {
   for (let i = 0; i < 12; i += 1) {
     if (await radio.isVisible().catch(() => false)) break
     await showChrome(page)
-    await page.getByRole('button', { name: 'Display', exact: true }).click().catch(() => {})
+    await page.getByRole('button', { name: 'Settings', exact: true }).click().catch(() => {})
     await page.waitForTimeout(600)
   }
   await radio.waitFor({ state: 'visible', timeout: 30000 })

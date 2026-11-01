@@ -6,8 +6,9 @@ import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } fro
 import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import ViewerChrome from '../components/viewer/ViewerChrome'
-import DisplaySheet from '../components/viewer/DisplaySheet'
+import SettingsSheet from '../components/viewer/SettingsSheet'
 import InfoSheet from '../components/viewer/InfoSheet'
+import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { type BackgroundPreference } from '../lib/background-preference'
@@ -297,9 +298,30 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
-  const openDisplaySettings = () => {
+  const [popoverAnchor, setPopoverAnchor] = useState<Record<string, string | undefined>>({})
+  const openSettings = () => {
     previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
     anyModalOpenRef.current = true
+    // Anchor the popover's right edge to the pill's right edge — the card
+    // floats straight above the control that opened it. The pill sits
+    // centered in the bar, so on a phone its right edge is mid-screen and
+    // the same anchor would hang the card's left half off-screen: clamp the
+    // offset so the card can never leave the viewport (the card is
+    // min(360px, vw-28) wide and keeps a 14px margin).
+    const rect = displayButtonRef.current?.getBoundingClientRect()
+    if (rect) {
+      const width = Math.min(360, window.innerWidth - 28)
+      const right = Math.min(
+        Math.max(14, Math.round(window.innerWidth - rect.right)),
+        window.innerWidth - width - 14,
+      )
+      setPopoverAnchor({
+        left: 'auto',
+        top: 'auto',
+        right: `${right}px`,
+        bottom: `${Math.round(window.innerHeight - rect.top + 8)}px`,
+      })
+    }
     setModalOpen(true)
   }
   const openImageInfo = () => {
@@ -351,6 +373,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   chromeVisibleRef.current = chromeVisible
   const chromeTimerRef = useRef<number | null>(null)
   const displayButtonRef = useRef<HTMLButtonElement | null>(null)
+  const positionPillRef = useRef<HTMLButtonElement | null>(null)
   const clearChromeTimer = () => {
     if (chromeTimerRef.current === null) return
     window.clearTimeout(chromeTimerRef.current)
@@ -619,7 +642,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // The end card's Library exit follows the chrome's rule exactly:
   // signed-out visitors keep Rewind only.
   const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
-  const openOwnerDetails = onOpenDetails ?? (viewerRole === 'owner' && libraryHref ? () => {
+  const defaultOpenOwnerDetails = viewerRole === 'owner' && libraryHref ? (reorder = false) => {
     // The gallery history entry being left must carry the open photograph:
     // Back lands on `?photo=`'s deep link instead of resetting to the
     // curtain.
@@ -629,8 +652,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     const target = new URL(libraryHref, window.location.origin)
     target.searchParams.set('details', slug)
     target.searchParams.set('photo', images[index]?.id ?? '')
+    // `reorder=1` lands straight inside the reorder overlay, a tap short of
+    // the Details surface that carries it.
+    if (reorder) target.searchParams.set('reorder', '1')
     window.location.assign(`${target.pathname}${target.search}`)
-  } : undefined)
+  } : undefined
+  const openOwnerDetails = onOpenDetails ?? (defaultOpenOwnerDetails ? () => defaultOpenOwnerDetails() : undefined)
   // The same chrome slot serves the member and the visitor. A member's
   // "Add to Library" copies the gallery into their account and lands on
   // the copy — the 409 duplicate path answers the existing gallery's URL,
@@ -663,6 +690,90 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const resolvedSignInHref = signInHref ?? (viewerRole === 'visitor' && galleryOwner
     ? `/?next=${encodeURIComponent(`/${galleryOwner}/${slug}`)}`
     : undefined)
+
+  // The Settings popover's role-bound rows. Owner rows split by reach:
+  // link-copy and folder re-reads run inline, surfaces that already exist
+  // (reorder, the full Details drawer) deep-link into them.
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const copyShareLink = () => {
+    if (!galleryOwner) return
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(`${window.location.origin}/${galleryOwner}/${slug}`)
+        setLinkCopied(true)
+        if (copyResetRef.current) clearTimeout(copyResetRef.current)
+        copyResetRef.current = setTimeout(() => setLinkCopied(false), 1600)
+      } catch { /* clipboard denied — the address bar still carries it */ }
+    })()
+  }
+  const [readState, setReadState] = useState<'idle' | 'busy' | 'error'>('idle')
+  const [readNote, setReadNote] = useState<string | null>(null)
+  const readFolderAgain = () => {
+    if (readState === 'busy') return
+    setReadState('busy')
+    setReadNote(null)
+    void (async () => {
+      try {
+        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}/refresh`, { method: 'POST' })
+        const payload = await response.json().catch(() => ({})) as { error?: string }
+        if (!response.ok) throw new Error(payload.error || 'That folder could not be read again')
+        // The manifest is SSR state — reload into the fresh gallery at the
+        // same photograph so the re-read shows what changed.
+        const here = new URL(window.location.href)
+        here.searchParams.set('photo', images[index]?.id ?? '')
+        window.location.assign(`${here.pathname}${here.search}${here.hash}`)
+      } catch (error) {
+        setReadState('error')
+        setReadNote(error instanceof Error ? error.message : 'That folder could not be read again')
+      }
+    })()
+  }
+
+  const rowIcon = (...paths: string[]) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+      {paths.map((path) => <path key={path} d={path} />)}
+    </svg>
+  )
+  const settingsActions = openOwnerDetails ? (
+    <ActionGroup label="This gallery" note={readNote ?? undefined}>
+      {libraryHref ? (
+        <ActionRow
+          label={linkCopied ? 'Link copied' : 'Share link'}
+          icon={rowIcon('M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6')}
+          onClick={copyShareLink}
+        />
+      ) : null}
+      {defaultOpenOwnerDetails ? (
+        <ActionRow
+          label="Reorder photographs"
+          icon={rowIcon('M7 4v16M4 7l3-3 3 3', 'M17 20V4M14 17l3 3 3-3')}
+          onClick={() => defaultOpenOwnerDetails(true)}
+        />
+      ) : null}
+      {libraryHref ? (
+        <ActionRow
+          label={readState === 'busy' ? 'Reading the folder…' : 'Read the folder again'}
+          icon={rowIcon('M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7')}
+          onClick={readFolderAgain}
+          disabled={readState === 'busy'}
+        />
+      ) : null}
+      <ActionRow label="Manage gallery" onClick={() => openOwnerDetails({ imageId: images[index]?.id ?? '', index })} />
+    </ActionGroup>
+  ) : addToLibrary ? (
+    <ActionGroup>
+      <ActionRow
+        label={addToLibraryLabel ?? (adoptState === 'busy' ? 'Adding…' : adoptState === 'failed' ? 'Couldn’t add — try again' : 'Add to Library')}
+        onClick={addToLibrary}
+        disabled={addToLibraryBusy ?? adoptState === 'busy'}
+      />
+    </ActionGroup>
+  ) : resolvedSignInHref ? (
+    <ActionGroup>
+      <ActionRow label="Sign in" href={resolvedSignInHref} />
+    </ActionGroup>
+  ) : null
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -1353,8 +1464,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useEffect(() => {
     if (gridOpen || modalOpen || infoOpen) return
     if (previousFocusRef.current) {
-      previousFocusRef.current.focus({ preventScroll: true })
+      const target = previousFocusRef.current
       previousFocusRef.current = null
+      // A chrome pill is inert while the bars hide — reveal them long
+      // enough for the focus restore to land, then the 3s window tucks
+      // them away again (hideChrome returns the focus to the stage).
+      if (target.closest?.('[data-chrome-top], [data-chrome-bottom]')) {
+        setChromeVisible(true)
+        scheduleChromeHide()
+      }
+      requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
   }, [gridOpen, modalOpen, infoOpen])
 
@@ -1406,7 +1525,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // gallery happened to focus last (e.g. the next-arrow auto-focused
       // by the curtain dismiss), so a stray Enter after commit re-opens
       // the selector instead of stepping the strip.
-      previousFocusRef.current = displayButtonRef.current
+      previousFocusRef.current = positionPillRef.current
       closeModals()
       goTo(imageIndex)
     }, 180)
@@ -2622,19 +2741,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         position={{ index, total: images.length }}
         onReturnToGalleries={onReturnToGalleries}
         libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
-        onOpenDisplay={openDisplaySettings}
+        onOpenSettings={openSettings}
         onOpenInfo={openImageProvenance}
         onOpenPicker={openGrid}
-        onOpenDetails={openOwnerDetails ? () => openOwnerDetails({ imageId: images[index]?.id ?? '', index }) : undefined}
-        onAddToLibrary={openOwnerDetails ? undefined : addToLibrary}
-        addToLibraryBusy={addToLibraryBusy ?? adoptState === 'busy'}
-        addToLibraryLabel={addToLibraryLabel ?? (adoptState === 'busy' ? 'Adding…' : adoptState === 'failed' ? 'Couldn’t add — try again' : undefined)}
-        signInHref={openOwnerDetails || addToLibrary ? undefined : resolvedSignInHref}
         pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`}
         onRequestShow={requestShowChrome}
         onActivity={pauseChrome}
         onIdle={scheduleChromeHide}
-        displayRef={(el) => { displayButtonRef.current = el }}
+        settingsRef={(el) => { displayButtonRef.current = el }}
+        positionRef={(el) => { positionPillRef.current = el }}
         topStyle={foldChromeStyle}
         bottomStyle={foldChromeStyle}
       />
@@ -2691,7 +2806,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       </> : null}
 
       <div ref={modalRef}>
-        <DisplaySheet
+        <SettingsSheet
           open={modalOpen}
           onClose={requestCloseModals}
           mode={mode}
@@ -2707,7 +2822,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           magnifierAvailable={magnifierAvailable}
           magnifierActive={magnifierActive}
           deviceControls={deviceControls}
-          panelStyle={foldPanelStyle}
+          actions={settingsActions}
+          panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
         />
       </div>
 

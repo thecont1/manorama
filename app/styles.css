@@ -398,6 +398,32 @@ a.m-actionrow, button.m-actionrow { cursor: pointer; }
   .m-sheet { left: 50%; right: auto; bottom: 50%; transform: translate(-50%, 50%); border-radius: var(--m-radius-sheet); width: min(560px, calc(100vw - 48px)); }
   .m-sheet--entering { transform: translate(-50%, calc(50% + 24px)); }
 }
+
+/* Popover variant: a card floating above its trigger (the caller anchors
+   right/bottom off the trigger rect) instead of a docked sheet or centred
+   dialog. The ghost scrim keeps outside-tap dismissal without dimming. */
+.m-sheet.m-sheet--popover {
+  left: auto;
+  right: 14px;
+  top: auto;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
+  width: min(360px, calc(100vw - 28px));
+  max-width: none;
+  max-height: min(640px, calc(var(--m-vvh, 100dvh) - 24px));
+  border-radius: var(--m-radius-sheet);
+  transform: none;
+}
+.m-sheet.m-sheet--popover.m-sheet--entering { transform: translateY(10px); opacity: 0; }
+/* With the arrow bar up, the bottom chrome rides higher — the popover's
+   fallback bottom keeps it clear of both rows. */
+body:has(.viewer-stage.has-arrow-bar) .m-sheet.m-sheet--popover {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px + 60px);
+}
+.m-scrim--ghost, .m-scrim--ghost.m-scrim--open { opacity: 0; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Action groups inside a sheet read as raised cards on the sheet surface. */
+.m-sheet .m-actiongroup { background: var(--m-raised); }
+.m-sheet-actions { padding-top: 14px; }
+
 @media (prefers-reduced-motion: reduce) {
   .m-sheet { transition: opacity .2s; }
   .m-sheet--entering { transform: translate(-50%, 50%); opacity: 0; }

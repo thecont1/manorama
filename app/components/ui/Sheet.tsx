@@ -22,11 +22,16 @@ type Props = {
   footer?: Child
   size?: 'auto' | 'half'
   dismissible?: boolean
+  /** Popover presentation: a card floating above its trigger rather than
+   *  a bottom sheet/centered dialog. Positioning comes from panelStyle —
+   *  the caller anchors it off the trigger's rect; the scrim turns
+   *  transparent (it only exists to catch outside taps). */
+  popover?: boolean
   /** Fold shells confine the panel to one segment (foldPanelStyle). */
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
-export function Sheet({ open, onClose, title, children, footer, size = 'auto', dismissible = true, panelStyle }: Props) {
+export function Sheet({ open, onClose, title, children, footer, size = 'auto', dismissible = true, popover = false, panelStyle }: Props) {
   const headingId = `m-sheet-title-${useId()}`
   const hostRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -97,13 +102,14 @@ export function Sheet({ open, onClose, title, children, footer, size = 'auto', d
     'm-sheet',
     size === 'half' ? 'm-sheet--half' : '',
     size === 'half' && kb ? 'm-sheet--kb' : '',
+    popover ? 'm-sheet--popover' : '',
     entered ? '' : 'm-sheet--entering',
   ].filter(Boolean).join(' ')
 
   return (
     <div ref={hostRef} class="m-sheet-host">
       <div
-        class={`m-scrim ${entered ? 'm-scrim--open' : ''}`}
+        class={`m-scrim ${popover ? 'm-scrim--ghost' : ''} ${entered ? 'm-scrim--open' : ''}`}
         onClick={() => { if (dismissible) close() }}
       />
       <div class={sheetClasses} style={panelStyle} role="dialog" aria-modal="true" aria-labelledby={headingId}>

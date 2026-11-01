@@ -1,6 +1,6 @@
 /// <reference types="node" />
-// "Add to Library" — a signed-in member's copy action in the Details chrome
-// slot, and the visitor's Sign in pill that returns them to the gallery.
+// "Add to Library" — a signed-in member's copy action inside the Settings
+// popover, and the visitor's Sign in row that returns them to the gallery.
 // The member is the seeded retention account (`retention-qa`, free tier,
 // no galleries): adopting mints its first gallery, so the spec also proves
 // the copy lands retained and openable.
@@ -58,30 +58,39 @@ const enter = async (page: import("@playwright/test").Page, url = GALLERY) => {
   await showChrome(page);
 };
 
-test.describe("the role pill in the Details slot", () => {
+const openSettings = async (page: import("@playwright/test").Page) => {
+  await page.locator("[data-chrome-bottom]").getByRole("button", { name: "Settings" }).click();
+  const popover = page.getByRole("dialog", { name: "Settings" });
+  await expect(popover).toBeVisible();
+  return popover;
+};
+
+test.describe("the role rows in the Settings popover", () => {
   test("a member adds the gallery to their own library and lands on the copy", async ({ page }) => {
     await enter(page);
-    const pill = page.locator("[data-chrome-bottom]").getByRole("button", { name: "Add to Library" });
-    await expect(pill).toBeVisible();
-    await pill.click();
+    const popover = await openSettings(page);
+    const row = popover.getByRole("button", { name: "Add to Library" });
+    await expect(row).toBeVisible();
+    await row.click();
     // The copy lands under the member's slug — dev-dropbox's title slugs
-    // to `kashmir` — and the member is its owner now: Details is theirs.
+    // to `kashmir` — and the member is its owner now: the popover's
+    // management rows are theirs.
     await page.waitForURL(/\/retention-qa\/kashmir$/, { timeout: 15_000 });
     await enter(page, page.url());
-    await expect(
-      page.locator("[data-chrome-bottom]").getByRole("button", { name: "Details" }),
-    ).toBeVisible();
-    await expect(page.locator("[data-chrome-bottom]").getByRole("button", { name: "Add to Library" })).toHaveCount(0);
+    const owned = await openSettings(page);
+    await expect(owned.getByRole("button", { name: "Manage gallery" })).toBeVisible();
+    await expect(owned.getByRole("button", { name: "Add to Library" })).toHaveCount(0);
   });
 
   test("a second adopt resolves to the existing copy, not a duplicate", async ({ page }) => {
     await enter(page);
-    const pill = page.locator("[data-chrome-bottom]").getByRole("button", { name: "Add to Library" });
-    await pill.click();
+    const popover = await openSettings(page);
+    const row = popover.getByRole("button", { name: "Add to Library" });
+    await row.click();
     await page.waitForURL(/\/retention-qa\/kashmir$/, { timeout: 15_000 });
     // Back on the owner's original — adopting again lands on the same copy.
     await enter(page);
-    await pill.click();
+    await (await openSettings(page)).getByRole("button", { name: "Add to Library" }).click();
     await page.waitForURL(/\/retention-qa\/kashmir$/, { timeout: 15_000 });
   });
 });
@@ -95,16 +104,15 @@ test.describe("the visitor door", () => {
 
   test("a visitor sees Sign in that round-trips back to the gallery", async ({ page }) => {
     await enter(page);
-    const pill = page.locator("[data-chrome-bottom]").getByRole("link", { name: "Sign in" });
-    await expect(pill).toBeVisible();
-    await expect(pill).toHaveAttribute("href", `/?next=${encodeURIComponent(`/${OWNER}/${SLUG}`)}`);
-    await pill.click();
+    const popover = await openSettings(page);
+    const row = popover.getByRole("link", { name: "Sign in" });
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("href", `/?next=${encodeURIComponent(`/${OWNER}/${SLUG}`)}`);
+    await row.click();
     await page.waitForURL(/\/\?next=/, { timeout: 10_000 });
     // Every provider button carries the return path into the OAuth flow —
     // after sign-in the member lands back on the gallery, adopt-ready.
     const provider = page.locator(".signin-pill").first();
     await expect(provider).toHaveAttribute("href", new RegExp(`^/auth/\\w+\\?next=${encodeURIComponent(`/${OWNER}/${SLUG}`)}`));
-    await expect(page.locator("[data-chrome-bottom]").getByRole("button", { name: "Add to Library" })).toHaveCount(0);
   });
 });
-

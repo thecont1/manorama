@@ -41,11 +41,19 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(page.locator('[data-screen="details"]')).toHaveCount(0)
 
-    // The gallery never follows the owner theme — shells restore html.light
-    // globally, so force the class to pin what the CSS must hold.
+    // The gallery's canvas follows the owner's theme by default, so pin the
+    // album to Dark first — the check below is that the *surfaces* keep
+    // their own ink when a shell restores html.light globally.
     await page.goto(`${base}/thecontrarian/mixed-album`, { waitUntil: 'domcontentloaded' })
     await page.waitForSelector('.viewer-stage', { timeout: 15_000 })
-    await page.evaluate(() => { localStorage.setItem('manorama:theme', 'light'); document.documentElement.classList.add('light') })
+    await page.evaluate(() => {
+      localStorage.setItem('manorama:theme', 'light')
+      localStorage.setItem('manorama:view:mixed-album', JSON.stringify({ background: 'dark' }))
+      document.documentElement.classList.add('light')
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('.viewer-stage.bg-dark', { timeout: 15_000 })
+    await page.evaluate(() => document.documentElement.classList.add('light'))
 
     // "The End." and the house plate keep light ink on the dark canvas.
     for (const sel of ['[data-endcard]', '[data-ad-frame]']) {
@@ -77,7 +85,7 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
       await btn.click()
     }
     for (const { name, sel } of [
-      { name: /^Display/i, sel: '.m-sheet-label, .m-sheet-title, .m-sheet-hint, .m-segmented-option, .m-quiet-copy, kbd' },
+      { name: /^Settings/i, sel: '.m-sheet-label, .m-sheet-title, .m-sheet-hint, .m-segmented-option, .m-quiet-copy, kbd' },
       { name: /^Info/i, sel: '.m-sheet-label, .m-sheet-title, .m-info-row dt, .m-info-row dd, .m-quiet-copy' },
     ]) {
       await reveal(name)
