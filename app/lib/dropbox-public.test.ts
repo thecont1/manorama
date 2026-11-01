@@ -104,6 +104,64 @@ describe('scanDropboxFolder dimensions', () => {
     expect(scan.images[0]?.width).toBe(4)
     expect(scan.images[0]?.height).toBe(3)
   })
+
+  test('keeps videos in the listing without spending a byte probe on them', async () => {
+    // Camera-roll shares mix .mp4/.mov with the stills; the file endpoint
+    // already streams Range, so a video becomes a VideoItem with the same
+    // w256 preview as its poster — and the dimension probe, which reads
+    // image headers, never runs against it.
+    const asked: string[] = []
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      asked.push(url)
+      if (url.includes('files/list_folder')) {
+        return listing([
+          entry(),
+          entry({
+            name: 'IMG_1960.MOV',
+            id: 'id:vid456',
+            media_info: { metadata: { dimensions: { width: 1920, height: 1080 } } },
+          }),
+        ])
+      }
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      if (url.includes('sharing/get_shared_link_file')) return jpeg(2560, 1707)
+      if (url.includes('files/get_thumbnail_v2')) return jpeg(256, 171)
+      return json({}, 404)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(scan.images).toHaveLength(2)
+    const video = scan.images[1]
+    expect(video?.type).toBe('video')
+    if (video?.type !== 'video') return
+    expect(video.width).toBe(1920)
+    expect(video.height).toBe(1080)
+    expect(video.mimeType).toBe('video/mp4')
+    expect(video.c2pa).toBe(false)
+    expect(video.src).toContain('/api/dropbox/file')
+    expect(video.src).toContain(encodeURIComponent('IMG_1960.MOV'))
+    expect(video.poster.src).toContain('/api/dropbox/thumbnail')
+    // One byte probe for the still, none for the video.
+    expect(asked.filter((url) => url.includes('sharing/get_shared_link_file'))).toHaveLength(1)
+  })
+
+  test('a video without media_info falls back to a 16:9 frame', async () => {
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) return listing([entry({ name: 'clip.mp4' })])
+      if (url.includes('sharing/get_shared_link_metadata')) return json({ name: 'Italy 2018' })
+      if (url.includes('files/get_thumbnail_v2')) return jpeg(256, 144)
+      return json({}, 404)
+    }
+
+    const scan = await scanDropboxFolder(FOLDER, env, fetchImpl as typeof fetch)
+
+    expect(scan.images[0]?.type).toBe('video')
+    expect(scan.images[0]?.width).toBe(16)
+    expect(scan.images[0]?.height).toBe(9)
+  })
 })
 
 describe('scanDropboxFolder resilience', () => {

@@ -1,13 +1,16 @@
-import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
+import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage, type GalleryMediaItem, type VideoItem } from './imagesource'
 import { parseJpegDimensions, probeImageDimensions } from './image-dims'
 import { createScanBudget, mapWithConcurrency, PROBE_CONCURRENCY, ScanBudgetExhausted } from './scan-budget'
 import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transient-retry'
 
 export { parseJpegDimensions }
 
-// Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
-// video, and every other file type are consciously ignored at scan.
+// Accepted formats: JPEG, WebP, AVIF, HEIC, HEIF and the video containers
+// a camera roll produces. PNG, GIF, TIFF and everything else are
+// consciously ignored at scan.
 const IMAGE_EXTENSIONS = /\.(?:jpe?g|webp|avif|hei[cf])$/i
+const VIDEO_EXTENSIONS = /\.(?:mp4|mov|m4v|qt)$/i
+const MEDIA_EXTENSIONS = /\.(?:jpe?g|webp|avif|hei[cf]|mp4|mov|m4v|qt)$/i
 const HEIC = /\.hei[cf]$/i
 const ALLOWED_HOSTS = new Set(['dropbox.com', 'www.dropbox.com'])
 
@@ -16,7 +19,7 @@ type DropboxEntry = { '.tag': 'file' | 'folder'; name: string; id: string; size?
 type ListResponse = { entries: DropboxEntry[]; cursor: string; has_more: boolean }
 type SharedLinkMetadata = { name?: string }
 
-export type DropboxScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number; partial?: boolean }
+export type DropboxScan = { sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number; partial?: boolean }
 
 const validateFolderUrl = (input: string) => {
   const url = new URL(input.trim())
@@ -134,7 +137,7 @@ const collectEntries = async (sourceUrl: string, env: DropboxEnv, fetchImpl: typ
   const entries: DropboxEntry[] = []
   let response = await rpc<ListResponse>('files/list_folder', { path: '', shared_link: { url: sourceUrl }, include_media_info: true }, env, fetchImpl)
   for (;;) {
-    entries.push(...response.entries.filter((entry) => entry['.tag'] === 'file' && IMAGE_EXTENSIONS.test(entry.name)))
+    entries.push(...response.entries.filter((entry) => entry['.tag'] === 'file' && MEDIA_EXTENSIONS.test(entry.name)))
     if (!response.has_more || entries.length > MAX_GALLERY_ITEMS) break
     response = await rpc<ListResponse>('files/list_folder/continue', { cursor: response.cursor }, env, fetchImpl)
   }
@@ -172,11 +175,34 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
   const folderName = await sharedLinkName(sourceUrl, env, budgetFetch)
   const title = folderName ? titleFromFolderName(folderName) : titleFromEntries(entries)
   let dropped = false
-  const images = (await mapWithConcurrency(entries, PROBE_CONCURRENCY, async (entry, index): Promise<GalleryImage | null> => {
+  const images = (await mapWithConcurrency(entries, PROBE_CONCURRENCY, async (entry, index): Promise<GalleryMediaItem | null> => {
     try {
+      const id = `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`
+      if (VIDEO_EXTENSIONS.test(entry.name)) {
+        // Videos never take the dimension probe — it reads image headers.
+        // list_folder's own media_info carries the frame size; the poster is
+        // the same w256 preview every still consumer already asks for.
+        const width = entry.media_info?.metadata?.dimensions?.width ?? 16
+        const height = entry.media_info?.metadata?.dimensions?.height ?? 9
+        const item: VideoItem = {
+          type: 'video',
+          id,
+          filename: entry.name,
+          src: originalProxy(sourceUrl, entry.name),
+          mimeType: 'video/mp4',
+          width,
+          height,
+          poster: { src: thumbnailProxy(sourceUrl, entry.name), width, height },
+          alt: filenameLabel(entry.name),
+          c2pa: false,
+          placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
+          variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
+        }
+        return item
+      }
       const dimensions = await imageDimensions(sourceUrl, entry.name, env, entry.media_info?.metadata?.dimensions, budgetFetch)
       return {
-        id: `dropbox-${entry.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
+        id,
         filename: entry.name,
         src: originalProxy(sourceUrl, entry.name),
         width: dimensions.width,
@@ -196,7 +222,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
       }
       throw error
     }
-  })).filter((image): image is GalleryImage => image !== null)
+  })).filter((image): image is GalleryMediaItem => image !== null)
   const truncated = found.length > MAX_GALLERY_ITEMS || dropped ? found.length : undefined
   // `dropped` means the budget cut the scan short — distinct from the
   // gallery cap's honest prefix, so a refresh can refuse to persist a
