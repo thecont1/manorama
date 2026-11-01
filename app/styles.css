@@ -1974,9 +1974,34 @@ a.m-btn { text-decoration: none; }
   background: var(--m-ground);
   color: var(--m-ink);
 }
-.web-reorder-status { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 8px 20px 12px; color: var(--m-secondary); font-size: 16px; }
+.web-reorder-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding: 8px 20px 12px; }
+.web-reorder-status { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--m-secondary); font-size: 16px; }
 .web-reorder-note { color: var(--m-negative, #ff4d6d); font-weight: 600; }
+.web-reorder-views {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--m-raised);
+}
+.web-reorder-view {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: transparent;
+  color: var(--m-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.web-reorder-view.is-on { background: var(--m-active); color: var(--m-ink); }
+.web-reorder-view:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; }
 .web-reorder .admin-gallery-strip-frame {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   width: 100%;
   height: auto;
   min-height: 0;
@@ -1986,9 +2011,10 @@ a.m-btn { text-decoration: none; }
   background: transparent;
   backdrop-filter: none;
 }
-.web-reorder .admin-gallery-strip { align-items: center; min-height: 0; height: clamp(88px, 16dvh, 180px); }
-.web-reorder .admin-gallery-strip-item,
-.web-reorder .admin-gallery-strip-item img { height: clamp(88px, 16dvh, 180px); }
+.web-reorder-frame--grid { flex: 1; min-height: 0; overflow-y: auto; }
+.web-reorder-grid { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0; user-select: none; }
+.web-reorder .admin-gallery-strip { align-items: center; min-height: 0; }
+.web-reorder .admin-gallery-strip-item img { width: auto; height: 100%; }
 .web-reorder button.admin-gallery-strip-item {
   border: 0;
   padding: 0;
@@ -1997,6 +2023,58 @@ a.m-btn { text-decoration: none; }
   font: inherit;
 }
 .web-reorder .admin-gallery-strip-item img { opacity: 1; }
+/* The size controller is the iPhone editor's verbatim — small/large marks
+   around one range — just parked at the bottom of the web overlay too. */
+.web-reorder-sizer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 12px 24px max(16px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(var(--ink), .12);
+  color: rgba(var(--ink), .6);
+}
+.web-reorder-sizer svg.s { width: 14px; height: 14px; flex: 0 0 auto; }
+.web-reorder-sizer svg.l { width: 22px; height: 22px; flex: 0 0 auto; }
+.web-reorder-sizer input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 32px;
+  background: transparent;
+}
+.web-reorder-sizer input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(var(--ink), .25);
+}
+.web-reorder-sizer input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -11px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-primary);
+}
+.web-reorder-sizer input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(var(--ink), .25);
+}
+.web-reorder-sizer input[type="range"]::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-primary);
+}
+.web-reorder-sizer input[type="range"]:focus-visible {
+  outline: 2px solid var(--m-data);
+  outline-offset: 4px;
+}
 .web-reorder-cell.is-picked { z-index: 1; outline: 3px solid var(--m-data); outline-offset: -3px; }
 .web-reorder-cell.is-moved { box-shadow: inset 0 0 0 2px var(--m-data); }
 .web-reorder-pos {

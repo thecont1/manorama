@@ -20,10 +20,11 @@ const named = (container: HTMLElement, label: string) =>
   [...container.querySelectorAll('button')].find((button) => button.textContent === label)
 
 beforeAll(() => {
-  prev = { window: globals.window, document: globals.document, raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame }
+  prev = { window: globals.window, document: globals.document, raf: globals.requestAnimationFrame, caf: globals.cancelAnimationFrame, svg: globals.SVGElement }
   dom = new Window({ width: 1440, height: 900, url: 'http://localhost/' })
   globals.window = dom
   globals.document = dom.document
+  globals.SVGElement = dom.SVGElement
   globals.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 1 }) as unknown as typeof requestAnimationFrame
   globals.cancelAnimationFrame = (() => {}) as unknown as typeof cancelAnimationFrame
 })
@@ -31,6 +32,7 @@ beforeAll(() => {
 afterAll(() => {
   globals.window = prev.window
   globals.document = prev.document
+  globals.SVGElement = prev.svg
   globals.requestAnimationFrame = prev.raf
   globals.cancelAnimationFrame = prev.caf
 })

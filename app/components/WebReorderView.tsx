@@ -33,8 +33,13 @@ type Props = {
 
 const HINT = 'Tap a photograph to pick it up, then tap where it goes.'
 
+/** The iPhone editor is a grid with a bottom size controller. The web keeps
+ * that controller and adds the strip — a vertically centred, edge-to-edge
+ * row — as a second layout. The same cells and session drive both. */
 export function WebReorderView({ title, images, busy = false, note = null, onCancel, onSave }: Props) {
   const [session, setSession] = useState<ReorderState<WebReorderImage>>(() => createReorderSession(images))
+  const [view, setView] = useState<'strip' | 'grid'>('strip')
+  const [itemHeight, setItemHeight] = useState(160)
   const dirty = reorderIsDirty(session)
   const held = session.items.find((item) => item.id === session.heldId) ?? null
   const status = held ? `Picked up ${held.label}. Tap where it goes.` : HINT
@@ -75,13 +80,19 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
         start={<Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>}
         end={<Button variant="primary" onClick={() => onSave(session.items.map((item) => item.orderKey))} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>}
       />
-      <p class="web-reorder-status" id="web-reorder-status">
-        {status}
-        {note ? <span class="web-reorder-note" role="alert">{note}</span> : null}
-      </p>
-      <div class="admin-gallery-strip-frame web-reorder-frame">
+      <div class="web-reorder-bar">
+        <p class="web-reorder-status" id="web-reorder-status">
+          {status}
+          {note ? <span class="web-reorder-note" role="alert">{note}</span> : null}
+        </p>
+        <span class="web-reorder-views" role="group" aria-label="Layout">
+          <button type="button" class={`web-reorder-view${view === 'strip' ? ' is-on' : ''}`} aria-pressed={view === 'strip'} onClick={() => setView('strip')}>Strip</button>
+          <button type="button" class={`web-reorder-view${view === 'grid' ? ' is-on' : ''}`} aria-pressed={view === 'grid'} onClick={() => setView('grid')}>Grid</button>
+        </span>
+      </div>
+      <div class={view === 'grid' ? 'web-reorder-frame web-reorder-frame--grid' : 'admin-gallery-strip-frame web-reorder-frame'}>
         <div
-          class="admin-gallery-strip"
+          class={view === 'grid' ? 'web-reorder-grid' : 'admin-gallery-strip'}
           role="listbox"
           aria-label={`Reorder ${title}`}
           aria-describedby="web-reorder-status"
@@ -108,7 +119,7 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
               data-image-id={image.id}
               data-order-key={image.orderKey}
               disabled={busy}
-              style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}` }}
+              style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}`, height: `${itemHeight}px` }}
               onClick={() => place(image.id)}
             >
               <img src={image.src} alt="" width={image.width} height={image.height} draggable={false} />
@@ -116,6 +127,24 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
             </button>
           ))}
         </div>
+      </div>
+      <div class="web-reorder-sizer">
+        <svg class="s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+        <input
+          type="range"
+          min="56"
+          max="248"
+          step="4"
+          value={itemHeight}
+          aria-label="Photograph size"
+          onInput={(event) => setItemHeight(Number((event.currentTarget as HTMLInputElement).value))}
+          onKeyDown={(event) => {
+            // Home/End adjust the slider natively; the listbox handler
+            // would otherwise move the held photograph instead.
+            if (event.key === 'Home' || event.key === 'End') event.stopPropagation()
+          }}
+        />
+        <svg class="l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
       </div>
     </section>
   )
