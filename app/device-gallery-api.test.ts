@@ -6,6 +6,7 @@ import type { D1Database } from '@cloudflare/workers-types'
 import { createManoramaApi } from './api'
 import { createNativeHandoffToken, createSessionToken, SESSION_COOKIE } from './lib/session'
 import { upsertUser } from './lib/user-repository'
+import { deleteGallery, updateGallerySlug } from './lib/gallery-repository'
 import { TEST_SESSION_SECRET } from './lib/test-fixtures'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -247,6 +248,35 @@ describe('device catalogue ownership', () => {
     const rows = await galleriesOf(await listAs(owner.bearer))
     expect(rows.find((row) => row.id === gone)?.publicGallerySlug).toBeUndefined()
     expect(rows.find((row) => row.id === dying)?.publicGallerySlug).toBeUndefined()
+  })
+
+  test('a link dies with its gallery — a replacement never inherits the slug', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    await seedGallery(owner.id, 'season-gallery')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'season-gallery' }))).status).toBe(200)
+    // Deleting through the repository clears the stored link outright.
+    await deleteGallery(owner.id, 'season-gallery', env())
+    const stored = await db
+      .prepare('SELECT public_gallery_slug FROM device_galleries WHERE owner_id = ? AND id = ?')
+      .bind(owner.id, id)
+      .first<{ public_gallery_slug: string | null }>()
+    expect(stored?.public_gallery_slug).toBeNull()
+    // A different gallery landing the same slug cannot claim the link —
+    // re-linking is always the explicit publish-time PUT.
+    await seedGallery(owner.id, 'season-gallery')
+    const rows = await galleriesOf(await listAs(owner.bearer))
+    expect(rows.find((row) => row.id === id)?.publicGallerySlug).toBeUndefined()
+  })
+
+  test('renaming a gallery carries its device link to the new slug', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    await seedGallery(owner.id, 'old-name')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'old-name' }))).status).toBe(200)
+    await updateGallerySlug(owner.id, 'old-name', 'new-name', env())
+    const rows = await galleriesOf(await listAs(owner.bearer))
+    expect(rows.find((row) => row.id === id)?.publicGallerySlug).toBe('new-name')
   })
 })
 

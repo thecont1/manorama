@@ -35,8 +35,10 @@ const rowToDeviceGallery = (row: DeviceGalleryRow): DeviceGallery => {
 
 /* A stored link only counts while its gallery is live: reads hide links to
    deleted or expired galleries — the same read-time expiry evaluation the
-   rest of the API applies, no sweeper. The stored value stays, so a slug a
-   republished gallery takes back re-links the device row without a write. */
+   rest of the API applies, no sweeper. Deleting a gallery also clears the
+   stored slug (see clearDeviceGalleryLink), so an expired link that stays
+   hidden is either re-armed by renewal or dies with its gallery — a new
+   gallery reusing the slug cannot inherit it. */
 const DEVICE_GALLERY_SELECT = `SELECT d.id, d.title, d.source_kind, d.item_count, d.device_id, d.device_label,
   CASE WHEN d.public_gallery_slug IS NOT NULL AND g.slug IS NOT NULL
     AND (g.retention != 'pipeline' OR g.expires_at IS NULL OR g.expires_at > ?)
@@ -72,6 +74,17 @@ export const putDeviceGallery = async (ownerId: string, id: string, input: Devic
     .bind(new Date().toISOString(), ownerId, id)
     .first<DeviceGalleryRow>()
   return row ? rowToDeviceGallery(row) : { id, ...input, updatedAt }
+}
+
+/* The link binds to the gallery that was published, not to its name: when
+   that row goes, the stored slug goes with it. A later gallery reusing the
+   slug must re-link through linkDeviceGallery on publish — it never
+   inherits a link it did not make. */
+export const clearDeviceGalleryLink = async (db: D1Database, ownerId: string, slug: string): Promise<void> => {
+  await db
+    .prepare('UPDATE device_galleries SET public_gallery_slug = NULL WHERE owner_id = ? AND public_gallery_slug = ?')
+    .bind(ownerId, slug)
+    .run()
 }
 
 export const deleteDeviceGallery = async (ownerId: string, id: string, env?: DeviceGalleryEnv): Promise<boolean> => {

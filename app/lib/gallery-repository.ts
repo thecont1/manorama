@@ -1,6 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types'
 import { isVideoItem, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 import { getUserByAccountId } from './user-repository'
+import { clearDeviceGalleryLink } from './device-gallery-repository'
 import {
   assertGalleryEditable,
   FREE_RETAINED_LIMIT,
@@ -341,6 +342,11 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
         `UPDATE galleries SET slug = ? WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
       ).bind(nextSlug, ownerId, slug).run()
       if ((result.meta.changes ?? 0) === 0) return null
+      // The rename frees the old name: device links follow the gallery to
+      // its new slug rather than staying behind for a stranger to inherit.
+      await env.DB.prepare(
+        `UPDATE device_galleries SET public_gallery_slug = ? WHERE owner_id = ? AND public_gallery_slug = ?`,
+      ).bind(nextSlug, ownerId, slug).run()
       return getGallery(ownerId, nextSlug, env)
     } catch (error) {
       // UNIQUE constraint violation on (owner_id, slug) — another gallery
@@ -416,6 +422,9 @@ export const deleteGallery = async (ownerId: string, slug: string, env?: Gallery
       .prepare('DELETE FROM galleries WHERE owner_id = ? AND slug = ?')
       .bind(ownerId, slug)
       .run()
+    // The device link bound to this gallery — a different gallery that
+    // later takes the slug must not inherit it.
+    if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, ownerId, slug)
     return (result.meta.changes ?? 0) > 0
   }
   return ownerStore(ownerId).delete(slug)
@@ -504,6 +513,7 @@ export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: 
     const result = await env.DB.prepare(
       `DELETE FROM galleries WHERE owner_id = ? AND slug = ? AND retention = 'pipeline' AND expires_at <= ? AND expires_at = ?`,
     ).bind(key.ownerId, key.slug, now, key.expiresAt).run()
+    if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, key.ownerId, key.slug)
     return (result.meta.changes ?? 0) > 0
   }
   const current = ownerStore(key.ownerId).get(key.slug)
