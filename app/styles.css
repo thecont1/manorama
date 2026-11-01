@@ -1975,6 +1975,9 @@ a.m-btn { text-decoration: none; }
   background: var(--m-ground);
   color: var(--m-ink);
 }
+/* The overlay is fixed over the Library page, whose body keeps scrolling
+   behind it — that scrollbar did nothing but sit on the right edge. */
+body:has(.web-reorder) { overflow: hidden; }
 .web-reorder-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding: 8px 20px 12px; }
 .web-reorder-status { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--m-secondary); font-size: 16px; }
 .web-reorder-note { color: var(--m-negative, #ff4d6d); font-weight: 600; }

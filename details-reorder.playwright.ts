@@ -35,6 +35,10 @@ test('Details deep link reaches Reorder without leaving the dashboard', async ({
     expect(new URL(page.url()).pathname).toBe(`/${owner}`)
     expect(new URL(page.url()).searchParams.get('details')).toBeNull()
 
+    // The overlay is fixed but the Library page's own scrollbar would sit
+    // beside it — the body must not scroll while the reorder is up.
+    expect(await page.evaluate(() => getComputedStyle(document.body).overflowY)).toBe('hidden')
+
     // Sizer layout: finite slider, layout toggle beside it in the same bar.
     const sizer = page.locator('.web-reorder-sizer')
     const range = sizer.locator('input[type="range"]')
