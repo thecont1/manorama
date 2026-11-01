@@ -15,9 +15,6 @@ import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './images
 const SUPPORTED_MIME = new Set([
   'image/jpeg', 'image/jpg', 'image/webp', 'image/avif', 'image/heic', 'image/heif',
 ])
-// Browsers can't render HEIC/HEIF; Drive transcodes them to JPEG via
-// the thumbnail endpoint, so those display through a large rendition.
-const NEEDS_JPEG_DERIVATIVE = /^image\/hei[cf]$/i
 
 type GDriveEnv = { GOOGLE_DRIVE_API_KEY?: string }
 
@@ -107,15 +104,16 @@ export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: 
   const images = files.map((file, index): GalleryImage => {
     const width = file.imageMediaMetadata?.width || 4
     const height = file.imageMediaMetadata?.height || 3
-    // HEIC/HEIF can't render in browsers; Drive transcodes to JPEG via
-    // the thumbnail endpoint, so the display src is a large rendition —
-    // the same treatment Dropbox HEIC files get.
-    const viaDerivative = Boolean(file.mimeType && NEEDS_JPEG_DERIVATIVE.test(file.mimeType))
+    // HEIC/HEIF also take the original-bytes route: the viewer decodes
+    // them client-side at full resolution via libheif, exactly like
+    // Dropbox HEIC. A derivative would cap a panorama's height at the
+    // rendition size — the honest-size rule then floats it visibly
+    // smaller than the source really is.
     return {
       id: `gdrive-${file.id.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
       ref: file.id,
       filename: file.name,
-      src: viaDerivative ? thumbnailProxy(file.id, 'w2048', file.resourceKey) : fileProxy(file.id, file.resourceKey),
+      src: fileProxy(file.id, file.resourceKey),
       width,
       height,
       alt: filenameLabel(file.name),

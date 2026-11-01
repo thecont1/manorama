@@ -53,8 +53,10 @@ describe('scanDriveFolder', () => {
     expect(jpeg.variants?.[0]?.src).toBe('/api/drive/thumbnail?id=file-1&size=w256')
     expect(jpeg.width).toBe(4000)
     expect(jpeg.c2pa).toBe(true)
-    // HEIC displays through the large JPEG thumbnail rendition.
-    expect(heic.src).toBe('/api/drive/thumbnail?id=file-2&size=w2048')
+    // HEIC also points at the original bytes: the viewer's client-side
+    // libheif decode renders it at full resolution — a sized thumbnail
+    // rendition would cap its height and float it visibly smaller.
+    expect(heic.src).toBe('/api/drive/file?id=file-2')
   })
 
   test('accepts AVIF and consciously ignores TIFF, PNG, GIF, and video', async () => {
