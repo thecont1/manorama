@@ -2561,8 +2561,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               before then, so its links must not take focus or announce. */}
           {mode === 'strip' ? (
             <div class="viewer-endcap" data-endcard inert={!endcapRevealed}>
-              <span>The</span>
-              <span>End.</span>
+              <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
                 <button class="endcap-reset" onClick={rewind}>Rewind</button>
                 {showLibraryExit ? (
@@ -2578,8 +2577,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               keep it out of. */}
           {mode === 'vertical' ? (
             <div class="viewer-endcap viewer-endcap--feed" data-endcard>
-              <span>The</span>
-              <span>End.</span>
+              <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
                 <button class="endcap-reset" onClick={rewind}>Rewind</button>
                 {showLibraryExit ? (
@@ -2595,8 +2593,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             no pan range exists to hold it, so it mounts as a stage overlay. */}
         {mode === 'single' ? (
           <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap}>
-            <span>The</span>
-            <span>End.</span>
+            <span class="endcap-line">The End.</span>
             <div class="endcap-actions">
               <button class="endcap-reset" onClick={rewind}>Rewind</button>
               {showLibraryExit ? (

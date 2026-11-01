@@ -1447,6 +1447,8 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
   user-select: none;
   -webkit-user-select: none;
 }
+/* One line in every mode — the signature never stacks. */
+.endcap-line { white-space: nowrap; }
 /* The card's quiet exit — a small underlined link beneath the display
    type, styled like the viewer's other tertiary chrome. */
 .endcap-reset {
