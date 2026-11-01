@@ -33,11 +33,23 @@ const rowToDeviceGallery = (row: DeviceGalleryRow): DeviceGallery => {
   return gallery
 }
 
+/* A stored link only counts while its gallery is live: reads hide links to
+   deleted or expired galleries — the same read-time expiry evaluation the
+   rest of the API applies, no sweeper. The stored value stays, so a slug a
+   republished gallery takes back re-links the device row without a write. */
+const DEVICE_GALLERY_SELECT = `SELECT d.id, d.title, d.source_kind, d.item_count, d.device_id, d.device_label,
+  CASE WHEN d.public_gallery_slug IS NOT NULL AND g.slug IS NOT NULL
+    AND (g.retention != 'pipeline' OR g.expires_at IS NULL OR g.expires_at > ?)
+    THEN d.public_gallery_slug ELSE NULL END AS public_gallery_slug,
+  d.updated_at
+  FROM device_galleries d
+  LEFT JOIN galleries g ON g.owner_id = d.owner_id AND g.slug = d.public_gallery_slug`
+
 export const listDeviceGalleries = async (ownerId: string, env?: DeviceGalleryEnv): Promise<DeviceGallery[]> => {
   const db = requireDb(env)
   const result = await db
-    .prepare('SELECT id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, updated_at FROM device_galleries WHERE owner_id = ? ORDER BY updated_at DESC, id ASC')
-    .bind(ownerId)
+    .prepare(`${DEVICE_GALLERY_SELECT} WHERE d.owner_id = ? ORDER BY d.updated_at DESC, d.id ASC`)
+    .bind(new Date().toISOString(), ownerId)
     .all<DeviceGalleryRow>()
   return (result.results ?? []).map(rowToDeviceGallery)
 }
@@ -53,7 +65,13 @@ export const putDeviceGallery = async (ownerId: string, id: string, input: Devic
     .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, device_label = excluded.device_label, public_gallery_slug = COALESCE(excluded.public_gallery_slug, device_galleries.public_gallery_slug), updated_at = excluded.updated_at')
     .bind(ownerId, id, input.title, input.sourceKind, input.itemCount, input.deviceId, input.deviceLabel, input.publicGallerySlug ?? null, updatedAt)
     .run()
-  return { id, ...input, updatedAt }
+  // Answer the stored row, not the input echo — a slug the upsert just
+  // preserved belongs in the response too.
+  const row = await db
+    .prepare(`${DEVICE_GALLERY_SELECT} WHERE d.owner_id = ? AND d.id = ?`)
+    .bind(new Date().toISOString(), ownerId, id)
+    .first<DeviceGalleryRow>()
+  return row ? rowToDeviceGallery(row) : { id, ...input, updatedAt }
 }
 
 export const deleteDeviceGallery = async (ownerId: string, id: string, env?: DeviceGalleryEnv): Promise<boolean> => {

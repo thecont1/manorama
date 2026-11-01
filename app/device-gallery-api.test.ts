@@ -220,14 +220,33 @@ describe('device catalogue ownership', () => {
     await seedGallery(owner.id, 'relinked-gallery')
     expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'linked-gallery' }))).status).toBe(200)
     // The desktop sync projection omits publicGallerySlug — the link must
-    // survive every routine upsert instead of being nulled back out.
-    expect((await putAs(owner.bearer, id, deviceInput({ title: 'Rescanned' }))).status).toBe(200)
+    // survive every routine upsert instead of being nulled back out, and
+    // the PUT answers the stored row so the preserved slug is echoed too.
+    const synced = await putAs(owner.bearer, id, deviceInput({ title: 'Rescanned' }))
+    expect(synced.status).toBe(200)
+    const { gallery: stored } = await synced.json() as { gallery: { publicGallerySlug?: string } }
+    expect(stored.publicGallerySlug).toBe('linked-gallery')
     let row = (await galleriesOf(await listAs(owner.bearer)))[0]
     expect(row?.publicGallerySlug).toBe('linked-gallery')
     expect(row?.title).toBe('Rescanned')
     expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'relinked-gallery' }))).status).toBe(200)
     row = (await galleriesOf(await listAs(owner.bearer)))[0]
     expect(row?.publicGallerySlug).toBe('relinked-gallery')
+  })
+
+  test('a link to a deleted or expired gallery no longer surfaces on the list', async () => {
+    const owner = await seedOwner()
+    const gone = crypto.randomUUID()
+    const dying = crypto.randomUUID()
+    await seedGallery(owner.id, 'gone-gallery')
+    await seedGallery(owner.id, 'dying-gallery')
+    expect((await putAs(owner.bearer, gone, deviceInput({ publicGallerySlug: 'gone-gallery' }))).status).toBe(200)
+    expect((await putAs(owner.bearer, dying, deviceInput({ publicGallerySlug: 'dying-gallery' }))).status).toBe(200)
+    await db.prepare('DELETE FROM galleries WHERE owner_id = ? AND slug = ?').bind(owner.id, 'gone-gallery').run()
+    await db.prepare(`UPDATE galleries SET retention = 'pipeline', expires_at = '2000-01-01T00:00:00.000Z' WHERE owner_id = ? AND slug = ?`).bind(owner.id, 'dying-gallery').run()
+    const rows = await galleriesOf(await listAs(owner.bearer))
+    expect(rows.find((row) => row.id === gone)?.publicGallerySlug).toBeUndefined()
+    expect(rows.find((row) => row.id === dying)?.publicGallerySlug).toBeUndefined()
   })
 })
 
