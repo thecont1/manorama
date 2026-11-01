@@ -986,7 +986,7 @@ html.light .admin-button--solid { color: #e9e5dc; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { border-color: #000; background: #000; color: #e9e5dc; }
 html.light .admin-button:hover, html.light .admin-button:focus-visible { color: #000; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { color: #e9e5dc; }
-html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark) { filter: brightness(0); }
+html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark, .admin-brand-mark) { filter: brightness(0); }
 
 /* ── M magnifier ─────────────────────────────────────────────────────
    A glass ball that replaces the cursor. Fixed to the viewport and
@@ -1634,6 +1634,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-page--selector input::placeholder { color: rgba(var(--ink), var(--admin-muted)); opacity: 1; }
 
 .admin-galleries-heading { margin: 0; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
+.admin-brand-mark { display: block; width: 280px; height: auto; margin: 4px 0 18px; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .admin-library-sub { margin: 10px 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
 .admin-add-pill { border-radius: 999px; padding: 9px 18px; margin: 0; min-height: var(--m-touch); }
@@ -1688,31 +1689,49 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .account-ad-cta { margin-top: 8px; color: rgb(var(--ink)); font-size: 14px; line-height: 1.2; text-underline-offset: 3px; }
 
 @media (min-width: 900px) {
-  /* The sponsored slot docks as a right rail — only when a placement
-     actually renders. --has-ad marks that, so a suppressed, absent or
-     unavailable ad never leaves an empty gutter, and the macOS catalogue
-     (same classes, never renders .account-ad) inherits nothing. */
-  .admin-page--selector .gallery-list--has-ad { position: relative; padding-right: clamp(300px, 32vw, 460px); }
+  /* The sponsored slot lives in a second grid column — only when a
+     placement actually renders. --has-ad marks that, so a suppressed,
+     absent or unavailable ad never leaves an empty gutter, and the macOS
+     catalogue (same classes, never renders .account-ad) inherits nothing.
+     The column is sticky-height, so the card stays on screen while the
+     list scrolls beneath it. */
+  .admin-page--selector .gallery-list--has-ad {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(220px, 24vw, 320px);
+    column-gap: 28px;
+    align-items: start;
+    padding-right: 0;
+  }
+  .admin-page--selector .gallery-list--has-ad > :not(.account-ad) { grid-column: 1; }
   .admin-page--selector .gallery-list--has-ad > .account-ad {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: clamp(280px, 30vw, 430px);
-    height: min(76vh, 700px);
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    position: sticky;
+    top: 16px;
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 32px);
     margin: 0;
   }
-  /* In the rail the media height-fills the card; the box hugs the image's
-     own width and centres horizontally in whatever room is left. */
+  /* In the rail the media is a definite-width panel claiming the room left
+     below the copy; the image fits inside it whole — capped on both axes,
+     ratio kept, never cropped. fit-content would leave the image nothing
+     definite to measure its caps against, which is how it got clipped. */
   .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media {
     flex: 1 1 auto;
     min-height: 0;
-    width: fit-content;
+    width: 100%;
     aspect-ratio: auto;
-    max-width: 100%;
     display: grid;
     place-items: center;
   }
-  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media img { width: auto; height: 100%; max-width: none; }
+  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media img {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
 }
 
 /* A surface panel never straddles the hinge — the sponsored slot stays
@@ -1720,7 +1739,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    single-window layout: under segmentation the ad returns to the flow so
    it can neither straddle the hinge nor cover the content column, and the
    reserved gutter goes with it. */
-.admin-page[data-admin-segmented] .gallery-list--has-ad { padding-right: 0; }
+.admin-page[data-admin-segmented] .gallery-list--has-ad { display: block; padding-right: 0; }
 .admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad {
   position: static;
   height: auto;

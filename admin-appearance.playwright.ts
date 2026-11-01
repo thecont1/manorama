@@ -41,10 +41,10 @@ for (const size of sizes) {
         await expect(topbar).toBeVisible()
         await expect(gear).toBeVisible()
         await expect(topbar.locator('.m-topbar-logo')).toHaveCount(0)
-        const heroMark = page.locator('.admin-hero-brand .landing-brand-mark')
+        const heroMark = page.locator('.admin-brand-mark')
         await expect(heroMark).toHaveAttribute('src', '/manorama-merged-logo.png')
         const heroBox = (await heroMark.boundingBox())!
-        expect(heroBox.width).toBeGreaterThan(280)
+        expect(heroBox.width).toBeGreaterThanOrEqual(280)
         const gearBox = await gear.boundingBox()
         expect(gearBox!.x).toBeGreaterThan(size.width / 2)
         expect(gearBox!.width).toBeGreaterThanOrEqual(44)
@@ -61,8 +61,30 @@ for (const size of sizes) {
         expect(headingBox.y).toBeGreaterThanOrEqual(heroBox.y + heroBox.height)
         const sponsoredBox = (await sponsored.boundingBox())!
         const cardBox = (await firstCard.boundingBox())!
-        expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)
-        expect(cardBox.y).toBeGreaterThanOrEqual(sponsoredBox.y + sponsoredBox.height)
+        if (size.width >= 900) {
+          // Wide: the slot is the grid's second column, beside the list —
+          // and its left edge never invades the content column.
+          expect(sponsoredBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1)
+          // The mark's left edge squares on the heading's — "m" over "L".
+          expect(Math.abs(heroBox.x - headingBox.x)).toBeLessThan(2)
+          // The creative fits its media box whole — never cropped.
+          const mediaBox = (await sponsored.locator('.account-ad-media').boundingBox())!
+          const adImgBox = (await sponsored.locator('img').boundingBox())!
+          expect(adImgBox.x).toBeGreaterThanOrEqual(mediaBox.x - 1)
+          expect(adImgBox.x + adImgBox.width).toBeLessThanOrEqual(mediaBox.x + mediaBox.width + 1)
+          // Sticky: scrolling the list keeps the card on screen at its
+          // reserved top offset, while the cards pass underneath.
+          await page.evaluate(() => window.scrollBy(0, 600))
+          const stuckBox = (await sponsored.boundingBox())!
+          expect(stuckBox.y).toBeLessThanOrEqual(20)
+          expect(stuckBox.y + stuckBox.height).toBeGreaterThan(0)
+          await page.evaluate(() => window.scrollTo(0, 0))
+        } else {
+          // Narrow: the slot stays in flow — under the heading, above the
+          // first card.
+          expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)
+          expect(cardBox.y).toBeGreaterThanOrEqual(sponsoredBox.y + sponsoredBox.height)
+        }
 
         for (const theme of ['dark', 'light'] as const) {
           await gear.click()

@@ -2413,10 +2413,16 @@ test("owner admin lists galleries without a selector and remains noindex", async
   await expect(
     page.locator(".lib-card").first().locator(".lib-card-sub"),
   ).toContainText(/\d+ photographs?/);
-  // The shared top bar carries the only mark — the compact header contract.
-  await expect(
-    page.locator(".m-topbar-logo"),
-  ).toHaveAttribute("src", "/manorama-merged-logo.png");
+  // The wordmark leads the content column at 2x, its left edge square on
+  // the heading's — the "m" sits over the "L" of Library.
+  const brandMark = page.locator(".admin-brand-mark");
+  await expect(brandMark).toHaveAttribute("src", "/manorama-merged-logo.png");
+  const brandBox = (await brandMark.boundingBox())!;
+  const headingBox = (await page
+    .locator("h1.admin-galleries-heading")
+    .boundingBox())!;
+  expect(Math.abs(brandBox.x - headingBox.x)).toBeLessThan(2);
+  expect(brandBox.width).toBeGreaterThanOrEqual(280);
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);
   await expect(page.locator(".lib-card .admin-eyebrow")).toHaveCount(0);
