@@ -208,23 +208,103 @@ describe('scanMegaFolder', () => {
     await expect(scanMegaFolder(`https://mega.nz/folder/${FOLDER_HANDLE}`)).rejects.toThrow('folder link')
   })
 
-  test('routes non-renderable originals through the JPEG preview proxy', async () => {
+  test('serves HEIC originals through the file proxy; the preview stays the rail variant', async () => {
     const heicNode = fileNode('IMG_9.heic', { fa: `1*${FA_HANDLE}` })
+    const jpeg = jpegHead()
+    const record = new Uint8Array(12 + Math.ceil(jpeg.length / 16) * 16)
+    record.set(b64uDecode(FA_HANDLE), 0)
+    new DataView(record.buffer).setUint32(8, record.length - 12, true)
+    record.set(cbcEncryptZeroIv(foldKey(NODE_KEY), jpeg), 12)
     const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
-      if (String(input).includes('cs?')) {
+      const url = String(input)
+      // The ufa POST body is the raw 8-byte attribute handle, not JSON.
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
         if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, heicNode] }])
+        if (body[0]?.a === 'ufa') return jsonResponse([{ p: 'https://fa.test/post' }])
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      }
+      if (url === 'https://fa.test/post') return new Response(record, { status: 200 })
+      if (url.startsWith('https://cdntest/')) {
+        return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), heicHead()), { status: 200 })
       }
       return jsonResponse({}, 404)
     }
     const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
     expect(scan.images).toHaveLength(1)
-    expect(scan.images[0]!.src).toContain(`/api/mega/preview?folder=${FOLDER_HANDLE}&h=${FA_HANDLE}&k=`)
+    const image = scan.images[0]!
+    expect(image.src).toContain(`/api/mega/file?folder=${FOLDER_HANDLE}&node=${FILE_HANDLE}&k=`)
+    expect(image.variants?.[0]?.src).toContain(`/api/mega/preview?folder=${FOLDER_HANDLE}&h=${FA_HANDLE}&k=`)
+    // Declared dims are the original's ispe box, not the rendition's.
+    expect(image.width).toBe(12110)
+    expect(image.height).toBe(3772)
   })
 
-  test('drops non-renderable originals with no preview available', async () => {
-    const fetchImpl = async () => jsonResponse([{ f: [folderNode, fileNode('IMG_9.heic')] }])
-    await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('No image files')
+  test('keeps a HEIC with no MEGA preview — the original decodes client-side', async () => {
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, fileNode('IMG_9.heic')] }])
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      }
+      if (url.startsWith('https://cdntest/')) {
+        return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), heicHead()), { status: 200 })
+      }
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
+    expect(scan.images).toHaveLength(1)
+    const image = scan.images[0]!
+    expect(image.src).toContain(`/api/mega/file?folder=${FOLDER_HANDLE}&node=${FILE_HANDLE}&k=`)
+    expect(image.variants).toBeUndefined()
+    expect(image.width).toBe(12110)
+    expect(image.height).toBe(3772)
+  })
+
+  test('tries every k alternative — the first is not always the valid key', async () => {
+    const wrongKey = hex('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
+    const node = {
+      ...fileNode('multi.jpg'),
+      k: `otherScope:${b64uEncode(ecbEncrypt(SHARE_KEY, wrongKey))}/${FOLDER_HANDLE}:${b64uEncode(ecbEncrypt(SHARE_KEY, NODE_KEY))}`,
+    }
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, node] }])
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      }
+      if (url.startsWith('https://cdntest/')) {
+        return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), jpegHead()), { status: 200 })
+      }
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
+    expect(scan.images.map((image) => image.filename)).toEqual(['multi.jpg'])
+    // The *valid* key made it into the proxy URL — CTR decryption at serve
+    // time needs it, not the wrong first alternative.
+    expect(scan.images[0]!.src).toContain(b64uEncode(NODE_KEY).slice(0, 16))
+  })
+
+  test('finds images nested inside a subfolder of the share', async () => {
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') return jsonResponse([{ f: [
+          { h: 'Sub1', p: 'ParentHandle', t: 1, a: encryptAttributes(SHARE_KEY, { n: 'nested' }), k: `${FOLDER_HANDLE}:${b64uEncode(ecbEncrypt(SHARE_KEY, SHARE_KEY))}` },
+          fileNode('deep.jpg', { p: 'Sub1' }),
+        ] }])
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      }
+      if (url.startsWith('https://cdntest/')) {
+        return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), jpegHead()), { status: 200 })
+      }
+      return jsonResponse({}, 404)
+    }
+    const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
+    expect(scan.images.map((image) => image.filename)).toEqual(['deep.jpg'])
   })
 
   test('emits the decrypted preview as the rail variant so admin never loads originals', async () => {
@@ -359,6 +439,17 @@ describe('fetchMegaPreview', () => {
     expect(new Uint8Array(await response.arrayBuffer()).subarray(0, 10)).toEqual(jpeg.subarray(0, 10))
   })
 })
+
+// Minimal valid ISO-BMFF head: 'ftypheic' then an ispe box declaring
+// 12110x3772 — the panorama dims the live HEICs carry.
+const heicHead = () => {
+  const bytes = new Uint8Array(DIMS_HEAD_LEN)
+  bytes.set([0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63], 4) // 'ftypheic'
+  bytes.set([0x69, 0x73, 0x70, 0x65], 64) // 'ispe' at offset 64
+  new DataView(bytes.buffer).setUint32(72, 12110)
+  new DataView(bytes.buffer).setUint32(76, 3772)
+  return bytes
+}
 
 // Minimal valid JPEG header with a SOF0 frame declaring 6000x4000.
 const DIMS_HEAD_LEN = 4096

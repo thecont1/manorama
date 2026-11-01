@@ -124,21 +124,23 @@ const megaRequest = async <T>(commands: Record<string, unknown>[], auth: MegaAut
   return head as T
 }
 
-/** Decrypts a node's `k` field: alternatives are `handle:encKey` pairs
- *  joined by '/'; the folder share key decrypts the children. */
-const decryptNodeKey = (k: string | undefined, shareKey: Uint8Array) => {
-  if (!k) return null
-  for (const part of k.split('/')) {
+/** A node's `k` field lists `handle:encKey` alternatives joined by '/'.
+ *  ECB gives no signal that an alternative was wrong — every ciphertext
+ *  decrypts to a plausibly-sized key — so all candidates are returned and
+ *  the MEGA{ attribute magic picks the real one. */
+const decryptNodeKeys = (k: string | undefined, shareKey: Uint8Array) => {
+  const keys: Uint8Array[] = []
+  for (const part of (k ?? '').split('/')) {
     const enc = part.split(':').pop()
     if (!enc) continue
     try {
       const key = ecbDecrypt(shareKey, b64uDecode(enc))
-      if (key.length === 16 || key.length === 32) return key
+      if (key.length === 16 || key.length === 32) keys.push(key)
     } catch {
       // Try the next alternative.
     }
   }
-  return null
+  return keys
 }
 
 /** Decrypts a node's `a` attribute blob; plaintext is "MEGA" + JSON +
@@ -166,8 +168,8 @@ const fileProxy = (auth: MegaAuth, node: string, nodeKey: Uint8Array) =>
 const previewProxy = (auth: MegaAuth, fah: string, nodeKey: Uint8Array) =>
   `/api/mega/preview?${ctxParams(auth)}&h=${encodeURIComponent(fah)}&k=${b64uEncode(nodeKey)}`
 
-// Accepted formats browsers render natively; HEIC/HEIF go through the
-// decrypted preview (fa) path.
+// Accepted formats browsers render natively; HEIC/HEIF decode client-side
+// (libheif) from the same original bytes the file proxy already serves.
 const BROWSER_RENDERABLE = /\.(?:jpe?g|webp|avif)$/i
 
 /** Finds the file-attribute handle for a type (0 thumbnail, 1 preview)
@@ -274,22 +276,31 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
   // recovers most probes, anything still failing falls back to 4:3.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const renderable = BROWSER_RENDERABLE.test(name)
       const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
+      // The preview is the dims source of choice for renderable files. For
+      // HEIC/HEIF its dims describe a capped rendition — it still gets
+      // fetched to warm the rail cache and to stand in as the fallback,
+      // but the original's head is authoritative.
+      let previewDims: { width: number; height: number } | null = null
+      let previewFormat: string | undefined
       if (fah) {
         const preview = await fetchFileAttribute(auth, fah, nodeKey, fetchImpl)
         if (preview) {
           // Same fah makeImage emits as the variant — the route reuses it.
           if (cachePreviews) cachePreview(fah, nodeKey, preview)
-          const dimensions = parsePreviewDimensions(preview)
-          if (dimensions) return { ...dimensions, previewFormat: sniffContentType(preview) }
+          previewDims = parsePreviewDimensions(preview) ?? null
+          previewFormat = sniffContentType(preview)
+          if (renderable && previewDims) return { ...previewDims, previewFormat }
         }
       }
-      if (!BROWSER_RENDERABLE.test(name)) return { width: 4, height: 3 }
       const info = await downloadInfo(auth, node.h, fetchImpl)
-      if (!info.g) return { width: 4, height: 3 }
-      const head = await fetchRange(info.g, 0, DIMS_PROBE_BYTES - 1, fetchImpl)
-      const dimensions = probeImageDimensions(decryptContent(head, nodeKey))
-      if (dimensions) return dimensions
+      if (info.g) {
+        const head = await fetchRange(info.g, 0, DIMS_PROBE_BYTES - 1, fetchImpl)
+        const dimensions = probeImageDimensions(decryptContent(head, nodeKey))
+        if (dimensions) return { ...dimensions, previewFormat }
+      }
+      if (previewDims) return { ...previewDims, previewFormat }
     } catch (error) {
       // The budget stopping a probe is not a transient failure — let it
       // escape so the scan drops the tail instead of retrying it.
@@ -325,23 +336,21 @@ const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetc
     }))
     images.push(...batch.filter((image): image is GalleryImage => image !== null))
   }
-  // Deliberate drops (HEIC without a preview) are not truncation — only
-  // budget exhaustion is.
+  // Only budget exhaustion is truncation — nothing is deliberately dropped.
   return { images, truncatedTail: exhausted }
 }
 
-const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number, previewFormat?: string): GalleryImage | null => {
-  const renderable = BROWSER_RENDERABLE.test(name)
+const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number, previewFormat?: string): GalleryImage => {
   const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
-  // HEIC/HEIF originals can't render in browsers — route them through
-  // MEGA's JPEG preview. If MEGA generated no preview, drop the image
-  // rather than shipping undisplayable bytes.
-  if (!renderable && !fah) return null
+  // Every item serves the original through the file proxy — the viewer
+  // decodes HEIC/HEIF client-side, so a capped rendition is never the src.
+  // The preview stays as the rail thumbnail when MEGA generated one;
+  // without it the rail falls back to the (heavier) original.
   return {
     id: `mega-${node.h.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
     ref: node.h,
     filename: name,
-    src: renderable ? fileProxy(auth, node.h, nodeKey) : previewProxy(auth, fah!, nodeKey),
+    src: fileProxy(auth, node.h, nodeKey),
     // The JPEG/WebP preview doubles as the rail thumbnail: without a
     // variant, admin's `variants?.[0]?.src ?? src` falls back to the
     // multi-MB decrypted original per image. Declared width is the
@@ -367,15 +376,20 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
   const listing = await megaRequest<{ f?: MegaNode[] }>([{ a: 'f', c: 1, ca: 1, r: 1 }], auth, fetchImpl)
   const nodes = listing.f ?? []
 
+  // The `f` response is already scoped to the shared subtree — take every
+  // image file in it. Requiring `p === link.id` misses shares whose files
+  // sit inside a subfolder (the link anchor itself is never listed).
   const found = nodes
-    .filter((node) => node.t === 0 && node.p === link.id && node.a && node.k)
+    .filter((node) => node.t === 0 && node.a && node.k)
     .flatMap((node) => {
-      const nodeKey = decryptNodeKey(node.k, shareKey)
-      if (!nodeKey) return []
-      const attributes = decryptAttributes(node.a, nodeKey)
-      const name = attributes?.n?.trim()
-      if (!name || !IMAGE_EXTENSIONS.test(name)) return []
-      return [{ node, nodeKey, name }]
+      // Trying every key alternative matters: files nested in subfolders
+      // carry one per ancestor scope, and the first is not always valid.
+      for (const nodeKey of decryptNodeKeys(node.k, shareKey)) {
+        const attributes = decryptAttributes(node.a, nodeKey)
+        const name = attributes?.n?.trim()
+        if (name && IMAGE_EXTENSIONS.test(name)) return [{ node, nodeKey, name }]
+      }
+      return []
     })
   if (!found.length) throw new Error('No image files were found in that public MEGA folder')
   // Cap before probeImages — each file costs a decrypt-and-fetch probe
@@ -384,8 +398,11 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
 
   // Folder title from the root node's own attributes when decryptable.
   const root = nodes.find((node) => node.h === link.id) ?? nodes.find((node) => node.t === 1)
-  const rootKey = root ? decryptNodeKey(root.k, shareKey) ?? shareKey : shareKey
-  const title = (root ? decryptAttributes(root.a, rootKey)?.n?.trim() : '') || 'Untitled gallery'
+  const title = (root
+    ? [shareKey, ...decryptNodeKeys(root.k, shareKey)]
+        .map((key) => decryptAttributes(root.a, key)?.n?.trim())
+        .find(Boolean)
+    : '') || 'Untitled gallery'
 
   const budgetFetch = createScanBudget().fetch(fetchImpl)
   const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, fetchImpl === fetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
