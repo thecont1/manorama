@@ -63,21 +63,25 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
       }
     })
 
-    const cta = page.locator('.admin-library-heading button')
-    await expect(cta).toHaveText('Add')
+    const cta = page.getByRole('button', { name: 'Add Gallery', exact: true })
+    await expect(cta).toBeVisible()
     await cta.click()
 
     const dialog = page.getByRole('dialog', { name: 'Add a gallery', exact: true })
     await expect(dialog).toBeVisible()
     const urlInput = dialog.locator('input[aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA"]')
     await expect(urlInput).toBeVisible()
+    // Name and Caption stay hidden until the link verifies — an unverified
+    // dialog is the URL field alone.
+    await expect(dialog.locator('input[type="text"]')).toHaveCount(0)
     await urlInput.fill('https://www.dropbox.com/scl/fo/demo-integration?rlkey=abcd1234&dl=0')
-    await dialog.locator('input[type="text"]').fill('Owner integration demo')
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(dialog).toHaveCount(0)
 
-    // Opening, typing and closing must never reach the API.
-    expect(mutations).toEqual([])
+    // Opening, typing and closing must never create or mutate a gallery —
+    // the dry-run scan is allowed, but the create call is not.
+    expect(mutations).not.toContain('POST /api/galleries')
+    expect(mutations.filter((m) => m.startsWith('PATCH'))).toEqual([])
   } finally {
     await context.close()
   }
