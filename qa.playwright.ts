@@ -2421,9 +2421,9 @@ test("owner admin lists galleries without a selector and remains noindex", async
   const headingBox = (await page
     .locator("h1.admin-galleries-heading")
     .boundingBox())!;
-  // The mark's box starts 14px left of the ink — the PNG's transparent
-  // bearing — so the visible "m" lands on the heading's left edge.
-  expect(Math.abs(brandBox.x + 14 - headingBox.x)).toBeLessThan(2);
+  // The mark's box starts 28px left of the bold "m" — the PNG's bearing
+  // plus the script overhang — so the glyph lands on the heading's edge.
+  expect(Math.abs(brandBox.x + 28 - headingBox.x)).toBeLessThan(2);
   expect(brandBox.width).toBeGreaterThanOrEqual(306);
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);

@@ -64,9 +64,11 @@ for (const size of sizes) {
           // Wide: the slot is the grid's second column, beside the list —
           // and its left edge never invades the content column.
           expect(sponsoredBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1)
-          // The mark's visible ink squares on the heading's left edge —
-          // "m" over "L". The box starts 14px left (transparent bearing).
-          expect(Math.abs(heroBox.x + 14 - headingBox.x)).toBeLessThan(2)
+          // The mark's bold "m" squares on the heading's left edge — "m"
+          // over "L". The box starts 28px left (bearing + script overhang).
+          expect(Math.abs(heroBox.x + 28 - headingBox.x)).toBeLessThan(2)
+          // The slot's top sits level with the first card's strip.
+          expect(Math.abs(sponsoredBox.y - cardBox.y)).toBeLessThan(2)
           // The creative fits its media box whole — never cropped.
           const mediaBox = (await sponsored.locator('.account-ad-media').boundingBox())!
           const adImgBox = (await sponsored.locator('img').boundingBox())!

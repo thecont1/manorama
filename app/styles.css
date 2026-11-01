@@ -1634,11 +1634,13 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-page--selector input::placeholder { color: rgba(var(--ink), var(--admin-muted)); opacity: 1; }
 
 .admin-galleries-heading { margin: 0; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
-/* The PNG carries transparent bearing (~4.6% left, ~3.9% right of its
-   2170px canvas). Rendering the file at 306px puts the ink itself at 280px
-   — 2x the old mark — and the -14px margin pulls its left bearing back so
-   the "m" starts on the heading's left edge. */
-.admin-brand-mark { display: block; width: 306px; height: auto; margin: 0 0 18px -14px; }
+/* The PNG carries transparent bearing, and the bold "m" starts a further
+   ~4.6% in — the calligraphic overlay is what touches the canvas edge
+   (9.17% total, col 199 of 2170). Rendering the file at 306px puts the
+   ink near 280px, and the -28px margin pulls that bearing back so the
+   bold "m" starts square on the heading's left edge; the thin script may
+   overhang a few px left, like a proper optical margin. */
+.admin-brand-mark { display: block; width: 306px; height: auto; margin: 0 0 18px -28px; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .admin-heading-actions { display: flex; align-items: center; gap: 10px; }
 .admin-library-sub { margin: 10px 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
@@ -1715,7 +1717,9 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   .admin-page--selector .gallery-list--has-ad > :not(.account-ad) { grid-column: 1; }
   .admin-page--selector .gallery-list--has-ad > .account-ad {
     grid-column: 2;
-    grid-row: 1 / span 4;
+    /* Row 4 is the list itself — the slot's top lands level with the
+       first card's strip, and its sticky area is the list's full height. */
+    grid-row-start: 4;
     position: sticky;
     top: 16px;
     width: 100%;
