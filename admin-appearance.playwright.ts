@@ -123,6 +123,31 @@ for (const size of sizes) {
           await settings.getByRole('button', { name: 'Back', exact: true }).click()
           await expect(settings).toHaveCount(0)
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+          // The card "···" sheet renders beside .admin-page — outside the
+          // scopes that bind color — so its text must come from the --m-*
+          // tokens. Measure every readable row against the sheet's own
+          // background; disabled rows stay deliberately muted and are exempt.
+          await page.locator('.lib-card-menu').first().click()
+          const sheet = page.locator('.m-sheet')
+          await expect(sheet).toBeVisible()
+          const sheetContrast = await sheet.evaluate(element => {
+            const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number)
+            const background = rgb(getComputedStyle(element).backgroundColor)
+            const luminance = (channels: number[]) => channels.slice(0, 3).map(c => {
+              const s = c / 255
+              return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4
+            }).reduce((n, c, i) => n + c * [.2126, .7152, .0722][i], 0)
+            const bg = luminance(background)
+            return [...element.querySelectorAll<HTMLElement>('.m-sheet-title, .lib-menu > button:not(:disabled), .lib-menu > a')].map(node => {
+              const color = rgb(getComputedStyle(node).color)
+              const alpha = color[3] ?? 1
+              const fg = luminance(color.slice(0, 3).map((c, i) => c * alpha + background[i] * (1 - alpha)))
+              return { text: node.textContent, ratio: (Math.max(fg, bg) + .05) / (Math.min(fg, bg) + .05) }
+            })
+          })
+          for (const sample of sheetContrast) expect(sample.ratio, `${theme} sheet ${sample.text}`).toBeGreaterThanOrEqual(4.5)
+          await sheet.getByRole('button', { name: 'Close', exact: true }).click()
+          await expect(sheet).toHaveCount(0)
           // The rail is one row even before its source images finish loading.
           const rail = page.locator('.admin-gallery-strip').first()
           const items = rail.locator('.admin-gallery-strip-item')

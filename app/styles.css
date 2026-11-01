@@ -118,6 +118,9 @@
   --m-data: #fc0fc0; --m-data-outline: transparent;
   --m-negative: #f0687a; --m-focus: var(--m-ink);
   --m-scrim: rgba(0,0,0,.55);
+  /* The rgb-triplet ink token also flips under html.light — pin it here so
+     dark-scoped text (sheet copy, kbd, text buttons) keeps its light value. */
+  --ink: 243, 240, 232;
   color-scheme: dark;
 }
 
@@ -363,6 +366,10 @@ a.m-actionrow, button.m-actionrow { cursor: pointer; }
   max-width: 560px;
   max-height: calc(var(--m-vvh, 100dvh) - 24px);
   background: var(--m-surface);
+  /* Sheets render beside .admin-page, not inside it — color must come from
+     the same --m-* tokens as the background or light mode inherits :root's
+     near-white document color onto the light surface. */
+  color: var(--m-ink);
   border-radius: var(--m-radius-sheet) var(--m-radius-sheet) 0 0;
   padding-bottom: env(safe-area-inset-bottom);
   transform: translateY(0);
@@ -986,7 +993,12 @@ html.light .admin-button--solid { color: #e9e5dc; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { border-color: #000; background: #000; color: #e9e5dc; }
 html.light .admin-button:hover, html.light .admin-button:focus-visible { color: #000; }
 html.light .admin-button--solid:hover, html.light .admin-button--solid:focus-visible { color: #e9e5dc; }
-html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark, .admin-brand-mark) { filter: brightness(0); }
+html.light :is(.admin-page, .m-owner) :is(.m-topbar-logo, .landing-brand-mark, .admin-brand-mark) { filter: brightness(0); }
+/* The gallery stays dark under html.light — the viewer never follows the
+   owner theme. --ink flips globally on <html>, so re-pin it wherever a
+   stage is mounted: endcap "The End.", ad plate copy, arrows and the
+   sheet copy all read from the triplet. */
+html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 
 /* ── M magnifier ─────────────────────────────────────────────────────
    A glass ball that replaces the cursor. Fixed to the viewport and
