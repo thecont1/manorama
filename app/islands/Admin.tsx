@@ -747,7 +747,18 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (blockPipelineEdit(gallery)) return
     setReorderNote(null)
     setReorderSlug(gallery.slug)
-    closeDetails()
+    // Reorder takes over the surface in place — it must NOT run closeDetails'
+    // history.back(): Details opened from the viewer's ?details= link is this
+    // tab's current entry, so popping it walks back to the gallery page and
+    // unloads the dashboard under the overlay.
+    setDetailsSlug(null)
+    setShareSlug(null)
+    const params = new URLSearchParams(window.location.search)
+    // `photo` is the viewer's own back-target — dead weight on the library URL.
+    params.delete('details')
+    params.delete('photo')
+    const query = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
   }
 
   // A card can cross its expiry while the dashboard stays open (the `now`
