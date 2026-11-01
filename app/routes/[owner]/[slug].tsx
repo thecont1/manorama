@@ -46,7 +46,11 @@ export default createRoute(async (c) => {
   // the client so a reload starts at the first photograph. Only manifest
   // item ids count (ad plates never do).
   const photoParam = c.req.query('photo')
-  const source = new BundledSource(gallery as GalleryRecord)
+  // Hidden items are kept in the stored manifest (so a source refresh can
+  // merge around them) but never reach a public surface — not even for the
+  // owner, whose view must match what the gallery publishes.
+  const visible = gallery.images.filter((image) => !image.hidden)
+  const source = new BundledSource({ ...gallery, images: visible } as GalleryRecord)
   const photoIndex = photoParam ? source.list().findIndex((item) => item.id === photoParam) : -1
 
   const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c), undefined, gallery.slug)
@@ -55,7 +59,7 @@ export default createRoute(async (c) => {
   // Per-gallery social card: the first frame with the wordmark over it.
   // `?i=` is the first item's stable key, so reordering the gallery
   // changes the URL and busts the edge cache without a purge.
-  const firstKey = ogItemKey(gallery.images[0])
+  const firstKey = ogItemKey(visible[0])
   const ogImage = `/api/og/${encodeURIComponent(owner)}/${encodeURIComponent(
     gallery.slug,
   )}${firstKey ? `?i=${encodeURIComponent(firstKey)}` : ''}`

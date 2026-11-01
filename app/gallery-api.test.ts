@@ -579,3 +579,104 @@ describe('source ordering', () => {
     expect(payload.gallery?.images?.[999]?.filename).toBe('img1.jpg')
   })
 })
+
+describe('hidden photographs', () => {
+  const HIDE_OWNER = 'dbid:AAATESThidden'
+  let hideCookie: string
+  let hideOwnerSlug: string
+
+  const hideImage = (filename: string) => ({
+    id: `id-${filename}`,
+    filename,
+    src: `/api/dropbox/file?filename=${filename}`,
+    width: 4,
+    height: 3,
+    alt: filename,
+    c2pa: false,
+    placeholder: '',
+  })
+
+  beforeAll(async () => {
+    const user = await seedTestUser({ accountId: HIDE_OWNER, displayName: 'Hide Owner' })
+    hideOwnerSlug = user.ownerSlug
+    hideCookie = await sessionCookieFor(HIDE_OWNER)
+    await createGallery(HIDE_OWNER, {
+      slug: 'hidden-source',
+      title: 'Hidden Source',
+      caption: '',
+      date: '',
+      sourceUrl: 'https://www.dropbox.com/scl/fo/hidden-src?dl=0',
+      images: [hideImage('a.jpg'), hideImage('b.jpg'), hideImage('c.jpg')],
+    })
+  })
+
+  const hidePatch = (body: object) =>
+    api.request('/api/galleries/hidden-source', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: hideCookie },
+      body: JSON.stringify(body),
+    }, env)
+
+  const manifestImages = async (suffix = '', cookie?: string) => {
+    const response = await api.request(`/api/gallery/${hideOwnerSlug}/hidden-source${suffix}`, cookie ? { headers: { Cookie: cookie } } : {}, env)
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { manifest?: { images?: { filename: string }[] } }
+    return payload.manifest?.images?.map((image) => image.filename) ?? []
+  }
+
+  test('a hidden-only write marks the flag and the owner summary carries it', async () => {
+    const response = await hidePatch({ hidden: ['b.jpg'] })
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { gallery?: { images?: { filename: string; hidden?: boolean }[] } }
+    expect(payload.gallery?.images?.find((image) => image.filename === 'b.jpg')?.hidden).toBe(true)
+    expect(payload.gallery?.images?.find((image) => image.filename === 'a.jpg')?.hidden).toBeUndefined()
+  })
+
+  test('the public manifest drops hidden items for everyone', async () => {
+    expect(await manifestImages()).toEqual(['a.jpg', 'c.jpg'])
+    // includeHidden without an owner session resolves to a member at best —
+    // the hidden flag is never public data.
+    expect(await manifestImages('?includeHidden=1')).toEqual(['a.jpg', 'c.jpg'])
+    expect(await manifestImages('?includeHidden=1', cookie)).toEqual(['a.jpg', 'c.jpg'])
+  })
+
+  test('the owner session alone gets the hidden items back', async () => {
+    expect(await manifestImages('?includeHidden=1', hideCookie)).toEqual(['a.jpg', 'b.jpg', 'c.jpg'])
+  })
+
+  test('an empty hidden set restores every photograph', async () => {
+    const response = await hidePatch({ hidden: [] })
+    expect(response.status).toBe(200)
+    expect(await manifestImages()).toEqual(['a.jpg', 'b.jpg', 'c.jpg'])
+    // Re-hide for the refresh test below.
+    expect((await hidePatch({ hidden: ['b.jpg'] })).status).toBe(200)
+  })
+
+  test('refresh keeps hidden items hidden instead of resurrecting them', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: ['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg'].map((name) => ({ '.tag': 'file' as const, name, id: `id:${name}`, media_info: { metadata: { dimensions: { width: 4, height: 3 } } } })),
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: 'Hidden Source' })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    try {
+      const response = await api.request('/api/galleries/hidden-source/refresh', {
+        method: 'POST',
+        headers: { Cookie: hideCookie },
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(200)
+      const stored = await getGallery(HIDE_OWNER, 'hidden-source')
+      expect(stored?.images.find((image) => image.filename === 'b.jpg')?.hidden).toBe(true)
+      expect(await manifestImages()).toEqual(['a.jpg', 'c.jpg', 'd.jpg'])
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+})

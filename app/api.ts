@@ -9,9 +9,9 @@ import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
-import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
+import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
 import { ogCardResponse, ogItemKey } from './lib/og-card'
@@ -324,7 +324,20 @@ export const createManoramaApi = () => {
     if (!user) return c.json({ error: 'That gallery was not found' }, 404)
     const gallery = await getGallery(user.accountId, c.req.param('slug'), dbEnv(c))
     if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
-    const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images: gallery.images }
+    // Hidden items stay out of the published manifest. The gallery editor
+    // asks for them back with ?includeHidden=1, answered only for the
+    // owner's own session — never for a member or visitor who could not
+    // unhide anything anyway.
+    let includeHidden = false
+    if (c.req.query('includeHidden') === '1') {
+      try {
+        includeHidden = (await resolveManoramaSession(c.req.raw, envOf(c)))?.accountId === user.accountId
+      } catch {
+        includeHidden = false
+      }
+    }
+    const images = includeHidden ? gallery.images : gallery.images.filter((image) => !image.hidden)
+    const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
   })
   // Public: the native shell asks before composing plates. Geo-IP comes from
@@ -605,18 +618,21 @@ export const createManoramaApi = () => {
     const session = c.get('manoramaSession')
     // Body `slug` is intentionally not read: the URL slug is the resource
     // identity; a rename arrives only as `newSlug`.
-    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; newSlug?: string } => ({}))
+    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; hidden?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; hidden?: string[]; newSlug?: string } => ({}))
     const title = typeof payload.title === 'string' ? smartQuotes(payload.title.trim().slice(0, 120)) : undefined
     const caption = typeof payload.caption === 'string' ? smartQuotes(payload.caption.trim().slice(0, 500)) : undefined
     const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, MAX_GALLERY_ITEMS) : undefined
+    const hidden = Array.isArray(payload.hidden) ? payload.hidden.filter((item): item is string => typeof item === 'string').slice(0, MAX_GALLERY_ITEMS) : undefined
     const nextSlug = typeof payload.newSlug === 'string' ? payload.newSlug.trim().toLowerCase() : undefined
     if (title !== undefined && !title) return c.json({ error: 'A gallery title cannot be empty' }, 400)
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
-    if (title === undefined && caption === undefined && !order && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
+    if (title === undefined && caption === undefined && !order && !hidden && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
     try {
       let gallery = nextSlug !== undefined ? await updateGallerySlug(session.accountId, c.req.param('slug'), nextSlug, dbEnv(c)) : await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (order) gallery = await updateGalleryOrder(session.accountId, gallery.slug, order, dbEnv(c))
+      if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      if (hidden) gallery = await updateGalleryHidden(session.accountId, gallery.slug, hidden, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (title !== undefined || caption !== undefined) gallery = await updateGalleryMetadata(session.accountId, gallery.slug, { title, caption }, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
@@ -656,7 +672,9 @@ export const createManoramaApi = () => {
       const keptKeys = new Set(gallery.images.map((image) => image.ref ?? image.filename))
       const retained = gallery.images.flatMap((image) => {
         const fresh = scanByKey.get(image.ref ?? image.filename)
-        return fresh ? [fresh] : []
+        // The hidden flag is owner state, not provider state — the fresh
+        // record inherits it or the flag would silently drop on refresh.
+        return fresh ? [{ ...fresh, ...(image.hidden ? { hidden: true as const } : {}) }] : []
       })
       const refreshed = retained.concat(scan.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
       // Persist only the refreshed images, not the stale gallery metadata
@@ -911,7 +929,7 @@ export const createManoramaApi = () => {
       const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
       if (!user) return noStore(fallback())
       const gallery = await getGallery(user.accountId, c.req.param('slug'), dbEnv(c))
-      const first = gallery?.images?.[0] as GalleryMediaItem | undefined
+      const first = gallery?.images?.find((image) => !image.hidden) as GalleryMediaItem | undefined
       const pipeline = gallery?.retention === 'pipeline'
       if (!first) return noStore(fallback())
       // `?i=` only keys the edge cache — the card never depends on it.

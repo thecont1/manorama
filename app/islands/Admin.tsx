@@ -419,7 +419,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   // Resolves to the failure message so the open reorder view can show it
   // beside its status line; null means the order was saved.
-  const persistGalleryOrder = async (gallery: GallerySummary, images: GallerySummary['images']): Promise<string | null> => {
+  const persistGalleryOrder = async (gallery: GallerySummary, orderKeys: readonly string[], hiddenKeys: readonly string[]): Promise<string | null> => {
     if (blockPipelineEdit(gallery)) return PIPELINE_LOCK_MESSAGE
     if (busy) return 'Still saving — try again in a moment.'
     setBusy(true)
@@ -428,7 +428,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: images.map((image) => image.ref ?? image.filename) }),
+        body: JSON.stringify({ order: [...orderKeys], hidden: [...hiddenKeys] }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
@@ -445,7 +445,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
-  const saveDraftOrder = async (gallery: GallerySummary, orderKeys: readonly string[]) => {
+  const saveDraftOrder = async (gallery: GallerySummary, orderKeys: readonly string[], hiddenKeys: readonly string[]) => {
     const byKey = new Map(gallery.images.map((image) => [image.ref ?? image.filename, image]))
     const images = orderKeys.map((key) => byKey.get(key)).filter((image): image is GallerySummary['images'][number] => image !== undefined)
     if (images.length !== gallery.images.length) {
@@ -453,7 +453,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       announce('That order could not be saved')
       return
     }
-    const failure = await persistGalleryOrder(gallery, images)
+    const failure = await persistGalleryOrder(gallery, orderKeys, hiddenKeys)
     if (failure) { setReorderNote(failure); return }
     setReorderNote(null)
     setReorderSlug(null)
@@ -1038,9 +1038,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               height: image.height,
               src: imagePreview(image),
               label: image.filename,
+              hidden: image.hidden,
             }))}
             onCancel={() => { setReorderNote(null); setReorderSlug(null) }}
-            onSave={(orderKeys) => { void saveDraftOrder(reorderGallery, orderKeys) }}
+            onSave={(orderKeys, hiddenKeys) => { void saveDraftOrder(reorderGallery, orderKeys, hiddenKeys) }}
           />
         )
       })()}

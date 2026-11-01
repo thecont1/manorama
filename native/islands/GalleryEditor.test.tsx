@@ -364,8 +364,9 @@ describe('gallery editor', () => {
     await settle()
     const patch = calls.find((call) => call.url === 'https://manorama.xyz/api/galleries/kashmir' && call.init?.method === 'PATCH')
     // `ref` when the provider gives one, the filename otherwise — never the
-    // manifest's own id, which matches nothing server-side.
-    expect(JSON.parse(String(patch?.init?.body))).toEqual({ order: ['ref-a', 'ref-c', 'b.jpg'] })
+    // manifest's own id, which matches nothing server-side. The hidden set
+    // rides the same write so an unhide-everything save is never dropped.
+    expect(JSON.parse(String(patch?.init?.body))).toEqual({ order: ['ref-a', 'ref-c', 'b.jpg'], hidden: [] })
     expect(container.querySelector('.native-editor-note')?.textContent).toContain('saved')
     expect(savedCalls).toBe(1)
     // A saved order is the new baseline, so the button goes quiet again.

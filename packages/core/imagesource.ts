@@ -48,6 +48,11 @@ export type GalleryImage = {
   c2pa: boolean
   placeholder: string
   variants?: readonly ImageVariant[]
+  /** Owner-set concealment: kept in the manifest so a source refresh cannot
+   *  resurrect it, filtered out of every public surface. Only ever written
+   *  true — an absent flag means visible, keeping older manifests
+   *  byte-identical (the same zero-migration rule as `type`). */
+  hidden?: boolean
 }
 
 /** A still frame standing in for a video before it decodes. Always a real
@@ -99,6 +104,7 @@ export type VideoItem = {
   captions?: readonly VideoCaptionTrack[]
   transcript?: string
   credit?: string
+  hidden?: boolean
 }
 
 /** The ordered sequence a gallery actually is: images and videos, mixed. */

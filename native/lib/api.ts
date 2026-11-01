@@ -61,9 +61,10 @@ export const fetchGallery = async (
   owner: string,
   slug: string,
   signal?: AbortSignal,
+  options?: { includeHidden?: boolean },
 ): Promise<NativeGalleryResponse> => {
   const response = await fetch(
-    `${normalizeApiBase(apiBase)}/api/gallery/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`,
+    `${normalizeApiBase(apiBase)}/api/gallery/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}${options?.includeHidden ? '?includeHidden=1' : ''}`,
     { headers: await bearerHeaders(), signal },
   )
   const payload = await response.json().catch(() => ({})) as Partial<NativeGalleryResponse> & { error?: string }
@@ -215,14 +216,14 @@ export const unlinkAccountIdentity = async (apiBase: string, provider: string): 
 }
 
 /** The gallery editor's one write: the running order of a gallery's
- *  photographs, as image ids. The server reorders against the gallery's own
- *  manifest and answers with the stored summary, exactly as the web
- *  dashboard's strip editor does. */
-export const updateGalleryOrder = async (apiBase: string, slug: string, order: readonly string[]): Promise<void> => {
+ *  photographs, as image ids, plus the owner-hidden key set. The server
+ *  reorders against the gallery's own manifest and answers with the stored
+ *  summary, exactly as the web dashboard's strip editor does. */
+export const updateGalleryOrder = async (apiBase: string, slug: string, order: readonly string[], hidden?: readonly string[]): Promise<void> => {
   const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
-    body: JSON.stringify({ order }),
+    body: JSON.stringify(hidden ? { order, hidden: [...hidden] } : { order }),
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: string }

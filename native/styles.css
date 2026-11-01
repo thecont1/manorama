@@ -465,6 +465,40 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   text-align: center;
 }
 .native-editor .native-global-cell.is-moved .pos { background: #fc0fc0; color: #18060f; }
+/* Each cell sits in a wrapper so the hide mark can be a sibling button —
+   a <button> cannot nest inside the cell's own button. The wrapper owns
+   the laid-out width; the cell fills it. */
+.native-editor-item { position: relative; flex: 0 0 auto; height: 100%; }
+.native-editor-item.is-hidden .native-global-cell img { opacity: .32; }
+/* The hide mark surfaces on hover, on focus inside the cell, on the tap
+   that picks the photograph up (coarse pointers have no hover), and
+   permanently while hidden — that mark is also the way back. */
+.native-editor-hide {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: rgba(12, 12, 12, .75);
+  color: rgba(255, 255, 255, .92);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s ease;
+}
+.native-editor-hide svg { width: 16px; height: 16px; }
+.native-editor-item:hover .native-editor-hide,
+.native-editor-item:focus-within .native-editor-hide,
+.native-editor-item.is-revealed .native-editor-hide,
+.native-editor-item.is-hidden .native-editor-hide,
+.native-editor-hide:focus-visible { opacity: 1; pointer-events: auto; }
+.native-editor-hide:focus-visible { outline: 2px solid #fc0fc0; outline-offset: 1px; }
 .native-editor-sizer {
   display: flex;
   align-items: center;

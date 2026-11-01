@@ -57,3 +57,43 @@ test('Details deep link reaches Reorder without leaving the dashboard', async ({
     await context.close().catch(() => {})
   }
 })
+
+test('the hide mark surfaces on hover, conceals in draft, and writes on Save', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await signIn(context)
+  const page = await context.newPage()
+  try {
+    await page.goto(`${base}/${owner}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20_000 })
+    const slug = (await page.locator('[data-gallery-card]').first().getAttribute('data-gallery-card'))!
+    await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
+    const details = page.locator('[data-screen="details"]')
+    await expect(details).toBeVisible({ timeout: 20_000 })
+    await details.getByRole('button', { name: 'Reorder photographs' }).click()
+    await expect(page.locator('[data-screen="reorder"]')).toBeVisible({ timeout: 10_000 })
+
+    const first = page.locator('.web-reorder-item').first()
+    const mark = first.locator('.web-reorder-hide')
+    // The mark is opacity-revealed (hover/tap/focus), not display-toggled —
+    // assert the computed style rather than Playwright visibility.
+    const markOpacity = () => mark.evaluate((el) => Number(getComputedStyle(el).opacity))
+    expect(await markOpacity()).toBe(0)
+    await first.hover()
+    await expect(async () => expect(await markOpacity()).toBe(1)).toPass({ timeout: 5_000 })
+
+    await mark.click()
+    await expect(first).toHaveClass(/is-hidden/)
+    await expect(mark).toHaveAttribute('aria-label', /^Show /)
+    // Concealment alone dirties the draft — Save was disabled until now.
+    const save = page.getByRole('button', { name: 'Save' })
+    await expect(save).toBeEnabled()
+
+    // The mark on a hidden cell is the way back — one tap restores it.
+    await mark.click()
+    await expect(first).not.toHaveClass(/is-hidden/)
+    await expect(save).toBeDisabled()
+    await page.screenshot({ path: 'outputs/reorder-hide.png' })
+  } finally {
+    await context.close().catch(() => {})
+  }
+})

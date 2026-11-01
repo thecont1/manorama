@@ -604,18 +604,20 @@ describe('signed-in account area', () => {
     ;(menu.find((item) => item.textContent === 'Reorder photographs'))!.click()
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).not.toBeNull()
-    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
+    // The editor asks for hidden items too — concealing is unrecoverable
+    // without them — while the plain manifest fetch stays filtered.
+    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir?includeHidden=1')).toBe(true)
     ;(container.querySelector('[data-gallery-editor] .native-editor-cancel') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('[data-gallery-editor]')).toBeNull()
 
     // The title opens the gallery on the stage — the card's most obvious
     // affordance has to lead to the viewer. It cannot be exercised afterwards
-    // because the stage replaces the list.
+    // because the stage replaces the list. The plain manifest URL is the
+    // stage's fetch; the editor's includeHidden variant was asserted above.
     ;(card.querySelector('.lib-card-title') as HTMLButtonElement).click()
     await settle()
-    expect(galleryCalls().filter((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir').length)
-      .toBeGreaterThanOrEqual(2)
+    expect(galleryCalls().some((call) => call.url === 'https://manorama.xyz/api/gallery/quiet-owner/kashmir')).toBe(true)
 
     // The account controls live in Settings behind the topbar gear.
     await openSettings(container)

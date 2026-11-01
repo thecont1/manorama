@@ -87,4 +87,59 @@ describe('web reorder draft', () => {
     expect(note?.textContent).toBe('That order could not be saved')
     expect(note?.getAttribute('role')).toBe('alert')
   })
+
+  test('the hide mark dims a photograph in the draft and Save sends the hidden keys', () => {
+    const saved: { order: string[]; hidden: string[] }[] = []
+    const container = dom.document.createElement('div')
+    dom.document.body.appendChild(container)
+    flushSync(() => {
+      render(<WebReorderView title="Kashmir" images={photos()} onCancel={() => {}} onSave={(order, hidden) => { saved.push({ order: [...order], hidden: [...hidden] }) }} />, container as unknown as HTMLElement)
+    })
+    const root = container as unknown as HTMLElement
+    const save = named(root, 'Save')
+    expect(save?.disabled).toBe(true)
+    const firstItem = root.querySelector<HTMLElement>('.web-reorder-item')!
+    const hide = firstItem.querySelector<HTMLButtonElement>('.web-reorder-hide')!
+    expect(hide.getAttribute('aria-label')).toBe('Hide a.jpg')
+    flushSync(() => { hide.click() })
+    expect(firstItem.classList.contains('is-hidden')).toBe(true)
+    expect(hide.getAttribute('aria-label')).toBe('Show a.jpg')
+    expect(save?.disabled).toBe(false)
+    flushSync(() => { save?.click() })
+    expect(saved).toEqual([{ order: ['ref-a', 'b.jpg', 'ref-c'], hidden: ['ref-a'] }])
+  })
+
+  test('a hidden photograph stays mounted so its mark can bring it back', () => {
+    const saved: { order: string[]; hidden: string[] }[] = []
+    const container = dom.document.createElement('div')
+    dom.document.body.appendChild(container)
+    flushSync(() => {
+      render(<WebReorderView title="Kashmir" images={photos()} onCancel={() => {}} onSave={(order, hidden) => { saved.push({ order: [...order], hidden: [...hidden] }) }} />, container as unknown as HTMLElement)
+    })
+    const root = container as unknown as HTMLElement
+    const firstItem = root.querySelector<HTMLElement>('.web-reorder-item')!
+    const hide = firstItem.querySelector<HTMLButtonElement>('.web-reorder-hide')!
+    flushSync(() => { hide.click() })
+    flushSync(() => { hide.click() })
+    expect(firstItem.classList.contains('is-hidden')).toBe(false)
+    expect(named(root, 'Save')?.disabled).toBe(true)
+  })
+
+  test('a stored-hidden photograph arrives dimmed and pressed', () => {
+    const container = dom.document.createElement('div')
+    dom.document.body.appendChild(container)
+    const stored = photos()
+    stored[1] = { ...stored[1]!, hidden: true }
+    flushSync(() => {
+      render(<WebReorderView title="Kashmir" images={stored} onCancel={() => {}} onSave={() => {}} />, container as unknown as HTMLElement)
+    })
+    const root = container as unknown as HTMLElement
+    const items = root.querySelectorAll<HTMLElement>('.web-reorder-item')
+    expect(items[1]?.classList.contains('is-hidden')).toBe(true)
+    expect(items[1]?.querySelector('.web-reorder-hide')?.getAttribute('aria-label')).toBe('Show b.jpg')
+    expect(items[1]?.querySelector('.web-reorder-hide')?.getAttribute('aria-pressed')).toBe('true')
+    expect(items[0]?.classList.contains('is-hidden')).toBe(false)
+    // Stored state is not a draft change — Save stays disabled.
+    expect(named(root, 'Save')?.disabled).toBe(true)
+  })
 })

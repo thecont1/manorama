@@ -58,6 +58,7 @@ type EditorPhoto = {
   width: number
   height: number
   label: string
+  hidden?: boolean
 }
 
 /** Mirrors `imageKey` in `app/lib/gallery-repository.ts`. The two must agree,
@@ -73,7 +74,11 @@ const photosFrom = (manifest: GalleryManifest): EditorPhoto[] =>
     width: image.width,
     height: image.height,
     label: image.alt || image.filename || `Photograph ${index + 1}`,
+    hidden: image.hidden === true,
   }))
+
+const sameKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((key) => b.has(key))
 
 /** The matrix row height follows the viewport, like the picker. The measured
  *  pixel value also drives complete-row virtualisation. */
@@ -109,7 +114,20 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   const sessionRef = useRef(session)
   sessionRef.current = session
 
-  const dirty = session ? reorderIsDirty(session) : false
+  // Concealment is part of the draft, not the order — a hidden photograph
+  // stays mounted and dimmed until Save writes the set, so unhiding is one
+  // tap and its place in the sequence is never lost.
+  const [hiddenKeys, setHiddenKeys] = useState<ReadonlySet<string>>(new Set())
+  const [savedHiddenKeys, setSavedHiddenKeys] = useState<ReadonlySet<string>>(new Set())
+  const hiddenRef = useRef(hiddenKeys)
+  hiddenRef.current = hiddenKeys
+  const savedHiddenRef = useRef(savedHiddenKeys)
+  savedHiddenRef.current = savedHiddenKeys
+  // Coarse pointers have no hover: the tap that picks a photograph up also
+  // raises its hide mark, which rides along to the next cell tapped.
+  const [revealedId, setRevealedId] = useState<string | null>(null)
+
+  const dirty = (session ? reorderIsDirty(session) : false) || !sameKeys(hiddenKeys, savedHiddenKeys)
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   const confirmRef = useRef(confirmOpen)
@@ -118,12 +136,15 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   useEffect(() => {
     let active = true
     setNote('Reading this gallery…')
-    void fetchGallery(apiBase, owner, slug)
+    void fetchGallery(apiBase, owner, slug, undefined, { includeHidden: true })
       .then(({ manifest }) => {
         if (!active) return
         const loaded = photosFrom(manifest)
         setSession(createReorderSession(loaded))
         setMovedIds(new Set())
+        const hidden = new Set(loaded.filter((photo) => photo.hidden).map((photo) => photo.orderKey))
+        setHiddenKeys(hidden)
+        setSavedHiddenKeys(hidden)
         setNote(loaded.length ? null : 'This gallery has no photographs yet.')
       })
       .catch((reason) => {
@@ -204,6 +225,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   const pickUp = (photo: EditorPhoto) => {
     const current = sessionRef.current
     if (!current) return
+    setRevealedId(photo.id)
     const next = pickUpItem(current, photo.id)
     if (next === current) return
     setSession(next)
@@ -218,6 +240,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
   const putDown = (target: EditorPhoto) => {
     const current = sessionRef.current
     if (!current?.heldId) return
+    setRevealedId(target.id)
     const heldId = current.heldId
     const next = putDownItem(current, target.id)
     setSession(next)
@@ -235,24 +258,47 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     if (moved) { announce(`Moved “${moved.label}” to position ${movedAt + 1} of ${next.items.length}.`); setNote(null) }
   }
 
+  const toggleHidden = (photo: EditorPhoto) => {
+    const current = sessionRef.current
+    if (!current || busy || settlingRef.current) return
+    const next = new Set(hiddenRef.current)
+    const hiding = !next.has(photo.orderKey)
+    if (hiding) next.add(photo.orderKey)
+    else next.delete(photo.orderKey)
+    setHiddenKeys(next)
+    // A held photograph that is hidden has nowhere meaningful to land —
+    // put it down rather than let the draft carry a concealed hold.
+    if (hiding && current.heldId === photo.id) setSession({ ...current, heldId: null })
+    const message = hiding ? `Hid “${photo.label}”. Save to remove it from the gallery.` : `“${photo.label}” is visible again.`
+    announce(message)
+    setNote(message)
+  }
+
   const save = async () => {
     const current = sessionRef.current
-    if (!current || busy || !reorderIsDirty(current)) return
+    if (!current || busy || !dirtyRef.current) return
     setBusy(true)
     setNote('Saving the new order…')
     const intended = current.items.map((photo) => photo.orderKey)
+    const intendedHidden = [...hiddenRef.current]
     try {
-      await updateGalleryOrder(apiBase, slug, intended)
+      await updateGalleryOrder(apiBase, slug, intended, intendedHidden)
       // The route tolerates keys it does not recognise and still answers 200,
       // so a key that has drifted from the repository's own would read as a
       // silent no-op — the exact failure this read-back exists to catch.
-      const { manifest } = await fetchGallery(apiBase, owner, slug)
+      const { manifest } = await fetchGallery(apiBase, owner, slug, undefined, { includeHidden: true })
       const stored = manifest.images.map(orderKeyOf)
       if (!intended.every((key, index) => stored[index] === key)) {
         setNote('The gallery did not take that order, so nothing was changed. Try again.')
         return
       }
+      const storedHidden = new Set(manifest.images.filter((image) => image.hidden === true).map(orderKeyOf))
+      if (!sameKeys(storedHidden, new Set(intendedHidden))) {
+        setNote('The gallery did not take those hidden photographs, so nothing was changed. Try again.')
+        return
+      }
       setSession((previous) => previous ? { ...previous, savedKeys: intended } : previous)
+      setSavedHiddenKeys(storedHidden)
       setMovedIds(new Set())
       setNote('New order saved.')
       onSavedRef.current?.()
@@ -272,6 +318,7 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
     setSettling(true)
     setSession(discardReorder(current))
     setMovedIds(new Set())
+    setHiddenKeys(new Set(savedHiddenRef.current))
     setDropTarget(null)
     setNote('Back to the saved order.')
     settleTimerRef.current = window.setTimeout(() => {
@@ -408,34 +455,54 @@ export default function GalleryEditor({ owner, slug, title, apiBase, onClose, on
                     {row.cells.map((cell) => {
                       const photo = cell.item
                       const isHeld = heldId === photo.id
+                      const isHidden = hiddenKeys.has(photo.orderKey)
                       return (
-                        <button
+                        // The hide mark is a sibling, not a child: a real
+                        // <button> cannot nest inside the cell's button.
+                        <div
                           key={photo.id}
-                          type="button"
-                          class={`native-global-cell native-editor-cell${isHeld ? ' is-active' : ''}${dropTarget === photo.id ? ' is-drop-target' : ''}${movedIds.has(photo.id) ? ' is-moved' : ''}`}
-                          data-photo={photo.id}
-                          data-order-key={photo.orderKey}
-                          aria-label={`${photo.label}, position ${(indexOf.get(photo.id) ?? 0) + 1} of ${itemCount}`}
-                          aria-pressed={isHeld ? 'true' : 'false'}
-                          disabled={busy || settling}
+                          class={`native-editor-item${isHidden ? ' is-hidden' : ''}${revealedId === photo.id ? ' is-revealed' : ''}`}
                           style={{ width: `${cell.width}px`, height: '100%' }}
-                          draggable={finePointer}
-                          onDragStart={dragStart(photo)}
-                          onDragOver={dragOver(photo)}
-                          onDrop={drop(photo)}
-                          onDragEnd={dragEnd}
-                          onClick={() => (heldId ? putDown(photo) : pickUp(photo))}
                         >
-                          <img
-                            src={photo.src}
-                            width={photo.width}
-                            height={photo.height}
-                            alt=""
-                            loading="lazy"
-                            draggable={false}
-                          />
-                          {movedIds.has(photo.id) ? <span class="pos">{(indexOf.get(photo.id) ?? 0) + 1}</span> : null}
-                        </button>
+                          <button
+                            type="button"
+                            class={`native-global-cell native-editor-cell${isHeld ? ' is-active' : ''}${dropTarget === photo.id ? ' is-drop-target' : ''}${movedIds.has(photo.id) ? ' is-moved' : ''}`}
+                            data-photo={photo.id}
+                            data-order-key={photo.orderKey}
+                            aria-label={`${photo.label}, position ${(indexOf.get(photo.id) ?? 0) + 1} of ${itemCount}`}
+                            aria-pressed={isHeld ? 'true' : 'false'}
+                            disabled={busy || settling}
+                            style={{ width: '100%', height: '100%' }}
+                            draggable={finePointer}
+                            onDragStart={dragStart(photo)}
+                            onDragOver={dragOver(photo)}
+                            onDrop={drop(photo)}
+                            onDragEnd={dragEnd}
+                            onClick={() => (heldId ? putDown(photo) : pickUp(photo))}
+                          >
+                            <img
+                              src={photo.src}
+                              width={photo.width}
+                              height={photo.height}
+                              alt=""
+                              loading="lazy"
+                              draggable={false}
+                            />
+                            {movedIds.has(photo.id) ? <span class="pos">{(indexOf.get(photo.id) ?? 0) + 1}</span> : null}
+                          </button>
+                          <button
+                            type="button"
+                            class="native-editor-hide"
+                            aria-label={isHidden ? `Show ${photo.label}` : `Hide ${photo.label}`}
+                            aria-pressed={isHidden ? 'true' : 'false'}
+                            disabled={busy || settling}
+                            onClick={(event) => { event.stopPropagation(); toggleHidden(photo) }}
+                          >
+                            {isHidden
+                              ? <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                              : <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m5 5 14 14M19 5 5 19"/></svg>}
+                          </button>
+                        </div>
                       )
                     })}
                   </div>

@@ -2087,6 +2087,43 @@ a.m-btn { text-decoration: none; }
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Each option sits in a thin wrapper so the hide mark can be a sibling
+   button — a real <button> cannot legally nest inside the cell's button.
+   The wrapper owns the size; the cell and its ::after divider fill it. */
+.web-reorder-item { position: relative; flex: 0 0 auto; display: inline-flex; }
+.web-reorder-item > .web-reorder-cell { display: block; width: 100%; height: 100%; }
+.web-reorder-item.is-hidden > .web-reorder-cell img { opacity: .32; }
+/* The hide mark is a top-right badge in the rail's dark-chip language. It
+   surfaces on hover, on keyboard focus anywhere in the cell, on the tap
+   that picks the photograph up (coarse pointers have no hover), and
+   permanently on a hidden cell — that mark is also the way back. */
+.web-reorder-hide {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: rgba(10, 10, 10, .74);
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s ease;
+}
+.web-reorder-hide svg { width: 15px; height: 15px; }
+.web-reorder-item:hover .web-reorder-hide,
+.web-reorder-item:focus-within .web-reorder-hide,
+.web-reorder-item.is-revealed .web-reorder-hide,
+.web-reorder-item.is-hidden .web-reorder-hide,
+.web-reorder-hide:focus-visible { opacity: 1; pointer-events: auto; }
+.web-reorder-hide:focus-visible { outline: 2px solid var(--m-data); outline-offset: 1px; }
 .web-settings .m-signout-form { margin: 0; }
 @media (min-width: 960px) {
   .web-settings .m-owner-content { max-width: 760px; }

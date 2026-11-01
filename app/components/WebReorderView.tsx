@@ -18,6 +18,7 @@ import { TopBar } from './ui/TopBar'
 export type WebReorderImage = ReorderItem & {
   src: string
   label: string
+  hidden?: boolean
 }
 
 type Props = {
@@ -28,10 +29,13 @@ type Props = {
    *  committed while the toast behind the overlay is unreadable. */
   note?: string | null
   onCancel: () => void
-  onSave: (orderKeys: readonly string[]) => void
+  onSave: (orderKeys: readonly string[], hiddenKeys: readonly string[]) => void
 }
 
 const HINT = 'Tap a photograph to pick it up, then tap where it goes.'
+
+const sameKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
+  a.size === b.size && [...a].every((key) => b.has(key))
 
 /** The iPhone editor is a grid with a bottom size controller. The web keeps
  * that controller and adds the strip — a vertically centred, edge-to-edge
@@ -40,12 +44,21 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
   const [session, setSession] = useState<ReorderState<WebReorderImage>>(() => createReorderSession(images))
   const [view, setView] = useState<'strip' | 'grid'>('strip')
   const [itemHeight, setItemHeight] = useState(160)
-  const dirty = reorderIsDirty(session)
+  // Concealment is a draft like order: nothing is hidden until Save writes
+  // the set. Hidden cells stay mounted — dimmed, with their mark raised —
+  // so an unhide is one tap and a hidden photograph keeps its place.
+  const [hiddenKeys, setHiddenKeys] = useState<ReadonlySet<string>>(() => new Set(images.filter((image) => image.hidden).map((image) => image.orderKey)))
+  const [savedHidden] = useState(hiddenKeys)
+  // The mark surfaces on hover or focus; on touch it is raised by the tap
+  // that picks the photograph up, and rides along to the next cell tapped.
+  const [revealedId, setRevealedId] = useState<string | null>(null)
+  const dirty = reorderIsDirty(session) || !sameKeys(hiddenKeys, savedHidden)
   const held = session.items.find((item) => item.id === session.heldId) ?? null
   const status = held ? `Picked up ${held.label}. Tap where it goes.` : HINT
 
   const place = (id: string) => {
     if (busy) return
+    setRevealedId(id)
     const before = session
     const next = before.heldId ? putDownItem(before, id) : pickUpItem(before, id)
     if (next === before) return
@@ -72,13 +85,26 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
     announce(`Moved ${moved?.label ?? 'photograph'} to position ${to + 1} of ${next.items.length}.`)
   }
 
+  const toggleHidden = (image: WebReorderImage) => {
+    if (busy) return
+    const next = new Set(hiddenKeys)
+    const hiding = !next.has(image.orderKey)
+    if (hiding) next.add(image.orderKey)
+    else next.delete(image.orderKey)
+    setHiddenKeys(next)
+    // A held photograph that is hidden has nowhere meaningful to land —
+    // put it down rather than let the draft carry a concealed hold.
+    if (hiding && session.heldId === image.id) setSession({ ...session, heldId: null })
+    announce(hiding ? `Hid ${image.label}. Save to remove it from the gallery.` : `${image.label} is visible again.`)
+  }
+
   return (
     <section class="web-reorder" data-screen="reorder" aria-label={`Reorder ${title}`}>
       <TopBar
         logo={false}
         title="Reorder"
         start={<Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button>}
-        end={<Button variant="primary" onClick={() => onSave(session.items.map((item) => item.orderKey))} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>}
+        end={<Button variant="primary" onClick={() => onSave(session.items.map((item) => item.orderKey), [...hiddenKeys])} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>}
       />
       <div class="web-reorder-bar">
         <p class="web-reorder-status" id="web-reorder-status">
@@ -104,24 +130,47 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
             }
           }}
         >
-          {session.items.map((image, index) => (
-            <button
-              type="button"
-              key={image.id}
-              id={`reorder-${image.id}`}
-              class={`admin-gallery-strip-item web-reorder-cell${session.heldId === image.id ? ' is-picked' : ''}${dirty && image.orderKey !== images[index]?.orderKey ? ' is-moved' : ''}`}
-              role="option"
-              aria-selected={session.heldId === image.id ? 'true' : 'false'}
-              data-image-id={image.id}
-              data-order-key={image.orderKey}
-              disabled={busy}
-              style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}`, height: `${itemHeight}px` }}
-              onClick={() => place(image.id)}
-            >
-              <img src={image.src} alt="" width={image.width} height={image.height} draggable={false} />
-              {dirty && image.orderKey !== images[index]?.orderKey ? <span class="web-reorder-pos">{index + 1}</span> : null}
-            </button>
-          ))}
+          {session.items.map((image, index) => {
+            const hidden = hiddenKeys.has(image.orderKey)
+            return (
+              <div
+                key={image.id}
+                class={`web-reorder-item${hidden ? ' is-hidden' : ''}${revealedId === image.id ? ' is-revealed' : ''}`}
+                style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}`, height: `${itemHeight}px` }}
+              >
+                <button
+                  type="button"
+                  id={`reorder-${image.id}`}
+                  class={`admin-gallery-strip-item web-reorder-cell${session.heldId === image.id ? ' is-picked' : ''}${dirty && image.orderKey !== images[index]?.orderKey ? ' is-moved' : ''}`}
+                  role="option"
+                  aria-selected={session.heldId === image.id ? 'true' : 'false'}
+                  data-image-id={image.id}
+                  data-order-key={image.orderKey}
+                  disabled={busy}
+                  onClick={() => place(image.id)}
+                >
+                  <img src={image.src} alt="" width={image.width} height={image.height} draggable={false} />
+                  {dirty && image.orderKey !== images[index]?.orderKey ? <span class="web-reorder-pos">{index + 1}</span> : null}
+                </button>
+                {/* A button cannot nest inside the cell's own button, so the
+                    mark is an absolutely placed sibling of the option. It
+                    surfaces on hover and keyboard focus, on the tap that
+                    picks the photograph up, and permanently while hidden. */}
+                <button
+                  type="button"
+                  class="web-reorder-hide"
+                  aria-label={hidden ? `Show ${image.label}` : `Hide ${image.label}`}
+                  aria-pressed={hidden ? 'true' : 'false'}
+                  disabled={busy}
+                  onClick={(event) => { event.stopPropagation(); toggleHidden(image) }}
+                >
+                  {hidden
+                    ? <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                    : <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m5 5 14 14M19 5 5 19"/></svg>}
+                </button>
+              </div>
+            )
+          })}
         </div>
       </div>
       <div class="web-reorder-sizer">

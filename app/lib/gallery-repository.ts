@@ -404,6 +404,44 @@ export const updateGalleryOrder = async (ownerId: string, slug: string, order: s
   return updated
 }
 
+/** Sets the owner-visible `hidden` flag on the given provider keys and
+ *  clears it everywhere else. The flag — not removal — is what a source
+ *  refresh merges against, so a hidden item stays hidden instead of being
+ *  rediscovered and appended. Throws a typed read-only error for pipeline
+ *  galleries. */
+export const updateGalleryHidden = async (ownerId: string, slug: string, hiddenKeys: readonly string[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
+  const mark = (current: GalleryRecord) => {
+    const keys = new Set(hiddenKeys)
+    return current.images.map((image) => {
+      const hidden = keys.has(imageKey(image))
+      if (hidden === (image.hidden === true)) return image
+      const next = { ...image }
+      if (hidden) next.hidden = true
+      else delete next.hidden
+      return next
+    })
+  }
+  if (d1Configured(env)) {
+    const current = await getStoredGallery(ownerId, slug, env)
+    if (!current) return null
+    assertGalleryEditable(current)
+    const marked = mark(current)
+    const result = await env.DB.prepare(
+      `UPDATE galleries SET images_json = ? WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
+    ).bind(JSON.stringify(marked), ownerId, slug).run()
+    if ((result.meta.changes ?? 0) === 0) return null
+    return { ...current, images: marked }
+  }
+  const store = ownerStore(ownerId)
+  const current = store.get(slug)
+  if (!current) return null
+  assertGalleryEditable(current)
+  const marked = mark(current)
+  const updated = { ...normalizeRecord(current), images: marked }
+  store.set(slug, updated)
+  return updated
+}
+
 /** The trimmed item shape the admin dashboard receives. Video entries
  *  additionally carry `type`, `durationSeconds` and `poster` so the rail
  *  can badge them; image entries are byte-identical to before — no `type`
@@ -411,9 +449,12 @@ export const updateGalleryOrder = async (ownerId: string, slug: string, order: s
 const previewImages = (images: readonly GalleryMediaItem[]) => images.map((image) => {
   const { id, ref, filename, src, width, height, alt, placeholder, variants } = image
   const base = { id, ref, filename, src, width, height, alt, placeholder, variants }
+  // `hidden` stays optional like the stored flag — the conditional spread
+  // keeps it absent on visible items, so summary shapes are unchanged.
+  const flagged = { ...base, ...(image.hidden ? { hidden: true as const } : {}) }
   return isVideoItem(image)
-    ? { ...base, type: 'video' as const, durationSeconds: image.durationSeconds, poster: image.poster }
-    : base
+    ? { ...flagged, type: 'video' as const, durationSeconds: image.durationSeconds, poster: image.poster }
+    : flagged
 })
 
 export const deleteGallery = async (ownerId: string, slug: string, env?: GalleryEnv, options?: { force?: boolean }): Promise<boolean> => {
