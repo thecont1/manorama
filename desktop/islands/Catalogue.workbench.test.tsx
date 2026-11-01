@@ -270,21 +270,20 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.desktop-catalogue')).not.toBeNull()
     expect(container.querySelector('.desktop-shell')).toBeNull()
 
-    // Header quadrants: welcome copy left of the source picker, galleries below
-    // both — the same order the web dashboard and iOS admin use.
-    const welcome = container.querySelector('.admin-welcome')
-    const importer = container.querySelector('.gallery-import')
+    // The compact owner shell: shared mark in the top bar, then a Library +
+    // Add row ahead of the cards — the same contract as the web Library.
     const galleries = container.querySelector('#galleries-heading')
-    expect(welcome?.getAttribute('aria-label')).toBe('Welcome to manorama')
-    expect(container.querySelector('#import-heading')?.textContent).toBe('Add a gallery')
-    expect(galleries?.textContent).toBe('Your galleries')
+    expect(galleries?.textContent).toBe('Library')
+    expect(container.querySelector('.m-topbar-logo')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
+    const addButton = byText(container, '+ Add Gallery')
+    expect(addButton).toBeDefined()
     const html = container.innerHTML
-    expect(html.indexOf('admin-welcome')).toBeLessThan(html.indexOf('import-heading'))
-    expect(html.indexOf('import-heading')).toBeLessThan(html.indexOf('galleries-heading'))
+    expect(html.indexOf('m-topbar')).toBeLessThan(html.indexOf('galleries-heading'))
+    expect(html.indexOf('admin-library-heading')).toBeLessThan(html.indexOf('lib-list'))
 
-    // The account controls live behind one labelled edge tab.
-    const tab = container.querySelector<HTMLButtonElement>('.admin-edge-tab')
-    expect(tab?.getAttribute('aria-label')).toBe('Account menu')
+    // The account controls live behind the gear in the top bar.
+    const tab = container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')
+    expect(tab?.getAttribute('aria-label')).toBe('Settings')
     expect(tab?.getAttribute('aria-expanded')).toBe('false')
     expect(tab?.getAttribute('aria-controls')).toBe('admin-account-drawer')
     const drawer = container.querySelector<HTMLElement>('#admin-account-drawer')
@@ -301,7 +300,7 @@ describe('desktop catalogue workbench', () => {
 
   test('opens the pane, keeps Tab inside it, and hands the caret back', async () => {
     const container = await mount(true)
-    const tab = container.querySelector<HTMLButtonElement>('.admin-edge-tab')!
+    const tab = container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')!
     const drawer = container.querySelector<HTMLElement>('#admin-account-drawer')!
 
     tab.click()
@@ -339,7 +338,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     expect(dom.document.documentElement.classList.contains('light')).toBe(false)
 
-    container.querySelector<HTMLButtonElement>('.admin-edge-tab')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')!.click()
     await settle()
     byText(container, 'Switch to light mode')!.click()
     await settle()
@@ -572,15 +571,18 @@ describe('desktop catalogue workbench', () => {
 
     const details = container.querySelector('[data-screen="local-details"]')
     expect(details).not.toBeNull()
-    expect(details?.querySelector('.m-owner-heading h1')?.textContent).toBe(TITLE)
-    expect(details?.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library']) {
+    expect(details?.querySelector('.d-name')?.textContent).toBe(TITLE)
+    expect(details?.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
+    for (const label of ['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
-    const html = container.innerHTML
-    // Local paths and filenames never surface; no invented public/provider/vault
-    // surfaces ride along with the details view.
+    // Local paths and filenames never surface in the copy; the rail's own
+    // asset URLs and photograph labels are exempt, the same way the Library
+    // card rail's are. No invented public/provider/vault surfaces ride along.
+    const copy = container.cloneNode(true) as HTMLElement
+    copy.querySelector('.d-rail')?.remove()
+    const html = copy.innerHTML
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain('MS201810-Italy0005.jpg')
@@ -662,16 +664,16 @@ describe('desktop catalogue workbench', () => {
     globals.fetch = originalFetch
   })
 
-  test('Read folder again rescans the source and updates details and card counts', async () => {
+  test('Read the folder again rescans the source and updates details and card counts', async () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
 
     dirs[ROOT_PATH]!.push({ name: 'MS201810-Italy0200.jpg', isDirectory: false, isFile: true })
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
 
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('3 photographs')
+    expect(container.querySelector('.d-head')?.textContent).toContain('3 photographs')
     expect(container.textContent).toContain('Read just now')
 
     container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
@@ -712,7 +714,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     const host = container.querySelector('.m-sheet-host')
@@ -730,7 +732,7 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
 
     // Reopening starts from a clean choose step.
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(container.querySelector('.m-sheet-host .desktop-share--sheet')).not.toBeNull()
     expect(container.textContent).toContain('nothing uploads until you confirm')
@@ -740,7 +742,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     const connectButton = byText(container, 'Connect')
@@ -755,7 +757,7 @@ describe('desktop catalogue workbench', () => {
 
     // The cancelled connect is settled, so a fresh attempt starts clean instead
     // of reporting a stale pending flow.
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     byText(container, 'Connect')!.click()
     await settle()
@@ -777,7 +779,7 @@ describe('desktop catalogue workbench', () => {
     readFileGate = deferred()
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     byText(container, 'Use Dropbox')!.click()
@@ -812,7 +814,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
     byText(container, 'Connect')!.click()
@@ -831,7 +833,7 @@ describe('desktop catalogue workbench', () => {
     // of reporting a stale pending flow.
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     byText(container, 'Connect')!.click()
     await settle()
@@ -853,7 +855,7 @@ describe('desktop catalogue workbench', () => {
     readFileGate = deferred()
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     byText(container, 'Use Dropbox')!.click()
     await settle()
@@ -903,14 +905,14 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
 
     // The error surfaces; no success note; the prior record/count stays and
     // a genuine source read failure may flag the source unavailable.
     expect(container.textContent).toContain('The card is not mounted')
     expect(container.textContent).not.toContain('Read just now')
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs')
+    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="unavailable"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(2)
@@ -930,14 +932,14 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
 
     // The error surfaces; no success note; the prior record/count stays on
     // screen and the still-available source is not flagged unavailable.
     expect(container.textContent).toContain('The disk is full')
     expect(container.textContent).not.toContain('Read just now')
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs')
+    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="available"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(2)

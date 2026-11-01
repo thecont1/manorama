@@ -39,10 +39,10 @@ export default function PublicWelcome({
           <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
         </span>
         <h1 style={welcomeHeadingStyle}>
-          the WOW-est way to enjoy a photo gallery with anyone
+          Your shared folders, shown properly
         </h1>
         <p class="landing-brand-intro">
-          manorama turns a folder of images (either on this device or in the cloud) into a beautiful full-screen hi-res gallery with a custom link of your own
+          Paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.
         </p>
         <SignInLinks returning={returning} />
         {failed ? <p class="landing-note">Sign-in didn’t complete. Please try again.</p> : null}

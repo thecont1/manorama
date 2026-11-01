@@ -21,8 +21,8 @@ export default function Welcome({ signedIn, onSignIn, authError, pendingQuickAdd
         <span class="native-welcome-logo">
           <img src="/manorama-merged-logo.png" width="140" height="47" alt="manorama" />
         </span>
-        <h1>the WOW-est way to enjoy a photo gallery with anyone</h1>
-        <p>manorama turns a folder of images (either on this device or in the cloud) into a beautiful full-screen hi-res gallery with a custom link of your own</p>
+        <h1>Your shared folders, shown properly</h1>
+        <p>Paste a Dropbox, Google Drive, iCloud or MEGA link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
       </div>
       {accountAdAside}
       {signedIn === false && onSignIn ? <div class="native-welcome-providers">

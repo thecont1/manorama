@@ -138,7 +138,11 @@ body:has(.native-diptych) {
   line-height: 1;
 }
 
-.native-list-card p {
+/* Status paragraphs own this quiet measure — scoped to direct children so
+   gallery-card text (.lib-card-sub, .native-gallery-caption) keeps its own
+   deliberate spacing instead of inheriting a 28px bottom margin and a
+   2.8em floor that reads as false empty space. */
+.native-list-card > p {
   min-height: 2.8em;
   margin: 0 0 28px;
   color: rgba(var(--ink), .7);
@@ -335,6 +339,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
 .native-account-shell { display: block; width: 100%; max-width: none; height: auto; min-height: 100svh; overflow: visible; padding: 0 24px max(20px, var(--native-safe-bottom)) 24px; }
 .native-account-shell .native-list-card { width: 100%; max-width: 1440px; margin-inline: auto; grid-column: auto; overflow: visible; padding-top: 0; }
 .native-gallery-remove-confirm { padding-bottom: 18px; }
+.native-gallery-remove-confirm p { margin: 10px 0 14px; color: rgba(var(--ink), .7); line-height: 1.55; }
 .native-gallery-list .native-gallery-remove-confirm button { width: auto; display: inline-flex; margin-right: 8px; padding: 10px 14px; border: 1px solid rgba(var(--ink), .22); }
 
 /* The list is one column of ruled cards; each li wraps a .lib-card article. */
@@ -388,7 +393,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   padding: max(12px, var(--native-safe-top)) max(12px, var(--native-safe-right)) 8px max(12px, var(--native-safe-left));
 }
 .native-editor .native-editor-cancel,
-.native-editor .native-editor-save { min-height: 36px; padding: 0 14px; font-size: 15px; }
+.native-editor .native-editor-save { padding: 0 14px; }
 .native-editor-note {
   flex: 0 0 auto;
   margin: 0;
@@ -639,8 +644,11 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   color: var(--m-secondary);
   font-size: var(--m-fs-small);
 }
-/* The card text column hugs its title: details sit 2px under, caption 6px. */
-.lib-card > .native-gallery-caption { margin-top: 6px; padding: 0; font-size: 15px; color: var(--m-secondary); }
+/* The card text column is one tight group: details 2px under the title's
+   44px box (whose ~9px inner pad already reads as a gap), the caption 4px
+   under that, and the vault meter tucked into the metadata line at 6px —
+   the 40px breathing room is reserved for the next gallery. */
+.lib-card > .native-gallery-caption { margin-top: 4px; padding: 0; font-size: 15px; color: var(--m-secondary); }
 /* One hairline marks where a gallery ends and the next begins. */
 .native-gallery-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
 /* The vault fill is the only pink on the card — a thin block meter, not
@@ -649,7 +657,7 @@ html.light body.manorama-native :is(.native-welcome, .native-list-shell, .native
   display: block;
   width: 120px;
   height: 3px;
-  margin-top: 8px;
+  margin-top: 6px;
   border-radius: 2px;
   background: var(--m-raised);
   overflow: hidden;

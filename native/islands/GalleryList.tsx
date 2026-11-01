@@ -156,6 +156,14 @@ const accountAdAdapter = createAccountAdAdapter({
   unitId: import.meta.env.VITE_ADMOB_ACCOUNT_UNIT,
 })
 
+/** Print stays a desktop utility: `window.print` exists in a phone webview
+ *  but produces nothing useful, so the control only appears where a real
+ *  hovering pointer is present. */
+const printSupported = () =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
+  typeof window.print === 'function' &&
+  window.matchMedia('(hover: hover) and (pointer: fine)').matches
+
 /** Legal and attribution links open in an in-app browser sheet — the same
  *  pattern the paywall and the OAuth flow use, because a Capacitor webview does
  *  not reliably act on a bare `target="_blank"` anchor. The href stays on the
@@ -1018,7 +1026,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       onBack={() => dispatchNav({ type: 'back' })}
       backLabel={nav.screen.from === 'settings' ? 'Settings' : 'Back'}
       onOpenExternal={openExternal}
-      onPrint={typeof window !== 'undefined' && typeof window.print === 'function' ? () => window.print() : undefined}
+      onPrint={printSupported() ? () => window.print() : undefined}
     />
   }
 
@@ -1481,13 +1489,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           aria-label="Settings"
           onClick={() => dispatchNav({ type: 'open-settings' })}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3.4" /><path d="M12 3.2v2.3M12 18.5v2.3M3.2 12h2.3M18.5 12h2.3M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" /></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
         </button>
       )} />
       <section class="native-list-card" aria-live="polite" aria-busy={status === 'loading'}>
         <div class="native-library-heading">
           <h1>Library</h1>
-          <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add</button>
+          <button type="button" class="m-btn m-btn--primary" onClick={() => { setError(null); setAddOpen(true) }}><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add Gallery</button>
         </div>
         {/* The status line under the title reports vault activity first,
             then how many galleries live on the device. */}

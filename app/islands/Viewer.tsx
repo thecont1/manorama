@@ -1254,7 +1254,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // Combos belong to the browser — Alt+Left is history-back, not a
       // strip move — so they neither hide the chrome nor navigate.
       if (event.altKey || event.ctrlKey || event.metaKey) return
-      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip')
+      // The video Play/Mute cluster counts as chrome too — a key pressed on
+      // it is control interaction, not a cue to hide what is being pressed.
+      const inChrome = (event.target as HTMLElement | null)?.closest?.('[data-chrome-top], [data-chrome-bottom], .m-chrome-skip, [data-video-controls]')
       if (!inChrome) chromeActionsRef.current.hide()
       if (event.key === 'ArrowRight') { event.preventDefault(); advanceStripByViewport(1) }
       if (event.key === 'ArrowLeft') { event.preventDefault(); advanceStripByViewport(-1) }
@@ -2201,7 +2203,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           track scrolls. */}
       <div
         ref={stageRef}
-        class={`viewer-stage mode-${mode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}`}
+        class={`viewer-stage mode-${mode} bg-${background}${arrowsVisible ? ' has-arrow-bar' : ''}${chromeVisible && !suspended ? ' chrome-on' : ''}`}
         data-stage
         aria-label={`${slug} photograph viewer`}
         tabIndex={-1}
@@ -2334,6 +2336,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                         suspended={suspended}
                         onToggleSound={setSoundOn}
                         boxStyle={cappedMediaStyle}
+                        onActivity={pauseChrome}
+                        onIdle={scheduleChromeHide}
                       />
                     ) : null}
                     </>

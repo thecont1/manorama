@@ -41,6 +41,21 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       const menuButton = await box('.lib-card-menu')
       expect(Math.abs(menuButton.y - title.y), `card ${index} keeps its menu on the title's line`).toBeLessThanOrEqual(title.height)
       expect(menuButton.x, `card ${index} keeps its menu right of the title`).toBeGreaterThan(title.x)
+      // Title → metadata → caption is one tight group; the breathing room is
+      // reserved for the next gallery's card.
+      const caption = card.locator('.native-gallery-caption')
+      const captionCount = await caption.count()
+      if (captionCount > 0) {
+        const captionBox = (await caption.first().boundingBox())!
+        expect(captionBox.y - (sub.y + sub.height), `card ${index} keeps its caption in the metadata group`).toBeLessThanOrEqual(12)
+      }
+      if (index + 1 < cardCount) {
+        // Card padding carries the inter-gallery breathing room: measure from
+        // the last text block to the next card's rail, not box edge to edge.
+        const lastBlock = captionCount > 0 ? (await caption.first().boundingBox())! : sub
+        const nextRail = (await cards.nth(index + 1).locator('.lib-rail').first().boundingBox())!
+        expect(nextRail.y - (lastBlock.y + lastBlock.height), `card ${index} leaves a deliberate gap to the next gallery`).toBeGreaterThanOrEqual(30)
+      }
     }
     await page.screenshot({ path: `demo-captures/admin-gallery-focus/native-${viewport.width}-admin.png`, fullPage: true })
 
@@ -49,14 +64,19 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       .evaluate((node) => getComputedStyle(node).paddingLeft)
     if (viewport.width < 820) expect(shellPadding).toBe('24px')
 
-    // Add is a deliberate, keyboard-safe sheet with one pinned CTA.
-    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    // Add is a deliberate, keyboard-safe sheet with one pinned CTA — and a
+    // real 44px finger target, not just a tall-enough label.
+    const addTrigger = page.getByRole('button', { name: 'Add Gallery', exact: true })
+    const addBox = (await addTrigger.boundingBox())!
+    expect(addBox.height, 'Add Gallery meets the 44px touch floor').toBeGreaterThanOrEqual(44)
+    expect(addBox.width, 'Add Gallery meets the 44px touch floor').toBeGreaterThanOrEqual(44)
+    await addTrigger.click()
     const addSheet = page.getByRole('dialog', { name: 'Add a gallery' })
     await expect(addSheet).toBeVisible()
     await expect(addSheet.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA')).toBeVisible()
     await expect(addSheet.getByRole('button', { name: 'Paste', exact: true })).toBeVisible()
     await expect(addSheet.getByLabel('Name (optional)')).toBeVisible()
-    await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add gallery', exact: true })).toBeInViewport()
+    await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add a gallery', exact: true })).toBeInViewport()
     await page.screenshot({ path: `docs/redesign-parity/native-${viewport.width}-add.png`, fullPage: false })
     await addSheet.getByRole('button', { name: 'Close', exact: true }).click()
 
@@ -99,6 +119,12 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await page.getByRole('menuitem', { name: 'Reorder photographs', exact: true }).click()
     const editor = page.locator('[data-gallery-editor]')
     await expect(editor).toBeVisible()
+    // Cancel and Save share the shared 44px bar buttons — the editor used to
+    // shrink them to 36px.
+    for (const cls of ['.native-editor-cancel', '.native-editor-save']) {
+      const box = (await editor.locator(cls).boundingBox())!
+      expect(box.height, `${cls} meets the 44px touch floor`).toBeGreaterThanOrEqual(44)
+    }
     const cells = editor.locator('.native-global-grid .native-global-cell')
     await expect(cells.first()).toBeVisible()
     const cellCount = await cells.count()
@@ -151,7 +177,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const originalFirst = editor.locator(`[data-order-key="${orderBefore[0]}"]`)
     await expect(originalFirst).toBeVisible()
     await originalFirst.click()
-    await expect(editor.locator('.native-editor-note')).toContainText('position 1 of')
+    // The move result is announced in the hidden live region, never shown.
+    await expect(page.locator('.m-sr-only')).toContainText('position 1 of')
+    await expect(editor.locator('.native-editor-note')).not.toContainText('Moved')
     const orderAfter = await cells.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-order-key')))
     expect(orderAfter[0]).toBe(orderBefore[cellCount - 1])
     await editor.locator('.native-editor-save').click()

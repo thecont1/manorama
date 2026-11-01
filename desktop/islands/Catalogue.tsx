@@ -24,6 +24,7 @@ import {
 import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
+import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
 import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
@@ -34,6 +35,7 @@ import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
 import { Sheet } from '../../app/components/ui/Sheet'
+import { TopBar } from '../../app/components/ui/TopBar'
 import { applyTheme, oppositeTheme, readStoredTheme, storeTheme, themeControlLabel, type Theme } from '../lib/theme'
 import {
   beginDesktopSignIn,
@@ -524,10 +526,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const handleShareStep = (step: ShareStep) => {
+    // The link is already written server-side when the flow reaches done.
+    // Routing the refresh through the normal sync keeps the session-change
+    // guard of the account fetch (its abort drops stale results after a
+    // sign-out or account switch) while an open Details gets Share link —
+    // not a second publish — and the card collapses into its cloud gallery.
+    // shareStepRef guards refires of onStepChange.
+    const published = step === 'done' && shareStepRef.current !== 'done'
     setShareStep(step)
     setShareUploading(step === 'uploading')
     shareStepRef.current = step
     shareUploadingRef.current = step === 'uploading'
+    if (published && session && catalogue) void runSync(catalogue, session)
   }
 
   const rename = async (record: LocalGalleryRecord, value: string) => {
@@ -664,7 +674,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
               </span>
             </header>
-            <p class="landing-brand-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
+            <h1>Your shared folders, shown properly</h1>
+            <p class="landing-brand-intro">Pick a folder on this Mac, or paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.</p>
             <div class="desktop-signin">
               <span class="desktop-signin-lead">Continue with</span>
               <div class="desktop-signin-icons">
@@ -697,8 +708,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // photograph is open — Open leaves details first.
   const detailsRecord = detailsId && catalogue ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
+  // A published link exists only when this Mac's own synced row carries the
+  // public slug; the local record id is the device-gallery row id.
+  const publishedRow = detailsRecord ? deviceRows.find((row) => row.id === detailsRecord.id) : undefined
+  const publishedSlug = publishedRow?.publicGallerySlug
+  const detailsPublishedUrl = publishedSlug && (ownerSlug ?? session?.ownerSlug)
+    ? `${base}/${ownerSlug ?? session?.ownerSlug}/${publishedSlug}`
+    : null
   const shareHost = shareOpen && shareRecord ? (
-    <Sheet open={shareOpen} onClose={dismissShare} title={`Share “${shareRecord.title}”`} dismissible={!shareUploading}>
+    <Sheet open={shareOpen} onClose={dismissShare} title={`Publish “${shareRecord.title}”`} dismissible={!shareUploading}>
       <ShareFlow
         record={shareRecord}
         catalogue={catalogue}
@@ -723,6 +741,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             closeDetails()
             openViewer(detailsRecord.id, 0)
           }}
+          onOpenAt={(index) => {
+            closeDetails()
+            openViewer(detailsRecord.id, index)
+          }}
+          publishedUrl={detailsPublishedUrl}
+          onShareLink={detailsPublishedUrl ? async () => {
+            const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
+            if (shared === 'shared') return 'Link shared'
+            if (shared === 'cancelled') return null
+            // No system share in the webview — the clipboard keeps the same
+            // contract, and a failed copy leaves the address visible.
+            return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
+          } : undefined}
           onShare={openShareFromDetails}
           onRescan={() => rescan(detailsRecord)}
           onRename={(title) => rename(detailsRecord, title)}
@@ -750,8 +781,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // sentence rather than guessing Free.
   const planSentence = session?.tier === 'pro' ? 'You are a Visionary.' : session?.tier === 'free' ? 'You are a Free User.' : null
   const galleryWord = galleries.length === 1 ? 'gallery' : 'galleries'
-  const helloLine = `Hello, ${session?.ownerSlug || 'there'}. Welcome to manorama.xyz.`
-  const planLine = `${planSentence ? `${planSentence} ` : ''}${galleries.length} ${galleryWord} on this Mac.`
+
 
   const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
   const menuAnchor = (url: string) => ({
@@ -769,21 +799,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // anything measuring the surface can wait for it instead of guessing.
     <main class="admin-page admin-page--selector desktop-catalogue" data-admin-ready="true">
       <div class="desktop-titlebar" data-tauri-drag-region />
-      {/* Account tools live at the edge; the photographs keep the page width.
-          The tab belongs to the catalogue only, never to the viewing stage. */}
-      <button
-        type="button"
-        class="admin-edge-tab"
-        aria-label="Account menu"
-        aria-expanded={menuOpen ? 'true' : 'false'}
-        aria-controls="admin-account-drawer"
-        ref={menuButtonRef}
-        onClick={() => setMenuOpen(true)}
-      >
-        <span class="admin-tab-label" aria-hidden="true">Account</span>
-        <svg class="admin-hamburger" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-        <svg class="admin-tab-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-      </button>
+      {/* The compact owner shell: shared mark in the bar, a gear for the
+          account/settings drawer, Library and Add on one row — the same
+          contract as the web Library (TASTE-03). */}
+      <TopBar end={(
+        <button
+          type="button"
+          class="m-btn m-btn--quiet m-iconbtn"
+          aria-label="Settings"
+          aria-expanded={menuOpen ? 'true' : 'false'}
+          aria-controls="admin-account-drawer"
+          ref={menuButtonRef}
+          onClick={() => setMenuOpen(true)}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a1.7 1.7 0 0 0 .3-1.8l-.1-.1a2 2 0 1 1-2.8-2.8l.1.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.8-.3l.1.1a1.7 1.7 0 0 0 .3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+        </button>
+      )} />
       {/* Hidden account controls stay outside the accessibility tree until the
           hydrated catalogue opens them. */}
       <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
@@ -795,17 +826,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <div class="admin-left">
             <header class="admin-header">
               <div>
-                <p class="admin-brand-title"><span class="brand-mark-wrap"><img class="admin-brand-logo" src="/manorama-merged-logo.png" alt="manorama" /></span></p>
-                <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-                <div class="admin-greeting">
-                  <p>Hello <mark class="admin-greeting-name">{session?.ownerSlug || 'there'}</mark>. Welcome to manorama.xyz.</p>
-                  {/* The address the owner's galleries answer to — the web
-                      dashboard's own line, kept so the pane reads the same on
-                      every surface. */}
-                  <p class="admin-greeting-url">manorama.xyz/{session?.ownerSlug ?? ''}</p>
-                  {planSentence ? <p>{planSentence}</p> : null}
-                  <p class="desktop-device-line">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'}</p>
-                </div>
+                {/* The pane states the account, not the product pitch — the
+                    dictionary definition and greeting belong to Welcome. */}
+                {session ? <p class="admin-greeting-url">manorama.xyz/{ownerSlug ?? session.ownerSlug}</p> : null}
+                {planSentence ? <p>{planSentence}</p> : null}
+                <p class="desktop-device-line">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'}</p>
                 {!session ? (
                   <div class="desktop-signin desktop-account-signin">
                     <span class="desktop-signin-lead">Continue with</span>
@@ -847,39 +872,16 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       </div>
 
       <div class="admin-content">
-        {/* Only the continuous photographic rails span the centre. The welcome
-            copy and the local-source picker each fit inside one half of the
-            top workbench. */}
-        <div class="admin-overview">
-          <section class="admin-welcome" aria-label="Welcome to manorama">
-            <span class="admin-welcome-brand brand-mark-wrap">
-              <img class="admin-topbar-logo" src="/manorama-merged-logo.png" alt="manorama" />
-            </span>
-            <p class="admin-intro"><em>adj.</em> a view that is delightful to the mind.<br />Also, the WOW-est way to enjoy a photo gallery with anyone!</p>
-            <p class="admin-profile-address">manorama.xyz/{session?.ownerSlug ?? ''}</p>
-            <p class="admin-welcome-note">{helloLine} {planLine}</p>
-          </section>
-          <section class="gallery-import" aria-labelledby="import-heading">
-            <div class="gallery-selector-heading"><h2 id="import-heading">Add a gallery</h2></div>
-            <div class="admin-retention-policy">
-              {/* The web dashboard's slot states the account's retention; here
-                  it states the Mac's own fact, in the same words the welcome
-                  quadrant uses. The photograph count lives on the pane's device
-                  line, where it is not a repetition. */}
-              <p class="admin-limit-count">{galleries.length} {galleryWord} on this Mac</p>
-              <p class="desktop-sync-state">{syncMessage(syncState, session)}</p>
-            </div>
-            <div class="desktop-source-actions">
-              <button type="button" class="admin-button admin-button--solid" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : 'Choose a folder or card'}</button>
-              {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>Sync now</button> : null}
-            </div>
-            {notice ? <p class="desktop-source-note" role="status">{notice}</p> : null}
-            <p class="admin-privacy-note">Manorama reads only the folders and cards you pick, and references the originals in place: nothing is copied, uploaded, moved or re-encoded. Removing a gallery removes this Mac’s entry; nothing in the folder itself is ever modified or deleted.</p>
-          </section>
-        </div>
-
         <section class="gallery-list" aria-labelledby="galleries-heading">
-          <h1 class="admin-galleries-heading" id="galleries-heading">Your galleries</h1>
+          <div class="admin-library-heading">
+            <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
+            <div class="desktop-library-actions">
+              {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>{syncState === 'syncing' ? 'Syncing…' : 'Sync now'}</button> : null}
+              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
+            </div>
+          </div>
+          <p class="admin-library-sub">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'} · {syncMessage(syncState, session)}</p>
+          {notice ? <p class="desktop-source-note" role="status">{notice}</p> : null}
           {accountNote ? <p class="desktop-source-note" role="status">{accountNote}</p> : null}
           {slugNote ? <p class="desktop-source-note" role="status">{slugNote}</p> : null}
           {galleries.length || accountGalleries?.length || remoteDeviceGalleries.length ? (

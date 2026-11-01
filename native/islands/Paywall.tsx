@@ -1,6 +1,8 @@
 import { useState } from 'hono/jsx'
 import { Browser } from '@capacitor/browser'
 import { RevenueCatBilling } from '../lib/billing'
+import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT } from '../../packages/core/account'
+import { FREE_VAULT_CAP_BYTES } from '../lib/vault-settings'
 import { nativeDeviceLabel } from '../lib/device-label'
 import { Button } from '../../app/components/ui/Button'
 import { ActionRow } from '../../app/components/ui/ActionRow'
@@ -83,9 +85,9 @@ export default function Paywall({ billing, onClose, onOpenPrivacy }: Props) {
         <div class="native-visionary-body">
           {isPro ? <p class="native-visionary-note" role="status">Your Visionary subscription is active.</p> : null}
           <dl class="native-visionary-kv">
-            <dt>Galleries kept</dt><dd>3 → 99</dd>
-            <dt>Room on {nativeDeviceLabel()}</dt><dd>256 MB → larger</dd>
-            <dt>Galleries over the limit</dt><dd>Kept, not for 30 days</dd>
+            <dt>Galleries kept</dt><dd>{FREE_RETAINED_LIMIT} → {PAID_RETAINED_LIMIT}</dd>
+            <dt>Encrypted vault on {nativeDeviceLabel()}</dt><dd>{Math.round(FREE_VAULT_CAP_BYTES / (1024 * 1024))} MB → any size you choose, up to unlimited</dd>
+            <dt>Galleries over the free limit</dt><dd>Temporary for 30 days — upgrading keeps them</dd>
           </dl>
           <p class="native-visionary-note">An annual subscription, billed by the App Store. Your galleries and photographs are the same on either plan.</p>
           {message ? <p class="m-note" role="status">{message}</p> : null}

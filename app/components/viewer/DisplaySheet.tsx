@@ -41,7 +41,7 @@ export default function DisplaySheet({
     : mode === 'vertical' ? 'Each photograph fits the width'
     : 'One at a time, swipe or tap'
   const canvasHint =
-    background === 'none' ? 'Photographs line up against one another'
+    background === 'none' ? 'No space between photographs'
     : background === 'dark' ? 'Black background, space around images'
     : 'White background, space around images'
   return (
@@ -49,33 +49,39 @@ export default function DisplaySheet({
       <Sheet open={open} onClose={onClose} title="Display" panelStyle={panelStyle}>
         {deviceControls ? <section class="m-sheet-section"><h3 class="m-sheet-label">On this device</h3>{deviceControls}</section> : null}
         <section class="m-sheet-section">
-          <div class="m-sheet-labelrow"><h3 class="m-sheet-label">Layout</h3><span class="m-sheet-hint">{layoutHint}</span></div>
-          <Segmented
-            label="Layout"
-            value={mode}
-            onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
-            options={[
-              { value: 'strip', label: 'Strip' },
-              { value: 'vertical', label: 'Scroll' },
-              { value: 'single', label: 'One by one' },
-            ]}
-          />
+          <div class="m-sheet-field">
+            <h3 class="m-sheet-label">Layout</h3>
+            <span class="m-sheet-hint">{layoutHint}</span>
+            <Segmented
+              label="Layout"
+              value={mode}
+              onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
+              options={[
+                { value: 'strip', label: 'Strip' },
+                { value: 'vertical', label: 'Scroll' },
+                { value: 'single', label: 'One by one' },
+              ]}
+            />
+          </div>
         </section>
         <section class="m-sheet-section">
-          <div class="m-sheet-labelrow"><h3 class="m-sheet-label">Canvas</h3><span class="m-sheet-hint">{canvasHint}</span></div>
-          <Segmented
-            label="Canvas"
-            value={background}
-            onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
-            options={[
-              { value: 'none', label: 'Blank' },
-              { value: 'dark', label: 'Dark' },
-              { value: 'light', label: 'Light' },
-            ]}
-          />
+          <div class="m-sheet-field">
+            <h3 class="m-sheet-label">Canvas</h3>
+            <span class="m-sheet-hint">{canvasHint}</span>
+            <Segmented
+              label="Canvas"
+              value={background}
+              onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
+              options={[
+                { value: 'none', label: 'Blank' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'light', label: 'Light' },
+              ]}
+            />
+          </div>
         </section>
         <section class="m-sheet-section">
-          <div class="m-sheet-labelrow">
+          <div class="m-sheet-field">
             <Switch
               checked={arrowsOn}
               onChange={onArrows}
@@ -85,7 +91,7 @@ export default function DisplaySheet({
             <span class="m-sheet-hint" id={arrowsDescId}>Show next and previous buttons</span>
           </div>
           {fullscreenAvailable ? (
-            <div class="m-sheet-labelrow">
+            <div class="m-sheet-field">
               <Switch checked={fullscreenActive} onChange={() => onFullscreen()} label="Fullscreen" describedBy={fsDescId} />
               <span class="m-sheet-hint" id={fsDescId}>Fill the screen</span>
             </div>

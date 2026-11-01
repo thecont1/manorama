@@ -52,7 +52,7 @@ export function AddGallerySheet({
           form="m-add-gallery-form"
           disabled={busy || !url.trim()}
         >
-          {busy ? 'Adding gallery…' : 'Add gallery'}
+          {busy ? 'Adding a gallery…' : 'Add a gallery'}
         </Button>
       )}
     >

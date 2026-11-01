@@ -410,10 +410,9 @@ button { color: inherit; }
 /* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
 /* When arrows are on, the stage cedes a real 64px bar beneath the
    photographs — the controls live in their own strip and never sit on
-   an image. Scroll mode keeps the full-height feed: its ↑/↓ pair floats
-   stacked at bottom right instead. */
+   an image. Every mode docks the same way, Scroll included. */
 .viewer-stage { --viewer-arrows-bar: 0px; position: relative; isolation: isolate; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar)); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
-.viewer-stage.mode-strip.has-arrow-bar, .viewer-stage.mode-single.has-arrow-bar { --viewer-arrows-bar: calc(64px + env(safe-area-inset-bottom, 0px)); }
+.viewer-stage.mode-strip.has-arrow-bar, .viewer-stage.mode-single.has-arrow-bar, .viewer-stage.mode-vertical.has-arrow-bar { --viewer-arrows-bar: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
@@ -516,10 +515,10 @@ button { color: inherit; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
-/* Vertical scroll stacks ↑ over ↓ at the bottom-right corner instead —
-   a width-fit feed reads top-to-bottom and keeps its full-height
-   canvas, so vertical travel docks right as a floating pair. */
-.stage-arrows--vertical { left: auto; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); width: auto; height: auto; padding: 0; flex-direction: column; align-items: flex-end; justify-content: initial; }
+/* Vertical mode uses the same reserved bar as every other mode — the
+   floating bottom-right pair rested permanently on photographs, which
+   the no-controls principle forbids. ↑/↓ keep their glyphs; only the
+   dock changes. The class stays because the native row styles hook it. */
 
 .text-button { border: 0; padding: 0; background: transparent; color: rgba(var(--ink), .68); font-size: 12px; cursor: pointer; }
 .text-button:hover, .text-button:focus-visible { color: rgb(var(--ink)); }
@@ -536,7 +535,20 @@ button { color: inherit; }
 .m-sheet-section:last-child { border-bottom: 0; }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
-.m-sheet-hint { color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; text-align: right; }
+.m-sheet-hint { color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; text-align: right; min-width: 0; }
+/* A field pairs a control with the hint that explains its current choice.
+   Wide: label and hint share the first row, the control spans beneath.
+   Narrow: the hint drops below the control rather than squeezing beside
+   the label or wrapping into a cramped side column. */
+.m-sheet-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 16px; align-items: baseline; }
+.m-sheet-field > .m-sheet-label { grid-area: 1 / 1; }
+.m-sheet-field > .m-switch { grid-area: 1 / 1; justify-self: start; }
+.m-sheet-field > .m-sheet-hint { grid-area: 1 / 2; justify-self: end; }
+.m-sheet-field > .m-switch ~ .m-sheet-hint { align-self: center; }
+.m-sheet-field > .m-segmented { grid-area: 2 / 1 / auto / -1; margin-top: 8px; }
+@media (max-width: 30em) {
+  .m-sheet-field > .m-sheet-hint { grid-area: 3 / 1 / auto / -1; justify-self: start; align-self: auto; text-align: left; }
+}
 .m-shortcut-list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }
 .m-shortcut-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; color: rgba(var(--m-ink, var(--ink)), .62); font-size: 12px; }
 @media (max-width: 560px) { .m-shortcut-list { grid-template-columns: 1fr; } }
@@ -568,35 +580,31 @@ body:has(.not-found) { background: #111312; color: rgb(var(--ink)); }
 .not-found p { margin: 0; font-size: clamp(26px, 5vw, 44px); font-weight: 700; letter-spacing: -.03em; }
 body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--ink)); }
 .policy-page { min-height: 100svh; display: grid; place-items: start center; padding: clamp(32px, 6vw, 80px) 24px 64px; box-sizing: border-box; }
-.policy-document { width: 100%; max-width: 1080px; }
-.policy-document h1 { margin: 0 0 4px; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(28px, 5vw, 40px); font-weight: 800; letter-spacing: -.03em; }
-.policy-document p { margin: 0 0 16px; font-family: 'Playfair', 'Bricolage Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
+.policy-document { width: 100%; max-width: 680px; font-family: var(--m-font); font-size: var(--m-fs-body); line-height: 1.65; }
+.policy-document h1 { margin: 0 0 4px; font-size: clamp(26px, 5vw, 34px); font-weight: 800; letter-spacing: -.03em; }
+.policy-document p { margin: 0 0 16px; color: rgba(var(--ink), .9); }
 .policy-document ul { margin: 0 0 16px; padding-left: 20px; }
-.policy-document li { margin: 0 0 8px; font-family: 'Playfair', 'Bricolage Grotesque', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; line-height: 1.6; color: rgba(var(--ink), .9); }
+.policy-document li { margin: 0 0 8px; color: rgba(var(--ink), .9); }
 /* The wrapped-link example is one unbreakable token — without
    overflow-wrap it pushes the document ~27px past a 320px viewport. */
 .policy-document code { font-family: ui-monospace, 'SF Mono', monospace; font-size: 15px; background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 3px; overflow-wrap: anywhere; }
 .policy-document a { color: inherit; text-decoration: underline; text-decoration-color: rgba(243,240,232,.3); text-underline-offset: 2px; transition: text-decoration-color 180ms ease; }
 .policy-document a:hover { text-decoration-color: rgba(243,240,232,.7); }
 .policy-document a:focus-visible { outline: 2px solid rgba(var(--ink), .75); outline-offset: 3px; text-decoration-color: rgba(243,240,232,.7); }
-.policy-document .policy-updated { margin: 0 0 24px; font-family: 'DM Mono', ui-monospace, monospace; font-size: 14px; letter-spacing: .06em; color: rgba(var(--ink), .68); }
-.policy-document .policy-lede { max-width: 680px; font-size: 20px; }
-.policy-document h2 { margin: clamp(38px, 6vw, 56px) 0 16px; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: clamp(20px, 3vw, 26px); font-weight: 700; }
-.policy-personas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
-.policy-card { padding: clamp(18px, 2.5vw, 26px); border: 1px solid rgba(var(--ink), .14); background: rgba(var(--ink), .045); }
-.policy-card h3 { margin: 0 0 10px; font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .01em; }
-.policy-card p { font-size: 16px; line-height: 1.6; }
+.policy-document .policy-updated { margin: 0 0 24px; font-size: var(--m-fs-small); color: var(--m-meta); }
+.policy-document .policy-lede { font-size: 19px; }
+.policy-document h2 { margin: 40px 0 12px; font-size: clamp(19px, 3vw, 22px); font-weight: 700; }
+.policy-document h3 { margin: 0 0 8px; font-size: var(--m-fs-section); font-weight: 700; }
+/* The persona entries are subsections of continuous prose — a flat column,
+   not nested cards on a tinted grid. */
+.policy-personas { display: grid; gap: 20px; margin: 0 0 16px; }
 .policy-card p:last-child { margin-bottom: 0; }
 .policy-section { max-width: 680px; }
-@media (max-width: 1050px) { .policy-personas { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 720px) { .policy-personas { grid-template-columns: 1fr; } }
 @media print {
   body:has(.policy-page) { overflow: visible; background: #fff; color: #000; }
   .policy-page { display: block; min-height: 0; padding: 16px 8px; }
   .policy-document { max-width: none; }
-  .policy-personas { grid-template-columns: 1fr; }
-  .policy-card { border-color: #999; background: none; }
-  .policy-document h1, .policy-document h2, .policy-card h3 { color: #000; }
+  .policy-document h1, .policy-document h2, .policy-document h3 { color: #000; }
   .policy-document p, .policy-document li { color: #000; }
   .policy-document .policy-updated { color: #333; }
   .policy-document code { background: none; color: #000; }
@@ -605,10 +613,7 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
-.admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; }
-.admin-intro { max-width: 50ch; margin: 0; color: rgb(var(--ink)); font-size: 13px; line-height: 1.7; }
-.admin-intro strong { color: rgba(var(--ink), .9); font-weight: 500; }
-.admin-intro code { color: rgba(214, 224, 213, .62); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
+.admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; font-family: var(--m-font); }
 /* The toast is a quiet pill docked at the bottom edge — a status note,
    not a banner. */
 .admin-toast {
@@ -632,25 +637,12 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
-.admin-section { padding: clamp(28px, 4vw, 52px) 0; border-top: 1px solid rgba(var(--ink), .12); }
-.admin-section h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -.035em; }
 .admin-button { border: 1px solid rgba(var(--ink), .2); border-radius: 0; padding: 12px 15px; background: transparent; color: rgba(var(--ink), .78); font-size: 12px; cursor: pointer; }
 .admin-button:hover, .admin-button:focus-visible { border-color: rgba(var(--ink), .72); color: #fff; }
 .admin-button--solid { border-color: rgb(var(--ink)); background: rgb(var(--ink)); color: #161817; }
 .admin-button--solid:hover, .admin-button--solid:focus-visible { border-color: #fff; background: #fff; color: #111312; }
 
 .admin-page--selector { min-height: 100dvh; }
-.gallery-selector-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 32px; }
-.gallery-selector-heading > div { display: flex; align-items: baseline; gap: 18px; }
-.gallery-selector-heading h2 { margin: 0; font-size: 18px; font-weight: 500; letter-spacing: -.035em; }
-.gallery-selector-heading > p { margin: 3px 0 0; color: rgba(var(--ink), .44); font-size: 12px; }
-@media (max-width: 720px) {
-  .gallery-selector-heading { display: block; }
-  .gallery-selector-heading > p { margin: 10px 0 0 36px; }
-}
-
-.gallery-import { width: min(1040px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0; border-top: 1px solid rgba(var(--ink), .12); }
-.admin-privacy-note { max-width: 52ch; margin: 14px 0 0; color: rgba(var(--ink), .36); font-size: 11px; line-height: 1.6; }
 
 /* Recency-first gallery list */
 .gallery-list { width: min(1040px, 100%); margin: 0 auto; padding: clamp(26px, 4vw, 48px) 0 72px; border-top: 1px solid rgba(var(--ink), .12); }
@@ -695,15 +687,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-weight: 200 800;
   font-display: swap;
 }
-.admin-intro {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  text-transform: none;
-}
-.admin-intro { font-style: italic; font-weight: 400; font-size: clamp(15px, 1.7vw, 21px); letter-spacing: -.02em; line-height: 1.55; }
-
-/* Brand hierarchy and logo marks */
-.admin-intro { max-width: 58ch; margin: 0; font-family: 'Playfair', 'Bricolage Grotesque', 'Manrope', ui-serif, Georgia, serif; font-size: 18px; font-weight: 300; font-style: normal; font-optical-sizing: auto; font-variation-settings: "wdth" 85, "wght" 300; letter-spacing: -.02em; line-height: 1.5; }
-.admin-intro em { font-style: italic; }
 /* The brand is a peeking wordmark in a pill, not a banner — but the
    BUTTON is only the hit area: a 44px strip fully inside the viewport
    bottom. The painted pill (.brand-mark-wrap + ::before) does the
@@ -971,16 +954,7 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   color: rgba(var(--ink), .6);
 }
 
-/* Dashboard owner row: name, editable URL, sign out. */
-.admin-greeting {
-  max-width: 56ch;
-  margin: 30px 0 0;
-  color: rgba(var(--ink), .82);
-  font-size: 16px;
-  line-height: 1.9;
-  letter-spacing: -.01em;
-}
-.admin-greeting p { margin: 0; }
+/* Dashboard owner row: the account address the owner's galleries answer to. */
 .admin-greeting-url {
   display: block;
   margin: 0 0 3em;
@@ -988,32 +962,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-family: 'DM Mono', ui-monospace, monospace;
   font-size: 19px;
   letter-spacing: .04em;
-}
-.admin-greeting-url .admin-owner-slug { font-size: inherit; }
-.admin-greeting-name {
-  padding: 0 .12em;
-  background: linear-gradient(transparent 52%, rgba(255, 228, 94, .45) 52%);
-  color: inherit;
-}
-.admin-owner-slug-input {
-  width: auto;
-  min-width: 8ch;
-  max-width: min(42ch, 100%);
-  field-sizing: content;
-  margin-left: 2px;
-  padding: 2px 10px;
-  border: 1px solid rgba(var(--ink), .45);
-  border-radius: 5px;
-  background: rgba(var(--ink), .06);
-  color: rgb(var(--ink));
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: inherit;
-  letter-spacing: .04em;
-  outline: none;
-}
-.admin-owner-slug-input:focus-visible {
-  border-color: rgba(var(--ink), .85);
-  background: rgba(var(--ink), .1);
 }
 .admin-delete-confirm { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; color: rgba(var(--ink), .55); font-size: 12px; }
 .admin-delete-confirm input {
@@ -1027,20 +975,6 @@ body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
   font-size: 13px;
 }
 .admin-delete-confirm input:focus-visible { border-color: rgba(var(--ink), .85); background: rgba(var(--ink), .1); outline: none; }
-.admin-limit-count {
-  display: block;
-  margin: -18px 0 26px;
-  color: rgba(var(--ink), .46);
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: .08em;
-}
-.admin-retention-policy { margin: -18px 0 26px; }
-.admin-retention-policy .admin-limit-count { margin: 0 0 6px; }
-.admin-retention-policy p:not(.admin-limit-count) { margin: 6px 0 0; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; }
-.admin-gallery-retention { grid-column: 1 / -1; margin: 16px 0 4px; color: rgba(var(--ink), .65); font-size: 12px; line-height: 1.6; }
-.admin-gallery-retention p { margin: 4px 0 0; }
-.admin-gallery-retention a { color: rgb(var(--ink)); }
 
 /* Light theme (editor only): the toggle adds .light to <html>; --ink flips every
    ink-derived color. Hard-coded surfaces and white-hover states need overrides. */
@@ -1196,6 +1130,12 @@ html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark) { filter: bright
 }
 .video-control:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .84); }
 .video-control:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 3px; opacity: 1; }
+/* Play/Mute are temporary controls — they ride the chrome reveal rather
+   than resting permanently on the photograph; the VIDEO chip stays as
+   the frame's label (it is a marker, not a control). */
+.video-control { visibility: hidden; opacity: 0; transition: opacity 200ms var(--m-ease, ease), visibility 0s 200ms; }
+.viewer-stage.chrome-on .video-control { visibility: visible; opacity: .62; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+.viewer-stage.chrome-on .video-control:is(:hover, :focus-visible) { opacity: 1; }
 .video-chip {
   padding: 5px 10px;
   border: 1px solid rgba(var(--ink), .14);
@@ -1686,31 +1626,17 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 
 .admin-page--selector { --admin-surface: #111312; --admin-muted: .68; display: block; width: 100%; height: auto; overflow: visible; background: var(--admin-surface); padding: 0; }
 .admin-page--selector .admin-content { width: min(1440px, 100%); margin-inline: auto; padding: clamp(12px, 2vw, 20px) clamp(20px, 7vw, 112px) clamp(48px, 8vw, 96px); }
-.admin-page--selector :is(.gallery-import, .gallery-list) { width: 100%; }
-/* The wordmark moved above the list, so the list's own top padding is
+.admin-page--selector .gallery-list { width: 100%; }
+/* The shared top bar owns the mark, so the list's own top padding is
    just a small gap under it — not hero spacing. */
 .admin-page--selector .gallery-list { padding-top: clamp(12px, 2vw, 20px); }
-.admin-page--selector :is(.admin-limit-count, .admin-privacy-note, .site-footer-link, .site-footer-copy, .site-footer-copy a) { color: rgba(var(--ink), var(--admin-muted)); }
+.admin-page--selector :is(.site-footer-link, .site-footer-copy, .site-footer-copy a) { color: rgba(var(--ink), var(--admin-muted)); }
 .admin-page--selector input::placeholder { color: rgba(var(--ink), var(--admin-muted)); opacity: 1; }
 
-.admin-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; padding-bottom: 32px; }
-.admin-welcome { min-width: 0; }
-.admin-welcome-brand { display: block; position: relative; width: min(340px, 100%); margin-bottom: 24px; }
-.admin-welcome-brand .admin-topbar-logo { display: block; width: 100%; max-width: 100%; height: auto; }
-.admin-welcome .admin-intro { max-width: 44ch; font-size: 16px; line-height: 1.55; }
-.admin-welcome-note { max-width: 46ch; margin: 24px 0 0; color: rgba(var(--ink), .86); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
-.admin-overview .gallery-import { min-width: 0; padding: 0; border-top: 0; }
-.admin-overview .gallery-selector-heading { margin-bottom: 22px; }
-.admin-overview .admin-retention-policy { margin: 0 0 22px; }
-.admin-galleries-heading { margin: 0 0 24px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
-/* The Library hero reuses .landing-brand-mark so the wordmark tracks the
-   opening screen's size at every viewport. */
-.admin-hero-brand { display: grid; justify-items: start; margin: 0 0 24px; }
-.admin-hero-brand .landing-brand-mark { max-width: 100%; }
+.admin-galleries-heading { margin: 0; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-.admin-library-heading .admin-galleries-heading { margin-bottom: 4px; }
 .admin-library-sub { margin: 10px 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
-.admin-add-pill { border-radius: 999px; padding: 9px 18px; justify-self: start; margin: 8px 0 0; }
+.admin-add-pill { border-radius: 999px; padding: 9px 18px; margin: 0; min-height: var(--m-touch); }
 
 /* Account surface sponsored slot: one labelled panel under the Library
    heading, above every gallery — its own surface shaped for a vertical
@@ -1762,11 +1688,12 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .account-ad-cta { margin-top: 8px; color: rgb(var(--ink)); font-size: 14px; line-height: 1.2; text-underline-offset: 3px; }
 
 @media (min-width: 900px) {
-  /* The sponsored slot docks as a right rail: pinned beside the whole
-     list and stretched to its height so the creative gets real room —
-     the image fills the card rather than a fixed inner frame. */
-  .admin-page--selector .gallery-list { position: relative; padding-right: clamp(300px, 32vw, 460px); }
-  .admin-page--selector .gallery-list > .account-ad {
+  /* The sponsored slot docks as a right rail — only when a placement
+     actually renders. --has-ad marks that, so a suppressed, absent or
+     unavailable ad never leaves an empty gutter, and the macOS catalogue
+     (same classes, never renders .account-ad) inherits nothing. */
+  .admin-page--selector .gallery-list--has-ad { position: relative; padding-right: clamp(300px, 32vw, 460px); }
+  .admin-page--selector .gallery-list--has-ad > .account-ad {
     position: absolute;
     top: 0;
     right: 0;
@@ -1776,7 +1703,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   }
   /* In the rail the media height-fills the card; the box hugs the image's
      own width and centres horizontally in whatever room is left. */
-  .admin-page--selector .gallery-list > .account-ad .account-ad-media {
+  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media {
     flex: 1 1 auto;
     min-height: 0;
     width: fit-content;
@@ -1785,22 +1712,27 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     display: grid;
     place-items: center;
   }
-  .admin-page--selector .gallery-list > .account-ad .account-ad-media img { width: auto; height: 100%; max-width: none; }
+  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media img { width: auto; height: 100%; max-width: none; }
 }
 
-@media (min-width: 820px) {
-  /* The page's asymmetric edge-tab gutter would pull a simple 50/50 split
-     right of the physical centre. Compensate so neither top block crosses it. */
-  .admin-overview { --overview-gutter: 32px; grid-template-columns: minmax(0, calc(50% - 16px - var(--overview-gutter) / 2)) minmax(0, 1fr); column-gap: var(--overview-gutter); }
-  .admin-welcome { padding-right: 12px; }
-  .admin-overview .gallery-import { padding-left: 12px; }
-}
-@media (horizontal-viewport-segments: 2) {
-  .admin-overview { grid-template-columns: minmax(0, calc(env(viewport-segment-width 0 0) - 56px)) minmax(0, 1fr); column-gap: max(32px, calc(env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0))); }
-}
 /* A surface panel never straddles the hinge — the sponsored slot stays
-   inside the leading segment's padded column. */
-.admin-page[data-admin-segmented] .account-ad { width: min(480px, calc(var(--admin-left-end) - 160px)); }
+   inside the leading segment's padded column. The right rail is a
+   single-window layout: under segmentation the ad returns to the flow so
+   it can neither straddle the hinge nor cover the content column, and the
+   reserved gutter goes with it. */
+.admin-page[data-admin-segmented] .gallery-list--has-ad { padding-right: 0; }
+.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad {
+  position: static;
+  height: auto;
+  margin: 0 0 40px;
+  width: min(480px, calc(var(--admin-left-end) - 160px));
+}
+.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad .account-ad-media {
+  flex: 0 0 auto;
+  width: min(360px, 100%);
+  aspect-ratio: 4 / 5;
+}
+.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad .account-ad-media img { width: 100%; height: 100%; }
 
 /* Owner-approved on 10 October 2026: the web Photo Editor is a single
    horizontal row per gallery. The Photo Picker and Global View stay matrices.
@@ -1835,13 +1767,6 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-gallery-strip-item { flex: 0 0 auto; height: clamp(96px, 16dvh, 208px); }
 .admin-gallery-strip-item img { height: 100%; width: auto; }
 
-/* Two physical control regions: copy and inputs avoid the hinge, scrolling
-   photographic rails deliberately continue across it. */
-.admin-page--selector[data-admin-segmented] .admin-overview { grid-template-columns: minmax(0, calc(var(--admin-left-end) - 56px)) minmax(0, 1fr); column-gap: calc(var(--admin-right-start) - var(--admin-left-end)); }
-
-.admin-profile-address { margin: 20px 0; font-size: 14px; overflow-wrap: anywhere; color: rgb(var(--ink)); }
-
-
 /* Temporary viewer chrome (P3): top bar (Library + N of M) and bottom
    row (Display / Info / Details). Always inside .m-dark — the pills
    never follow the owner theme. */
@@ -1867,7 +1792,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
    above it rather than inside the controls' strip. */
-body:has(.viewer-stage.has-arrow-bar:not(.mode-vertical)) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
+body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
 .m-chrome--top.is-visible, .m-chrome--bottom.is-visible { transform: translateY(0); }
 .m-chrome-pill {
   display: inline-flex;

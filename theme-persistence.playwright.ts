@@ -41,7 +41,7 @@ const expectTheme = async (page: Surface, expected: { stored: string; control: s
 
 const openPane = async (page: Surface) => {
   await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
-  await page.getByRole('button', { name: 'Account menu', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Account', exact: true })).toBeVisible()
 }
 

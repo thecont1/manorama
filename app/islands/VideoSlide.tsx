@@ -35,6 +35,11 @@ type Props = {
    *  slide and its `<video>` must match the poster exactly, so the parent
    *  hands the same dimensions to both. Undefined means "fill the frame". */
   boxStyle?: { width: string; height: string }
+  /** The temporary-control lifecycle — the parent hands the viewer's
+   *  chrome pause/resume so hovering or focusing the controls holds them
+   *  revealed like the chrome bars do. */
+  onActivity?: () => void
+  onIdle?: () => void
 }
 
 /** `VIDEO · 1:37`. Falls back to a bare label until a duration is known. */
@@ -46,7 +51,7 @@ export const formatDuration = (seconds: number | undefined) => {
   return `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
-export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, suspended = false, onToggleSound, onPlaybackEvent, boxStyle }: Props) {
+export default function VideoSlide({ item, isActive, soundOn, prefersReducedMotion, suspended = false, onToggleSound, onPlaybackEvent, boxStyle, onActivity, onIdle }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   // Whether the clip was actually running when the document last became
   // hidden — visibilitychange resumes only what was playing, never a
@@ -227,7 +232,22 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
         // the visitor is on: showing their controls would duplicate the
         // Play/Mute buttons and leak offscreen clips into the a11y tree.
         isActive ? (
-        <div class="video-controls" data-video-controls>
+        <div
+          class="video-controls"
+          data-video-controls
+          onFocusCapture={onActivity}
+          // Focus stepping between the buttons never leaves the cluster —
+          // only a real departure schedules the hide.
+          onFocusOut={(event) => {
+            if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) onIdle?.()
+          }}
+          onPointerEnter={onActivity}
+          // The pointer may leave while keyboard focus holds a control —
+          // hiding then would drop the element still being pressed.
+          onPointerLeave={(event) => {
+            if (!(event.currentTarget as HTMLElement).matches(':focus-within')) onIdle?.()
+          }}
+        >
           <button
             type="button"
             class="video-control"

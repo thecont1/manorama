@@ -96,6 +96,9 @@ const sharedD1Database = async () => {
     await applyMigration(proxy.env.DB, '0003_revenuecat_event_ordering.sql')
     await applyMigration(proxy.env.DB, '0004_ad_suppressions.sql')
     await applyMigration(proxy.env.DB, '0005_provider_neutral_accounts.sql')
+    // Gallery deletes clear device_galleries links — the table is part of
+    // the real schema, so the fixture carries it too.
+    await applyMigration(proxy.env.DB, '0007_device_galleries.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB

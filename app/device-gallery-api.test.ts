@@ -6,6 +6,7 @@ import type { D1Database } from '@cloudflare/workers-types'
 import { createManoramaApi } from './api'
 import { createNativeHandoffToken, createSessionToken, SESSION_COOKIE } from './lib/session'
 import { upsertUser } from './lib/user-repository'
+import { deleteGallery, updateGallerySlug } from './lib/gallery-repository'
 import { TEST_SESSION_SECRET } from './lib/test-fixtures'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -211,6 +212,71 @@ describe('device catalogue ownership', () => {
     expect((await deleteAs(owner.bearer, 'not-a-uuid')).status).toBe(404)
     const rows = await db.prepare('SELECT COUNT(*) AS count FROM device_galleries WHERE owner_id = ?').bind(owner.id).first<{ count: number }>()
     expect(rows?.count).toBe(0)
+  })
+
+  test('a sync-shaped put keeps the linked public slug; an incoming slug still applies', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    await seedGallery(owner.id, 'linked-gallery')
+    await seedGallery(owner.id, 'relinked-gallery')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'linked-gallery' }))).status).toBe(200)
+    // The desktop sync projection omits publicGallerySlug — the link must
+    // survive every routine upsert instead of being nulled back out, and
+    // the PUT answers the stored row so the preserved slug is echoed too.
+    const synced = await putAs(owner.bearer, id, deviceInput({ title: 'Rescanned' }))
+    expect(synced.status).toBe(200)
+    const { gallery: stored } = await synced.json() as { gallery: { publicGallerySlug?: string } }
+    expect(stored.publicGallerySlug).toBe('linked-gallery')
+    let row = (await galleriesOf(await listAs(owner.bearer)))[0]
+    expect(row?.publicGallerySlug).toBe('linked-gallery')
+    expect(row?.title).toBe('Rescanned')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'relinked-gallery' }))).status).toBe(200)
+    row = (await galleriesOf(await listAs(owner.bearer)))[0]
+    expect(row?.publicGallerySlug).toBe('relinked-gallery')
+  })
+
+  test('a link to a deleted or expired gallery no longer surfaces on the list', async () => {
+    const owner = await seedOwner()
+    const gone = crypto.randomUUID()
+    const dying = crypto.randomUUID()
+    await seedGallery(owner.id, 'gone-gallery')
+    await seedGallery(owner.id, 'dying-gallery')
+    expect((await putAs(owner.bearer, gone, deviceInput({ publicGallerySlug: 'gone-gallery' }))).status).toBe(200)
+    expect((await putAs(owner.bearer, dying, deviceInput({ publicGallerySlug: 'dying-gallery' }))).status).toBe(200)
+    await db.prepare('DELETE FROM galleries WHERE owner_id = ? AND slug = ?').bind(owner.id, 'gone-gallery').run()
+    await db.prepare(`UPDATE galleries SET retention = 'pipeline', expires_at = '2000-01-01T00:00:00.000Z' WHERE owner_id = ? AND slug = ?`).bind(owner.id, 'dying-gallery').run()
+    const rows = await galleriesOf(await listAs(owner.bearer))
+    expect(rows.find((row) => row.id === gone)?.publicGallerySlug).toBeUndefined()
+    expect(rows.find((row) => row.id === dying)?.publicGallerySlug).toBeUndefined()
+  })
+
+  test('a link dies with its gallery — a replacement never inherits the slug', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    await seedGallery(owner.id, 'season-gallery')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'season-gallery' }))).status).toBe(200)
+    // Deleting through the repository clears the stored link outright.
+    await deleteGallery(owner.id, 'season-gallery', env())
+    const stored = await db
+      .prepare('SELECT public_gallery_slug FROM device_galleries WHERE owner_id = ? AND id = ?')
+      .bind(owner.id, id)
+      .first<{ public_gallery_slug: string | null }>()
+    expect(stored?.public_gallery_slug).toBeNull()
+    // A different gallery landing the same slug cannot claim the link —
+    // re-linking is always the explicit publish-time PUT.
+    await seedGallery(owner.id, 'season-gallery')
+    const rows = await galleriesOf(await listAs(owner.bearer))
+    expect(rows.find((row) => row.id === id)?.publicGallerySlug).toBeUndefined()
+  })
+
+  test('renaming a gallery carries its device link to the new slug', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    await seedGallery(owner.id, 'old-name')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'old-name' }))).status).toBe(200)
+    await updateGallerySlug(owner.id, 'old-name', 'new-name', env())
+    const rows = await galleriesOf(await listAs(owner.bearer))
+    expect(rows.find((row) => row.id === id)?.publicGallerySlug).toBe('new-name')
   })
 })
 

@@ -24,11 +24,11 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
       }
       if (state === 2) await expect(page.getByRole('dialog', { name: 'Display' })).toBeVisible()
       if (state === 3) {
-        await page.getByRole('button', { name: 'Add', exact: true }).click()
+        await page.getByRole('button', { name: 'Add Gallery', exact: true }).click()
         const input = page.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA', { exact: true })
         await expect(input).toBeInViewport()
         await input.fill('https://mega.nz/folder/example#preserve-fragment')
-        await page.getByRole('button', { name: 'Add gallery', exact: true }).click()
+        await page.getByRole('button', { name: 'Add a gallery', exact: true }).click()
         await expect(page.locator('[data-curtain]')).toBeVisible()
         // The explicit Add sheet posts { url } — `quick` belongs only to the
         // zero-click deep-link path, which this surface is not.

@@ -494,7 +494,7 @@ describe('signed-in account area', () => {
   }
 
   const openAddForm = async (container: HTMLElement) => {
-    const trigger = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Add') as HTMLButtonElement
+    const trigger = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Add Gallery') as HTMLButtonElement
     trigger.click()
     await settle()
     return container.querySelector('#m-add-gallery-form') as HTMLFormElement

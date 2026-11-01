@@ -83,6 +83,9 @@ beforeAll(async () => {
   legacySessionToken = await createSessionToken(OWNER_A, TEST_SESSION_SECRET)
   await applyMigration(db, '0005_provider_neutral_accounts.sql')
   await applyMigration(db, '0006_auth_flows.sql')
+  // Gallery deletes clear device_galleries links — the table is part of
+  // the real schema, so the fixture carries it too.
+  await applyMigration(db, '0007_device_galleries.sql')
 }, 15_000)
 
 afterAll(async () => {

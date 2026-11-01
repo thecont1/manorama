@@ -11,8 +11,8 @@ import indexPage from '../routes/index'
 import { resetUserStore } from '../lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from '../lib/test-fixtures'
 
-const SENTENCE = 'the WOW-est way to enjoy a photo gallery with anyone'
-const EXPLANATION = 'manorama turns a folder of images (either on this device or in the cloud) into a beautiful full-screen hi-res gallery with a custom link of your own'
+const SENTENCE = 'Your shared folders, shown properly'
+const EXPLANATION = 'Paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.'
 
 const globals = globalThis as Record<string, unknown>
 let previousWindow: unknown

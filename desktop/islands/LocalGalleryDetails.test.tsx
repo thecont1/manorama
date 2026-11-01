@@ -86,6 +86,9 @@ const mount = (overrides: Partial<Props> = {}) => {
     availability: overrides.availability ?? 'available',
     onBack: overrides.onBack ?? (() => { calls.back += 1 }),
     onOpen: overrides.onOpen ?? (() => { calls.open += 1 }),
+    onOpenAt: overrides.onOpenAt ?? (() => { calls.open += 1 }),
+    publishedUrl: overrides.publishedUrl ?? null,
+    onShareLink: overrides.onShareLink,
     onShare: overrides.onShare ?? (() => { calls.share += 1 }),
     onRescan: overrides.onRescan
       ? async () => { calls.rescan += 1; await overrides.onRescan?.() }
@@ -154,6 +157,11 @@ beforeAll(() => {
   globals.cancelAnimationFrame = ((id: number) => {
     frames = frames.filter((frame) => frame.id !== id)
   }) as unknown as typeof cancelAnimationFrame
+  // The rail converts local paths through the asset protocol; the harness
+  // is not a Tauri webview, so it stubs the same shape the workbench does.
+  ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+    convertFileSrc: (path: string) => `asset://localhost${path}`,
+  }
 })
 
 afterAll(() => {
@@ -186,24 +194,27 @@ describe('local gallery details (desktop)', () => {
     expect(calls.back).toBe(1)
   })
 
-  test('shows the gallery title in the top bar and heading, with count and source', async () => {
+  test('shows the shared mark in the bar and the title once, with count and source', async () => {
     const { container } = mount()
-    expect(container.querySelector('.m-topbar-title')?.textContent).toBe(TITLE)
-    expect(container.querySelector('.m-owner-heading h1')?.textContent).toBe(TITLE)
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('2 photographs · Folder on this Mac')
-    expect(container.querySelector('.m-owner-heading')?.textContent).not.toContain('photograph · Folder')
+    // One title, in the header — the top bar carries the shared mark instead
+    // of repeating it, matching Library and cloud Details.
+    expect(container.querySelector('.m-topbar-title')).toBeNull()
+    expect(container.querySelector('.m-topbar-logo')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
+    expect(container.querySelector('.d-name')?.textContent).toBe(TITLE)
+    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
+    expect(container.querySelector('.d-head')?.textContent).not.toContain('photograph · Folder')
   })
 
   test('a mounted card source reads "Memory card"', async () => {
     const { container } = mount({
       record: record({ sourceKind: 'card', mountPoint: '/Volumes/CARD' }),
     })
-    expect(container.querySelector('.m-owner-heading')?.textContent).toContain('Memory card')
+    expect(container.querySelector('.d-head')?.textContent).toContain('Memory card')
   })
 
   test('renders exactly the four action verbs and no banned surfaces', async () => {
     const { container } = mount()
-    for (const label of ['Open', 'Publish/Share', 'Read folder again', 'Remove from Library']) {
+    for (const label of ['Open', 'Publish', 'Read the folder again', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
     // Five rows: the editable Name row plus exactly the four action verbs.
@@ -211,8 +222,12 @@ describe('local gallery details (desktop)', () => {
     // Remove is destructive.
     expect(row(container, 'Remove from Library')?.classList.contains('m-actionrow--destructive')).toBe(true)
 
-    const html = container.innerHTML
-    // Paths, mount points, and filenames never surface — they are local-only.
+    // Paths, mount points, and filenames never surface in the copy — they are
+    // local-only. The rail's own asset URLs and photograph labels are exempt:
+    // they reference originals the same way the Library card rail does.
+    const copy = container.cloneNode(true) as HTMLElement
+    copy.querySelector('.d-rail')?.remove()
+    const html = copy.innerHTML
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain(ITEM_NAME)
@@ -231,8 +246,8 @@ describe('local gallery details (desktop)', () => {
   test('when the source is unavailable, Open and Share are disabled and the state shows', async () => {
     const { container, calls } = mount({ availability: 'unavailable' })
     const openRow = row(container, 'Open') as HTMLButtonElement
-    const shareRow = row(container, 'Publish/Share') as HTMLButtonElement
-    const rescanRow = row(container, 'Read folder again') as HTMLButtonElement
+    const shareRow = row(container, 'Publish') as HTMLButtonElement
+    const rescanRow = row(container, 'Read the folder again') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
     expect(shareRow.disabled).toBe(true)
     // Rescan is the recovery path and stays enabled.
@@ -251,14 +266,42 @@ describe('local gallery details (desktop)', () => {
   test('when available, Open and Share are enabled and fire', async () => {
     const { container, calls } = mount()
     expect((row(container, 'Open') as HTMLButtonElement).disabled).toBe(false)
-    expect((row(container, 'Publish/Share') as HTMLButtonElement).disabled).toBe(false)
+    expect((row(container, 'Publish') as HTMLButtonElement).disabled).toBe(false)
     expect(container.querySelector('[data-availability="available"]')?.textContent).toBe('Source available')
 
     ;(row(container, 'Open') as HTMLButtonElement).click()
-    ;(row(container, 'Publish/Share') as HTMLButtonElement).click()
+    ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(calls.open).toBe(1)
     expect(calls.share).toBe(1)
+  })
+
+  test('a published link swaps Publish for Share link, which never re-uploads', async () => {
+    const { container } = mount({
+      publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
+      onShareLink: async () => 'Link copied — paste it anywhere',
+    })
+    const shareRow = row(container, 'Share link') as HTMLButtonElement
+    expect(shareRow).not.toBeNull()
+    expect(shareRow.textContent).toContain('…/italy-amore-mio')
+    // No publish path exists for a gallery that already has a link.
+    expect(row(container, 'Publish')).toBeUndefined()
+
+    shareRow.click()
+    await settle()
+    const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
+    expect(notes).toContain('Link copied — paste it anywhere')
+  })
+
+  test('a cancelled share leaves no status behind', async () => {
+    const { container } = mount({
+      publishedUrl: 'https://manorama.xyz/thecontrarian/italy-amore-mio',
+      onShareLink: async () => null,
+    })
+    ;(row(container, 'Share link') as HTMLButtonElement).click()
+    await settle()
+    const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
+    expect(notes).toEqual(['Source available'])
   })
 
   test('renaming opens the shared edit sheet and submits the trimmed title', async () => {
@@ -367,7 +410,7 @@ describe('local gallery details (desktop)', () => {
   test('a rescan calls back and reports success and failure', async () => {
     const rescanGate = deferred()
     const { container, calls } = mount({ onRescan: () => rescanGate.promise })
-    ;(row(container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
     expect(calls.rescan).toBe(1)
     rescanGate.resolve()
@@ -376,7 +419,7 @@ describe('local gallery details (desktop)', () => {
 
     const failGate = deferred()
     const failing = mount({ onRescan: () => failGate.promise })
-    ;(row(failing.container, 'Read folder again') as HTMLButtonElement).click()
+    ;(row(failing.container, 'Read the folder again') as HTMLButtonElement).click()
     await settle()
     failGate.reject(new Error('The card is not mounted'))
     await settle()

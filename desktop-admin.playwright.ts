@@ -40,11 +40,11 @@ const sizes = [
 const settleStyles = (page: Page) =>
   expect
     .poll(() => page.evaluate(() => {
-      const tab = document.querySelector('.admin-edge-tab')
+      const bar = document.querySelector('.m-topbar')
       const scrim = document.querySelector('.admin-drawer-scrim')
-      return `${tab ? getComputedStyle(tab).position : 'none'}/${scrim ? getComputedStyle(scrim).position : 'none'}`
+      return `${bar ? getComputedStyle(bar).height : 'none'}/${scrim ? getComputedStyle(scrim).position : 'none'}`
     }), { timeout: 15_000 })
-    .toBe('fixed/absolute')
+    .toBe('52px/absolute')
 
 for (const size of sizes) {
   for (const reduced of [false, true]) {
@@ -67,54 +67,46 @@ for (const size of sizes) {
         await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
         await settleStyles(page)
 
-        // The pane is closed until asked for, and the tab that opens it is a
-        // 44px target centred on the left edge.
-        const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+        // The pane is closed until asked for, and the gear that opens it is a
+        // 44px target parked in the shared top bar's end slot — the same
+        // contract as the web and native libraries.
+        const tab = page.getByRole('button', { name: 'Settings', exact: true })
         const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
         await expect(dialog).toBeHidden()
         await expect(tab).toHaveAttribute('aria-expanded', 'false')
         const tabBox = (await tab.boundingBox())!
-        if (size.width >= 820) {
-          expect(tabBox.x).toBeLessThanOrEqual(1)
-          expect(Math.abs(tabBox.y + tabBox.height / 2 - size.height / 2)).toBeLessThan(2)
-        } else {
-          // Below the 820px breakpoint the tab collapses to a circular
-          // hamburger parked top-right (native/styles.css, a562416).
-          expect(Math.abs(tabBox.x + tabBox.width - (size.width - 14))).toBeLessThan(2)
-          expect(Math.abs(tabBox.y - 14)).toBeLessThan(2)
-        }
+        expect(tabBox.x).toBeGreaterThan(size.width / 2)
+        expect(tabBox.y).toBeLessThan(52)
         expect(tabBox.width).toBeGreaterThanOrEqual(44)
 
-        // Two quadrants and the gallery list below both of them.
-        const welcome = page.getByRole('region', { name: 'Welcome to manorama' })
-        const importer = page.getByRole('region', { name: 'Add a gallery' })
-        const heading = page.getByRole('heading', { name: 'Your galleries', exact: true })
-        await expect(welcome).toBeVisible()
-        await expect(importer).toBeVisible()
-        const welcomeBox = (await welcome.boundingBox())!
-        const importBox = (await importer.boundingBox())!
+        // The compact owner shell: shared mark in the bar, Library and Add on
+        // one row, then the quiet scope/sync line before the cards.
+        const bar = page.locator('.m-topbar')
+        const heading = page.getByRole('heading', { name: 'Library', exact: true })
+        await expect(bar).toBeVisible()
+        await expect(bar.locator('img.m-topbar-logo')).toBeVisible()
+        await expect(heading).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Add Gallery', exact: true })).toBeVisible()
+        const barBox = (await bar.boundingBox())!
         const headingBox = (await heading.boundingBox())!
-        if (size.width >= 820) {
-          expect(welcomeBox.x + welcomeBox.width).toBeLessThan(size.width / 2)
-          expect(importBox.x).toBeGreaterThan(size.width / 2)
-          expect(Math.abs(welcomeBox.y - importBox.y)).toBeLessThan(2)
-        } else {
-          expect(importBox.y).toBeGreaterThanOrEqual(welcomeBox.y + welcomeBox.height)
-        }
-        expect(headingBox.y).toBeGreaterThanOrEqual(Math.max(welcomeBox.y + welcomeBox.height, importBox.y + importBox.height))
-        const logoBox = (await welcome.locator('img').boundingBox())!
-        expect(logoBox.x + logoBox.width).toBeLessThanOrEqual(welcomeBox.x + welcomeBox.width)
+        expect(headingBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1)
 
-        // The account's own facts, not invented copy: the name and plan the
-        // session carries, and the count of galleries this Mac holds.
-        await expect(welcome).toContainText('Welcome to manorama.xyz.')
-        await expect(welcome).toContainText('You are a Visionary.')
-        await expect(welcome).toContainText('2 galleries on this Mac.')
-        await expect(importer.getByRole('button', { name: 'Choose a folder or card' })).toBeVisible()
-        await expect(importer).toContainText('2 galleries on this Mac')
-        // The catalogue syncs gallery-level metadata only, and says so quietly.
-        await expect(page.locator('.desktop-sync-state')).toContainText('Catalogue synced.')
+        // One quiet line carries the local/cloud scope: the Mac's label, its
+        // gallery and photograph counts, and the last sync outcome.
+        const sub = page.locator('.admin-library-sub')
+        await expect(sub).toContainText('2 galleries')
+        await expect(sub).toContainText('photographs')
+        await expect(sub).toContainText('Catalogue synced.')
         expect(api.calls()).toBeGreaterThan(0)
+
+        // The account's own facts — the plan the session carries — live in
+        // the pane, not as a persistent introduction on the page.
+        await tab.click()
+        await expect(dialog).toBeVisible()
+        await expect(dialog).toContainText('You are a Visionary.')
+        await expect(dialog).toContainText('2 galleries')
+        await page.keyboard.press('Escape')
+        await expect(dialog).toBeHidden()
 
         // The local catalogue is on the page, in the web dashboard's type.
         // The galleries are the shared Library cards, each hanging its rail of
@@ -157,7 +149,7 @@ for (const size of sizes) {
               return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4
             }).reduce((n, c, i) => n + c * [.2126, .7152, .0722][i], 0)
             const bg = luminance(background)
-            return [...element.querySelectorAll<HTMLElement>('.admin-intro, .admin-greeting, .admin-drawer-action, .site-footer-link, .site-footer-copy')].map(node => {
+            return [...element.querySelectorAll<HTMLElement>('.admin-greeting-url, .desktop-device-line, .admin-drawer-action, .site-footer-link, .site-footer-copy')].map(node => {
               const color = rgb(getComputedStyle(node).color)
               const alpha = color[3] ?? 1
               const fg = luminance(color.slice(0, 3).map((c, i) => c * alpha + background[i] * (1 - alpha)))
@@ -168,9 +160,6 @@ for (const size of sizes) {
 
           const panelBox = (await dialog.boundingBox())!
           expect(Math.abs(panelBox.x)).toBeLessThan(1)
-          const paneLogo = (await dialog.locator('.admin-brand-logo').boundingBox())!
-          expect(paneLogo.x).toBeGreaterThanOrEqual(panelBox.x)
-          expect(paneLogo.x + paneLogo.width).toBeLessThanOrEqual(panelBox.x + panelBox.width)
           expect(await dialog.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true)
           // Tab stays inside the pane: the last action wraps to the close button.
           await page.getByRole('button', { name: 'Sign out', exact: true }).focus()
@@ -209,7 +198,7 @@ test('the desktop admin surface survives a resize without losing the pane state'
     await page.goto(base, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
     await settleStyles(page)
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+    const tab = page.getByRole('button', { name: 'Settings', exact: true })
     const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
     await tab.click()
     await expect(dialog).toBeVisible()
@@ -255,7 +244,7 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
     await settleStyles(page)
 
     const details = page.locator('[data-screen="local-details"]')
-    const tab = page.getByRole('button', { name: 'Account menu', exact: true })
+    const tab = page.getByRole('button', { name: 'Settings', exact: true })
     const dialog = page.getByRole('dialog', { name: 'Account', exact: true })
 
     for (const theme of ['dark', 'light'] as const) {
@@ -277,10 +266,11 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       await page.getByRole('dialog').getByRole('button', { name: 'Gallery details' }).click()
       await expect(details).toBeVisible()
       expect(new URL(page.url()).searchParams.get('details')).toBe(GALLERY_ID)
-      // The surface states the gallery's own facts: title, count, source kind.
-      await expect(details.locator('.m-topbar-title')).toHaveText('Bangkok Rain')
-      await expect(details.locator('.m-owner-heading h1')).toHaveText('Bangkok Rain')
-      await expect(details.locator('.m-owner-heading p.m-note').first()).toHaveText('25 photographs · Folder on this Mac')
+      // The surface states the gallery's own facts once: the top bar carries
+      // Back, the body carries the title — never both.
+      await expect(details.locator('.m-topbar-title')).toHaveCount(0)
+      await expect(details.locator('.d-name')).toHaveText('Bangkok Rain')
+      await expect(details.locator('.d-sub').first()).toHaveText('25 photographs · Folder on this Mac')
       await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
       // Local-only facts stay off the surface: no paths, no invented
       // public/provider/vault/offline/reorder metadata.
@@ -292,15 +282,15 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
       // Exactly the five action rows, in the contract's order, and no more.
       await expect(details.locator('.m-actionrow')).toHaveCount(5)
       const labels = await details.locator('.m-actionrow-label').allTextContents()
-      expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish/Share', 'Name', 'Read folder again', 'Remove from Library'])
+      expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library'])
 
       await mkdir(evidence, { recursive: true })
       await page.screenshot({ path: resolve(evidence, `window-${theme}-details.png`), animations: 'disabled', timeout: 10_000 })
 
-      // Publish/Share opens the shared Sheet: the sheet presentation, never
+      // Publish opens the shared Sheet: the sheet presentation, never
       // the inline header, and the upload-confirmation copy. Nothing here may
       // connect or upload to a real provider.
-      await details.getByRole('button', { name: 'Publish/Share' }).click()
+      await details.getByRole('button', { name: 'Publish' }).click()
       const share = page.locator('.desktop-share--sheet')
       await expect(share).toBeVisible()
       await expect(page.locator('.desktop-share-header')).toHaveCount(0)

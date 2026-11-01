@@ -50,9 +50,17 @@ body.manorama-desktop {
 }
 .desktop-welcome-header { display: grid; place-items: center; }
 .desktop-welcome-header .landing-brand-mark { width: clamp(300px, 32vw, 520px); max-width: 100%; }
+.desktop-welcome h1 {
+  margin: clamp(26px, 4vh, 48px) auto 0;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(30px, 4.6vw, 46px);
+  font-weight: 700;
+  letter-spacing: -.03em;
+  line-height: 1.12;
+}
 .desktop-welcome .landing-brand-intro {
   max-width: 38rem;
-  margin: clamp(26px, 4vh, 48px) auto 0;
+  margin: 18px auto 0;
   font-size: clamp(15px, 1.35vw, 20px);
   line-height: 1.45;
 }
@@ -111,20 +119,12 @@ body.manorama-desktop {
 
 .desktop-catalogue { padding-bottom: clamp(40px, 6vw, 88px); }
 
-.desktop-source-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.desktop-source-actions .admin-button { min-height: 48px; }
+.desktop-library-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .desktop-source-note {
   margin: 14px 0 0;
   color: rgba(var(--ink), .82);
   font-size: 13px;
   line-height: 1.5;
-}
-.desktop-catalogue .desktop-sync-state {
-  margin: 8px 0 0;
-  color: rgba(var(--ink), var(--admin-muted, .72));
-  font-family: 'DM Mono', ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: .04em;
 }
 .desktop-device-line {
   margin: 14px 0 0;
@@ -214,36 +214,8 @@ html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04)
 .desktop-paste-hint { margin: 0; color: rgba(var(--ink), .68); font-size: 11px; line-height: 1.4; }
 
 /* ── Account drawer ────────────────────────────────────────────────────────
-   The web dashboard moved its account behind the shared top bar and dropped
-   this chrome from app/styles.css; the catalogue keeps its account behind
-   the left-edge tab, so the drawer anatomy lives here now. */
-.admin-edge-tab {
-  position: fixed;
-  z-index: 45;
-  left: env(safe-area-inset-left, 0px);
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  width: 44px;
-  min-height: 112px;
-  place-items: center;
-  gap: 10px;
-  padding: 16px 8px;
-  border: 1px solid rgba(var(--ink), .32);
-  border-left: 0;
-  border-radius: 0 10px 10px 0;
-  background: var(--admin-surface);
-  color: rgb(var(--ink));
-  cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease;
-}
-
-.admin-edge-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .035em; }
-.admin-edge-tab svg { width: 16px; height: 16px; }
-.admin-edge-tab:hover { border-color: rgb(var(--ink)); }
-.admin-edge-tab:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
-.admin-edge-tab .admin-hamburger { display: none; }
-
+   The account sits behind the shared top bar's gear, like the web Library;
+   the drawer anatomy lives here because the shared sheet dropped it. */
 .admin-drawer { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-start; }
 /* `hidden` has to out-rank the flex display above, or a closed pane would
    still paint over the galleries. */
@@ -272,14 +244,7 @@ html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04)
 .admin-drawer-close svg { width: 20px; height: 20px; }
 .admin-drawer-close:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 2px; }
 .admin-drawer-panel .admin-header > div { width: 100%; min-width: 0; }
-.admin-drawer-panel .admin-brand-title { font-size: 0; white-space: normal; }
-.admin-drawer-panel .brand-mark-wrap { display: block; max-width: 100%; }
-.admin-drawer-panel .admin-brand-logo { display: block; width: 100%; max-width: 320px; height: auto; }
-.admin-drawer-panel .admin-brand-title .brand-mark-wrap { width: min(320px, 100%); }
-.admin-drawer-panel .admin-greeting-url { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 16px; overflow-wrap: anywhere; }
-.admin-drawer-panel .admin-owner-slug-input { min-width: 0; max-width: 100%; margin: 0; }
-.admin-drawer-panel .admin-greeting { font-size: 15px; line-height: 1.65; }
-.admin-drawer-panel .admin-intro { font-size: 16px; }
+.admin-drawer-panel .admin-greeting-url { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 0 0 14px; font-size: 16px; overflow-wrap: anywhere; }
 .admin-drawer-panel .site-footer { margin-top: auto; padding-inline: 0; }
 
 .admin-drawer-actions {
@@ -316,24 +281,12 @@ html.light body.manorama-desktop .desktop-share { background: rgba(0, 0, 0, .04)
 @media (prefers-reduced-motion: reduce) {
   .admin-drawer-panel, .admin-drawer-scrim { animation: none; }
 }
-@media (max-width: 640px) {
-  .admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
-  .admin-welcome-brand { width: min(280px, 100%); }
-}
 @media (max-width: 819px) {
-  .admin-edge-tab { top: 14px; right: 14px; left: auto; transform: none; width: 44px; height: 44px; min-height: 44px; box-sizing: border-box; border: 1px solid rgba(var(--ink), .32); border-radius: 50%; padding: 10px; }
-  .admin-edge-tab .admin-tab-label, .admin-edge-tab .admin-tab-arrow { display: none; }
-  .admin-edge-tab .admin-hamburger { display: block; width: 22px; height: 22px; }
-  .admin-welcome-brand { max-width: calc(100% - 50px); }
   .admin-page--selector .admin-drawer-panel { width: 100%; max-width: none; height: 100%; height: 100dvh; border: 0; animation: admin-phone-drop 280ms cubic-bezier(.22, 1, .36, 1); }
 }
 @media (max-width: 819px) and (prefers-reduced-motion: reduce) { .admin-page--selector .admin-drawer-panel { animation: none; } }
 
-/* The page keeps a wider left gutter for the edge tab — the welcome/import
-   split lands right of centre, the way the catalogue shipped; the shared
-   sheet's symmetric `padding: 0` drops that reservation. */
-.admin-page--selector { padding-inline: max(56px, env(safe-area-inset-left)) max(24px, env(safe-area-inset-right)); }
-
-/* Brand marks render single-tone black under the light theme — the same
-   rule the web admin page applies to its wordmark. */
-html.light :is(.desktop-catalogue, .desktop-welcome) :is(.admin-brand-logo, .admin-topbar-logo, .landing-brand-mark) { filter: brightness(0); }
+/* The Welcome surface's mark renders single-tone black under the light
+   theme — the catalogue's top-bar mark is covered by the shared sheet's
+   `.admin-page` rule. */
+html.light .desktop-welcome .landing-brand-mark { filter: brightness(0); }

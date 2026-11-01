@@ -49,61 +49,7 @@ export default function Privacy({ onBack, backLabel = 'Back', onOpenExternal, on
           padding: 0 24px calc(env(safe-area-inset-bottom) + 40px);
         }
         .privacy-scroll .policy-document {
-          max-width: 680px;
           margin: 0 auto;
-        }
-        .privacy-scroll .policy-document h1 {
-          margin: 0 0 4px;
-          font-size: 28px;
-          font-weight: 700;
-        }
-        .privacy-scroll .policy-document .policy-updated {
-          margin: 0 0 16px;
-          font-size: 13px;
-          letter-spacing: .06em;
-          color: var(--m-meta);
-        }
-        .privacy-scroll .policy-document .policy-lede {
-          font-size: 17px;
-          line-height: 1.55;
-        }
-        .privacy-scroll .policy-document p {
-          margin: 0 0 16px;
-          font-size: 16px;
-          line-height: 1.6;
-          color: var(--m-ink);
-        }
-        .privacy-scroll .policy-document h2 {
-          margin: 32px 0 12px;
-          font-size: 20px;
-          font-weight: 700;
-        }
-        .privacy-scroll .policy-document h3 {
-          margin: 0 0 8px;
-          font-size: 16px;
-          font-weight: 700;
-        }
-        .privacy-scroll .policy-document code {
-          font-family: ui-monospace, 'SF Mono', monospace;
-          font-size: 14px;
-          background: var(--m-surface);
-          padding: 1px 6px;
-          border-radius: 3px;
-          overflow-wrap: anywhere;
-        }
-        .privacy-scroll .policy-document a {
-          color: inherit;
-          text-decoration: underline;
-          text-underline-offset: 2px;
-        }
-        .privacy-scroll .policy-personas {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 12px;
-        }
-        .privacy-scroll .policy-card {
-          padding: 16px;
-          border: 1px solid var(--m-rule);
         }
       `}</style>
     </div>
