@@ -10,13 +10,19 @@ import {
   type ReorderState,
 } from '../../packages/core/reorder-session'
 import { Button } from './ui/Button'
+import { HeicImg } from './ui/HeicImg'
 import { TopBar } from './ui/TopBar'
 
 /** Web reorder is the iPhone draft (Cancel / Save, pick then place) laid out
  * as one non-wrapping row. Nothing is written until Save. */
 
 export type WebReorderImage = ReorderItem & {
+  /** The item's original bytes — possibly HEIC. */
   src: string
+  /** A renderable rendition; wins over the original when present. */
+  preview?: string | null
+  /** Manifest filename; the .heic/.heif suffix selects the decode path. */
+  filename?: string | null
   label: string
   hidden?: boolean
 }
@@ -149,7 +155,7 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
                   disabled={busy}
                   onClick={() => place(image.id)}
                 >
-                  <img src={image.src} alt="" width={image.width} height={image.height} draggable={false} />
+                  <HeicImg src={image.src} preview={image.preview} filename={image.filename} alt="" width={image.width} height={image.height} draggable={false} />
                   {dirty && image.orderKey !== images[index]?.orderKey ? <span class="web-reorder-pos">{index + 1}</span> : null}
                 </button>
                 {/* A button cannot nest inside the cell's own button, so the

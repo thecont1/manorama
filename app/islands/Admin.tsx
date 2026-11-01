@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
 import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/owner-theme'
-import type { GalleryImage } from '../lib/imagesource'
 import type { GallerySummary } from '../lib/gallery-repository'
 import { friendlySourceError } from '../lib/source-errors'
 import { PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired } from '../lib/gallery-policy'
@@ -9,6 +8,7 @@ import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
 import { AddGallerySheet } from '../components/AddGallerySheet'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
+import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
@@ -40,8 +40,6 @@ const SIGN_IN_METHODS: readonly { provider: AuthProvider; name: string }[] = [
 ]
 const signInMethodName = (provider: string) =>
   SIGN_IN_METHODS.find((method) => method.provider === provider)?.name ?? provider
-
-const imagePreview = (image: GalleryImage | ReorderableGalleryImage) => image.variants?.[0]?.src ?? image.src
 
 /** Summary items gain `type: 'video'` only for videos — an absent `type`
  *  is an image, exactly as in the stored manifest. */
@@ -848,7 +846,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
-                    <img src={imagePreview(image)} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
+                    <HeicImg src={image.src} preview={image.variants?.[0]?.src} filename={image.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
                       const img = event.currentTarget as HTMLImageElement
                       // Stored dims are the placeholder's shape — the decoded
                       // derivative (an EXIF-rotated frame, a video poster) owns
@@ -1046,7 +1044,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               orderKey: image.ref ?? image.filename,
               width: image.width,
               height: image.height,
-              src: imagePreview(image),
+              src: image.src,
+              preview: image.variants?.[0]?.src,
+              filename: image.filename,
               label: image.filename,
               hidden: image.hidden,
             }))}

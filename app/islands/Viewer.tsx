@@ -1,5 +1,6 @@
 import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
 import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
+import { heicObjectUrl, isHeicFilename } from '../lib/heic'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
@@ -2104,7 +2105,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // active window. The 256px JPEG variant shows while decoding.
   // Videos never take the HEIC path: their src is an MP4 proxy URL and
   // their filename is a caption, which could otherwise end in ".heic".
-  const isHeic = (image: GalleryMediaItem) => !isVideoItem(image) && /\.hei[cf]$/i.test(image.filename)
+  const isHeic = (image: GalleryMediaItem) => !isVideoItem(image) && isHeicFilename(image.filename)
   const storeHeicSrc = (id: string, url: string) => {
     // A decode finishing after teardown must not retain the blob.
     if (unmountedRef.current) {
@@ -2118,36 +2119,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const decodeHeic = async (image: GalleryMediaItem) => {
     if (heicPendingRef.current.has(image.id)) return
     heicPendingRef.current.add(image.id)
-    let blob: Blob | undefined
     try {
-      const { default: decode } = await import('heic-decode')
-      const response = await fetch(image.src)
-      if (!response.ok) throw new Error(`HEIC fetch failed: ${response.status}`)
-      blob = await response.blob()
-      const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
-      // Older gallery records still point at JPEG renditions — a 'ftyp' box
-      // means real HEIC; anything else (JPEG, WebP) renders directly.
-      const isHeicBlob = head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70
-      if (!isHeicBlob) {
-        storeHeicSrc(image.id, URL.createObjectURL(blob))
-        return
-      }
-      // heic-decode wraps libheif-js — a modern emscripten build with no
-      // string eval, so it survives the page CSP the way heic2any's
-      // `new Function` dynCall glue never could.
-      const { data, width, height } = await decode({ buffer: new Uint8Array(await blob.arrayBuffer()) })
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0)
-      const jpegBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95))
-      if (!jpegBlob) throw new Error('canvas encode returned no blob')
-      storeHeicSrc(image.id, URL.createObjectURL(jpegBlob))
-    } catch {
-      // libheif rejects some real HEIFs (10-bit, non-HEVC codecs, truncated
-      // files). Hand the untouched bytes to the browser — Safari renders
-      // HEIC natively; elsewhere the img's onError drops to the preview.
-      storeHeicSrc(image.id, blob ? URL.createObjectURL(blob) : image.src)
+      // heicObjectUrl owns the fetch + ftyp sniff + canvas encode; null
+      // means the bytes never arrived, so the browser keeps the proxy URL
+      // (Safari renders HEIC natively; elsewhere the preview shows).
+      storeHeicSrc(image.id, (await heicObjectUrl(image.src)) ?? image.src)
     } finally {
       // Clear pending so a pruned entry can decode again on re-entry.
       heicPendingRef.current.delete(image.id)
