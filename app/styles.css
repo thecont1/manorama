@@ -1711,8 +1711,23 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 }
 
 /* A surface panel never straddles the hinge — the sponsored slot stays
-   inside the leading segment's padded column. */
-.admin-page[data-admin-segmented] .account-ad { width: min(480px, calc(var(--admin-left-end) - 160px)); }
+   inside the leading segment's padded column. The right rail is a
+   single-window layout: under segmentation the ad returns to the flow so
+   it can neither straddle the hinge nor cover the content column, and the
+   reserved gutter goes with it. */
+.admin-page[data-admin-segmented] .gallery-list--has-ad { padding-right: 0; }
+.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad {
+  position: static;
+  height: auto;
+  margin: 0 0 40px;
+  width: min(480px, calc(var(--admin-left-end) - 160px));
+}
+.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad .account-ad-media {
+  flex: 0 0 auto;
+  width: min(360px, 100%);
+  aspect-ratio: 4 / 5;
+}
+.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad .account-ad-media img { width: 100%; height: 100%; }
 
 /* Owner-approved on 10 October 2026: the web Photo Editor is a single
    horizontal row per gallery. The Photo Picker and Global View stay matrices.
