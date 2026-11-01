@@ -734,18 +734,24 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           /* The sponsored panel sits between the Library heading and the
              cards — the same portrait-shaped house slot as native. */
           <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
-            <div class="account-ad-copy">
-              <span class="account-ad-badge">{accountAd.badge}</span>
-              <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
-              <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
-              {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}
-            </div>
+            <span class="account-ad-badge">{accountAd.badge}</span>
             <div class="account-ad-media">
               {accountAd.image ? (
-                <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+                accountAd.cta ? (
+                  <a class="account-ad-media-link" href={accountAd.cta.url} target="_blank" rel="noopener" aria-label={accountAd.cta.label}>
+                    <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+                  </a>
+                ) : (
+                  <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+                )
               ) : (
                 <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
               )}
+            </div>
+            <div class="account-ad-copy">
+              <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
+              <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
+              {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}
             </div>
           </aside>
         ) : null}
