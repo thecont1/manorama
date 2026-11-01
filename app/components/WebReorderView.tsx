@@ -85,10 +85,6 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
           {status}
           {note ? <span class="web-reorder-note" role="alert">{note}</span> : null}
         </p>
-        <span class="web-reorder-views" role="group" aria-label="Layout">
-          <button type="button" class={`web-reorder-view${view === 'strip' ? ' is-on' : ''}`} aria-pressed={view === 'strip'} onClick={() => setView('strip')}>Strip</button>
-          <button type="button" class={`web-reorder-view${view === 'grid' ? ' is-on' : ''}`} aria-pressed={view === 'grid'} onClick={() => setView('grid')}>Grid</button>
-        </span>
       </div>
       <div class={view === 'grid' ? 'web-reorder-frame web-reorder-frame--grid' : 'admin-gallery-strip-frame web-reorder-frame'}>
         <div
@@ -145,6 +141,12 @@ export function WebReorderView({ title, images, busy = false, note = null, onCan
           }}
         />
         <svg class="l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
+        {/* The layout choice sits beside the size control — one compact
+            bottom cluster instead of a toggle floating in the status bar. */}
+        <span class="web-reorder-views" role="group" aria-label="Layout">
+          <button type="button" class={`web-reorder-view${view === 'strip' ? ' is-on' : ''}`} aria-pressed={view === 'strip'} onClick={() => setView('strip')}>Strip</button>
+          <button type="button" class={`web-reorder-view${view === 'grid' ? ' is-on' : ''}`} aria-pressed={view === 'grid'} onClick={() => setView('grid')}>Grid</button>
+        </span>
       </div>
     </section>
   )
