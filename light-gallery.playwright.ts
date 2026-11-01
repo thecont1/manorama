@@ -54,6 +54,19 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
       expect(channels[0] + channels[1] + channels[2], `${sel} color ${color}`).toBeGreaterThan(600)
     }
 
+    // The Light canvas is its own display choice (manorama:view:<slug>) — the
+    // card surfaces ride it, so their copy must flip to dark ink.
+    await page.evaluate(() => { localStorage.setItem('manorama:view:mixed-album', JSON.stringify({ background: 'light' })) })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('.viewer-stage.bg-light', { timeout: 15_000 })
+    for (const sel of ['[data-endcard]', '[data-ad-frame]']) {
+      const el = page.locator(sel)
+      const color = await el.evaluate(e => getComputedStyle(e).color)
+      const channels = color.match(/[\d.]+/g)!.map(Number)
+      expect(channels[0] + channels[1] + channels[2], `${sel} color ${color}`).toBeLessThan(120)
+    }
+    await page.evaluate(() => { localStorage.removeItem('manorama:view:mixed-album') })
+
     // Chrome auto-hides after 3s; tap the stage until the pill appears.
     const reveal = async (name: RegExp) => {
       const btn = page.getByRole('button', { name }).first()

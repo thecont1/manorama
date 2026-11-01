@@ -1393,6 +1393,11 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
    app's theme switch — the viewer manages its ink independently. */
 html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
 :is(.viewer-stage, .magnifier-world).bg-light { --gallery-canvas: #e9e5dc; --doodle-ink: rgba(0, 0, 0, 0.16); }
+/* The endcap card and ad plate paint their copy in --ink over the canvas —
+   on the Light canvas that must be dark ink, or "The End." and the plate
+   copy go light-on-light. Scoped to the cards themselves: the arrow and
+   video chips carry their own dark surface and keep the light ink. */
+:is(.viewer-stage, .magnifier-world).bg-light :is(.viewer-endcap, .viewer-ad-frame) { --ink: 22, 24, 23; }
 /* Light and Dark give every image a 10px margin ('none' abuts). The
    frame carries the margin, the staged image inside it is already
    shrunk to fit: strip frames get top/bottom/right so neighbours keep a
