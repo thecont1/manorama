@@ -50,6 +50,9 @@ export type OfflineGridFrame = {
   id: string
   entryId: string
   mimeType: string
+  /** From the manifest item's `type`, never the cached mimeType — the still
+   *  a video caches under is image/jpeg and would miscount as a photo. */
+  video: boolean
   width: number
   height: number
   alt: string
@@ -532,6 +535,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         id: image.id,
         entryId: metadata.value.images[index].entryId,
         mimeType: metadata.value.images[index].mimeType,
+        video: isVideoItem(image),
         width: image.width,
         height: image.height,
         alt: image.alt,

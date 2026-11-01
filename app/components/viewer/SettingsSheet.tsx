@@ -4,11 +4,14 @@ import { Switch } from '../ui/Switch'
 import type { Child } from 'hono/jsx'
 import { useId } from 'hono/jsx'
 
-/** The Settings popover: view layout, canvas, arrows and fullscreen first —
- *  the old controls-modal's semantics on the P1 sheet — then one role-bound
- *  `actions` group the caller composes (owner management rows, a member's
- *  Add to Library, a visitor's Sign in). Changes apply immediately and the
- *  popover stays open; persistence is the caller's. */
+/** The Settings popover: a "View" column (layout, canvas, arrows,
+ *  fullscreen and the native device block) then one role-bound `actions`
+ *  column the caller composes — the web owner's inline gallery panel, a
+ *  member's Add to Library, a visitor's Sign in, native's Details
+ *  handoff. Keyboard shortcuts come last, full width. `wide` splits the
+ *  body into two columns (owner inline management on roomy viewports);
+ *  narrow stacks View → role → shortcuts. Changes apply immediately and
+ *  the popover stays open; persistence is the caller's. */
 
 export type SettingsSheetProps = {
   open: boolean
@@ -28,15 +31,17 @@ export type SettingsSheetProps = {
   magnifierActive?: boolean
   /** Native only — "On this device" (TODO(P7): lives in Gallery details). */
   deviceControls?: Child
-  /** The role-bound ActionGroup rendered after the display controls. */
+  /** The role-bound ActionGroup rendered beside the view controls. */
   actions?: Child
+  /** Two-column body — the owner panel earns the extra width. */
+  wide?: boolean
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
 export default function SettingsSheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  magnifierAvailable, magnifierActive, deviceControls, actions, panelStyle,
+  magnifierAvailable, magnifierActive, deviceControls, actions, wide = false, panelStyle,
 }: SettingsSheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
@@ -51,56 +56,66 @@ export default function SettingsSheet({
   return (
     <div class="m-dark">
       <Sheet open={open} onClose={onClose} title="Settings" popover panelStyle={panelStyle}>
-        {deviceControls ? <section class="m-sheet-section"><h3 class="m-sheet-label">On this device</h3>{deviceControls}</section> : null}
-        <section class="m-sheet-section">
-          <div class="m-sheet-field">
-            <h3 class="m-sheet-label">Layout</h3>
-            <span class="m-sheet-hint">{layoutHint}</span>
-            <Segmented
-              label="Layout"
-              value={mode}
-              onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
-              options={[
-                { value: 'strip', label: 'Strip' },
-                { value: 'vertical', label: 'Scroll' },
-                { value: 'single', label: 'One by one' },
-              ]}
-            />
+        <div class={`m-sheet-cols${wide ? ' m-sheet-cols--two' : ''}`}>
+          <div class="m-sheet-col" data-settings-view>
+            <h3 class="m-actiongroup-label">View</h3>
+            {deviceControls ? <section class="m-sheet-section"><h3 class="m-sheet-label">On this device</h3>{deviceControls}</section> : null}
+            <section class="m-sheet-section">
+              <div class="m-sheet-field">
+                <h3 class="m-sheet-label">Layout</h3>
+                <span class="m-sheet-hint">{layoutHint}</span>
+                <Segmented
+                  label="Layout"
+                  value={mode}
+                  onChange={(v) => onMode(v as 'strip' | 'vertical' | 'single')}
+                  options={[
+                    { value: 'strip', label: 'Strip' },
+                    { value: 'vertical', label: 'Scroll' },
+                    { value: 'single', label: 'One by one' },
+                  ]}
+                />
+              </div>
+            </section>
+            <section class="m-sheet-section">
+              <div class="m-sheet-field">
+                <h3 class="m-sheet-label">Canvas</h3>
+                <span class="m-sheet-hint">{canvasHint}</span>
+                <Segmented
+                  label="Canvas"
+                  value={background}
+                  onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
+                  options={[
+                    { value: 'none', label: 'Blank' },
+                    { value: 'dark', label: 'Dark' },
+                    { value: 'light', label: 'Light' },
+                  ]}
+                />
+              </div>
+            </section>
+            <section class="m-sheet-section">
+              <div class="m-sheet-field">
+                <Switch
+                  checked={arrowsOn}
+                  onChange={onArrows}
+                  label="Arrows"
+                  describedBy={arrowsDescId}
+                />
+                <span class="m-sheet-hint" id={arrowsDescId}>Show next and previous buttons</span>
+              </div>
+              {fullscreenAvailable ? (
+                <div class="m-sheet-field">
+                  <Switch checked={fullscreenActive} onChange={() => onFullscreen()} label="Fullscreen" describedBy={fsDescId} />
+                  <span class="m-sheet-hint" id={fsDescId}>Fill the screen</span>
+                </div>
+              ) : null}
+            </section>
           </div>
-        </section>
-        <section class="m-sheet-section">
-          <div class="m-sheet-field">
-            <h3 class="m-sheet-label">Canvas</h3>
-            <span class="m-sheet-hint">{canvasHint}</span>
-            <Segmented
-              label="Canvas"
-              value={background}
-              onChange={(v) => onBackground(v as 'none' | 'dark' | 'light')}
-              options={[
-                { value: 'none', label: 'Blank' },
-                { value: 'dark', label: 'Dark' },
-                { value: 'light', label: 'Light' },
-              ]}
-            />
-          </div>
-        </section>
-        <section class="m-sheet-section">
-          <div class="m-sheet-field">
-            <Switch
-              checked={arrowsOn}
-              onChange={onArrows}
-              label="Arrows"
-              describedBy={arrowsDescId}
-            />
-            <span class="m-sheet-hint" id={arrowsDescId}>Show next and previous buttons</span>
-          </div>
-          {fullscreenAvailable ? (
-            <div class="m-sheet-field">
-              <Switch checked={fullscreenActive} onChange={() => onFullscreen()} label="Fullscreen" describedBy={fsDescId} />
-              <span class="m-sheet-hint" id={fsDescId}>Fill the screen</span>
+          {actions ? (
+            <div class="m-sheet-col" data-settings-role>
+              <section class="m-sheet-section m-sheet-actions" data-settings-actions>{actions}</section>
             </div>
           ) : null}
-        </section>
+        </div>
         {showShortcuts ? (
           <section class="m-sheet-section">
             <h3 class="m-sheet-label">Keyboard shortcuts</h3>
@@ -115,7 +130,6 @@ export default function SettingsSheet({
             </ul>
           </section>
         ) : null}
-        {actions ? <section class="m-sheet-section m-sheet-actions" data-settings-actions>{actions}</section> : null}
       </Sheet>
     </div>
   )

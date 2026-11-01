@@ -173,6 +173,7 @@ describe('the dashboard renders retention state', () => {
       caption: '',
       address: 'manorama.xyz/test-owner/locked',
       imageCount: 1,
+      mediaCount: { stills: 1, videos: 0 },
       sourceLabel: 'Dropbox',
       temporary: true,
       expiresAt: '2026-11-15T00:00:00.000Z',
@@ -209,6 +210,46 @@ describe('the dashboard renders retention state', () => {
     expect(card).toContain('aria-haspopup="dialog"')
     expect(card).toContain('class="lib-card-title"')
     expect(card).toContain('href="/test-owner/kept-0"')
+  })
+
+  test('cards and the Details header count stills and videos separately', async () => {
+    const video = { type: 'video' as const, id: 'v-1', filename: 'v-1.mp4', src: '/v-1.mp4', mimeType: 'video/mp4' as const, width: 4, height: 3, poster: { src: '/v-1.jpg', width: 4, height: 3 }, alt: 'a video', c2pa: false as const, placeholder: '' }
+    const html = await renderDashboard(async () => {
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'mixed',
+        title: 'Mixed',
+        caption: '',
+        date: '',
+        images: [video, ...Array.from({ length: 24 }, (_, index) => image(`m-${index}`))],
+      })
+    })
+    const card = cardSection(html, 'mixed')
+    expect(card).toContain('24 photographs · 1 video')
+    expect(card).not.toContain('25 photographs')
+    const details = String(GalleryDetailsView({
+      title: 'Mixed',
+      caption: '',
+      address: 'manorama.xyz/test-owner/mixed',
+      imageCount: 25,
+      mediaCount: { stills: 24, videos: 1 },
+      sourceLabel: 'Dropbox',
+      editable: true,
+      streamOnly: false,
+      platform: 'web',
+      onBack: () => {},
+      onOpen: () => {},
+      onShare: () => {},
+      onEditName: () => {},
+      onEditCaption: () => {},
+      onEditAddress: () => {},
+      onReorder: () => {},
+      onRefresh: () => {},
+      onStreamOnlyChange: () => {},
+      onPurge: () => {},
+      onRemove: () => {},
+    }))
+    expect(details).toContain('24 photographs · 1 video')
+    expect(details).not.toContain('25 photographs')
   })
 
   test('a hidden photograph stays in the owner rail, dimmed and badged', async () => {

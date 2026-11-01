@@ -120,13 +120,41 @@ export const isVideoItem = (item: GalleryMediaItem): item is VideoItem =>
 export const stillSourceOf = (item: GalleryMediaItem): string =>
   isVideoItem(item) ? item.poster.src : item.src
 
-/** The curtain's count line: videos counted in one pass, stills derived
- *  from the total so every shell counts the same way. */
-export const mediaCountOf = (items: readonly GalleryMediaItem[]): { stills: number; videos: number } => {
+/** The count split every surface shares: videos counted in one pass,
+ *  stills derived from the total. Items only need a `type` field —
+ *  manifest entries and trimmed summary previews both qualify, and an
+ *  absent `type` is an image exactly as in the stored manifest. */
+export const mediaCountOf = (items: readonly { type?: string }[]): { stills: number; videos: number } => {
   let videos = 0
-  for (const item of items) if (isVideoItem(item)) videos += 1
+  for (const item of items) if (item.type === 'video') videos += 1
   return { stills: items.length - videos, videos }
 }
+
+/** The still/video/hidden split a count line speaks. `hidden` counts
+ *  owner-concealed items and appears only on owner surfaces. */
+export type MediaCount = { stills: number; videos: number; hidden?: number }
+
+/** One count line for every surface that reports what a gallery holds:
+ *  "24 photographs · 1 video · 2 hidden". Each part appears only when its
+ *  count is nonzero; an empty gallery reads "0 photographs" because the
+ *  still count is what a visitor came for. */
+export const formatMediaCount = (count: MediaCount): string => {
+  const parts: string[] = []
+  if (count.stills > 0) parts.push(`${count.stills} photograph${count.stills === 1 ? '' : 's'}`)
+  if (count.videos > 0) parts.push(`${count.videos} video${count.videos === 1 ? '' : 's'}`)
+  if (parts.length === 0) parts.push('0 photographs')
+  if (count.hidden && count.hidden > 0) parts.push(`${count.hidden} hidden`)
+  return parts.join(' · ')
+}
+
+/** Summaries written before `mediaCount` existed carry one total — older
+ *  payloads degrade to all-stills rather than undercounting. */
+export const summaryMediaCount = (summary: {
+  imageCount: number
+  mediaCount?: MediaCount
+}): Required<MediaCount> => summary.mediaCount
+  ? { stills: summary.mediaCount.stills, videos: summary.mediaCount.videos, hidden: summary.mediaCount.hidden ?? 0 }
+  : { stills: summary.imageCount, videos: 0, hidden: 0 }
 
 export type GalleryManifest = {
   slug: string

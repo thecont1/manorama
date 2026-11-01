@@ -1,9 +1,10 @@
-/** Temporary viewer chrome: a top bar (Library + position pills) and a
- *  bottom row (Settings + Info — the single popover carries display
- *  controls plus the viewer's role rows) that fades in on tap, pointer or
- *  focus and auto-hides after 3s of disinterest. Purely presentational —
- *  the viewer owns every handler. Always inside .m-dark; chrome never
- *  follows the owner theme. */
+/** Temporary viewer chrome: a top bar (the Library exit only) and a
+ *  bottom row (position + Settings + Info). The position pill lives in
+ *  the nav so it reads as the button that opens the photograph picker;
+ *  the single popover carries display controls plus the viewer's role
+ *  rows. Bars fade in on tap, pointer or focus and auto-hide after 3s of
+ *  disinterest. Purely presentational — the viewer owns every handler.
+ *  Always inside .m-dark; chrome never follows the owner theme. */
 
 export type ViewerChromeProps = {
   visible: boolean
@@ -74,9 +75,6 @@ export default function ViewerChrome({
             </button>
           )
         ) : null}
-        <button ref={positionRef} type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position>
-          {position.index + 1} of {position.total}
-        </button>
       </header>
       <nav
         class={`m-chrome m-chrome--bottom ${visible ? 'is-visible' : ''}`}
@@ -87,6 +85,9 @@ export default function ViewerChrome({
         aria-label="Viewer controls"
         {...activity}
       >
+        <button ref={positionRef} type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position>
+          {position.index + 1} of {position.total}
+        </button>
         <button ref={settingsRef} type="button" class="m-chrome-pill" onClick={onOpenSettings}>Settings</button>
         <button type="button" class="m-chrome-pill" onClick={onOpenInfo}>Info</button>
       </nav>

@@ -45,23 +45,9 @@ export const previewSrcFor = (item: {
   poster?: { src: string }
 }): string => item.variants?.[0]?.src ?? item.poster?.src ?? item.src
 
-/** Provider word for a gallery's source link, matched on host alone — the
- *  scanner graph stays server-side, so this never imports `detectSource`. */
-export const sourceLabelFor = (sourceUrl: string | null | undefined): string => {
-  if (!sourceUrl) return 'gallery'
-  let url: URL
-  try {
-    url = new URL(sourceUrl)
-  } catch {
-    return 'local folder'
-  }
-  const host = url.hostname.replace(/^www\./, '')
-  if (host === 'dropbox.com') return 'Dropbox'
-  if (host === 'drive.google.com') return 'Google Drive'
-  if (host === 'icloud.com' || host === 'share.icloud.com') return 'iCloud'
-  if (host === 'mega.nz' || host === 'mega.co.nz') return 'MEGA'
-  return 'gallery'
-}
+/** The provider word moved to packages/core (the gallery route labels the
+ *  owner panel with it too); re-exported so existing imports hold. */
+export { sourceLabelFor } from '../../packages/core/source-label'
 
 export const mimeTypeForItem = (item: {
   filename: string

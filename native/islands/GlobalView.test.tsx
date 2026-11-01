@@ -69,6 +69,7 @@ const frame = (id: string, index: number): OfflineGridFrame => ({
   id,
   entryId: `thumb-${id}`,
   mimeType: 'image/jpeg',
+  video: false,
   width: 800,
   height: 600,
   alt: `${id} alt`,

@@ -399,26 +399,23 @@ a.m-actionrow, button.m-actionrow { cursor: pointer; }
   .m-sheet--entering { transform: translate(-50%, calc(50% + 24px)); }
 }
 
-/* Popover variant: a card floating above its trigger (the caller anchors
-   right/bottom off the trigger rect) instead of a docked sheet or centred
-   dialog. The ghost scrim keeps outside-tap dismissal without dimming. */
+/* Popover variant: a card floating above the bottom nav instead of a
+   docked sheet or centred dialog. The caller anchors left/bottom/width
+   off the nav's rect (and caps the height between the bars) through
+   panelStyle; the values below are the pre-anchor fallback. The ghost
+   scrim keeps outside-tap dismissal without dimming. */
 .m-sheet.m-sheet--popover {
   left: auto;
   right: 14px;
   top: auto;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
-  width: min(360px, calc(100vw - 28px));
+  width: min(480px, calc(100vw - 28px));
   max-width: none;
-  max-height: min(640px, calc(var(--m-vvh, 100dvh) - 24px));
+  max-height: calc(var(--m-vvh, 100dvh) - 24px);
   border-radius: var(--m-radius-sheet);
   transform: none;
 }
 .m-sheet.m-sheet--popover.m-sheet--entering { transform: translateY(10px); opacity: 0; }
-/* With the arrow bar up, the bottom chrome rides higher — the popover's
-   fallback bottom keeps it clear of both rows. */
-body:has(.viewer-stage.has-arrow-bar) .m-sheet.m-sheet--popover {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px + 60px);
-}
 .m-scrim--ghost, .m-scrim--ghost.m-scrim--open { opacity: 0; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 /* Action groups inside a sheet read as raised cards on the sheet surface. */
 .m-sheet .m-actiongroup { background: var(--m-raised); }
@@ -564,8 +561,15 @@ button { color: inherit; }
 /* Sheet sections — the Display and Info sheets share this row grammar:
    a quiet section label, optional hint on the label row, controls
    stacked with a small gap. */
-.m-sheet-section { padding: 14px 0; border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); display: grid; gap: 10px; }
+.m-sheet-section { padding: 18px 0; border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); display: grid; gap: 12px; }
 .m-sheet-section:last-child { border-bottom: 0; }
+/* The Settings popover's two-column body: View left, the role column
+   right, one wide row in the owner's inline-management card. A section
+   following the columns (keyboard shortcuts, always last) keeps the
+   separator the stacked layout would have drawn. */
+.m-sheet-cols--two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; }
+.m-sheet-col { min-width: 0; }
+.m-sheet-cols:has(+ .m-sheet-section) { border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
 .m-sheet-hint { color: rgba(var(--m-ink, var(--ink)), .5); font-size: 11px; text-align: right; min-width: 0; }
@@ -593,6 +597,21 @@ button { color: inherit; }
 .m-info-row dd { margin: 0; text-align: right; overflow-wrap: anywhere; color: rgba(var(--m-ink, var(--ink)), .9); }
 
 kbd { border: 1px solid rgba(var(--ink), .23); padding: 3px 5px; color: rgba(var(--ink), .76); font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
+
+/* The web owner's inline gallery panel (Settings popover): a bold title
+   and meta line up top, then the management groups. Inline editors and
+   the remove confirmation swap in for their rows inside the same card. */
+.m-owner-panel-head { margin: 0 0 12px; }
+.m-owner-panel-title { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
+.m-owner-panel-meta { margin: 2px 0 0; color: var(--m-secondary); font-size: var(--m-fs-small); }
+.m-owner-panel-lock a { color: inherit; text-decoration: underline; }
+.m-owner-panel-note { margin: 6px 4px 0; font-size: var(--m-fs-small); color: var(--m-meta); }
+.m-owner-edit, .m-owner-confirm { display: grid; gap: 10px; padding: 12px 16px; }
+.m-owner-edit-label { font-size: var(--m-fs-small); color: var(--m-meta); }
+.m-owner-edit-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.m-owner-confirm-text { margin: 0; font-size: 15px; }
+.m-actionrow + .m-owner-edit, .m-owner-edit + .m-actionrow, .m-owner-edit + .m-owner-edit,
+.m-actionrow + .m-owner-confirm, .m-owner-confirm + .m-actionrow { border-top: 1px solid var(--m-rule); }
 cai-manifest-summary { display: block; margin-top: 16px; }
 
 @media (max-width: 640px) {

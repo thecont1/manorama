@@ -20,6 +20,7 @@ const frame = (entryId: string, mimeType = 'image/jpeg'): OfflineGridFrame => ({
   id: entryId,
   entryId,
   mimeType,
+  video: mimeType.startsWith('video/'),
   width: 800,
   height: 600,
   alt: '',

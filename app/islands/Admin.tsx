@@ -15,6 +15,7 @@ import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEd
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { WebReorderView } from '../components/WebReorderView'
 import { copyText } from '../lib/gallery-share'
+import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 
 type Props = {
@@ -885,7 +886,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
             </div>
             <p class="lib-card-sub">
-              {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} from {sourceLabelFor(gallery.sourceUrl)}
+              {formatMediaCount(summaryMediaCount(gallery))} from {sourceLabelFor(gallery.sourceUrl)}
               {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
@@ -998,6 +999,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             caption={detailsGallery.caption}
             address={`${publicHost}/${owner}/${detailsGallery.slug}`}
             imageCount={detailsGallery.imageCount}
+            mediaCount={summaryMediaCount(detailsGallery)}
             sourceLabel={sourceLabelFor(detailsGallery.sourceUrl)}
             temporary={isLocked(detailsGallery)}
             expiresAt={detailsGallery.expiresAt}

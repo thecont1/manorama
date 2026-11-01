@@ -64,7 +64,11 @@ const onKeyDown = (event: KeyboardEvent) => {
   const active = top()
   if (!active) return
   if (event.key === 'Escape') {
-    if (active.onEscape) {
+    // An inline editor can own Escape for itself — cancelling its edit,
+    // not the sheet. It marks an ancestor because this listener runs in
+    // the capture phase, ahead of any handler on the field. The Tab trap
+    // below still applies inside the marked subtree.
+    if (active.onEscape && !(event.target as HTMLElement | null)?.closest?.('[data-escape-owner]')) {
       event.preventDefault()
       active.onEscape()
     }

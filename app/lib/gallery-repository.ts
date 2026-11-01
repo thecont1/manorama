@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types'
-import { isVideoItem, type GalleryMediaItem, type GalleryManifest } from './imagesource'
+import { isVideoItem, mediaCountOf, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 import { getUserByAccountId } from './user-repository'
 import { clearDeviceGalleryLink } from './device-gallery-repository'
 import {
@@ -57,7 +57,7 @@ const ownerStore = (ownerId: string) => {
   return store
 }
 
-const retentionOf = (gallery: { retention?: GalleryRetention }): GalleryRetention =>
+export const retentionOf = (gallery: { retention?: GalleryRetention }): GalleryRetention =>
   gallery.retention === 'pipeline' ? 'pipeline' : 'retained'
 
 const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
@@ -563,7 +563,15 @@ export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: 
   return ownerStore(key.ownerId).delete(key.slug)
 }
 
-export const toSummary = (gallery: GalleryRecord) => ({ slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, images: previewImages(gallery.images) })
+export const toSummary = (gallery: GalleryRecord) => {
+  // stills/videos count what the published gallery shows — the route
+  // filters `hidden` — while `hidden` carries the concealed total so owner
+  // surfaces can state it. `imageCount` stays the full count: the native
+  // vault's "Saving n of imageCount" progress reads it.
+  const visible = gallery.images.filter((image) => !image.hidden)
+  const { stills, videos } = mediaCountOf(visible)
+  return { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, images: previewImages(gallery.images) }
+}
 export type GallerySummary = ReturnType<typeof toSummary>
 
 /** Drops one owner's whole in-memory store so the non-D1 branch of

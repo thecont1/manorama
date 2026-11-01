@@ -78,7 +78,11 @@ test.describe("the role rows in the Settings popover", () => {
     await page.waitForURL(/\/retention-qa\/kashmir$/, { timeout: 15_000 });
     await enter(page, page.url());
     const owned = await openSettings(page);
-    await expect(owned.getByRole("button", { name: "Manage gallery" })).toBeVisible();
+    // On web the owner's management is the inline panel — the member is
+    // its owner now, so "This gallery" and its rows are theirs.
+    await expect(owned.locator(".m-owner-panel")).toBeVisible();
+    await expect(owned.getByRole("button", { name: "Remove gallery" })).toBeVisible();
+    await expect(owned.getByRole("button", { name: "Manage gallery" })).toHaveCount(0);
     await expect(owned.getByRole("button", { name: "Add to Library" })).toHaveCount(0);
   });
 
