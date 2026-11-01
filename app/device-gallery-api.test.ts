@@ -212,6 +212,23 @@ describe('device catalogue ownership', () => {
     const rows = await db.prepare('SELECT COUNT(*) AS count FROM device_galleries WHERE owner_id = ?').bind(owner.id).first<{ count: number }>()
     expect(rows?.count).toBe(0)
   })
+
+  test('a sync-shaped put keeps the linked public slug; an incoming slug still applies', async () => {
+    const owner = await seedOwner()
+    const id = crypto.randomUUID()
+    await seedGallery(owner.id, 'linked-gallery')
+    await seedGallery(owner.id, 'relinked-gallery')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'linked-gallery' }))).status).toBe(200)
+    // The desktop sync projection omits publicGallerySlug — the link must
+    // survive every routine upsert instead of being nulled back out.
+    expect((await putAs(owner.bearer, id, deviceInput({ title: 'Rescanned' }))).status).toBe(200)
+    let row = (await galleriesOf(await listAs(owner.bearer)))[0]
+    expect(row?.publicGallerySlug).toBe('linked-gallery')
+    expect(row?.title).toBe('Rescanned')
+    expect((await putAs(owner.bearer, id, deviceInput({ publicGallerySlug: 'relinked-gallery' }))).status).toBe(200)
+    row = (await galleriesOf(await listAs(owner.bearer)))[0]
+    expect(row?.publicGallerySlug).toBe('relinked-gallery')
+  })
 })
 
 describe('device catalogue validation', () => {

@@ -526,10 +526,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const handleShareStep = (step: ShareStep) => {
+    // The link is already written server-side when the flow reaches done —
+    // pulling the account reads back here lets an open Details offer Share
+    // link (not a second publish) and lets the device card collapse into
+    // its cloud gallery. shareStepRef guards refires of onStepChange.
+    const published = step === 'done' && shareStepRef.current !== 'done'
     setShareStep(step)
     setShareUploading(step === 'uploading')
     shareStepRef.current = step
     shareUploadingRef.current = step === 'uploading'
+    if (published && session) {
+      void fetchDeviceGalleries(base, session.token).then(
+        (rows) => { setDeviceRows(rows); setDevicesFailed(false) },
+        () => setDevicesFailed(true),
+      )
+      void fetchAccountGalleries(base, session.token).then(
+        (rows) => { setAccountGalleries(rows); setGalleriesFailed(false) },
+        () => setGalleriesFailed(true),
+      )
+    }
   }
 
   const rename = async (record: LocalGalleryRecord, value: string) => {
@@ -820,7 +835,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <div>
                 {/* The pane states the account, not the product pitch — the
                     dictionary definition and greeting belong to Welcome. */}
-                {session ? <p class="admin-greeting-url">manorama.xyz/{session.ownerSlug}</p> : null}
+                {session ? <p class="admin-greeting-url">manorama.xyz/{ownerSlug ?? session.ownerSlug}</p> : null}
                 {planSentence ? <p>{planSentence}</p> : null}
                 <p class="desktop-device-line">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'}</p>
                 {!session ? (

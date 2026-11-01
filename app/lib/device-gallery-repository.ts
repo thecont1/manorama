@@ -46,7 +46,11 @@ export const putDeviceGallery = async (ownerId: string, id: string, input: Devic
   const db = requireDb(env)
   const updatedAt = new Date().toISOString()
   await db
-    .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, device_label = excluded.device_label, public_gallery_slug = excluded.public_gallery_slug, updated_at = excluded.updated_at')
+    // public_gallery_slug is COALESCE'd, not overwritten: a routine sync
+    // PUT omits the field (parseDeviceGalleryInput leaves it undefined →
+    // NULL here), and wiping a linked slug would unlink a published
+    // gallery every sync. A real slug in the payload still applies.
+    .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, device_label = excluded.device_label, public_gallery_slug = COALESCE(excluded.public_gallery_slug, device_galleries.public_gallery_slug), updated_at = excluded.updated_at')
     .bind(ownerId, id, input.title, input.sourceKind, input.itemCount, input.deviceId, input.deviceLabel, input.publicGallerySlug ?? null, updatedAt)
     .run()
   return { id, ...input, updatedAt }
