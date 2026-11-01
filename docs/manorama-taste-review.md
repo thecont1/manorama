@@ -1,6 +1,6 @@
 # manorama taste review
 
-Final implementation review · 1 November 2026
+Baseline implementation review · 1 November 2026
 
 The main problem is not a lack of styling. Three generations of interface coexist: the newer shared owner screens, the web Library's oversized brand treatment, and macOS's older welcome/account layout. The improvement drive should consolidate those surfaces, remove repeated explanation, and protect the viewing experience. It should not introduce another design direction.
 
@@ -15,7 +15,7 @@ This replaces the previous 26-point prototype review. Findings below are based o
 - **Device limit:** the Mac did not respond. Neither a real iOS WKWebView nor a packaged Tauri application was exercised. Native pickers, system share sheets, App Store sheets, safe areas, hardware keyboards and OS-level focus still need a device check. This is an implementation UI audit, not a claim that all native behaviours passed.
 - **Historical captures:** repository screenshots helped locate surfaces, but fresh captures and current source take precedence. Several older screenshots no longer match the latest web header.
 
-The Project file repository retains supporting screenshots, measurements and logs under `reviews/evidence/manorama-taste-review/`, with web/macOS captures in `fresh/` and native captures in `native/`. Fresh native captures were generated from the sandbox checkout's `docs/redesign-parity/native/`. Application source was not edited.
+The captured frames committed to the repository live under `docs/redesign-parity/` — web captures in `web/`, native captures in `native/`. Application source was not edited.
 
 ## Direction to preserve
 

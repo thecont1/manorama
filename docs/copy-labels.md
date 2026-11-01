@@ -12,7 +12,7 @@ platform quirk.
 | Reorder photographs | `Reorder` in the editor bar title; `Reorder photographs` in the card menu that opens it | — |
 | Publish / share a local gallery | `Publish` while unpublished, `Share link` once a public link exists | — |
 | Viewer chrome | one-word controls (`Display`, `Info`, `Share`) | the one-word rule applies to viewer chrome only — legal text and explanatory forms are exempt |
-| Privacy destinations | `Privacy Policy`, `Terms` | — |
+| Privacy destinations | `Privacy Policy`, `Terms` | `Terms of Use` on the native paywall — the App Store EULA row names Apple's document |
 
 ## Touch targets
 

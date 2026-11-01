@@ -2,13 +2,13 @@
 
 Implementation backlog · 1 November 2026
 
-Sixteen tickets derived one-to-one from the final `manorama-taste-review.md`. These are portable ticket specifications, not issues published to GitHub or Linear. No implementation has started, and no assignees, estimates or deadlines are implied.
+Sixteen tickets derived one-to-one from the baseline `manorama-taste-review.md`. These are portable ticket specifications, not issues published to GitHub or Linear. They describe the project's state at drafting time — check the current branch for status; no assignees, estimates or deadlines are implied.
 
 ## Baseline and working rules
 
 - **Baseline:** review of `thecont1/manorama` at `264af13f69c5ff8de74c3e2dfcfd84caa3a1d850`. Recheck the current branch before coding; close a ticket as already resolved only with current evidence.
 - **Priority:** P1 corresponds to review Priority A; P2 corresponds to Priority B. P1 means the first improvement pass, not an outage.
-- **Evidence:** `manorama-taste-review.md` and `evidence/manorama-taste-review/`, relative to this document. Fresh browser captures establish UI evidence, not actual iOS/macOS runtime certification.
+- **Evidence:** `manorama-taste-review.md` and the captured frames under `docs/redesign-parity/` (web captures in `web/`, native captures in `native/`). Fresh browser captures establish UI evidence, not actual iOS/macOS runtime certification.
 - **Protected contracts:** uncropped photographs, density-aware image fitting, strip stepping and docking, natural-ratio rails, single-photograph Content Credentials, vault semantics, publication consent and owner/visitor permissions.
 - **Protected choices:** Bricolage Grotesque, warm ink, quiet surfaces, the colourful mark, magenta for progress/selection, the approved frosted curtain and dissolve, and one-word viewer controls.
 - **Scope discipline:** one review finding per ticket. Change shared primitives only with consumer tests; do not redesign unrelated operator screens or change billing, storage or publication policy to simplify the UI.
