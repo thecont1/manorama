@@ -410,10 +410,9 @@ button { color: inherit; }
 /* Viewing invariant: Strip fits every original to visible height; Vertical complements it by fitting landscapes to width and portraits to visible height. No source is cropped, stretched, or enlarged. */
 /* When arrows are on, the stage cedes a real 64px bar beneath the
    photographs — the controls live in their own strip and never sit on
-   an image. Scroll mode keeps the full-height feed: its ↑/↓ pair floats
-   stacked at bottom right instead. */
+   an image. Every mode docks the same way, Scroll included. */
 .viewer-stage { --viewer-arrows-bar: 0px; position: relative; isolation: isolate; width: 100%; height: 100vh; height: 100svh; height: 100dvh; height: calc(var(--viewer-stage-height, 100dvh) - var(--viewer-arrows-bar)); min-height: 0; overflow: hidden; overscroll-behavior: none; background: var(--gallery-canvas); outline: none; touch-action: none; cursor: grab; }
-.viewer-stage.mode-strip.has-arrow-bar, .viewer-stage.mode-single.has-arrow-bar { --viewer-arrows-bar: calc(64px + env(safe-area-inset-bottom, 0px)); }
+.viewer-stage.mode-strip.has-arrow-bar, .viewer-stage.mode-single.has-arrow-bar, .viewer-stage.mode-vertical.has-arrow-bar { --viewer-arrows-bar: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .viewer-stage.is-dragging { cursor: grabbing; }
 .viewer-stage.mode-vertical { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; cursor: default; }
 .viewer-stage.mode-single { cursor: default; }
@@ -516,10 +515,10 @@ button { color: inherit; }
 .stage-arrows button:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .82); }
 .stage-arrows button:focus-visible { outline: none; opacity: .75; }
 .stage-arrows button:disabled { opacity: .28; cursor: default; }
-/* Vertical scroll stacks ↑ over ↓ at the bottom-right corner instead —
-   a width-fit feed reads top-to-bottom and keeps its full-height
-   canvas, so vertical travel docks right as a floating pair. */
-.stage-arrows--vertical { left: auto; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); width: auto; height: auto; padding: 0; flex-direction: column; align-items: flex-end; justify-content: initial; }
+/* Vertical mode uses the same reserved bar as every other mode — the
+   floating bottom-right pair rested permanently on photographs, which
+   the no-controls principle forbids. ↑/↓ keep their glyphs; only the
+   dock changes. The class stays because the native row styles hook it. */
 
 .text-button { border: 0; padding: 0; background: transparent; color: rgba(var(--ink), .68); font-size: 12px; cursor: pointer; }
 .text-button:hover, .text-button:focus-visible { color: rgb(var(--ink)); }
@@ -1131,6 +1130,12 @@ html.light .admin-page :is(.m-topbar-logo, .landing-brand-mark) { filter: bright
 }
 .video-control:hover { opacity: 1; border-color: rgba(var(--ink), .8); background: rgba(10, 10, 10, .84); }
 .video-control:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: 3px; opacity: 1; }
+/* Play/Mute are temporary controls — they ride the chrome reveal rather
+   than resting permanently on the photograph; the VIDEO chip stays as
+   the frame's label (it is a marker, not a control). */
+.video-control { visibility: hidden; opacity: 0; transition: opacity 200ms var(--m-ease, ease), visibility 0s 200ms; }
+.viewer-stage.chrome-on .video-control { visibility: visible; opacity: .62; transition: opacity 180ms ease, border-color 180ms ease, background 180ms ease; }
+.viewer-stage.chrome-on .video-control:is(:hover, :focus-visible) { opacity: 1; }
 .video-chip {
   padding: 5px 10px;
   border: 1px solid rgba(var(--ink), .14);
@@ -1787,7 +1792,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); justify-content: center; transform: translateY(8px); }
 /* With the arrow bar reserved, the temporary bottom chrome rides just
    above it rather than inside the controls' strip. */
-body:has(.viewer-stage.has-arrow-bar:not(.mode-vertical)) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
+body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-area-inset-bottom, 0px) + 64px + 10px); }
 .m-chrome--top.is-visible, .m-chrome--bottom.is-visible { transform: translateY(0); }
 .m-chrome-pill {
   display: inline-flex;

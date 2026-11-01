@@ -1209,30 +1209,45 @@ for (const vp of viewports) {
         .click();
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
       await page.keyboard.press("Escape");
-      // Enabled vertical arrows stack ↑ over ↓ at the bottom-right.
+      // Enabled vertical arrows dock in the same reserved bar as every
+      // other mode — ↑ at the left corner, ↓ at the right, beneath the
+      // photographs rather than floating on them.
       await expect(page.locator("[data-nav-arrow]").first()).toHaveText("↑");
       await expect(page.locator("[data-nav-arrow]").last()).toHaveText("↓");
-      const arrowsBox = await page
-        .locator("[data-nav-arrow]")
-        .evaluateAll((els) => {
-          const stage = document
-            .querySelector("[data-stage]")!
-            .getBoundingClientRect();
-          return els.map((el) => {
-            const r = el.getBoundingClientRect();
-            return {
-              top: r.top,
-              rightDelta: stage.right - r.right,
-              bottomDelta: stage.bottom - r.bottom,
-            };
-          });
-        });
-      // Second button sits below the first (a column), both docked to
-      // the stage's right edge with the last one near the bottom corner.
-      expect(arrowsBox[1].top).toBeGreaterThan(arrowsBox[0].top + 20);
-      expect(arrowsBox[0].rightDelta).toBeLessThan(48);
-      expect(arrowsBox[1].rightDelta).toBeLessThan(48);
-      expect(arrowsBox[1].bottomDelta).toBeLessThan(48);
+      await expect(page.locator("[data-stage]")).toHaveClass(/has-arrow-bar/);
+      const arrowsGeo = await page.evaluate(() => {
+        const stage = document
+          .querySelector("[data-stage]")!
+          .getBoundingClientRect();
+        const buttons = [...document.querySelectorAll("[data-nav-arrow]")].map(
+          (el) => el.getBoundingClientRect(),
+        );
+        return {
+          stageBottom: stage.bottom,
+          viewportH: window.innerHeight,
+          viewportW: window.innerWidth,
+          buttons: buttons.map((r) => ({
+            top: r.top,
+            left: r.left,
+            right: r.right,
+          })),
+        };
+      });
+      // The stage cedes the bar; both buttons sit below it, never on a
+      // photograph — ↑ in the left third, ↓ in the right.
+      expect(
+        Math.abs(arrowsGeo.stageBottom - (arrowsGeo.viewportH - 64)),
+      ).toBeLessThan(2);
+      expect(arrowsGeo.buttons[0].top).toBeGreaterThanOrEqual(
+        arrowsGeo.stageBottom - 1,
+      );
+      expect(arrowsGeo.buttons[1].top).toBeGreaterThanOrEqual(
+        arrowsGeo.stageBottom - 1,
+      );
+      expect(arrowsGeo.buttons[0].left).toBeLessThan(arrowsGeo.viewportW * 0.3);
+      expect(arrowsGeo.buttons[1].right).toBeGreaterThan(
+        arrowsGeo.viewportW * 0.7,
+      );
       // ↓ docks the next photograph at the feed's top edge — stepped
       // from the on-screen position, not a stale index — and ↑ returns.
       const stageTop = () =>
@@ -1291,18 +1306,12 @@ for (const vp of viewports) {
       ).toBeVisible();
     });
 
-    test("touch pointers start without nav buttons; enabled arrows dock at the bottom corners", async ({
+    test("nav arrows are opt-in on every pointer; enabled arrows dock at the bottom corners", async ({
       page,
     }) => {
       await dismissCurtain(page);
-      const coarse = await page.evaluate(() =>
-        matchMedia("(pointer: coarse)").matches,
-      );
-      if (!coarse) {
-        // Fine pointers keep the old default: arrows on, clustered.
-        await expect(page.locator("[data-nav-arrow]")).toHaveCount(2);
-        return;
-      }
+      // Arrows are off by default on every pointer — Display settings
+      // opt them in per gallery.
       await expect(page.locator("[data-nav-arrow]")).toHaveCount(0);
       await ensureNavArrows(page);
       const stage = await page
@@ -1575,7 +1584,7 @@ for (const vp of viewports) {
       ]);
       await request.dispose();
       await dismissCurtain(page, `${BASE}/${RETENTION_OWNER}/endcap-${vp.name}`);
-      const endcap = page.locator(".viewer-endcap");
+      const endcap = page.locator("[data-endcard]");
       await expect(endcap).toHaveCount(1);
       await expect(endcap).toHaveText(/The\s*End\./);
       // A borderless faux frame: wordmark type 3×, 40px side padding,
@@ -1820,7 +1829,7 @@ for (const vp of viewports) {
       const stageBox = await page.locator("[data-stage]").boundingBox();
       await page.keyboard.press("End");
       await waitForTrackSettled(page);
-      const endcap = page.locator(".viewer-endcap");
+      const endcap = page.locator("[data-endcard]");
       expect(
         (await endcap.boundingBox())!.x,
       ).toBeGreaterThanOrEqual(stageBox!.x + stageBox!.width - 1);
@@ -3146,6 +3155,9 @@ test.describe("video slides", () => {
 
   test("the megaphone unmutes and the control is a real button", async ({ page }) => {
     await dismissCurtain(page, videoGallery());
+    // Play/Mute are temporary controls — they appear with the chrome
+    // reveal rather than resting on the photograph.
+    await showChrome(page);
     const unmute = page.getByRole("button", { name: /unmute video/i }).first();
     await expect(unmute).toBeVisible();
     await expect(unmute).toHaveAttribute("aria-pressed", "false");
@@ -3156,6 +3168,7 @@ test.describe("video slides", () => {
 
   test("playback controls are keyboard operable", async ({ page }) => {
     await dismissCurtain(page, videoGallery());
+    await showChrome(page);
     const toggle = page.getByRole("button", { name: /pause video|play video/i }).first();
     await toggle.focus();
     await page.keyboard.press("Enter");
@@ -3181,6 +3194,8 @@ test.describe("video slides", () => {
     await page.waitForTimeout(700);
     const video = page.locator("video.frame-video").first();
     if (await video.count()) await expect(video).toHaveJSProperty("paused", true);
+    // The Play control is temporary — it surfaces with the chrome reveal.
+    await showChrome(page);
     await expect(page.getByRole("button", { name: /play video/i }).first()).toBeVisible();
     await context.close();
   });
