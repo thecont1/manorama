@@ -526,25 +526,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const handleShareStep = (step: ShareStep) => {
-    // The link is already written server-side when the flow reaches done —
-    // pulling the account reads back here lets an open Details offer Share
-    // link (not a second publish) and lets the device card collapse into
-    // its cloud gallery. shareStepRef guards refires of onStepChange.
+    // The link is already written server-side when the flow reaches done.
+    // Routing the refresh through the normal sync keeps the session-change
+    // guard of the account fetch (its abort drops stale results after a
+    // sign-out or account switch) while an open Details gets Share link —
+    // not a second publish — and the card collapses into its cloud gallery.
+    // shareStepRef guards refires of onStepChange.
     const published = step === 'done' && shareStepRef.current !== 'done'
     setShareStep(step)
     setShareUploading(step === 'uploading')
     shareStepRef.current = step
     shareUploadingRef.current = step === 'uploading'
-    if (published && session) {
-      void fetchDeviceGalleries(base, session.token).then(
-        (rows) => { setDeviceRows(rows); setDevicesFailed(false) },
-        () => setDevicesFailed(true),
-      )
-      void fetchAccountGalleries(base, session.token).then(
-        (rows) => { setAccountGalleries(rows); setGalleriesFailed(false) },
-        () => setGalleriesFailed(true),
-      )
-    }
+    if (published && session && catalogue) void runSync(catalogue, session)
   }
 
   const rename = async (record: LocalGalleryRecord, value: string) => {
