@@ -1942,26 +1942,6 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
 }
 .m-input--textarea { min-height: 112px; resize: vertical; }
 .m-input:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 1px; }
-/* Paste rides inside the link field, not on a row of its own. */
-.m-input-wrap { position: relative; display: block; }
-.m-input-wrap .m-input { padding-right: 76px; }
-.m-input-paste {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 38px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--m-raised);
-  color: var(--m-ink);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.m-input-paste:disabled { cursor: progress; opacity: .5; }
-.m-input-paste:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 1px; }
 .m-note { margin: 0; color: var(--m-meta); font-size: 13px; line-height: 1.5; }
 .m-error { margin: 0; color: var(--m-negative); font-size: 13px; line-height: 1.5; }
 .m-panel-note { padding: 0 16px 12px; }

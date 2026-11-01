@@ -197,6 +197,9 @@ describe('hardware back sees the gallery on the nav stack', () => {
     const url = String(input)
     urls.push(url)
     if (url.includes('/api/gallery/')) return new Response(galleryPayload, { status: 200, headers: { 'content-type': 'application/json' } })
+    // The link verify is its own call — before the create catch-all,
+    // which also matches the /api/galleries prefix.
+    if (url.includes('/api/galleries/scan')) return new Response(JSON.stringify({ scan: { title: 'Coast' } }), { status: 200, headers: { 'content-type': 'application/json' } })
     // The account list and the create call share the endpoint — one body
     // answers both: an empty list, and a galleryUrl the create can parse.
     if (url.includes('/api/galleries')) return new Response(JSON.stringify({ galleries: [], galleryUrl: 'http://api.test/ana/coast' }), { status: 200, headers: { 'content-type': 'application/json' } })
@@ -218,13 +221,18 @@ describe('hardware back sees the gallery on the nav stack', () => {
       await settle()
       const form = container.querySelector('#m-add-gallery-form')
       expect(form).not.toBeNull()
-      const inputs = [...form!.querySelectorAll('input')] as unknown as HTMLInputElement[]
       const fire = (input: HTMLInputElement, value: string) => {
         input.value = value
         input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
       }
+      const inputs = [...form!.querySelectorAll('input')] as unknown as HTMLInputElement[]
       fire(inputs[0], 'https://www.dropbox.com/scl/fo/folder/key')
-      fire(inputs[1], 'coast')
+      // The Name field only appears once the link verifies — a change
+      // commit runs the check without the typing debounce.
+      inputs[0]!.dispatchEvent(new dom.Event('change', { bubbles: true }) as unknown as Event)
+      await settle()
+      const verified = [...form!.querySelectorAll('input')] as unknown as HTMLInputElement[]
+      fire(verified[1]!, 'coast')
       await settle()
       ;(form as unknown as { dispatchEvent(event: Event): boolean }).dispatchEvent(new dom.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event)
       await settle()

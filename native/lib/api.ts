@@ -81,10 +81,11 @@ export const fetchGallery = async (
 export const createGalleryFromSource = async (
   apiBase: string,
   sourceUrl: string,
-  options: { quick?: boolean; title?: string } = {},
+  options: { quick?: boolean; title?: string; caption?: string } = {},
   fetcher: typeof fetch = fetch,
 ): Promise<{ owner: string; slug: string }> => {
   const title = options.title?.trim()
+  const caption = options.caption?.trim()
   const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
@@ -92,6 +93,7 @@ export const createGalleryFromSource = async (
       url: sourceUrl,
       ...(options.quick ? { quick: true } : {}),
       ...(!options.quick && title ? { title } : {}),
+      ...(!options.quick && caption ? { caption } : {}),
     }),
   })
   const payload = await response.json().catch(() => ({})) as { galleryUrl?: string; error?: string }
@@ -113,6 +115,23 @@ export const createGalleryFromQuickAdd = async (
   fetcher: typeof fetch = fetch,
 ): Promise<{ owner: string; slug: string }> =>
   createGalleryFromSource(apiBase, sourceUrl, { quick: true }, fetcher)
+
+/** Dry-run a share link before the Add sheet offers metadata fields —
+ *  same scan the create call will repeat, minus the gallery row. */
+export const scanSourceUrl = async (
+  apiBase: string,
+  sourceUrl: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ title: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ url: sourceUrl }),
+  })
+  const payload = await response.json().catch(() => ({})) as { scan?: { title?: string }; error?: string }
+  if (!response.ok || !payload.scan) throw new Error(payload.error || 'That link could not be read')
+  return { title: payload.scan.title ?? '' }
+}
 
 /** The signed-in account's own gallery summaries — the same rows the web
  *  dashboard lists, so the phone can offer them without a typed slug. */

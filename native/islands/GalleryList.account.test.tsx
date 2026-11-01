@@ -420,6 +420,7 @@ describe('signed-in account area', () => {
   type ApiStubs = {
     galleries?: Response | Promise<Response>
     deviceGalleries?: Response
+    scan?: Response | (() => Response)
     import?: () => Response
     mutation?: (url: string, init?: RequestInit) => Response | undefined
     visibility?: Response
@@ -431,6 +432,11 @@ describe('signed-in account area', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : String(input)
       calls.push({ url, init })
+      // The verify scan is its own call — before the create catch-all,
+      // which also matches the /api/galleries prefix.
+      if (url.includes('/api/galleries/scan') && init?.method === 'POST') {
+        return typeof stubs.scan === 'function' ? stubs.scan() : stubs.scan ?? json({ scan: { title: 'Scanned Album' } })
+      }
       if (url.includes('/api/galleries') && init?.method === 'POST' && stubs.import) return stubs.import()
       if (init?.method && init.method !== 'GET' && stubs.mutation) {
         const response = stubs.mutation(url, init)
@@ -1234,7 +1240,12 @@ describe('signed-in account area', () => {
       expect(input.getAttribute('autocapitalize')).toBe('none')
       input.value = ' https://mega.nz/folder/example#keep-the-key '
       input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
+      // Name and Caption only render after the link verifies — a change
+      // commit runs the check without the typing debounce.
+      input.dispatchEvent(new dom.Event('change', { bubbles: true }) as unknown as Event)
+      await settle()
       const name = form.querySelector('input[type="text"]') as HTMLInputElement
+      expect(name).not.toBeNull()
       name.value = 'Named Album'
       name.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
       await settle()

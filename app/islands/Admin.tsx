@@ -99,8 +99,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [galleries, setGalleries] = useState<GallerySummary[]>(sortRecent(initialGalleries))
   const [sourceUrl, setSourceUrl] = useState('')
   const [addName, setAddName] = useState('')
+  const [addCaption, setAddCaption] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  // The link is verified before the optional fields appear — the scanned
+  // title doubles as the flag and the Name placeholder.
+  const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
+  const [addChecking, setAddChecking] = useState(false)
   const [reorderSlug, setReorderSlug] = useState<string | null>(null)
   // A failed draft save stays visible inside the reorder overlay instead of
   // only in the toast behind it.
@@ -494,7 +499,65 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     railDrag.current = null
   }
 
-  const addGallerySubmit = async (input: { url: string; name: string }) => {
+  // Verify runs the same dry scan the create endpoint will run again —
+  // a second provider call is the price of not asking for metadata on a
+  // link that was never going to work.
+  const addVerifySeq = useRef(0)
+  const addVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetAddVerification = () => {
+    if (addVerifyTimer.current) clearTimeout(addVerifyTimer.current)
+    addVerifySeq.current += 1
+    setAddVerifiedTitle(null)
+    setAddChecking(false)
+  }
+  const verifyAddUrl = async (url: string) => {
+    const seq = ++addVerifySeq.current
+    setAddChecking(true)
+    try {
+      const response = await fetch('/api/galleries/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      const payload = await response.json() as { scan?: { title?: string }; error?: string }
+      if (seq !== addVerifySeq.current) return
+      if (!response.ok || !payload.scan) {
+        setAddVerifiedTitle(null)
+        setAddError(payload.error || 'That link could not be read')
+        return
+      }
+      setAddError(null)
+      const title = payload.scan.title ?? ''
+      setAddVerifiedTitle(title)
+      // The scanned name pre-fills only an untouched field — a name the
+      // owner typed while the scan was in flight is never clobbered.
+      setAddName((current) => current.trim() ? current : title)
+    } catch {
+      if (seq === addVerifySeq.current) setAddError('That link could not be checked — try again')
+    } finally {
+      if (seq === addVerifySeq.current) setAddChecking(false)
+    }
+  }
+  const onAddUrlChange = (value: string) => {
+    setSourceUrl(value)
+    setAddError(null)
+    resetAddVerification()
+    const url = value.trim()
+    // A plausible URL earns a debounced verify; anything shorter still
+    // reads as "typing" and costs no request.
+    if (/^https?:\/\/\S+\.\S+/.test(url)) {
+      addVerifyTimer.current = setTimeout(() => void verifyAddUrl(url), 700)
+    }
+  }
+  const onAddUrlCommit = (value: string) => {
+    setSourceUrl(value)
+    setAddError(null)
+    resetAddVerification()
+    const url = value.trim()
+    if (/^https?:\/\/\S+\.\S+/.test(url)) void verifyAddUrl(url)
+  }
+
+  const addGallerySubmit = async (input: { url: string; name: string; caption: string }) => {
     const url = input.url.trim()
     if (!url) return
     setAddError(null)
@@ -504,7 +567,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const response = await fetch('/api/galleries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, ...(input.name ? { title: input.name } : {}) }),
+        body: JSON.stringify({ url, ...(input.name ? { title: input.name } : {}), ...(input.caption ? { caption: input.caption } : {}) }),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       // 409 "already exists" still carries the gallery — that is a
@@ -514,6 +577,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
         setSourceUrl('')
         setAddName('')
+        setAddCaption('')
+        resetAddVerification()
         setAddOpen(false)
         scrollToGalleryCard(payload.gallery.slug)
         announce(payload.error || 'That link is already one of your galleries.')
@@ -526,6 +591,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       setGalleries((previous) => sortRecent([...previous.filter((item) => item.slug !== payload.gallery!.slug), payload.gallery!]))
       setSourceUrl('')
       setAddName('')
+      setAddCaption('')
+      resetAddVerification()
       setAddOpen(false)
       scrollToGalleryCard(payload.gallery.slug)
       announce('Done! ' + payload.gallery.title + ' is at the top.')
@@ -826,11 +893,16 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         open={addOpen}
         url={sourceUrl}
         name={addName}
+        caption={addCaption}
+        checking={addChecking}
+        verifiedTitle={addVerifiedTitle}
         busy={busy}
         error={addError}
-        onUrlChange={(value) => { setSourceUrl(value); setAddError(null) }}
+        onUrlChange={onAddUrlChange}
+        onVerify={onAddUrlCommit}
         onNameChange={(value) => setAddName(value)}
-        onClose={() => { if (!busy) { setAddOpen(false); setAddError(null) } }}
+        onCaptionChange={(value) => setAddCaption(value)}
+        onClose={() => { if (!busy) { setAddOpen(false); setAddError(null); resetAddVerification() } }}
         onSubmit={(input) => void addGallerySubmit(input)}
       />
 

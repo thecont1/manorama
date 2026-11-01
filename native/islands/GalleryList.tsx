@@ -18,7 +18,7 @@ import { CloseIcon } from '../../app/components/admin-icons'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -264,7 +264,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [galleryActionNote, setGalleryActionNote] = useState<string | null>(null)
   const [removeGallerySlug, setRemoveGallerySlug] = useState<string | null>(null)
   const [sourceName, setSourceName] = useState('')
+  const [sourceCaption, setSourceCaption] = useState('')
   const [addOpen, setAddOpen] = useState(false)
+  // The link is verified before the optional fields appear — the scanned
+  // title doubles as the flag and the Name placeholder.
+  const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
+  const [addChecking, setAddChecking] = useState(false)
   const [sharePayload, setSharePayload] = useState<GallerySharePayload | null>(null)
   // The editor a card's cover opens: the gallery it resequences, resolved
   // when the cover is tapped so the island owns its own read and write.
@@ -1165,7 +1170,57 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   }
 
   const retryAccountLists = () => setAccountRevision((revision) => revision + 1)
-  const importCloudGallery = async (input: { url: string; name: string }) => {
+  // Verify runs the same dry scan the create endpoint will run again —
+  // a second provider call is the price of not asking for metadata on a
+  // link that was never going to work.
+  const addVerifySeq = useRef(0)
+  const addVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resetAddVerification = () => {
+    if (addVerifyTimer.current) clearTimeout(addVerifyTimer.current)
+    addVerifySeq.current += 1
+    setAddVerifiedTitle(null)
+    setAddChecking(false)
+  }
+  const verifyAddUrl = async (url: string) => {
+    const seq = ++addVerifySeq.current
+    setAddChecking(true)
+    try {
+      const scan = await scanSourceUrl(base, url)
+      if (seq !== addVerifySeq.current) return
+      setError(null)
+      setAddVerifiedTitle(scan.title)
+      // The scanned name pre-fills only an untouched field — a name the
+      // owner typed while the scan was in flight is never clobbered.
+      setSourceName((current) => current.trim() ? current : scan.title)
+    } catch (reason) {
+      if (seq === addVerifySeq.current) {
+        setAddVerifiedTitle(null)
+        setError(reason instanceof Error ? reason.message : 'That link could not be checked — try again')
+      }
+    } finally {
+      if (seq === addVerifySeq.current) setAddChecking(false)
+    }
+  }
+  const onAddUrlChange = (value: string) => {
+    setSourceUrl(value)
+    setError(null)
+    resetAddVerification()
+    const url = value.trim()
+    // A plausible URL earns a debounced verify; anything shorter still
+    // reads as "typing" and costs no request.
+    if (/^https?:\/\/\S+\.\S+/.test(url)) {
+      addVerifyTimer.current = setTimeout(() => void verifyAddUrl(url), 700)
+    }
+  }
+  const onAddUrlCommit = (value: string) => {
+    setSourceUrl(value)
+    setError(null)
+    resetAddVerification()
+    const url = value.trim()
+    if (/^https?:\/\/\S+\.\S+/.test(url)) void verifyAddUrl(url)
+  }
+
+  const importCloudGallery = async (input: { url: string; name: string; caption: string }) => {
     const url = input.url.trim()
     // The in-flight ref also closes the gap before the disabled state paints.
     if (!url || quickAddBusy || pendingQuickAdd || quickAddInFlight.current) return
@@ -1174,10 +1229,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setQuickAddBusy(true)
     setError(null)
     try {
-      const next = await createGalleryFromSource(base, url, { title: input.name })
+      const next = await createGalleryFromSource(base, url, { title: input.name, caption: input.caption })
       if (quickAddInFlight.current !== flight) return
       setSourceUrl('')
       setSourceName('')
+      setSourceCaption('')
+      resetAddVerification()
       setAddOpen(false)
       setFrameKick({ index: 0, nonce: 0 })
       enterGallery(next)
@@ -1576,11 +1633,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       open={addOpen}
       url={sourceUrl}
       name={sourceName}
+      caption={sourceCaption}
+      checking={addChecking}
+      verifiedTitle={addVerifiedTitle}
       busy={quickAddBusy}
       error={error}
-      onUrlChange={setSourceUrl}
+      onUrlChange={onAddUrlChange}
+      onVerify={onAddUrlCommit}
       onNameChange={setSourceName}
-      onClose={() => { if (!quickAddBusy) setAddOpen(false) }}
+      onCaptionChange={setSourceCaption}
+      onClose={() => { if (!quickAddBusy) { setAddOpen(false); resetAddVerification() } }}
       onSubmit={(input) => { void importCloudGallery(input) }}
     />
     {shareFallback}

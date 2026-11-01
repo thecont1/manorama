@@ -23,7 +23,7 @@ import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
 
-type RequestBody = { url?: string; order?: string[]; quick?: boolean; title?: string }
+type RequestBody = { url?: string; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
 export type RuntimeEnv = {
   AIRTABLE_PAT?: string
@@ -556,11 +556,14 @@ export const createManoramaApi = () => {
       // this atomic insert is the real guard — concurrent requests cannot
       // both pass the count and exceed the limit. Retry on slug conflict
       // (a concurrent create may have grabbed the same slug).
+      // The caption rides the same smartQuotes/length policy as the PATCH
+      // metadata path — create is just an earlier chance to set it.
+      const caption = typeof payload.caption === 'string' ? smartQuotes(payload.caption.trim().slice(0, 500)) : ''
       for (let attempt = 0; ; attempt++) {
         const result = await createGalleryWithinLimit(session.accountId, {
           slug,
           title,
-          caption: '',
+          caption,
           date: '',
           sourceUrl: scan.sourceUrl,
           createdAt: new Date().toISOString(),

@@ -315,6 +315,34 @@ describe('galleries beyond the free allowance', () => {
       globalThis.fetch = realFetch
     }
   })
+
+  test('a caption supplied at create lands on the gallery', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('files/list_folder')) {
+        return Response.json({
+          entries: [{ '.tag': 'file', name: 'one.jpg', id: 'id:cap', media_info: { metadata: { dimensions: { width: 4, height: 3 } } } }],
+          cursor: '',
+          has_more: false,
+        })
+      }
+      if (url.includes('get_shared_link_metadata')) return Response.json({ name: 'Captioned Album' })
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    try {
+      const response = await api.request('/api/galleries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://www.dropbox.com/scl/fo/captioned', title: 'With Caption', caption: 'a "quoted" line about the set' }),
+      }, { ...env, DROPBOX_APP_KEY: 'key', DROPBOX_APP_SECRET: 'secret' })
+      expect(response.status).toBe(201)
+      const payload = await response.json() as { gallery?: { caption?: string } }
+      expect(payload.gallery?.caption).toBe('a “quoted” line about the set')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
 })
 
 describe('quick-add naming', () => {
