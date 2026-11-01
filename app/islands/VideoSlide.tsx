@@ -236,9 +236,17 @@ export default function VideoSlide({ item, isActive, soundOn, prefersReducedMoti
           class="video-controls"
           data-video-controls
           onFocusCapture={onActivity}
-          onFocusOut={onIdle}
+          // Focus stepping between the buttons never leaves the cluster —
+          // only a real departure schedules the hide.
+          onFocusOut={(event) => {
+            if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) onIdle?.()
+          }}
           onPointerEnter={onActivity}
-          onPointerLeave={onIdle}
+          // The pointer may leave while keyboard focus holds a control —
+          // hiding then would drop the element still being pressed.
+          onPointerLeave={(event) => {
+            if (!(event.currentTarget as HTMLElement).matches(':focus-within')) onIdle?.()
+          }}
         >
           <button
             type="button"
