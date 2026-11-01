@@ -680,3 +680,82 @@ describe('hidden photographs', () => {
     }
   })
 })
+
+describe('add to library', () => {
+  const ADOPT_MEMBER = 'dbid:AAATESTmember'
+  let memberCookie: string
+  let memberSlug: string
+  let adoptOwnerSlug: string
+
+  const adoptImage = (filename: string, hidden = false) => ({
+    id: `id-${filename}`,
+    filename,
+    src: `/api/dropbox/file?filename=${filename}`,
+    width: 4,
+    height: 3,
+    alt: filename,
+    c2pa: false,
+    placeholder: '',
+    ...(hidden ? { hidden: true as const } : {}),
+  })
+
+  beforeAll(async () => {
+    const member = await seedTestUser({ accountId: ADOPT_MEMBER, displayName: 'Adopt Member' })
+    memberSlug = member.ownerSlug
+    memberCookie = await sessionCookieFor(ADOPT_MEMBER)
+    const owner = await seedTestUser({ accountId: 'dbid:AAATESTadoptowner', displayName: 'Adopt Owner' })
+    adoptOwnerSlug = owner.ownerSlug
+    await createGallery('dbid:AAATESTadoptowner', {
+      slug: 'adopt-source',
+      title: 'Adopt Source',
+      caption: 'A captioned gallery',
+      date: '',
+      sourceUrl: 'https://www.dropbox.com/scl/fo/adopt-src?dl=0',
+      images: [adoptImage('a.jpg'), adoptImage('b.jpg', true), adoptImage('c.jpg')],
+    })
+  })
+
+  const adopt = (body: object, cookie?: string) =>
+    api.request('/api/galleries/adopt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
+      body: JSON.stringify(body),
+    }, env)
+
+  test('a visitor cannot adopt — the endpoint is session-gated', async () => {
+    const response = await adopt({ owner: adoptOwnerSlug, slug: 'adopt-source' })
+    expect(response.status).toBe(401)
+  })
+
+  test('the owner cannot adopt their own gallery', async () => {
+    const ownerCookie = await sessionCookieFor('dbid:AAATESTadoptowner')
+    const response = await adopt({ owner: adoptOwnerSlug, slug: 'adopt-source' }, ownerCookie)
+    expect(response.status).toBe(400)
+  })
+
+  test('a member adopts a copy with only the visible manifest', async () => {
+    const response = await adopt({ owner: adoptOwnerSlug, slug: 'adopt-source' }, memberCookie)
+    expect(response.status).toBe(201)
+    const payload = await response.json() as { gallery?: { slug?: string; title?: string; caption?: string; images?: { filename: string }[] }; galleryUrl?: string }
+    expect(payload.gallery?.title).toBe('Adopt Source')
+    expect(payload.gallery?.caption).toBe('A captioned gallery')
+    // Hidden items never move — the member's copy holds exactly what they saw.
+    expect(payload.gallery?.images?.map((image) => image.filename)).toEqual(['a.jpg', 'c.jpg'])
+    expect(payload.galleryUrl).toBe(`/${memberSlug}/adopt-source`)
+    const stored = await getGallery(ADOPT_MEMBER, 'adopt-source')
+    expect(stored?.sourceUrl).toBe('https://www.dropbox.com/scl/fo/adopt-src?dl=0')
+    expect(stored?.images.length).toBe(2)
+  })
+
+  test('a second adopt resolves to the existing copy instead of duplicating', async () => {
+    const response = await adopt({ owner: adoptOwnerSlug, slug: 'adopt-source' }, memberCookie)
+    expect(response.status).toBe(409)
+    const payload = await response.json() as { galleryUrl?: string }
+    expect(payload.galleryUrl).toBe(`/${memberSlug}/adopt-source`)
+  })
+
+  test('a missing gallery answers 404, an unknown owner answers 404', async () => {
+    expect((await adopt({ owner: adoptOwnerSlug, slug: 'not-there' }, memberCookie)).status).toBe(404)
+    expect((await adopt({ owner: 'no-such-owner', slug: 'adopt-source' }, memberCookie)).status).toBe(404)
+  })
+})

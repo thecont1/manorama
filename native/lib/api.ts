@@ -117,6 +117,34 @@ export const createGalleryFromQuickAdd = async (
 ): Promise<{ owner: string; slug: string }> =>
   createGalleryFromSource(apiBase, sourceUrl, { quick: true }, fetcher)
 
+/** "Add to Library" for a gallery the member is viewing — the server copies
+ *  the stored manifest into the caller's account (never re-scans the source).
+ *  A 409 means a copy already exists; its galleryUrl resolves the same way,
+ *  so both answers land on the member's own gallery. */
+export const adoptGallery = async (
+  apiBase: string,
+  owner: string,
+  slug: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ owner: string; slug: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/adopt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({ owner, slug }),
+  })
+  const payload = await response.json().catch(() => ({})) as { galleryUrl?: string; error?: string }
+  const duplicateGallery = response.status === 409 && typeof payload.galleryUrl === 'string'
+  if ((!response.ok && !duplicateGallery) || typeof payload.galleryUrl !== 'string') {
+    throw new NativeGalleryHttpError(response.status, payload.error || 'That gallery could not be added to your library')
+  }
+  const target = new URL(payload.galleryUrl, `${normalizeApiBase(apiBase)}/`)
+  const parts = target.pathname.split('/').filter(Boolean)
+  if (target.hostname !== new URL(`${normalizeApiBase(apiBase)}/`).hostname || parts.length !== 2) {
+    throw new Error('The created gallery link was invalid')
+  }
+  return { owner: parts[0]!, slug: parts[1]! }
+}
+
 /** Dry-run a share link before the Add sheet offers metadata fields —
  *  same scan the create call will repeat, minus the gallery row. */
 export const scanSourceUrl = async (

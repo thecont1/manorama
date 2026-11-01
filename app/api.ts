@@ -614,6 +614,79 @@ export const createManoramaApi = () => {
     }
   })
 
+  /** "Add to Library" — a signed-in member's own copy of a gallery they are
+   *  viewing. The stored manifest is copied (not re-scanned): no provider
+   *  call to fail, the copy is exactly what the member saw, and the owner's
+   *  hidden items stay hidden for them too — only the visible subset moves.
+   *  `sourceUrl` rides along inside the member's own row so their copy can
+   *  refresh and the duplicate-source guard still fires; it never leaves
+   *  the server on this path. */
+  api.post('/api/galleries/adopt', async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ owner?: string; slug?: string }>().catch((): { owner?: string; slug?: string } => ({}))
+    const owner = typeof payload.owner === 'string' ? payload.owner.trim() : ''
+    const wanted = typeof payload.slug === 'string' ? payload.slug.trim() : ''
+    if (!owner || !wanted) return c.json({ error: 'That gallery was not found' }, 404)
+    try {
+      const sourceUser = await getUserByOwnerSlug(owner, dbEnv(c))
+      if (!sourceUser) return c.json({ error: 'That gallery was not found' }, 404)
+      if (sourceUser.accountId === session.accountId) {
+        return c.json({ error: 'That gallery is already in your library' }, 400)
+      }
+      const source = await getGallery(sourceUser.accountId, wanted, dbEnv(c))
+      if (!source) return c.json({ error: 'That gallery was not found' }, 404)
+      const galleries = await listGalleries(session.accountId, dbEnv(c))
+      const existing = source.sourceUrl
+        ? galleries.find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, source.sourceUrl!))
+        : undefined
+      if (existing) return c.json({
+        error: 'A gallery from that link already exists',
+        gallery: toSummary(existing),
+        galleryUrl: galleryUrlFor(session.ownerSlug, existing.slug),
+      }, 409)
+      const images = source.images.filter((image) => !image.hidden)
+      const baseSlug = slugify(source.title) || 'gallery'
+      let slug = baseSlug
+      let suffix = 2
+      while (galleries.some((item) => item.slug === slug)) {
+        slug = `${baseSlug}-${suffix}`
+        suffix += 1
+      }
+      for (let attempt = 0; ; attempt++) {
+        const result = await createGalleryWithinLimit(session.accountId, {
+          slug,
+          title: source.title,
+          caption: source.caption,
+          date: source.date,
+          sourceUrl: source.sourceUrl,
+          createdAt: new Date().toISOString(),
+          images,
+        }, dbEnv(c))
+        if (result.ok) return c.json({
+          gallery: toSummary(result.gallery),
+          galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug),
+        }, 201)
+        if (result.reason === 'limit') {
+          const error = paidGalleryLimitError()
+          return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
+        }
+        if (result.reason === 'duplicate-source') {
+          const winner = (await listGalleries(session.accountId, dbEnv(c)))
+            .find((item) => item.sourceUrl === source.sourceUrl)
+          return c.json({
+            error: 'A gallery from that link already exists',
+            ...(winner ? { gallery: toSummary(winner), galleryUrl: galleryUrlFor(session.ownerSlug, winner.slug) } : {}),
+          }, 409)
+        }
+        if (attempt > 50) return c.json({ error: 'That gallery could not be added' }, 422)
+        slug = `${baseSlug}-${suffix}`
+        suffix += 1
+      }
+    } catch {
+      return c.json({ error: 'That gallery could not be added' }, 422)
+    }
+  })
+
   api.patch('/api/galleries/:slug', requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     // Body `slug` is intentionally not read: the URL slug is the resource

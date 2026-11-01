@@ -60,6 +60,18 @@ type Props = {
   suspended?: boolean
   /** Who is looking, resolved by the route — stored for later phases. */
   viewerRole?: 'owner' | 'member' | 'visitor'
+  /** The gallery owner's URL slug — a member's "Add to Library" call
+   *  identifies the source gallery as {owner, slug}. */
+  galleryOwner?: string
+  /** "Add to Library" in the Details chrome slot — the web viewer derives
+   *  this from viewerRole; native passes its own handler for a remote
+   *  gallery. Prop wins over the derived one. */
+  onAddToLibrary?: () => void
+  addToLibraryBusy?: boolean
+  addToLibraryLabel?: string
+  /** Visitor's "Sign in" pill in the same slot — the web viewer derives
+   *  the href itself; a caller may supply one directly. */
+  signInHref?: string
   /** Where the owner's library lives, resolved by the route — stored for
    *  later phases. */
   libraryHref?: string
@@ -185,7 +197,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, libraryHref, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -619,6 +631,38 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     target.searchParams.set('photo', images[index]?.id ?? '')
     window.location.assign(`${target.pathname}${target.search}`)
   } : undefined)
+  // The same chrome slot serves the member and the visitor. A member's
+  // "Add to Library" copies the gallery into their account and lands on
+  // the copy — the 409 duplicate path answers the existing gallery's URL,
+  // so every resolved response navigates somewhere. A visitor gets a
+  // Sign in pill whose `next` brings them back here — as a member, with
+  // the adopt pill waiting.
+  const adoptResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [adoptState, setAdoptState] = useState<'idle' | 'busy' | 'failed'>('idle')
+  const addToLibrary = onAddToLibrary ?? (viewerRole === 'member' && galleryOwner ? () => {
+    if (adoptState === 'busy') return
+    if (adoptResetRef.current) clearTimeout(adoptResetRef.current)
+    setAdoptState('busy')
+    void (async () => {
+      try {
+        const response = await fetch('/api/galleries/adopt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner: galleryOwner, slug }),
+        })
+        const payload = await response.json().catch(() => ({})) as { galleryUrl?: string }
+        if ((response.ok || response.status === 409) && typeof payload.galleryUrl === 'string') {
+          window.location.assign(payload.galleryUrl)
+          return
+        }
+      } catch { /* falls through to the failed pill */ }
+      setAdoptState('failed')
+      adoptResetRef.current = setTimeout(() => setAdoptState('idle'), 3200)
+    })()
+  } : undefined)
+  const resolvedSignInHref = signInHref ?? (viewerRole === 'visitor' && galleryOwner
+    ? `/?next=${encodeURIComponent(`/${galleryOwner}/${slug}`)}`
+    : undefined)
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -2585,6 +2629,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         onOpenInfo={openImageProvenance}
         onOpenPicker={openGrid}
         onOpenDetails={openOwnerDetails ? () => openOwnerDetails({ imageId: images[index]?.id ?? '', index }) : undefined}
+        onAddToLibrary={openOwnerDetails ? undefined : addToLibrary}
+        addToLibraryBusy={addToLibraryBusy ?? adoptState === 'busy'}
+        addToLibraryLabel={addToLibraryLabel ?? (adoptState === 'busy' ? 'Adding…' : adoptState === 'failed' ? 'Couldn’t add — try again' : undefined)}
+        signInHref={openOwnerDetails || addToLibrary ? undefined : resolvedSignInHref}
         pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`}
         onRequestShow={requestShowChrome}
         onActivity={pauseChrome}

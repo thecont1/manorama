@@ -26,11 +26,15 @@ const welcomeHeadingStyle = {
 export default function PublicWelcome({
   returning,
   failed,
+  next,
 }: {
   /** True when the browser has the returning-visitor hint cookie. */
   returning?: boolean
   /** True when an OAuth round-trip ended in `?error=1`. */
   failed?: boolean
+  /** Same-origin path the OAuth callback lands on instead of the dashboard —
+   *  a gallery's Sign in pill sends visitors back to what they were viewing. */
+  next?: string
 }) {
   return (
     <main class="landing-page">
@@ -44,7 +48,7 @@ export default function PublicWelcome({
         <p class="landing-brand-intro">
           Paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.
         </p>
-        <SignInLinks returning={returning} />
+        <SignInLinks returning={returning} next={next} />
         {failed ? <p class="landing-note">Sign-in didn’t complete. Please try again.</p> : null}
       </div>
       <footer class="site-footer">

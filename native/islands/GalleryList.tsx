@@ -18,7 +18,7 @@ import { CloseIcon } from '../../app/components/admin-icons'
 import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
-import { createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -682,6 +682,26 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: next.owner, slug: next.slug } })
   }
 
+  // "Add to Library" on someone else's gallery: the server copies it into
+  // this account, the account list refetches, and the copy opens in place.
+  const [adoptState, setAdoptState] = useState<'idle' | 'busy' | 'failed'>('idle')
+  const adoptResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const adoptOpenGallery = () => {
+    if (adoptState === 'busy' || !selection.owner || !selection.slug) return
+    if (adoptResetRef.current) clearTimeout(adoptResetRef.current)
+    setAdoptState('busy')
+    void adoptGallery(base, selection.owner, selection.slug)
+      .then((adopted) => {
+        setAccountRevision((revision) => revision + 1)
+        setAdoptState('idle')
+        enterGallery({ owner: adopted.owner, slug: adopted.slug })
+      })
+      .catch(() => {
+        setAdoptState('failed')
+        adoptResetRef.current = setTimeout(() => setAdoptState('idle'), 3200)
+      })
+  }
+
   const openGlobalFrame = (next: Selection, index: number) => {
     setGlobalViewOpen(false)
     setActivePhotoIndex(index)
@@ -982,6 +1002,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             onOpenDetails={currentGallerySummary && ownerSlug === selection.owner ? () => {
               dispatchNav({ type: 'open-details', gallery: { kind: 'published', owner: selection.owner, slug: selection.slug }, from: 'viewer' })
             } : undefined}
+            onAddToLibrary={ownerSlug && selection.owner && selection.owner !== ownerSlug ? adoptOpenGallery : undefined}
+            addToLibraryBusy={adoptState === 'busy'}
+            addToLibraryLabel={adoptState === 'busy' ? 'Adding…' : adoptState === 'failed' ? 'Couldn’t add — try again' : undefined}
             onOpenGlobalView={(index = 0) => {
               setActivePhotoIndex(index)
               setGlobalViewOpen(true)

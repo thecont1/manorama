@@ -75,6 +75,7 @@ export default createRoute(async (c) => {
         settings={settings}
         plate={plate}
         viewerRole={viewerRole}
+        galleryOwner={owner}
         libraryHref={libraryHref}
         initialIndex={photoIndex > 0 ? photoIndex : 0}
       />

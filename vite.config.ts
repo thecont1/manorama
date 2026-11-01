@@ -236,19 +236,29 @@ const manoramaDevSeed = (): Plugin => {
         })
       })
 
-      // Dev sign-in for the seeded owner — the quick-add interstitial points
-      // here for local folders, so a folder path becomes a gallery without a
-      // Dropbox round-trip. Mints the same manorama_session cookie OAuth
-      // would, then returns to `next`.
+      // Dev sign-in for the seeded accounts — the quick-add interstitial
+      // points here for local folders, so a folder path becomes a gallery
+      // without a Dropbox round-trip. Mints the same manorama_session
+      // cookie OAuth would, then returns to `next`. `?account=` selects a
+      // seeded account (dev-seed IDs all carry the AAATEST prefix) so
+      // specs can also sign in as the member account — needed to drive
+      // member-role surfaces like "Add to Library" end-to-end.
       server.middlewares.use('/.dev-seed/login', (req, res) => {
         waitForSeed()
           .then(async () => {
             const secret = process.env.HOST_API_JWT_SECRET?.trim()
             if (!secret) throw new Error('HOST_API_JWT_SECRET is not set')
             const session = await server.ssrLoadModule('/app/lib/session.ts') as unknown as typeof import('./app/lib/session')
-            const token = await session.createSessionToken('dbid:AAATESTowner1', secret)
             const query = req.url?.split('?')[1] ?? ''
-            const next = new URLSearchParams(query).get('next')
+            const params = new URLSearchParams(query)
+            const account = params.get('account') ?? 'dbid:AAATESTowner1'
+            if (!account.startsWith('dbid:AAATEST')) {
+              res.statusCode = 403
+              res.end('Dev sign-in is limited to seeded accounts')
+              return
+            }
+            const token = await session.createSessionToken(account, secret)
+            const next = params.get('next')
             // Return to same-origin paths only; a full quick-add URL
             // (location.href) parses to localhost and is accepted.
             let target = '/thecontrarian'
