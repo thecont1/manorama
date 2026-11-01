@@ -4,7 +4,7 @@ import { deleteCookie } from 'hono/cookie'
 import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type GalleryMediaItem } from './lib/imagesource'
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
-import { fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
+import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
@@ -832,13 +832,18 @@ export const createManoramaApi = () => {
     const album = c.req.query('album')
     const photo = c.req.query('photo')
     const checksum = c.req.query('c')
+    const cloudkit = c.req.query('v') === 'ck'
     // The lib checks below are the authority; failing fast here saves the
-    // sharedstreams round-trip a malformed token would cost.
-    if (!album || !photo || !checksum || !isAlbumToken(album) || !/^[A-Za-z0-9-]+$/.test(photo) || !/^[A-Za-z0-9_-]+$/.test(checksum)) {
+    // upstream round-trip a malformed token would cost. CloudKit shares
+    // reference a record name plus a res* field instead of guid+checksum.
+    const photoOk = cloudkit ? /^[A-Za-z0-9_+\/=-]{1,128}$/.test(photo ?? '') : /^[A-Za-z0-9-]+$/.test(photo ?? '')
+    const refOk = cloudkit ? /^res[A-Za-z0-9]+Res$/.test(checksum ?? '') : /^[A-Za-z0-9_-]+$/.test(checksum ?? '')
+    if (!album || !photo || !checksum || !isAlbumToken(album) || !photoOk || !refOk) {
       return c.json({ error: 'Missing iCloud image reference' }, 400)
     }
     try {
-      return streamMediaResponse(await fetchICloudImage(album, photo, checksum), 'private, max-age=300')
+      const media = cloudkit ? await fetchICloudCkImage(album, photo, checksum) : await fetchICloudImage(album, photo, checksum)
+      return streamMediaResponse(media, 'private, max-age=300')
     } catch (error) {
       // The album token is the share link's only credential — log a prefix.
       return proxyFailure(c, 'iCloud image', `${photo} in ${album.slice(0, 6)}…`, error)
@@ -853,12 +858,16 @@ export const createManoramaApi = () => {
     const album = c.req.query('album')
     const photo = c.req.query('photo')
     const checksum = c.req.query('c')
-    if (!album || !photo || !checksum || !isAlbumToken(album) || !/^[A-Za-z0-9-]+$/.test(photo) || !/^[A-Za-z0-9_-]+$/.test(checksum)) {
+    const cloudkit = c.req.query('v') === 'ck'
+    const photoOk = cloudkit ? /^[A-Za-z0-9_+\/=-]{1,128}$/.test(photo ?? '') : /^[A-Za-z0-9-]+$/.test(photo ?? '')
+    const refOk = cloudkit ? /^res[A-Za-z0-9]+Res$/.test(checksum ?? '') : /^[A-Za-z0-9_-]+$/.test(checksum ?? '')
+    if (!album || !photo || !checksum || !isAlbumToken(album) || !photoOk || !refOk) {
       return c.json({ error: 'Missing iCloud video reference' }, 400)
     }
     try {
       const range = c.req.header('Range')
-      return streamMediaResponse(await fetchICloudVideo(album, photo, checksum, range), 'private, no-store')
+      const media = cloudkit ? await fetchICloudCkVideo(album, photo, checksum, range) : await fetchICloudVideo(album, photo, checksum, range)
+      return streamMediaResponse(media, 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'iCloud video', `${photo} in ${album.slice(0, 6)}…`, error)
     }

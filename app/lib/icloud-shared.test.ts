@@ -321,3 +321,109 @@ describe('fetchICloudVideo', () => {
       .rejects.toThrow('unavailable')
   })
 })
+
+describe('CloudKit shared albums (photos.icloud.com/shared/album)', () => {
+  const GUID = '0d6mJ9JupJ9g-j3sm321V1KNw'
+  const LINK = `https://photos.icloud.com/shared/album/${GUID}/`
+  const ZONE = { zoneName: 'SharedCollection-abc', ownerRecordName: '_owner1', zoneType: 'REGULAR_CUSTOM_ZONE' }
+
+  const ckResolve = () => jsonResponse({
+    results: [{
+      zoneID: ZONE,
+      anonymousPublicAccess: { token: 'anon-token', databasePartition: 'https://p148-ckdatabasews.icloud.com:443' },
+      share: { fields: { 'cloudkit.title': { value: 'Panoramas' } } },
+    }],
+  })
+
+  const resField = (stem: string, w: number, h: number) => ({
+    [`${stem}Res`]: { value: { downloadURL: `https://cvws-h2.icloud-content.com/B/sum/${stem}`, fileSize: 1000 } },
+    [`${stem}Width`]: { value: w },
+    [`${stem}Height`]: { value: h },
+  })
+
+  const master = (overrides: Record<string, unknown> = {}) => ({
+    recordName: 'rec-001',
+    recordType: 'CPLMaster',
+    fields: {
+      itemType: { value: 'public.heic' },
+      resOriginalWidth: { value: 4032 },
+      resOriginalHeight: { value: 3024 },
+      ...resField('resOriginal', 4032, 3024),
+      ...resField('resJPEGLarge', 3308, 2481),
+      ...resField('resJPEGMed', 1654, 1241),
+      ...resField('resJPEGThumb', 340, 255),
+      ...(overrides.fields as Record<string, unknown> ?? {}),
+    },
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== 'fields')),
+  })
+
+  const ckFetch = (records: unknown[], resolvePayload?: Response) => {
+    const calls: string[] = []
+    const fetchImpl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.includes('records/resolve')) return resolvePayload ?? ckResolve()
+      if (url.includes('records/query')) return jsonResponse({ records })
+      return jsonResponse({}, 404)
+    }
+    return { fetchImpl: fetchImpl as typeof fetch, calls }
+  }
+
+  test('detectSource spelling: token comes from the path, kind is cloudkit', async () => {
+    const { icloudLinkKind } = await import('./icloud-shared')
+    expect(icloudLinkKind(LINK)).toBe('cloudkit')
+    expect(icloudLinkKind(`https://www.icloud.com/sharedalbum/#${TOKEN}`)).toBe('legacy')
+    expect(icloudLinkKind(`https://share.icloud.com/photos/${TOKEN}`)).toBe('legacy')
+    expect(icloudLinkKind('https://photos.icloud.com/')).toBeNull()
+    expect(extractAlbumToken(LINK)).toBe(GUID)
+  })
+
+  test('scans masters into proxy-referenced gallery images', async () => {
+    const { fetchImpl, calls } = ckFetch([master()])
+    const scan = await scanICloudAlbum(LINK, fetchImpl)
+    expect(scan.sourceUrl).toBe(`https://photos.icloud.com/shared/album/${GUID}`)
+    expect(scan.title).toBe('Panoramas')
+    expect(scan.images).toHaveLength(1)
+    const [item] = scan.images
+    expect(item.ref).toBe('rec-001')
+    // HEIC originals take Apple's largest JPEG, not the undecodable original.
+    expect(item.src).toBe(`/api/icloud/image?album=${GUID}&photo=rec-001&c=resJPEGLargeRes&v=ck`)
+    expect(item.variants?.[0]?.src).toContain('c=resJPEGThumbRes')
+    // Dims report the original's pixels, not the rendition's.
+    expect(item.width).toBe(4032)
+    expect(item.height).toBe(3024)
+    expect(item.c2pa).toBe(false)
+    expect(calls.some((url) => url.includes('records/resolve'))).toBe(true)
+    expect(calls.some((url) => url.includes('records/query'))).toBe(true)
+  })
+
+  test('browser-decodable originals keep their own bytes and C2PA flag', async () => {
+    const { fetchImpl } = ckFetch([master({ fields: { itemType: { value: 'public.jpeg' } } })])
+    const scan = await scanICloudAlbum(LINK, fetchImpl)
+    expect(scan.images[0]?.src).toContain('c=resOriginalRes')
+    expect(scan.images[0]?.c2pa).toBe(true)
+  })
+
+  test('movie masters become VideoItems with a Vid rendition and JPEG poster', async () => {
+    const { fetchImpl } = ckFetch([master({
+      fields: {
+        itemType: { value: 'public.movie' },
+        ...resField('resVidMed', 1920, 1080),
+      },
+    })])
+    const scan = await scanICloudAlbum(LINK, fetchImpl)
+    const video = scan.images[0]
+    expect(video?.type).toBe('video')
+    if (video?.type !== 'video') return
+    expect(video.src).toContain('c=resVidMedRes')
+    expect(video.src).toContain('/api/icloud/video')
+    expect(video.poster.src).toContain('c=resJPEGLargeRes')
+    expect(video.width).toBe(4032)
+  })
+
+  test('a non-public share reads as an album error, not a parse failure', async () => {
+    const denied = jsonResponse({ results: [{ zoneID: ZONE, anonymousPublicAccess: {} }] })
+    const { fetchImpl } = ckFetch([], denied)
+    await expect(scanICloudAlbum(LINK, fetchImpl)).rejects.toThrow('not shared publicly')
+  })
+})

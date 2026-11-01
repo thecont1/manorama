@@ -48,6 +48,7 @@ export const detectSource = (input: string): SourceProvider | null => {
   if (host === 'drive.google.com') return 'gdrive'
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) return 'icloud'
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'icloud'
+  if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) return 'icloud'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
   return null
 }
@@ -268,7 +269,7 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
     // iCloud Drive links look like album links but enumerate folders only
     // behind an authenticated CloudKit session — steer the owner to the
     // Photos Shared Album link instead.
-    if (isICloudDriveLink(input)) throw new Error('iCloud Drive links cannot be read — share a Shared Album from Photos instead (icloud.com/sharedalbum or share.icloud.com/photos)')
+    if (isICloudDriveLink(input)) throw new Error('iCloud Drive links cannot be read — share a Shared Album from Photos instead (photos.icloud.com/shared/album or icloud.com/sharedalbum)')
     throw new Error(UNRECOGNIZED_LINK_MESSAGE)
   }
   const scan = await (async (): Promise<Omit<SourceScan, 'provider'>> => {

@@ -65,8 +65,28 @@ export type ICloudScan = { sourceUrl: string; title: string; images: GalleryMedi
  *  underscores and hyphens appear in real shared-album links. */
 export const isAlbumToken = (s: string) => /^[A-Za-z0-9_-]+$/.test(s)
 
-/** The album token from either public link spelling:
- *  icloud.com/sharedalbum/#{token} and share.icloud.com/photos/{token}. */
+/** Apple retired the sharedstreams link format with iOS/macOS 26:
+ *  icloud.com/sharedalbum/#{token} and share.icloud.com/photos/{token}
+ *  are 'legacy' shares; photos.icloud.com/shared/album/{shortGUID} is a
+ *  CloudKit share, which the sharedstreams API cannot see at all. */
+export type ICloudLinkKind = 'legacy' | 'cloudkit'
+
+export const icloudLinkKind = (input: string): ICloudLinkKind | null => {
+  let url: URL
+  try {
+    url = new URL(input.trim())
+  } catch {
+    return null
+  }
+  const host = url.hostname.replace(/^www\./, '')
+  if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) return 'legacy'
+  if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'legacy'
+  if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) return 'cloudkit'
+  return null
+}
+
+/** The album token from any public link spelling — fragment for legacy
+ *  shares, path segment for CloudKit ones. */
 export const extractAlbumToken = (input: string) => {
   let url: URL
   try {
@@ -78,10 +98,16 @@ export const extractAlbumToken = (input: string) => {
   let token: string | null = null
   if (host === 'icloud.com' && url.pathname.startsWith('/sharedalbum/')) token = url.hash.replace(/^#/, '') || null
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) token = url.pathname.slice('/photos/'.length).split('/')[0] || null
+  if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) {
+    token = url.pathname.slice('/shared/album/'.length).split('/')[0] || null
+  }
   return token && isAlbumToken(token) ? token : null
 }
 
 export const canonicalICloudUrl = (token: string) => `https://www.icloud.com/sharedalbum/#${token}`
+/** CloudKit links keep the token in the path — the canonical form is a
+ *  URL a server can actually receive, unlike the fragment kind. */
+export const canonicalICloudCloudKitUrl = (token: string) => `https://photos.icloud.com/shared/album/${token}`
 
 /** iCloud Drive share links (icloud.com/iclouddrive/{token}#name) are a
  *  different product from Photos shared albums: folder contents sit behind
@@ -311,6 +337,9 @@ const probeDerivativeIsVideo = (token: string, photoGuid: string, fetchImpl: typ
 }
 
 export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = fetch): Promise<ICloudScan> => {
+  // CloudKit shares are invisible to sharedstreams — same call surface,
+  // completely different backend behind it.
+  if (icloudLinkKind(input) === 'cloudkit') return scanICloudCloudKitAlbum(input, fetchImpl)
   const token = extractAlbumToken(input)
   if (!token) throw new Error('Use a public iCloud shared album link')
   // The listing itself gets the same single bounded retry the media proxies
@@ -543,6 +572,349 @@ export const fetchICloudVideo = async (
     // 206 is the expected answer to a Range request and `ok` is false for it.
     if (!response.ok && response.status !== 206) {
       evictAssetUrl(token, checksum, url)
+      throw transientError('iCloud video fetch failed', response)
+    }
+    return response
+  })
+}
+
+/* ── CloudKit shared albums (iOS/macOS 26 link format) ─────────────────────
+ * photos.icloud.com/shared/album/{shortGUID} shares live in the owner's
+ * CloudKit zone, exposed to anonymous readers through the public
+ * records/resolve endpoint: it mints a short-lived access token and names
+ * the partition host that owns the shared zone. Media then comes straight
+ * from CloudKit Web Services — sharedstreams never hears about these
+ * shares, which is why the legacy scanner cannot see the links at all. */
+
+const CK_HOST = 'https://ckdatabasews.icloud.com'
+const CK_CONTAINER = 'com.apple.photos.cloud'
+// CloudKit Web Services reads these as telemetry rather than auth — any
+// consistent build string is accepted.
+const CK_BUILD = '2620BuildBeta48'
+const CK_PARAMS = `clientBuildNumber=${CK_BUILD}&clientMasteringNumber=${CK_BUILD}`
+// The index the Photos web app itself pages: one CPLMaster plus one
+// CPLAsset row per item, ordered by the zone's own direction field.
+const CK_RECORD_TYPE = 'CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted'
+const CK_PAGE_SIZE = 200
+const CK_MAX_PAGES = 50 // hard stop so a huge zone cannot page forever
+
+type CkZoneID = { zoneName: string; ownerRecordName?: string; zoneType?: string }
+type CkShare = { zoneID: CkZoneID; partition: string; authToken: string; title?: string }
+type CkFieldValue = { value?: unknown; type?: string }
+type CkRecord = { recordName?: string; recordType?: string; fields?: Record<string, CkFieldValue> }
+
+const ckNumber = (field: CkFieldValue | undefined) =>
+  typeof field?.value === 'number' && Number.isFinite(field.value) ? field.value : undefined
+const ckString = (field: CkFieldValue | undefined) =>
+  typeof field?.value === 'string' && field.value ? field.value : undefined
+
+const ckPost = async <T>(fetchImpl: typeof fetch, url: string, body: unknown): Promise<T> => {
+  const response = await request(fetchImpl, url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'User-Agent': PHOTOS_UA },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw transientError('iCloud could not read that shared album', response)
+  return (await response.json()) as T
+}
+
+/** The anonymous resolve that turns a share GUID into a zone plus the
+ *  access token its shared queries need. Also answers at proxy time —
+ *  the same call refreshes the resolve when a download URL goes stale. */
+const resolveCkShare = async (token: string, fetchImpl: typeof fetch): Promise<CkShare> => {
+  const data = await ckPost<{
+    results?: {
+      zoneID?: CkZoneID
+      anonymousPublicAccess?: { token?: string; databasePartition?: string }
+      share?: { fields?: Record<string, CkFieldValue> }
+    }[]
+  }>(fetchImpl, `${CK_HOST}/database/1/${CK_CONTAINER}/production/public/records/resolve?${CK_PARAMS}`, {
+    shortGUIDs: [{ value: token }],
+  })
+  const result = data.results?.[0]
+  const zone = result?.zoneID
+  const access = result?.anonymousPublicAccess
+  if (!zone?.zoneName || !access?.token) throw new SourceFetchError('That iCloud album is not shared publicly', 404)
+  // The resolve names the share's partition host. It should always be an
+  // Apple host — a value outside that set is refused rather than trusted,
+  // same policy as the legacy asset-map locations.
+  const raw = (access.databasePartition ?? '').replace(/:443$/, '')
+  let partition = CK_HOST
+  try {
+    const host = new URL(raw).hostname
+    if (raw && APPLE_ASSET_HOST.test(host)) partition = raw
+  } catch {
+    // Unparseable partition hints fall back to the generic host.
+  }
+  const title = ckString(result?.share?.fields?.['cloudkit.title'])
+  return { zoneID: zone, partition, authToken: access.token, ...(title ? { title } : {}) }
+}
+
+/** Media derivative fields on a CPLMaster: `res{Name}Res` holds the asset
+ *  blob (with a signed downloadURL); siblings `res{Name}Width/Height`
+ *  carry its pixels and `res{Name}FileSize` its bytes. `res*Vid*` fields
+ *  are video transcodes, never still frames. */
+const ckDerivativeFields = (fields: Record<string, CkFieldValue>) => {
+  const out: { name: string; downloadURL: string; width?: number; height?: number; video: boolean }[] = []
+  for (const [key, field] of Object.entries(fields)) {
+    if (!key.startsWith('res') || !key.endsWith('Res')) continue
+    const blob = field?.value
+    const downloadURL = typeof blob === 'object' && blob !== null ? (blob as { downloadURL?: unknown }).downloadURL : undefined
+    if (typeof downloadURL !== 'string' || !downloadURL) continue
+    const stem = key.slice(0, -3)
+    out.push({
+      name: key,
+      downloadURL,
+      width: ckNumber(fields[`${stem}Width`]),
+      height: ckNumber(fields[`${stem}Height`]),
+      video: key.includes('Vid'),
+    })
+  }
+  return out
+}
+
+const ckImageProxy = (token: string, record: string, resField: string) =>
+  `/api/icloud/image?album=${encodeURIComponent(token)}&photo=${encodeURIComponent(record)}&c=${encodeURIComponent(resField)}&v=ck`
+const ckVideoProxy = (token: string, record: string, resField: string) =>
+  `/api/icloud/video?album=${encodeURIComponent(token)}&photo=${encodeURIComponent(record)}&c=${encodeURIComponent(resField)}&v=ck`
+
+/** itemType strings on masters are UTIs: `public.heic`, `public.jpeg`,
+ *  `public.movie`. Only the UTIs a browser can decode as-is earn the
+ *  original rendition; everything else takes Apple's largest JPEG, which
+ *  is what the legacy sharedstreams path effectively serves as well. */
+const CK_ORIGINAL_DECODABLE = /^public\.(jpeg|jpg|png|webp|gif|avif|tiff?)$/i
+const CK_VIDEO_TYPE = /movie|video/i
+
+const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = fetch): Promise<ICloudScan> => {
+  const token = extractAlbumToken(input)
+  if (!token) throw new Error('Use a public iCloud shared album link')
+  const share = await retryOnceOnTransient(() => resolveCkShare(token, fetchImpl))
+  const zoneJson = { zoneName: share.zoneID.zoneName, ownerRecordName: share.zoneID.ownerRecordName, zoneType: share.zoneID.zoneType }
+  const queryUrl = `${share.partition}/database/1/${CK_CONTAINER}/production/shared/records/query?${CK_PARAMS}&publicAccessAuthToken=${encodeURIComponent(share.authToken)}`
+
+  const masters: CkRecord[] = []
+  let marker: string | undefined
+  let pages = 0
+  do {
+    const page = await retryOnceOnTransient(() => ckPost<{ records?: CkRecord[]; continuationMarker?: string }>(fetchImpl, queryUrl, {
+      query: {
+        recordType: CK_RECORD_TYPE,
+        filterBy: [{ fieldName: 'direction', comparator: 'EQUALS', fieldValue: { value: 'DESCENDING', type: 'STRING' } }],
+      },
+      zoneID: zoneJson,
+      resultsLimit: CK_PAGE_SIZE,
+      ...(marker ? { continuationMarker: marker } : {}),
+    }))
+    masters.push(...(page.records ?? []).filter((record) => record.recordType === 'CPLMaster'))
+    marker = page.continuationMarker || undefined
+    pages += 1
+  } while (marker && pages < CK_MAX_PAGES && masters.length < MAX_GALLERY_ITEMS)
+
+  const found = masters
+  const items: GalleryMediaItem[] = []
+  let index = 0
+  for (const master of found.slice(0, MAX_GALLERY_ITEMS)) {
+    const recordName = master.recordName
+    const fields = master.fields
+    if (!recordName || !fields) continue
+    const derivatives = ckDerivativeFields(fields)
+    const stills = derivatives.filter((d) => !d.video)
+    if (!stills.length) continue
+    const position = index + 1
+    const id = `icloud-${recordName.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || position}`
+    const itemType = ckString(fields.itemType) ?? ''
+    const originalWidth = ckNumber(fields.resOriginalWidth)
+    const originalHeight = ckNumber(fields.resOriginalHeight)
+    const pickArea = (list: typeof stills) =>
+      list.reduce((best, d) => ((d.width ?? 0) * (d.height ?? 0) > (best.width ?? 0) * (best.height ?? 0) ? d : best))
+
+    if (CK_VIDEO_TYPE.test(itemType)) {
+      const videos = derivatives.filter((d) => d.video)
+      const video = videos.length ? videos.reduce((a, b) => ((b.width ?? 0) * (b.height ?? 0) > (a.width ?? 0) * (a.height ?? 0) ? b : a)) : stills.find((d) => d.name === 'resOriginalRes')
+      // On a movie master resOriginalRes IS the clip, not a frame — the
+      // poster comes from the JPEG renditions only. With none, the slide
+      // could neither show a frame nor a strip thumb, so it is skipped
+      // like a video the legacy split cannot resolve.
+      const frames = stills.filter((d) => d.name !== 'resOriginalRes')
+      const poster = pickArea(frames.length ? frames : stills)
+      if (!video || !frames.length) continue
+      const width = originalWidth ?? num(poster.width) ?? 16
+      const height = originalHeight ?? num(poster.height) ?? 9
+      const item: VideoItem = {
+        type: 'video',
+        id,
+        ref: recordName,
+        filename: `Video ${position}`,
+        src: ckVideoProxy(token, recordName, video.name),
+        mimeType: 'video/mp4',
+        width,
+        height,
+        poster: { src: ckImageProxy(token, recordName, poster.name), width: num(poster.width) || width, height: num(poster.height) || height },
+        alt: 'Video',
+        c2pa: false,
+        placeholder: placeholderFor(width, height),
+        variants: [{ width: num(poster.width) || 256, src: ckImageProxy(token, recordName, poster.name), format: 'jpeg' }],
+      }
+      items.push(item)
+      index += 1
+      continue
+    }
+
+    // Original bytes for browser-decodable UTIs; Apple's largest JPEG
+    // rendition otherwise (HEIC masters still display without a decoder).
+    const original = stills.find((d) => d.name === 'resOriginalRes')
+    const renditions = stills.filter((d) => d.name !== 'resOriginalRes')
+    const primary = original && CK_ORIGINAL_DECODABLE.test(itemType) ? original : pickArea(renditions.length ? renditions : stills)
+    const thumb = stills.find((d) => d.name === 'resJPEGThumbRes') ?? stills.reduce((small, d) => ((d.width ?? Infinity) * (d.height ?? Infinity) < (small.width ?? Infinity) * (small.height ?? Infinity) ? d : small))
+    const width = originalWidth ?? num(primary.width) ?? 4
+    const height = originalHeight ?? num(primary.height) ?? 3
+    items.push({
+      id,
+      ref: recordName,
+      filename: `Photo ${position}`,
+      src: ckImageProxy(token, recordName, primary.name),
+      width,
+      height,
+      alt: 'Photograph',
+      c2pa: primary === original,
+      placeholder: placeholderFor(width, height),
+      variants: [{ width: num(thumb.width) || 256, src: ckImageProxy(token, recordName, thumb.name), format: 'jpeg' }],
+    })
+    index += 1
+  }
+
+  if (!items.length) throw new Error('No photos or videos were found in that public iCloud album')
+  return {
+    sourceUrl: canonicalICloudCloudKitUrl(token),
+    title: share.title?.trim() || 'Shared album',
+    images: items,
+    ...(found.length > MAX_GALLERY_ITEMS ? { truncated: found.length } : {}),
+  }
+}
+
+/** Share resolves are cheap and reused by every asset request, but the
+ *  anonymous token inside expires — cache briefly, coalesce in-flight,
+ *  and re-resolve on any auth-shaped failure. */
+const CK_RESOLVE_TTL_MS = 45_000
+const ckShareCache = new Map<string, { share: CkShare; at: number }>()
+const ckShareInflight = new Map<string, Promise<CkShare>>()
+
+const ckShareFor = (token: string, fetchImpl: typeof fetch) => {
+  const cacheable = fetchImpl === fetch
+  if (cacheable) {
+    const hit = ckShareCache.get(token)
+    if (hit && Date.now() - hit.at < CK_RESOLVE_TTL_MS) return Promise.resolve(hit.share)
+    ckShareCache.delete(token)
+    const inflight = ckShareInflight.get(token)
+    if (inflight) return inflight
+  }
+  const resolve = resolveCkShare(token, fetchImpl)
+  if (!cacheable) return resolve
+  ckShareInflight.set(token, resolve)
+  return resolve.then((share) => {
+    ckShareCache.set(token, { share, at: Date.now() })
+    return share
+  }).finally(() => ckShareInflight.delete(token))
+}
+
+/** Looks up a single master in the shared zone and pulls the requested
+ *  derivative's signed downloadURL. URLs are pointers, never persisted —
+ *  a 45s cache absorbs a page-load's burst of image requests; anything
+ *  longer risks serving a dead signature. */
+const CK_URL_TTL_MS = 45_000
+const ckUrlCache = new Map<string, { url: string; at: number }>()
+const ckUrlInflight = new Map<string, Promise<string | null>>()
+
+const resolveCkDerivativeUrl = async (token: string, recordName: string, resField: string, fetchImpl: typeof fetch, refresh = false): Promise<string | null> => {
+  const cacheable = fetchImpl === fetch
+  const key = `${token} ${recordName} ${resField}`
+  if (cacheable && !refresh) {
+    const hit = ckUrlCache.get(key)
+    if (hit && Date.now() - hit.at < CK_URL_TTL_MS) return hit.url
+    const inflight = ckUrlInflight.get(key)
+    if (inflight) return inflight
+  }
+  const resolve = (async () => {
+    let share = await ckShareFor(token, fetchImpl)
+    const lookup = async () => {
+      const url = `${share.partition}/database/1/${CK_CONTAINER}/production/shared/records/lookup?${CK_PARAMS}&publicAccessAuthToken=${encodeURIComponent(share.authToken)}`
+      return ckPost<{ records?: CkRecord[] }>(fetchImpl, url, { records: [{ recordName }], zoneID: share.zoneID })
+    }
+    let data: { records?: CkRecord[] }
+    try {
+      data = await lookup()
+    } catch (error) {
+      // An expired anonymous token reads as auth failure, not 5xx — drop
+      // the cached resolve and re-resolve once rather than failing.
+      const status = error instanceof SourceFetchError ? error.status : 0
+      if (status !== 401 && status !== 403 && status !== 421) throw error
+      ckShareCache.delete(token)
+      share = await ckShareFor(token, fetchImpl)
+      data = await lookup()
+    }
+    const blob = data.records?.[0]?.fields?.[resField]?.value
+    const downloadURL = typeof blob === 'object' && blob !== null ? (blob as { downloadURL?: unknown }).downloadURL : undefined
+    if (typeof downloadURL !== 'string' || !downloadURL) return null
+    try {
+      if (!APPLE_ASSET_HOST.test(new URL(downloadURL).hostname)) return null
+    } catch {
+      return null
+    }
+    if (cacheable) ckUrlCache.set(key, { url: downloadURL, at: Date.now() })
+    return downloadURL
+  })()
+  if (!cacheable) return resolve
+  ckUrlInflight.set(key, resolve)
+  try {
+    return await resolve
+  } finally {
+    ckUrlInflight.delete(key)
+  }
+}
+
+/** A CloudKit share reference is a record name plus a res* field — the
+ *  same two-parameter shape as the legacy guid+checksum pair. Record
+ *  names ride inside the lookup JSON body, never a URL path, so the
+ *  base64 alphabet they actually use (+, /, =) is safe to accept. */
+const validateCkReference = (kind: 'image' | 'video', token: string, recordName: string, resField: string) => {
+  if (!isAlbumToken(token) || !/^[A-Za-z0-9_+\/=-]{1,128}$/.test(recordName) || !/^res[A-Za-z0-9]+Res$/.test(resField)) {
+    throw new SourceFetchError(`That iCloud ${kind} reference is invalid`, 400)
+  }
+}
+
+const evictCkUrl = (token: string, recordName: string, resField: string, url: string) => {
+  const key = `${token} ${recordName} ${resField}`
+  if (ckUrlCache.get(key)?.url === url) ckUrlCache.delete(key)
+}
+
+export const fetchICloudCkImage = async (token: string, recordName: string, resField: string, fetchImpl: typeof fetch = fetch) => {
+  validateCkReference('image', token, recordName, resField)
+  return retryOnceOnTransient(async () => {
+    const url = await resolveCkDerivativeUrl(token, recordName, resField, fetchImpl)
+    if (!url) throw new SourceFetchError('That iCloud image is unavailable', 404)
+    const response = await request(fetchImpl, url)
+    if (!response.ok) {
+      evictCkUrl(token, recordName, resField, url)
+      throw transientError('iCloud image fetch failed', response)
+    }
+    return response
+  })
+}
+
+export const fetchICloudCkVideo = async (
+  token: string,
+  recordName: string,
+  resField: string,
+  range?: string | null,
+  fetchImpl: typeof fetch = fetch,
+) => {
+  validateCkReference('video', token, recordName, resField)
+  return retryOnceOnTransient(async () => {
+    const url = await resolveCkDerivativeUrl(token, recordName, resField, fetchImpl)
+    if (!url) throw new SourceFetchError('That iCloud video is unavailable', 404)
+    const response = await request(fetchImpl, url, range ? { headers: { Range: range } } : undefined)
+    if (!response.ok && response.status !== 206) {
+      evictCkUrl(token, recordName, resField, url)
       throw transientError('iCloud video fetch failed', response)
     }
     return response
