@@ -218,6 +218,36 @@ describe('attachMagnifier', () => {
     expect(stageOf(document).classList.contains('is-magnified')).toBe(false)
   })
 
+  test('the lens ducks out over a video frame and returns over a photograph', async () => {
+    const { window, document } = installDom()
+    const stage = stageOf(document)
+    const frames = stage.querySelectorAll('.viewer-frame')
+    frames[1].classList.add('viewer-frame--video')
+    // Point the lens at the video — elementFromPoint answers with the clip.
+    ;(document as unknown as { elementFromPoint: () => Element }).elementFromPoint =
+      () => frames[1].querySelector('video')!
+    const handle = attachMagnifier(stage)!
+    handle.activate()
+    const lens = document.querySelector('.magnifier-lens') as unknown as HTMLElement
+    expect(lens.hidden).toBe(false)
+    expect(lens.style.visibility).toBe('hidden')
+    expect(stage.classList.contains('is-magnifier-paused')).toBe(true)
+
+    // Back over a photograph the lens and its cursor grab return.
+    ;(document as unknown as { elementFromPoint: () => Element }).elementFromPoint =
+      () => frames[0].querySelector('img.frame-img')!
+    const move = new window.Event('pointermove')
+    Object.assign(move, { clientX: 40, clientY: 40 })
+    window.dispatchEvent(move)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(lens.style.visibility).toBe('visible')
+    expect(stage.classList.contains('is-magnifier-paused')).toBe(false)
+
+    handle.deactivate()
+    expect(stage.classList.contains('is-magnifier-paused')).toBe(false)
+    handle.destroy()
+  })
+
   test('reduced motion skips the scale-in animation', () => {
     const { document } = installDom({ finePointer: true, reducedMotion: true })
     const handle = attachMagnifier(stageOf(document))!

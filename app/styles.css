@@ -1008,6 +1008,10 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
    already exposes. */
 .viewer-stage.is-magnified { cursor: none; }
 .viewer-stage.is-magnified * { cursor: none; }
+/* Over a video the lens ducks out — the hidden lens must hand the real
+   cursor back until the pointer is over a photograph again. */
+.viewer-stage.is-magnified.is-magnifier-paused,
+.viewer-stage.is-magnified.is-magnifier-paused * { cursor: auto; }
 .magnifier-lens {
   position: fixed;
   z-index: 35;

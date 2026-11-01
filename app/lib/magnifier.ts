@@ -182,6 +182,12 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
       ? document.elementFromPoint(pointer.x, pointer.y)
       : null
     const frameEl = underPointer?.closest?.('.viewer-frame') ?? null
+    // A loupe has nothing to add to a moving image: over a video frame the
+    // lens ducks out and the real cursor returns until a photograph is
+    // under the pointer again.
+    const overVideo = frameEl?.classList.contains('viewer-frame--video') === true
+    stage.classList.toggle('is-magnifier-paused', overVideo)
+    lens.style.visibility = overVideo ? 'hidden' : 'visible'
     const img = frameEl?.querySelector<HTMLImageElement>('img.frame-img') ?? null
     const imgRect = img?.getBoundingClientRect()
     const scale = lensScale(img?.naturalWidth ?? 0, img?.naturalHeight ?? 0, imgRect?.width ?? 0, imgRect?.height ?? 0)
@@ -244,7 +250,9 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     if (!active) return
     active = false
     lens.hidden = true
+    lens.style.visibility = ''
     stage.classList.remove('is-magnified')
+    stage.classList.remove('is-magnifier-paused')
     window.removeEventListener('scroll', schedule)
     stage.removeEventListener('scroll', schedule)
     observer?.disconnect()
