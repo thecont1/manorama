@@ -27,7 +27,7 @@
         "@tauri-apps/plugin-opener": "^2.6.0",
         "@vendoai/vendo": "^0.54.2",
         "c2pa-wc": "^0.14.17",
-        "heic2any": "^0.0.4",
+        "heic-decode": "^2.1.0",
         "hono": "^4.13.13",
         "honox": "^0.1.61",
         "jimp": "^1.6.1",
@@ -42,6 +42,7 @@
         "@hono/vite-dev-server": "^0.26.1",
         "@playwright/test": "^1.55.0",
         "@tauri-apps/cli": "^2.12.0",
+        "@types/heic-decode": "^2.0.0",
         "@types/node": "^22.20.2",
         "@types/react-dom": "^19.2.7",
         "happy-dom": "^21.0.4",
@@ -574,6 +575,8 @@
     "@types/fs-extra": ["@types/fs-extra@8.1.5", "", { "dependencies": { "@types/node": "*" } }, "sha512-0dzKcwO+S8s2kuF5Z9oUWatQJj5Uq/iqphEtE3GQJVRRYm/tD1LglU2UnXi2A8jLq5umkGouOXOR9y0n613ZwQ=="],
 
     "@types/hast": ["@types/hast@3.0.5", "", { "dependencies": { "@types/unist": "*" } }, "sha512-rp/ezSWaD1m44dPKICGhiskI13nVr7qTloFwDa/IYkhhf5nzwP+zIQcIJh3WIFSBOy/H1PzB40jPjMDksN4F+g=="],
+
+    "@types/heic-decode": ["@types/heic-decode@2.0.0", "", {}, "sha512-Zj/zngTwbbIE84GsJ9hBI3VmvQRGOe65QV/xVdmLEAGB9bswOBxTMhQVcqNLcxnQhzOmAro5KBg7trrLaYe5Jg=="],
 
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, ""],
 
@@ -1115,7 +1118,7 @@
 
     "he": ["he@1.2.0", "", { "bin": "bin/he" }, "sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw=="],
 
-    "heic2any": ["heic2any@0.0.4", "", {}, "sha512-3lLnZiDELfabVH87htnRolZ2iehX9zwpRyGNz22GKXIu0fznlblf0/ftppXKNqS26dqFSeqfIBhAmAj/uSp0cA=="],
+    "heic-decode": ["heic-decode@2.1.0", "", { "dependencies": { "libheif-js": "^1.19.8" } }, "sha512-0fB3O3WMk38+PScbHLVp66jcNhsZ/ErtQ6u2lMYu/YxXgbBtl+oKOhGQHa4RpvE68k8IzbWkABzHnyAIjR758A=="],
 
     "highgain": ["highgain@0.1.0", "", {}, ""],
 
@@ -1262,6 +1265,8 @@
     "just-bash": ["just-bash@3.4.2", "", { "dependencies": { "diff": "^8.0.4", "fast-xml-parser": "^5.10.1", "file-type": "^21.3.4", "ini": "^6.0.0", "minimatch": "^10.2.6", "modern-tar": "^0.7.7", "papaparse": "^5.6.0", "quickjs-emscripten": "^0.32.0", "re2js": "^1.3.3", "seek-bzip": "^2.0.0", "smol-toml": "^1.8.0", "sprintf-js": "^1.1.3", "sql.js": "^1.14.1", "turndown": "^7.2.4", "undici": "^7.29.0", "yaml": "^2.9.0" }, "optionalDependencies": { "@mongodb-js/zstd": "^7.0.0", "node-liblzma": "^2.2.0" }, "bin": { "just-bash": "dist/bin/just-bash.js", "just-bash-shell": "dist/bin/shell/shell.js" } }, "sha512-T0Vpy7YRgCjxJdqG3tkxn0ZnIDLJvVwb8hH4L+6NVdp+Te27jQxjxnszW9ODjEKbWxWujj83rP5S0GQxCSufgg=="],
 
     "kleur": ["kleur@4.1.5", "", {}, ""],
+
+    "libheif-js": ["libheif-js@1.23.5", "", {}, "sha512-umXZPthnWZtF3iG/5mQG+AZ2V6i0UeYpo3z2CkggTEgL8dKmIIwJT6TDuAMuabXa1yTW8uJ1ZAgR+CxNTklYYw=="],
 
     "lightningcss": ["lightningcss@1.33.0", "", { "dependencies": { "detect-libc": "^2.0.3" }, "optionalDependencies": { "lightningcss-android-arm64": "1.33.0", "lightningcss-darwin-arm64": "1.33.0", "lightningcss-darwin-x64": "1.33.0", "lightningcss-freebsd-x64": "1.33.0", "lightningcss-linux-arm-gnueabihf": "1.33.0", "lightningcss-linux-arm64-gnu": "1.33.0", "lightningcss-linux-arm64-musl": "1.33.0", "lightningcss-linux-x64-gnu": "1.33.0", "lightningcss-linux-x64-musl": "1.33.0", "lightningcss-win32-arm64-msvc": "1.33.0", "lightningcss-win32-x64-msvc": "1.33.0" } }, ""],
 

@@ -1957,7 +1957,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     heicPendingRef.current.add(image.id)
     let blob: Blob | undefined
     try {
-      const { default: heic2any } = await import('heic2any')
+      const { default: decode } = await import('heic-decode')
       const response = await fetch(image.src)
       if (!response.ok) throw new Error(`HEIC fetch failed: ${response.status}`)
       blob = await response.blob()
@@ -1969,9 +1969,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         storeHeicSrc(image.id, URL.createObjectURL(blob))
         return
       }
-      const converted = await heic2any({ blob, toType: 'image/jpeg', quality: 0.95 })
-      const out = Array.isArray(converted) ? converted[0] : converted
-      storeHeicSrc(image.id, URL.createObjectURL(out))
+      // heic-decode wraps libheif-js — a modern emscripten build with no
+      // string eval, so it survives the page CSP the way heic2any's
+      // `new Function` dynCall glue never could.
+      const { data, width, height } = await decode({ buffer: new Uint8Array(await blob.arrayBuffer()) })
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0)
+      const jpegBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95))
+      if (!jpegBlob) throw new Error('canvas encode returned no blob')
+      storeHeicSrc(image.id, URL.createObjectURL(jpegBlob))
     } catch {
       // libheif rejects some real HEIFs (10-bit, non-HEVC codecs, truncated
       // files). Hand the untouched bytes to the browser — Safari renders
