@@ -276,19 +276,19 @@ export default function OwnerGalleryPanel({
       </ActionGroup>
       <ActionGroup>
         {editing === 'name' ? editBlock('Name', (
-          <input class="m-input" type="text" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
+          <input class="m-input" type="text" aria-label="Name" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
           <ActionRow label="Name" icon={DETAILS_ICONS.name()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
         )}
         {/* A present caption reads in full on the head — the row only
             carries the empty state, so nothing ellipsizes. */}
         {editing === 'caption' ? editBlock('Caption', (
-          <textarea class="m-input" rows={3} value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
+          <textarea class="m-input" rows={3} aria-label="Caption" value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
           <ActionRow label="Caption" icon={DETAILS_ICONS.caption()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
         )}
         {editing === 'address' ? editBlock('Address', (
-          <input class="m-input" type="text" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
+          <input class="m-input" type="text" aria-label="Address" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
           <ActionRow label="Address" value={slug} onClick={() => startEdit('address')} disabled={locked} />
         )}

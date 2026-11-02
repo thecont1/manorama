@@ -2582,6 +2582,7 @@ test("admin gallery order is a draft until Save", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   const card = page.locator(".lib-card").first();
   const items = card.locator(".admin-gallery-strip-item");
   expect(await items.count()).toBeGreaterThan(1);
@@ -2596,11 +2597,11 @@ test("admin gallery order is a draft until Save", async ({
   expect(writes).toEqual([]);
   await expect(items.nth(0)).toHaveAttribute("data-image-id", firstId!);
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
-  const detailsSurface = page.locator('[data-screen="details"]');
+  await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+  const detailsSurface = page.locator(".m-sheet").last();
   await expect(detailsSurface).toBeVisible();
   await detailsSurface.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ }).click();
-  // The Details row hands off to the gallery page's picker Edit mode —
+  // The settings row hands off to the gallery page's picker Edit mode —
   // the same pick-then-place draft, in the photograph matrix.
   const editCells = page.locator(".viewer-edit-cell");
   await expect(editCells.first()).toBeVisible({ timeout: 20000 });
@@ -2759,21 +2760,23 @@ test("a rail drag suppresses the photo link while a sub-threshold tap opens it",
   await page.waitForURL(new RegExp(`/${OWNER}/[^/]+$`), { timeout: 15000 });
 });
 
-test("admin gallery title and caption edit through Details and persist", async ({
+test("admin gallery title and caption edit through Gallery settings and persist", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   const card = page.locator(".lib-card").first();
-  // D1: cards carry no inline editing — the one path is Details.
+  // D1: cards carry no inline editing — the one path is the settings sheet.
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
-  const details = page.locator('[data-screen="details"]');
+  await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+  const details = page.locator(".m-sheet").last();
   await expect(details).toBeVisible();
   await details.locator(".m-actionrow").filter({ hasText: /^Name/ }).click();
   const titleInput = page.getByRole("textbox", { name: "Name" });
   await titleInput.fill("Italy, seen slowly");
   await titleInput.press("Enter");
-  await expect(details.getByText("Saved", { exact: true })).toBeVisible({ timeout: 20000 });
+  // The panel announces saves through the global polite live region.
+  await expect(page.locator(".m-sr-only[aria-live]")).toContainText("Saved", { timeout: 20000 });
   await expect(card.locator(".lib-card-title")).toHaveText("Italy, seen slowly");
   await details.locator(".m-actionrow").filter({ hasText: /^Caption/ }).click();
   const captionInput = page.getByRole("textbox", { name: "Caption" });
@@ -2781,28 +2784,31 @@ test("admin gallery title and caption edit through Details and persist", async (
     "A quiet sequence of streets, stone, and weather along an Italian journey.",
   );
   await captionInput.press("Control+Enter");
-  await expect(details.getByText("Saved", { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(page.locator(".m-sr-only[aria-live]")).toContainText("Saved", { timeout: 20000 });
   await expect(card.locator(".lib-card-caption")).toContainText(
     "A quiet sequence",
   );
 });
 
-test("admin gallery address edits through Details and persists the public address", async ({
+test("admin gallery address edits through Gallery settings and persists the public address", async ({
   page,
 }) => {
   await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   const card = page.locator(".lib-card").first();
   await card.getByRole("button", { name: /actions$/i }).click();
-  await page.getByRole("button", { name: "Gallery details", exact: true }).click();
-  const details = page.locator('[data-screen="details"]');
+  await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+  const details = page.locator(".m-sheet").last();
   await expect(details).toBeVisible();
   await details.locator(".m-actionrow").filter({ hasText: /^Address/ }).click();
   const slugInput = page.getByRole("textbox", { name: "Address" });
   const nextSlug = `italy-reframed-${Date.now()}`;
   await slugInput.fill(nextSlug);
   await slugInput.press("Enter");
-  await expect(details.getByText("Saved", { exact: true })).toBeVisible({ timeout: 20000 });
-  await expect(details.locator(".d-addr")).toContainText(`/${OWNER}/${nextSlug}`);
+  // A rename is a move — the panel lands on the gallery's new address.
+  await page.waitForURL(new RegExp(`/${OWNER}/${nextSlug}`), { timeout: 20000 });
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   await expect(
     page.locator(`.lib-card[data-gallery-card="${nextSlug}"]`),
   ).toBeVisible();
@@ -3575,15 +3581,16 @@ test.describe("retention policy", () => {
     const card = page.locator('[data-gallery-card="ui-d"]');
     await expect(card.locator(".lib-card-sub")).toContainText("Temporary gallery");
     // Locked galleries keep management but lose mutation: Reorder is
-    // disabled, removal stays armed, and the upgrade path lives in Details.
+    // disabled, removal stays armed, and the upgrade path lives in the
+    // gallery's own settings sheet.
     await card.locator(".lib-card-menu").click();
     let menu = page.locator(".lib-menu");
     await expect(menu.getByRole("button", { name: "Reorder photographs", exact: true })).toBeDisabled();
     await expect(menu.getByRole("button", { name: "Remove gallery", exact: true })).toBeEnabled();
-    await menu.getByRole("button", { name: "Gallery details", exact: true }).click();
-    const details = page.locator('[data-screen="details"]');
+    await menu.getByRole("button", { name: "Gallery settings", exact: true }).click();
+    const details = page.locator(".m-sheet").last();
     await expect(details.getByRole("link", { name: "Upgrade", exact: true })).toHaveAttribute("href", /^mailto:/);
-    await details.getByRole("button", { name: "Back", exact: true }).click();
+    await details.getByRole("button", { name: "Close", exact: true }).click();
     const freeCard = page.locator('[data-gallery-card="ui-a"]');
     await freeCard.locator(".lib-card-menu").click();
     menu = page.locator(".lib-menu");
@@ -3750,13 +3757,15 @@ test.describe("density-aware staging", () => {
     const page = await context.newPage();
     await dismissCurtain(page, url);
     await expect(page.locator(".frame-ph")).toHaveCount(12);
-    await expect(page.locator(".frame-img")).toHaveCount(4);
-    // Index 4: the ±3 window is 7 frames, plus the MRU tail holds frame 0.
+    // The strip window is forward-biased (STRIP_BACK 2, STRIP_AHEAD 4):
+    // at the first photograph the clamped window mounts 0–4.
+    await expect(page.locator(".frame-img")).toHaveCount(5);
+    // Index 4: the window is 2–8 (7 frames) and the MRU tail holds 0–1.
     for (let i = 0; i < 4; i += 1) await advanceToNextImage(page);
     await waitForTrackSettled(page);
-    await expect(page.locator(".frame-img")).toHaveCount(8);
+    await expect(page.locator(".frame-img")).toHaveCount(9);
     // The tail is bounded: however far the strip advances, the window
-    // plus retention never exceeds STRIP_WINDOW*2 + 1 + STRIP_RETAIN.
+    // plus retention never exceeds STRIP_BACK + STRIP_AHEAD + 1 + STRIP_RETAIN.
     for (let i = 0; i < 6; i += 1) await advanceToNextImage(page);
     await waitForTrackSettled(page);
     const mounted = await page.locator(".frame-img").count();
