@@ -144,7 +144,8 @@ describe('the dashboard renders retention state', () => {
 
   test('the Library sub line states the plan, the hosted counts, and the upgrade path', async () => {
     const html = await renderDashboard(seedPipelineOwner)
-    expect(html).toContain('You are a manorama <strong>Free</strong> user hosting <strong>3</strong> of 3 permanent galleries')
+    expect(html).toContain('You are a manorama <strong>Free User</strong> hosting')
+    expect(html).toMatch(/hosting<br ?\/?><strong>3<\/strong> of 3 permanent galleries/)
     expect(html).toContain('and <strong>1</strong> temporary gallery.')
     expect(html).toContain('Upgrade to Visionary?')
   })

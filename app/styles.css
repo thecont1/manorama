@@ -1807,14 +1807,18 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
     position: sticky;
     top: 16px;
     min-width: 0;
-    /* A rail taller than the viewport would pin at the top with its
-       bottom — usually the sponsored card's CTA — unreachable. Cap it
-       and let the column scroll inside itself instead. */
-    max-height: calc(100dvh - 32px);
+    display: flex;
+    flex-direction: column;
+    /* The rail claims the full viewport height so the sponsored card
+       anchors to the bottom of the page; a column that outgrows it
+       scrolls inside itself instead of pinning an unreachable bottom. */
+    height: calc(100dvh - 32px);
     overflow-y: auto;
     scrollbar-width: none;
   }
+  .admin-page--selector .admin-rail > * { flex-shrink: 0; }
   .admin-page--selector .admin-rail::-webkit-scrollbar { display: none; }
+  .admin-page--selector .admin-rail .account-ad { margin-top: auto; }
 }
 .admin-rail { min-width: 0; }
 .admin-rail .admin-library-heading { flex-direction: column; align-items: stretch; gap: 14px; }
@@ -2172,7 +2176,11 @@ button.lib-card-title {
 /* Compact galleries fall into a masonry feed under a small section
    label — one cover card each, the cover kept at its own ratio so card
    heights vary. The lean payload ships only the cover item for these. */
-.lib-compact-title { margin: 28px 0 0; padding: 0 0 10px; font-size: var(--m-fs-small); font-weight: 600; color: var(--m-secondary); }
+/* The two Library sections announce themselves at the same pitch as the
+   page itself — "Your galleries" and "More galleries" are headings in
+   the "Library" voice, not captions. */
+.lib-section-title { margin: 0 0 18px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
+.gallery-list section + section { margin-top: clamp(44px, 6vw, 72px); }
 .lib-compact-grid { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 14px; }
 /* Three across fills the card column — a fourth column made the covers
    read as thumbnails instead of galleries. */

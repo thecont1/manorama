@@ -780,9 +780,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div>
         </div>
         <p class="admin-library-sub">{tier === 'pro' ? (
-          <>You are a manorama <strong>Visionary</strong> user hosting <strong>{retainedCount}</strong> of {PAID_RETAINED_LIMIT} permanent galleries.</>
+          <>You are a manorama <strong>Visionary</strong> hosting<br /><strong>{retainedCount}</strong> of {PAID_RETAINED_LIMIT} permanent galleries.</>
         ) : (
-          <>You are a manorama <strong>Free</strong> user hosting <strong>{retainedCount}</strong> of {FREE_RETAINED_LIMIT} permanent galleries{temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}. <a class="admin-upgrade-link" href={upgradeHref}>Upgrade to Visionary?</a></>
+          <>You are a manorama <strong>Free User</strong> hosting<br /><strong>{retainedCount}</strong> of {FREE_RETAINED_LIMIT} permanent galleries{temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}. <a class="admin-upgrade-link" href={upgradeHref}>Upgrade to Visionary?</a></>
         )}</p>
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
@@ -811,7 +811,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         ) : null}
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
-        {stripGalleries.length ? <ul class="lib-list">{stripGalleries.map((gallery) => {
+        {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
+          <h2 id="lib-strips-title" class="lib-section-title">Your galleries</h2>
+          <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
           return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
@@ -868,10 +870,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
             </div> : null}
           </article></li>
-        })}</ul> : null}
+        })}</ul></section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h3 id="lib-compact-title" class="lib-compact-title">{tier === 'pro' ? 'More galleries' : 'Temporary galleries'}</h3>
+            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">{tier === 'pro' ? 'More galleries' : 'Temporary galleries'}</h2>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
