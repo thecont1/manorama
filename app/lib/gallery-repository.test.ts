@@ -59,7 +59,8 @@ describe('toLibrarySummaries', () => {
     const compact = summaries.find((summary) => summary.layout === 'compact')
     expect(compact).toBeTruthy()
     // Compact galleries ship exactly one cover; the hidden item did not count.
-    expect(compact!.images).toEqual([expect.objectContaining({ id: 'x' })])
+    expect(compact!.images).toHaveLength(1)
+    expect(compact!.images[0].id).toBe('x')
   })
 
   test('compact galleries ship exactly their first visible item', async () => {
