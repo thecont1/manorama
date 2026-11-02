@@ -62,7 +62,9 @@ export const loadGalleryItems = async (slug: string): Promise<PickerEditItem[]> 
       width: image.width,
       height: image.height,
       src: poster?.src ?? image.src,
-      preview: image.variants?.[0]?.src ?? poster?.src,
+      // The same URL browse mode puts in its <img> — identical bytes mean
+      // the browser cache answers the mode switch instead of the network.
+      preview: image.variants?.[0]?.src ?? poster?.src ?? image.placeholder,
       filename: image.filename,
       label: image.filename,
       hidden: image.hidden,
@@ -72,16 +74,19 @@ export const loadGalleryItems = async (slug: string): Promise<PickerEditItem[]> 
   })
 }
 
-/** The browse header's affordance — a button, a busy label while the
+/** The browse top bar's affordance — a button, a busy label while the
  *  summary loads, or the lock message on a temporary gallery. */
 export const PickerEditButton = ({ temporary, loading, onBegin }: { temporary: boolean; loading: boolean; onBegin: () => void }) =>
   temporary ? (
     <span class="viewer-picker-lock">{PIPELINE_LOCK_MESSAGE}</span>
   ) : (
-    <button type="button" onClick={onBegin} disabled={loading}>{loading ? 'Loading…' : 'Edit'}</button>
+    <button type="button" onClick={onBegin} disabled={loading}>{loading ? 'Loading…' : 'Reorder photographs'}</button>
   )
 
-const HINT = 'Tap a photograph to pick it up, then tap where it goes.'
+/** One line under the picker title, both modes — the screen reads the
+ *  same, only what a tap does changes. */
+export const BROWSE_HINT = 'Tap a photograph to open it.'
+const HINT = 'Reorder mode — tap a photograph to pick it up, then tap where it goes.'
 
 const sameKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
   a.size === b.size && [...a].every((key) => b.has(key))
@@ -289,13 +294,17 @@ export default function PickerEditor({
 
   return (
     <>
-      <header class="viewer-picker-header viewer-picker-header--edit">
+      {/* One top bar in both modes: a description of what a tap does on
+          the left, the mode's controls on the right. The gallery title
+          and count stay in the shared bottom bar the viewer renders. */}
+      <div class="viewer-picker-top">
         <p class="viewer-edit-status">
           {status}
           {note ? <span class="viewer-edit-alert" role="alert"> {note}</span> : null}
         </p>
         <div class="viewer-edit-controls">
           <label class="viewer-edit-sizer">
+            <svg class="s" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
             <span class="sr-only">Photograph size</span>
             <input
               type="range"
@@ -311,11 +320,12 @@ export default function PickerEditor({
                 if (event.key === 'Home' || event.key === 'End') event.stopPropagation()
               }}
             />
+            <svg class="l" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
           </label>
           <button type="button" onClick={cancel} disabled={saving}>Cancel</button>
           <button type="button" class="viewer-edit-save" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
-      </header>
+      </div>
       <div ref={frameRef} class="viewer-filmstrip-frame" {...pan}>
         <div class="viewer-filmstrip-track">
           {session.items.map((item, index) => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { enqueueHeicObjectUrl, heicObjectUrl, isHeicFilename } from './heic'
+import { clearHeicUrlCache, enqueueHeicObjectUrl, heicObjectUrl, isHeicFilename } from './heic'
 
 const globals = globalThis as Record<string, unknown>
 
@@ -20,6 +20,7 @@ describe('heicObjectUrl', () => {
     try { await fn() } finally {
       globals.fetch = prev.fetch
       URL.createObjectURL = prev.create
+      clearHeicUrlCache()
     }
   }
 
@@ -27,6 +28,18 @@ describe('heicObjectUrl', () => {
     await withGlobals(async () => {
       globals.fetch = (() => Promise.resolve(new Response('no', { status: 503 }))) as unknown as typeof fetch
       expect(await heicObjectUrl('/api/mega/file?x')).toBeNull()
+    })
+  })
+
+  test('a decoded URL is served from cache — a second surface pays nothing', async () => {
+    await withGlobals(async () => {
+      const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0])
+      let fetches = 0
+      globals.fetch = (() => { fetches += 1; return Promise.resolve(new Response(jpeg)) }) as unknown as typeof fetch
+      URL.createObjectURL = (() => 'blob:cached') as typeof URL.createObjectURL
+      expect(await heicObjectUrl('/api/mega/file?warm')).toBe('blob:cached')
+      expect(await heicObjectUrl('/api/mega/file?warm')).toBe('blob:cached')
+      expect(fetches).toBe(1)
     })
   })
 
@@ -63,9 +76,12 @@ describe('enqueueHeicObjectUrl', () => {
       expect(order).toEqual([0, 1, 2])
     } finally {
       // Both stubs must go home — a leaked createObjectURL hands 'blob:mock'
-      // to whatever mounts next (happy-dom workers die resolving it).
+      // to whatever mounts next (happy-dom workers die resolving it). The
+      // decode cache goes too: a blob minted under the stub is poison for
+      // every later caller of the same source.
       globals.fetch = prev.fetch
       URL.createObjectURL = prev.create
+      clearHeicUrlCache()
     }
   })
 })

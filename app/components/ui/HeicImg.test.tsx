@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Window } from 'happy-dom'
 import { render } from 'hono/jsx/dom'
 import { HeicImg } from './HeicImg'
+import { clearHeicUrlCache } from '../../lib/heic'
 
 const globals = globalThis as Record<string, unknown>
 let dom: Window
@@ -22,6 +23,9 @@ afterAll(() => {
   globals.fetch = prev.fetch
   URL.createObjectURL = prev.create as typeof URL.createObjectURL
   globals.requestAnimationFrame = prev.raf
+  // Decoded URLs minted under stubs must not outlive the file — a later
+  // spec for the same source would read the fake blob instead of fetching.
+  clearHeicUrlCache()
 })
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10))
@@ -72,13 +76,15 @@ describe('HeicImg', () => {
     let calls = 0
     globals.fetch = (() => { calls += 1; return Promise.resolve(new Response('no', { status: 503 })) }) as unknown as typeof fetch
     const container = mount()
-    render(<HeicImg src="/api/mega/file?x" filename="a.heic" alt="" />, container)
+    // Its own src — the decode cache is per-source, and the earlier test
+    // already cached a blob under ?x.
+    render(<HeicImg src="/api/mega/file?retry" filename="a.heic" alt="" />, container)
     const img = container.querySelector('img')!
     // The retry lands ~2s out — poll generously, then the img falls back
     // to the proxy URL (Safari renders HEIC natively; elsewhere onError).
     for (let i = 0; i < 400 && calls < 2; i++) await tick()
     expect(calls).toBe(2)
-    for (let i = 0; i < 40 && img.getAttribute('src') !== '/api/mega/file?x'; i++) await tick()
-    expect(img.getAttribute('src')).toBe('/api/mega/file?x')
+    for (let i = 0; i < 40 && img.getAttribute('src') !== '/api/mega/file?retry'; i++) await tick()
+    expect(img.getAttribute('src')).toBe('/api/mega/file?retry')
   })
 })

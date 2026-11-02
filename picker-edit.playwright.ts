@@ -21,7 +21,7 @@ const openPicker = async (page: Page) => {
   await expect(page.locator('.viewer-filmstrip')).toBeVisible({ timeout: 10_000 })
 }
 const enterEdit = async (page: Page) => {
-  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.getByRole('button', { name: 'Reorder photographs' }).click()
   await expect(page.locator('.viewer-edit-cell').first()).toBeVisible({ timeout: 20_000 })
 }
 const mark = (page: Page, imageId: string) =>
@@ -46,7 +46,11 @@ const openGallery = async (page: Page, slug: string) => {
 const discoverSlug = async (page: Page) => {
   await page.goto(`${base}/${owner}`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20_000 })
-  return (await page.locator('[data-gallery-card]').first().getAttribute('data-gallery-card'))!
+  // Specs share one seeded store: another spec's spawned galleries are
+  // always newest and sort first — and its next reset deletes them
+  // underneath us. The last card is the oldest entry, a pristine seed
+  // that every reset re-inserts.
+  return (await page.locator('[data-gallery-card]').last().getAttribute('data-gallery-card'))!
 }
 
 test('owner Edit mode reorders and hides, reload shows the result, and restore is idempotent', async ({ browser }) => {
@@ -59,7 +63,22 @@ test('owner Edit mode reorders and hides, reload shows the result, and restore i
     const slug = await discoverSlug(page)
     await openGallery(page, slug)
     await openPicker(page)
+
+    // One screen, two modes: the top bar says what a tap does and holds
+    // the mode's controls; the bottom bar keeps title and count.
+    const top = page.locator('.viewer-picker-top')
+    await expect(top).toContainText('Tap a photograph to open it.')
+    const header = page.locator('.viewer-picker-header')
+    await expect(header).toContainText('photograph')
+    const headerBox = (await header.boundingBox())!
+    expect(headerBox.y + headerBox.height).toBeGreaterThan(page.viewportSize()!.height - 80)
+
     await enterEdit(page)
+    await expect(top).toContainText('pick it up')
+    await expect(top.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    await expect(top.getByRole('button', { name: 'Save' })).toBeVisible()
+    await expect(top.locator('.viewer-edit-sizer svg.s')).toBeVisible()
+    await expect(top.locator('.viewer-edit-sizer svg.l')).toBeVisible()
 
     const ids = await cellIds(page)
     expect(ids.length).toBeGreaterThanOrEqual(4)
@@ -125,7 +144,7 @@ test('the library card menu and the legacy ?reorder=1 link land in Edit mode', a
     const slug = await discoverSlug(page)
 
     // Card menu → ?edit=1 → the picker opens straight into Edit.
-    await page.locator('[data-gallery-card]').first().locator('.lib-card-menu').click()
+    await page.locator(`[data-gallery-card="${slug}"]`).locator('.lib-card-menu').click()
     await page.getByRole('button', { name: 'Reorder photographs' }).click()
     await expect(page.locator('.viewer-edit-cell').first()).toBeVisible({ timeout: 20_000 })
     expect(new URL(page.url()).searchParams.get('edit')).toBeNull()
@@ -175,7 +194,7 @@ test('Escape steps back through Edit mode instead of closing the picker', async 
   }
 })
 
-test('visitors and members see no Edit button in the picker', async ({ browser }) => {
+test('visitors and members see no Reorder button in the picker', async ({ browser }) => {
   const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   await signIn(ownerContext)
   const probe = await ownerContext.newPage()
@@ -187,7 +206,7 @@ test('visitors and members see no Edit button in the picker', async ({ browser }
   try {
     await openGallery(visitorPage, slug)
     await openPicker(visitorPage)
-    await expect(visitorPage.getByRole('button', { name: 'Edit' })).toHaveCount(0)
+    await expect(visitorPage.getByRole('button', { name: 'Reorder photographs' })).toHaveCount(0)
   } finally {
     await visitorContext.close().catch(() => {})
   }
@@ -198,7 +217,7 @@ test('visitors and members see no Edit button in the picker', async ({ browser }
   try {
     await openGallery(memberPage, slug)
     await openPicker(memberPage)
-    await expect(memberPage.getByRole('button', { name: 'Edit' })).toHaveCount(0)
+    await expect(memberPage.getByRole('button', { name: 'Reorder photographs' })).toHaveCount(0)
   } finally {
     await memberContext.close().catch(() => {})
   }

@@ -86,7 +86,7 @@ describe('the picker Edit mode', () => {
     expect(hiddenCell.classList.contains('is-hidden')).toBe(true)
     expect(hiddenCell.querySelector('.viewer-edit-mark')?.getAttribute('aria-label')).toBe('Show b.jpg')
     expect(cells(root)[0].querySelector('.viewer-edit-mark')?.getAttribute('aria-label')).toBe('Hide a.jpg')
-    expect(root.textContent).toContain('Tap a photograph to pick it up')
+    expect(root.textContent).toContain('pick it up')
   })
 
   test('pick up then tap elsewhere places the photograph', () => {

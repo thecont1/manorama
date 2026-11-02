@@ -1246,6 +1246,22 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   -webkit-backdrop-filter: blur(112px) saturate(.16) brightness(.44);
   animation: viewer-filmstrip-in 280ms cubic-bezier(.22, 1, .36, 1) both;
 }
+/* The picker is one screen in both modes: a top bar names what a tap
+   does and carries the mode's controls, the shared bottom bar keeps the
+   gallery title and count where they always were. */
+.viewer-picker-top {
+  order: 0;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 14px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid rgba(244, 240, 232, .18);
+  color: rgba(244, 240, 232, .88);
+}
+.viewer-picker-desc { margin: 0; font-size: 13px; color: rgba(244, 240, 232, .62); }
+.viewer-picker-actions { display: flex; align-items: center; gap: 12px; }
 .viewer-picker-header {
   order: 2;
   flex: 0 0 auto;
@@ -1260,8 +1276,9 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 }
 .viewer-picker-header strong { display: flex; flex-direction: column; gap: 3px; font-size: 15px; font-weight: 500; letter-spacing: .01em; }
 .viewer-picker-meta { color: rgba(244, 240, 232, .58); font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; letter-spacing: .02em; }
-.viewer-picker-header button { border: 1px solid rgba(244, 240, 232, .24); padding: 8px 13px; background: transparent; color: rgba(244, 240, 232, .82); font: inherit; font-size: 12px; cursor: pointer; }
-.viewer-picker-header button:hover, .viewer-picker-header button:focus-visible { border-color: rgba(244, 240, 232, .8); color: #fff; outline: none; }
+:is(.viewer-picker-header, .viewer-picker-top) button { border: 1px solid rgba(244, 240, 232, .24); padding: 8px 13px; background: transparent; color: rgba(244, 240, 232, .82); font: inherit; font-size: 12px; cursor: pointer; }
+:is(.viewer-picker-header, .viewer-picker-top) button:hover,
+:is(.viewer-picker-header, .viewer-picker-top) button:focus-visible { border-color: rgba(244, 240, 232, .8); color: #fff; outline: none; }
 .viewer-filmstrip-frame {
   order: 1;
   flex: 1 1 auto;
@@ -1269,7 +1286,6 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   flex-direction: column;
   width: 100%;
   min-height: 0;
-  padding-top: env(safe-area-inset-top);
   overflow-y: auto;
   overflow-x: hidden;
   cursor: grab;
@@ -1384,16 +1400,18 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-edit-cell.is-hidden .viewer-edit-mark,
 .viewer-edit-mark:focus-visible { opacity: 1; }
 .viewer-edit-mark:focus-visible { outline: 2px solid #fc0fc0; outline-offset: 1px; }
-.viewer-picker-header--edit { align-items: center; }
 .viewer-edit-status { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 13px; color: rgba(244, 240, 232, .82); }
 .viewer-edit-alert { color: #ff7d95; font-weight: 600; }
 .viewer-edit-controls { display: flex; align-items: center; gap: 12px; }
-.viewer-edit-sizer { display: flex; align-items: center; }
+.viewer-edit-sizer { display: flex; align-items: center; gap: 8px; color: rgba(244, 240, 232, .62); }
+.viewer-edit-sizer svg { flex: 0 0 auto; }
+.viewer-edit-sizer svg.s { width: 14px; height: 14px; }
+.viewer-edit-sizer svg.l { width: 22px; height: 22px; }
 .viewer-edit-sizer input[type="range"] { width: 110px; accent-color: #fc0fc0; }
 .viewer-picker-alert { display: block; color: #ff7d95; font-size: 11px; font-weight: 400; }
 .viewer-picker-lock { color: rgba(244, 240, 232, .58); font-size: 12px; max-width: 36ch; }
 @media (max-width: 720px) {
-  .viewer-picker-header--edit { flex-wrap: wrap; }
+  .viewer-picker-top { flex-wrap: wrap; }
   .viewer-edit-status { flex-basis: 100%; }
 }
 

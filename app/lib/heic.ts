@@ -6,14 +6,20 @@
 
 export const isHeicFilename = (name: string | null | undefined) => /\.hei[cf]$/i.test(name ?? '')
 
-/** Resolves to a same-origin object URL for the image — the decoded JPEG
- *  blob, or the untouched source blob when it isn't really HEIC (older
- *  manifests point HEIC-named items at JPEG renditions) or libheif can't
- *  read it (10-bit, odd codecs; Safari may still render the bytes).
- *  Null means the fetch itself failed — the caller falls back to `src`.
- *  `maxDim` bounds the retained image: stage frames decode full-size,
- *  admin thumbs pass ~512 so a strip of them stays small. */
-export const heicObjectUrl = async (src: string, maxDim?: number): Promise<string | null> => {
+/** A decode costs a fetch plus a multi-hundred-MB transient, and the same
+ *  image appears in several surfaces — stage frame, picker thumb, edit
+ *  cell — so results are shared process-wide. Bounded LRU: blob URLs are
+ *  revoked on eviction. Failures are never cached — a retry must be able
+ *  to re-fetch. */
+const HEIC_CACHE_LIMIT = 48
+const heicUrlCache = new Map<string, string>()
+const heicInflight = new Map<string, Promise<string | null>>()
+
+/** Test seam: a stubbed createObjectURL mints fake blob URLs that must
+ *  not outlive the test that minted them. */
+export const clearHeicUrlCache = () => { heicUrlCache.clear() }
+
+const heicObjectUrlUncached = async (src: string, maxDim?: number): Promise<string | null> => {
   const response = await fetch(src)
   if (!response.ok) return null
   const blob = await response.blob()
@@ -50,6 +56,47 @@ export const heicObjectUrl = async (src: string, maxDim?: number): Promise<strin
   } catch {
     return URL.createObjectURL(blob)
   }
+}
+
+/** Resolves to a same-origin object URL for the image — the decoded JPEG
+ *  blob, or the untouched source blob when it isn't really HEIC (older
+ *  manifests point HEIC-named items at JPEG renditions) or libheif can't
+ *  read it (10-bit, odd codecs; Safari may still render the bytes).
+ *  Null means the fetch itself failed — the caller falls back to `src`.
+ *  `maxDim` bounds the retained image: stage frames decode full-size,
+ *  admin thumbs pass ~512 so a strip of them stays small. */
+export const heicObjectUrl = (src: string, maxDim?: number): Promise<string | null> => {
+  const key = `${src}::${maxDim ?? ''}`
+  const hit = heicUrlCache.get(key)
+  if (hit) {
+    // Refresh recency so hot entries survive eviction.
+    heicUrlCache.delete(key)
+    heicUrlCache.set(key, hit)
+    return Promise.resolve(hit)
+  }
+  const inflight = heicInflight.get(key)
+  if (inflight) return inflight
+  const run = heicObjectUrlUncached(src, maxDim)
+  heicInflight.set(key, run)
+  void run.then(
+    (url) => {
+      heicInflight.delete(key)
+      if (!url) return
+      heicUrlCache.set(key, url)
+      if (heicUrlCache.size > HEIC_CACHE_LIMIT) {
+        const oldest = heicUrlCache.keys().next().value
+        if (oldest !== undefined) {
+          const evicted = heicUrlCache.get(oldest)
+          heicUrlCache.delete(oldest)
+          if (evicted) URL.revokeObjectURL(evicted)
+        }
+      }
+    },
+    // A failed run clears its slot but is never cached — the next caller
+    // re-fetches rather than inheriting a permanently rejected promise.
+    () => { heicInflight.delete(key) },
+  )
+  return run
 }
 
 /** Thumbnails decode one at a time: each HEIC spends a multi-hundred-MB

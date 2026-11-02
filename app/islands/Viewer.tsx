@@ -9,7 +9,7 @@ import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-
 import ViewerChrome from '../components/viewer/ViewerChrome'
 import SettingsSheet from '../components/viewer/SettingsSheet'
 import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
-import PickerEditor, { loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
+import PickerEditor, { BROWSE_HINT, loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
@@ -192,9 +192,11 @@ const useEffect = (effect: () => void | (() => void), deps?: readonly unknown[])
  *  so decoded HEIC blobs get revoked as frames scroll away. */
 const VERTICAL_RETAIN = 6
 
-/** Strip mode's decoded window: frames within this many of the leftmost
- *  visible frame mount eagerly. */
-const STRIP_WINDOW = 3
+/** Strip mode's decoded window is forward-biased — strips travel right
+ *  far more than left, so two frames back and four ahead means the
+ *  photograph about to enter was mounted and fetching before it showed. */
+const STRIP_BACK = 2
+const STRIP_AHEAD = 4
 
 /** Frames that just left the strip window stay mounted for this many more
  *  index changes — panning back and forth doesn't re-mount and re-fetch —
@@ -246,6 +248,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const [editItems, setEditItems] = useState<PickerEditItem[] | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [editNote, setEditNote] = useState<string | null>(null)
+  const editLoadingRef = useRef(false)
+  // A Reorder tap that lands while the summary fetch is still in flight —
+  // the mode flips the moment the items arrive, no second tap.
+  const editWantedRef = useRef(false)
   const pickerActionsRef = useRef<PickerEditActions | null>(null)
   const [gridSel, setGridSel] = useState(index)
   const [gridClosing, setGridClosing] = useState(false)
@@ -398,34 +404,54 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setGridSel(indexRef.current)
     setGridClosing(false)
     setGridOpen(true)
+    // The owner's reorder fetch runs alongside the picker opening so a
+    // tap on "Reorder photographs" is a mode flip, not a wait.
+    if (ownerInline) loadEditItems()
   }
   // Edit mode's draft lives in the summary — the page's manifest never
-  // carries hidden items — fetched once per session, not per open.
-  const beginEdit = () => {
-    if (editLoading || pickerEdit) return
+  // carries hidden items — fetched once per session, not per open. The
+  // fetch starts when the picker opens, not when Reorder is tapped, so
+  // the switch is a same-screen mode change instead of a load screen.
+  const loadEditItems = () => {
+    if (editItems || editLoadingRef.current) return
+    editLoadingRef.current = true
     setEditLoading(true)
     setEditNote(null)
     void (async () => {
       try {
         const items = await loadGalleryItems(slug)
-        // The picker may have closed while the summary was in flight —
-        // writing pickerEdit now would surface the editor, not browse,
-        // on the next open.
-        if (!gridOpenRef.current) return
         setEditItems(items)
-        setGridSel(Math.max(0, items.findIndex((item) => item.id === images[indexRef.current]?.id)))
-        setPickerEdit(true)
+        if (editWantedRef.current) {
+          editWantedRef.current = false
+          if (gridOpenRef.current) {
+            setGridSel(Math.max(0, items.findIndex((item) => item.id === images[indexRef.current]?.id)))
+            setPickerEdit(true)
+          }
+        }
       } catch (error) {
         setEditNote(error instanceof Error ? error.message : 'The gallery could not be loaded for editing')
       } finally {
+        editLoadingRef.current = false
         setEditLoading(false)
       }
     })()
   }
+  const beginEdit = () => {
+    if (pickerEdit) return
+    if (editItems) {
+      setGridSel(Math.max(0, editItems.findIndex((item) => item.id === images[indexRef.current]?.id)))
+      setPickerEdit(true)
+      return
+    }
+    // Items still in flight — the browse cells stay on screen until the
+    // summary lands, then the mode flips without a second tap.
+    editWantedRef.current = true
+    loadEditItems()
+  }
   const exitEdit = () => {
     pickerActionsRef.current = null
+    editWantedRef.current = false
     setPickerEdit(false)
-    setEditItems(null)
     setEditNote(null)
   }
   const closeModals = () => {
@@ -435,9 +461,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setInfoOpen(false)
     setGridOpen(false)
     // Leaving the picker ends any in-flight edit — the draft's component
-    // unmounts, so its state dies with it.
+    // unmounts, so its state dies with it. The fetched item list stays:
+    // the manifest cannot change without a page reload (Save reloads),
+    // so the next open is warm.
     setPickerEdit(false)
-    setEditItems(null)
+    editWantedRef.current = false
     pickerActionsRef.current = null
     setGridClosing(false)
     scheduleChromeHide()
@@ -2223,7 +2251,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       return
     }
     const base = new Set<number>()
-    for (let i = Math.max(0, index - STRIP_WINDOW); i <= Math.min(images.length - 1, index + STRIP_WINDOW); i += 1) base.add(i)
+    for (let i = Math.max(0, index - STRIP_BACK); i <= Math.min(images.length - 1, index + STRIP_AHEAD); i += 1) base.add(i)
     const tail = stripMruRef.current.filter((i) => !base.has(i))
     stripMruRef.current = [...base, ...tail].slice(0, base.size + STRIP_RETAIN)
     setStripActive(new Set(stripMruRef.current))
@@ -2812,18 +2840,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             />
           ) : (
           <>
-          <div class="viewer-picker-header">
-            <strong>
-              <span>{displayTitle || slug}</span>
-              <span class="viewer-picker-meta">
-                {formatMediaCount(mediaCountOf(images))}
-              </span>
-              {editNote ? <span class="viewer-picker-alert" role="alert">{editNote}</span> : null}
-            </strong>
-            {ownerInline ? (
-              <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
-            ) : null}
-            <button type="button" onClick={requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
+          {/* One top bar in both modes: what a tap does on the left, the
+              mode's controls on the right. While the owner summary is
+              still in flight the picker's cells stay on screen and the
+              description says the mode change is coming. */}
+          <div class="viewer-picker-top">
+            <p class="viewer-picker-desc">{pickerEdit ? 'Loading the gallery…' : BROWSE_HINT}</p>
+            <div class="viewer-picker-actions">
+              {ownerInline ? (
+                <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
+              ) : null}
+              <button type="button" onClick={requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
+            </div>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
             <div class="viewer-filmstrip-track">
@@ -2852,6 +2880,25 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           </div>
           </>
           )}
+          {/* The bottom bar is the same in both modes — the gallery title
+              and its media count bottom-left, like the picker's always
+              had. In reorder mode the count covers the working set:
+              hidden items surface as their own part. */}
+          <header class="viewer-picker-header">
+            <strong>
+              <span>{displayTitle || slug}</span>
+              <span class="viewer-picker-meta">
+                {pickerEdit && editItems
+                  ? formatMediaCount({
+                      stills: editItems.filter((item) => !item.video && !item.hidden).length,
+                      videos: editItems.filter((item) => item.video && !item.hidden).length,
+                      hidden: editItems.filter((item) => item.hidden).length,
+                    })
+                  : formatMediaCount(mediaCountOf(images))}
+              </span>
+              {editNote ? <span class="viewer-picker-alert" role="alert">{editNote}</span> : null}
+            </strong>
+          </header>
         </div>
       </> : null}
 
