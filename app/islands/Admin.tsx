@@ -13,7 +13,6 @@ import { Sheet } from '../components/ui/Sheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
-import { WebReorderView } from '../components/WebReorderView'
 import { copyText } from '../lib/gallery-share'
 import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
@@ -105,10 +104,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // title doubles as the flag and the Name placeholder.
   const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
   const [addChecking, setAddChecking] = useState(false)
-  const [reorderSlug, setReorderSlug] = useState<string | null>(null)
-  // A failed draft save stays visible inside the reorder overlay instead of
-  // only in the toast behind it.
-  const [reorderNote, setReorderNote] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // In-progress messages are sticky: they hold until the outcome
@@ -317,15 +312,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const slug = params.get('details')
+    // `reorder=1` was the dashboard's own reorder deep-link — editing now
+    // lives in the gallery picker's Edit mode, so old links land there.
+    if (slug && params.get('reorder') === '1' && galleries.some((gallery) => gallery.slug === slug)) {
+      window.location.replace(`/${owner}/${slug}?edit=1`)
+      return
+    }
     if (slug && galleries.some((gallery) => gallery.slug === slug)) {
       initialDetailsRef.current = slug
       setDetailsSlug(slug)
-      // `reorder=1` is the viewer Settings popover's reorder deep-link —
-      // land inside the overlay, not on the Details surface carrying it.
-      if (params.get('reorder') === '1') {
-        const gallery = galleries.find((item) => item.slug === slug)
-        if (gallery) reorderFromDetails(gallery)
-      }
     } else if (params.get('settings') === '1') {
       setSettingsOpen(true)
     }
@@ -420,48 +415,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       setSettingsNote(error instanceof Error ? error.message : 'That URL could not be saved')
       setBusy(false)
     }
-  }
-
-  // Resolves to the failure message so the open reorder view can show it
-  // beside its status line; null means the order was saved.
-  const persistGalleryOrder = async (gallery: GallerySummary, orderKeys: readonly string[], hiddenKeys: readonly string[]): Promise<string | null> => {
-    if (blockPipelineEdit(gallery)) return PIPELINE_LOCK_MESSAGE
-    if (busy) return 'Still saving — try again in a moment.'
-    setBusy(true)
-    announce('Saving order…', true)
-    try {
-      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: [...orderKeys], hidden: [...hiddenKeys] }),
-      })
-      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
-      setGalleries((previous) => sortRecent(previous.map((item) => item.slug === payload.gallery!.slug ? payload.gallery! : item)))
-      announce('Order saved')
-      return null
-    } catch (error) {
-      setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? gallery : item))
-      const message = error instanceof Error ? error.message : 'That order could not be saved'
-      announce(message)
-      return message
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const saveDraftOrder = async (gallery: GallerySummary, orderKeys: readonly string[], hiddenKeys: readonly string[]) => {
-    const byKey = new Map(gallery.images.map((image) => [image.ref ?? image.filename, image]))
-    const images = orderKeys.map((key) => byKey.get(key)).filter((image): image is GallerySummary['images'][number] => image !== undefined)
-    if (images.length !== gallery.images.length) {
-      setReorderNote('That order could not be saved')
-      announce('That order could not be saved')
-      return
-    }
-    const failure = await persistGalleryOrder(gallery, orderKeys, hiddenKeys)
-    if (failure) { setReorderNote(failure); return }
-    setReorderNote(null)
-    setReorderSlug(null)
   }
 
   const trackTouchPointer = (event: PointerEvent) => {
@@ -748,24 +701,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     anchor.remove()
   }
 
-  const reorderFromDetails = (gallery: GallerySummary) => {
-    if (blockPipelineEdit(gallery)) return
-    setReorderNote(null)
-    setReorderSlug(gallery.slug)
-    // Reorder takes over the surface in place — it must NOT run closeDetails'
-    // history.back(): Details opened from the viewer's ?details= link is this
-    // tab's current entry, so popping it walks back to the gallery page and
-    // unloads the dashboard under the overlay.
-    setDetailsSlug(null)
-    setShareSlug(null)
-    const params = new URLSearchParams(window.location.search)
-    // `photo` is the viewer's own back-target — dead weight on the library URL.
-    params.delete('details')
-    params.delete('photo')
-    params.delete('reorder')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
-  }
 
   // A card can cross its expiry while the dashboard stays open (the `now`
   // ticker rerenders every minute): expired pipeline galleries are already
@@ -937,7 +872,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               type="button"
               disabled={busy || isLocked(menuGallery)}
               title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
-              onClick={() => { setReorderNote(null); setReorderSlug(menuGallery.slug); setMenuSlug(null) }}
+              onClick={() => { window.location.assign(`/${owner}/${menuGallery.slug}?edit=1`) }}
             >Reorder photographs</button>
             {menuGallery.sourceUrl ? <a href={menuGallery.sourceUrl} target="_blank" rel="noreferrer">Open source</a> : null}
             {menuGallery.sourceUrl ? (
@@ -1016,7 +951,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             onEditName={() => { setEditField('name'); setEditValue(detailsGallery.title); setEditNote(null) }}
             onEditCaption={() => { setEditField('caption'); setEditValue(detailsGallery.caption || ''); setEditNote(null) }}
             onEditAddress={() => { setEditField('address'); setEditValue(detailsGallery.slug); setEditNote(null) }}
-            onReorder={() => reorderFromDetails(detailsGallery)}
+            onReorder={() => { window.location.assign(`/${owner}/${detailsGallery.slug}?edit=1`) }}
             onRefresh={() => void refreshGalleryFromDetails(detailsGallery)}
             onRemove={() => void removeGalleryFromDetails(detailsGallery)}
             upgradeHref={upgradeHref}
@@ -1033,30 +968,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           />
         </>
       ) : null}
-      {(() => {
-        const reorderGallery = reorderSlug ? galleries.find((item) => item.slug === reorderSlug) : undefined
-        if (!reorderGallery) return null
-        return (
-          <WebReorderView
-            title={reorderGallery.title}
-            busy={busy}
-            note={reorderNote}
-            images={reorderGallery.images.map((image) => ({
-              id: image.id,
-              orderKey: image.ref ?? image.filename,
-              width: image.width,
-              height: image.height,
-              src: image.src,
-              preview: image.variants?.[0]?.src,
-              filename: image.filename,
-              label: image.filename,
-              hidden: image.hidden,
-            }))}
-            onCancel={() => { setReorderNote(null); setReorderSlug(null) }}
-            onSave={(orderKeys, hiddenKeys) => { void saveDraftOrder(reorderGallery, orderKeys, hiddenKeys) }}
-          />
-        )
-      })()}
     </>
   )
 }

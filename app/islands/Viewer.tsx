@@ -9,6 +9,7 @@ import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-
 import ViewerChrome from '../components/viewer/ViewerChrome'
 import SettingsSheet from '../components/viewer/SettingsSheet'
 import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
+import PickerEditor, { loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
@@ -90,6 +91,9 @@ type Props = {
     expiresAt?: string | null
     mediaCount: MediaCount
   }
+  /** `?edit=1` — the owner's reorder/hide intent, opening the picker
+   *  straight into Edit mode (the retired dashboard overlay's place). */
+  initialEdit?: boolean
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -226,7 +230,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -235,6 +239,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [gridOpen, setGridOpen] = useState(false)
+  // The picker's owner Edit mode: a fetched all-items list (the page
+  // manifest omits hidden ones), a session draft, and the editor's
+  // render-synced actions the chrome handlers consult.
+  const [pickerEdit, setPickerEdit] = useState(false)
+  const [editItems, setEditItems] = useState<PickerEditItem[] | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editNote, setEditNote] = useState<string | null>(null)
+  const pickerActionsRef = useRef<PickerEditActions | null>(null)
   const [gridSel, setGridSel] = useState(index)
   const [gridClosing, setGridClosing] = useState(false)
   const gridOpenRef = useRef(false)
@@ -348,7 +360,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       const wide = ownerInline && window.innerWidth >= 900
       const width = Math.min(wide ? 760 : 480, window.innerWidth - 28)
       const left = Math.round(clamp(rect.left + rect.width / 2 - width / 2, 14, Math.max(14, window.innerWidth - width - 14)))
-      const bottom = Math.round(window.innerHeight - rect.top + 10)
+      // rect.top reads mid-animation when the chrome is still sliding in —
+      // the nav's settled offset (its own height + 16px dock) is the floor
+      // so the card never lands flush against the bar.
+      const bottom = Math.round(Math.max(window.innerHeight - rect.top, rect.height + 16) + 10)
       const viewportHeight = Math.round(window.visualViewport?.height ?? window.innerHeight)
       setSettingsWide(wide)
       setPopoverAnchor({
@@ -384,12 +399,42 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setGridClosing(false)
     setGridOpen(true)
   }
+  // Edit mode's draft lives in the summary — the page's manifest never
+  // carries hidden items — fetched once per session, not per open.
+  const beginEdit = () => {
+    if (editLoading || pickerEdit) return
+    setEditLoading(true)
+    setEditNote(null)
+    void (async () => {
+      try {
+        const items = await loadGalleryItems(slug)
+        setEditItems(items)
+        setGridSel(Math.max(0, items.findIndex((item) => item.id === images[indexRef.current]?.id)))
+        setPickerEdit(true)
+      } catch (error) {
+        setEditNote(error instanceof Error ? error.message : 'The gallery could not be loaded for editing')
+      } finally {
+        setEditLoading(false)
+      }
+    })()
+  }
+  const exitEdit = () => {
+    pickerActionsRef.current = null
+    setPickerEdit(false)
+    setEditItems(null)
+    setEditNote(null)
+  }
   const closeModals = () => {
     anyModalOpenRef.current = false
     gridOpenRef.current = false
     setModalOpen(false)
     setInfoOpen(false)
     setGridOpen(false)
+    // Leaving the picker ends any in-flight edit — the draft's component
+    // unmounts, so its state dies with it.
+    setPickerEdit(false)
+    setEditItems(null)
+    pickerActionsRef.current = null
     setGridClosing(false)
     scheduleChromeHide()
   }
@@ -680,22 +725,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // The end card's Library exit follows the chrome's rule exactly:
   // signed-out visitors keep Rewind only.
   const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
-  const defaultOpenOwnerDetails = viewerRole === 'owner' && libraryHref ? (reorder = false) => {
-    // The gallery history entry being left must carry the open photograph:
-    // Back lands on `?photo=`'s deep link instead of resetting to the
-    // curtain.
-    const here = new URL(window.location.href)
-    here.searchParams.set('photo', images[index]?.id ?? '')
-    window.history.replaceState(window.history.state, '', `${here.pathname}${here.search}${here.hash}`)
-    const target = new URL(libraryHref, window.location.origin)
-    target.searchParams.set('details', slug)
-    target.searchParams.set('photo', images[index]?.id ?? '')
-    // `reorder=1` lands straight inside the reorder overlay, a tap short of
-    // the Details surface that carries it.
-    if (reorder) target.searchParams.set('reorder', '1')
-    window.location.assign(`${target.pathname}${target.search}`)
-  } : undefined
-  const openOwnerDetails = onOpenDetails ?? (defaultOpenOwnerDetails ? () => defaultOpenOwnerDetails() : undefined)
+  // Reorder moved from a dashboard overlay into this picker — the
+  // panel's row just closes the popover and opens Edit mode.
+  const openPickerEdit = () => {
+    closeModals()
+    openGrid()
+    beginEdit()
+  }
   // The same chrome slot serves the member and the visitor. A member's
   // "Add to Library" copies the gallery into their account and lands on
   // the copy — the 409 duplicate path answers the existing gallery's URL,
@@ -748,7 +784,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       expiresAt={ownerGallery.expiresAt}
       mediaCount={ownerGallery.mediaCount}
       libraryHref={libraryHref}
-      onReorder={defaultOpenOwnerDetails ? () => defaultOpenOwnerDetails(true) : undefined}
+      onReorder={openPickerEdit}
       currentPhotoId={() => images[indexRef.current]?.id ?? ''}
       onTitleSaved={(title) => setTitleOverride(title)}
     />
@@ -1424,6 +1460,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       if (isTypingTarget(event.target as HTMLElement | null)) return
       const actions = gridActionsRef.current
       if (gridOpenRef.current) {
+        // Edit mode claims its keys first; unconsumed arrows fall through
+        // to the same selection stepping as browse.
+        if (pickerActionsRef.current?.onKey(event)) return
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') { event.preventDefault(); actions.stepGridSel(event.key); return }
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); actions.commitGridSel(); return }
       }
@@ -1436,6 +1475,19 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // `?edit=1` is an opening intent, not an address — the owner lands
+  // inside the picker's Edit mode and the param goes away so a reload
+  // lands on the plain gallery.
+  useEffect(() => {
+    if (!initialEdit) return
+    openGrid()
+    beginEdit()
+    const url = new URL(window.location.href)
+    url.searchParams.delete('edit')
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -2721,8 +2773,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       />
 
       {gridOpen ? <>
-        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
+        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={() => { if (pickerActionsRef.current) pickerActionsRef.current.cancel(); else requestCloseModals() }} />
         <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
+          if (pickerActionsRef.current?.onKey(event)) return
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
             stepGridSel(event.key)
@@ -2735,13 +2788,31 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           }
           onModalKeyDown(event)
         }}>
+          {pickerEdit && editItems ? (
+            <PickerEditor
+              slug={slug}
+              items={editItems}
+              selIndex={gridSel}
+              frameRef={filmstripFrameRef}
+              pan={{ onPointerDown: startFilmstripPan, onPointerMove: moveFilmstripPan, onPointerUp: endFilmstripPan, onPointerCancel: endFilmstripPan, onWheel: wheelFilmstrip }}
+              suppressClickRef={gridSuppressClickRef}
+              actionsRef={pickerActionsRef}
+              currentPhotoId={() => images[indexRef.current]?.id ?? ''}
+              onExit={exitEdit}
+            />
+          ) : (
+          <>
           <div class="viewer-picker-header">
             <strong>
               <span>{displayTitle || slug}</span>
               <span class="viewer-picker-meta">
                 {formatMediaCount(mediaCountOf(images))}
               </span>
+              {editNote ? <span class="viewer-picker-alert" role="alert">{editNote}</span> : null}
             </strong>
+            {ownerInline ? (
+              <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
+            ) : null}
             <button type="button" onClick={requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
@@ -2754,6 +2825,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                   class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
                   data-grid-item
                   data-grid-active={imageIndex === gridSel ? 'true' : undefined}
+                  data-image-id={image.id}
                   aria-current={imageIndex === gridSel ? 'true' : undefined}
                   aria-label={`${video ? 'Video' : 'Photograph'} ${imageIndex + 1} of ${images.length}`}
                   onPointerMove={() => {
@@ -2768,6 +2840,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               })}
             </div>
           </div>
+          </>
+          )}
         </div>
       </> : null}
 

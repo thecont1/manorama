@@ -48,6 +48,9 @@ export default createRoute(async (c) => {
   // the client so a reload starts at the first photograph. Only manifest
   // item ids count (ad plates never do).
   const photoParam = c.req.query('photo')
+  // `?edit=1` is the owner's picker's Edit mode deep-link — it also counts
+  // as entered (no curtain); for anyone else it is ignored entirely.
+  const ownerEdit = viewerRole === 'owner' && c.req.query('edit') === '1'
   // Hidden items are kept in the stored manifest (so a source refresh can
   // merge around them) but never reach a public surface — not even for the
   // owner, whose view must match what the gallery publishes.
@@ -70,7 +73,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}
@@ -90,6 +93,7 @@ export default createRoute(async (c) => {
           // their count only, matching what the library cards say.
           mediaCount: { ...media, hidden: gallery.images.length - visible.length },
         } : undefined}
+        initialEdit={ownerEdit}
         initialIndex={photoIndex > 0 ? photoIndex : 0}
       />
     </GalleryShell>,

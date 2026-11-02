@@ -569,6 +569,10 @@ button { color: inherit; }
    separator the stacked layout would have drawn. */
 .m-sheet-cols--two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; }
 .m-sheet-col { min-width: 0; }
+/* In the two-column card the View heading floats outside a section while
+   This gallery sits inside one (18px top padding) — level the column
+   heads on the same line. The stacked layout keeps its tight label. */
+.m-sheet-cols--two > .m-sheet-col > .m-actiongroup-label:first-child { margin-top: 18px; }
 .m-sheet-cols:has(+ .m-sheet-section) { border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
@@ -1346,6 +1350,53 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* The picker's owner Edit mode: the same matrix plus a held ring distinct
+   from the pink selection, a dimmed hidden state, and a per-cell hide
+   mark — the retired dashboard overlay's language, on dark. */
+.viewer-edit-cell { position: relative; z-index: 0; flex: 0 0 auto; }
+.viewer-edit-item { display: block; width: 100%; height: 100%; }
+.viewer-edit-item img { width: auto; height: 100%; }
+.viewer-filmstrip-item.is-held { z-index: 1; box-shadow: inset 0 0 0 3px #4cc9f0, 0 0 0 1px #4cc9f0; }
+.viewer-edit-cell.is-hidden img { opacity: .32; }
+.viewer-edit-mark {
+  position: absolute;
+  /* Above the cell button's is-active/is-held rings (z-index 1). */
+  z-index: 2;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 10, .74);
+  color: rgba(244, 240, 232, .92);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.viewer-edit-mark svg { width: 14px; height: 14px; display: block; }
+.viewer-edit-cell:hover .viewer-edit-mark,
+.viewer-edit-cell:focus-within .viewer-edit-mark,
+.viewer-edit-cell.is-revealed .viewer-edit-mark,
+.viewer-edit-cell.is-hidden .viewer-edit-mark,
+.viewer-edit-mark:focus-visible { opacity: 1; }
+.viewer-edit-mark:focus-visible { outline: 2px solid #fc0fc0; outline-offset: 1px; }
+.viewer-picker-header--edit { align-items: center; }
+.viewer-edit-status { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 13px; color: rgba(244, 240, 232, .82); }
+.viewer-edit-alert { color: #ff7d95; font-weight: 600; }
+.viewer-edit-controls { display: flex; align-items: center; gap: 12px; }
+.viewer-edit-sizer { display: flex; align-items: center; }
+.viewer-edit-sizer input[type="range"] { width: 110px; accent-color: #fc0fc0; }
+.viewer-picker-alert { display: block; color: #ff7d95; font-size: 11px; font-weight: 400; }
+.viewer-picker-lock { color: rgba(244, 240, 232, .58); font-size: 12px; max-width: 36ch; }
+@media (max-width: 720px) {
+  .viewer-picker-header--edit { flex-wrap: wrap; }
+  .viewer-edit-status { flex-basis: 100%; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stage-arrows,
   .viewer-filmstrip,
@@ -2030,167 +2081,6 @@ a.m-btn { text-decoration: none; }
 .web-settings .m-settings-delete { display: grid; gap: 16px; padding: 16px; }
 .web-settings .m-settings-delete > p { margin: 0; color: var(--m-secondary); line-height: 1.5; }
 
-.web-reorder {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  background: var(--m-ground);
-  color: var(--m-ink);
-}
-/* The overlay is fixed over the Library page, whose body keeps scrolling
-   behind it — that scrollbar did nothing but sit on the right edge. */
-body:has(.web-reorder) { overflow: hidden; }
-.web-reorder-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding: 8px 20px 12px; }
-.web-reorder-status { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--m-secondary); font-size: 16px; }
-.web-reorder-note { color: var(--m-negative, #ff4d6d); font-weight: 600; }
-.web-reorder-views {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--m-raised);
-}
-.web-reorder-view {
-  border: 0;
-  border-radius: 999px;
-  padding: 7px 14px;
-  background: transparent;
-  color: var(--m-secondary);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-}
-.web-reorder-view.is-on { background: var(--m-active); color: var(--m-ink); }
-.web-reorder-view:focus-visible { outline: 2px solid var(--m-focus); outline-offset: 2px; }
-.web-reorder .admin-gallery-strip-frame {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  width: 100%;
-  height: auto;
-  min-height: 0;
-  flex: 1;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  backdrop-filter: none;
-}
-.web-reorder-frame--grid { flex: 1; min-height: 0; overflow-y: auto; }
-.web-reorder-grid { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 0; user-select: none; }
-.web-reorder .admin-gallery-strip { align-items: center; min-height: 0; }
-.web-reorder .admin-gallery-strip-item img { width: auto; height: 100%; }
-.web-reorder button.admin-gallery-strip-item {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-.web-reorder .admin-gallery-strip-item img { opacity: 1; }
-/* The size controller is the iPhone editor's verbatim — small/large marks
-   around one range — just parked at the bottom of the web overlay too. */
-.web-reorder-sizer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  flex: 0 0 auto;
-  padding: 12px 24px max(16px, env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid rgba(var(--ink), .12);
-  color: rgba(var(--ink), .6);
-}
-.web-reorder-sizer svg.s { width: 14px; height: 14px; flex: 0 0 auto; }
-.web-reorder-sizer svg.l { width: 22px; height: 22px; flex: 0 0 auto; }
-.web-reorder-sizer input[type="range"] {
-  flex: 0 1 260px;
-  min-width: 96px;
-  margin: 0;
-  appearance: none;
-  -webkit-appearance: none;
-  height: 32px;
-  background: transparent;
-}
-.web-reorder-sizer input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(var(--ink), .25);
-}
-.web-reorder-sizer input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 26px;
-  height: 26px;
-  margin-top: -11px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--m-primary);
-}
-.web-reorder-sizer input[type="range"]::-moz-range-track {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(var(--ink), .25);
-}
-.web-reorder-sizer input[type="range"]::-moz-range-thumb {
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--m-primary);
-}
-.web-reorder-sizer input[type="range"]:focus-visible {
-  outline: 2px solid var(--m-data);
-  outline-offset: 4px;
-}
-.web-reorder-cell.is-picked { z-index: 1; outline: 3px solid var(--m-data); outline-offset: -3px; }
-.web-reorder-cell.is-moved { box-shadow: inset 0 0 0 2px var(--m-data); }
-.web-reorder-pos {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  color: var(--m-data);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Each option sits in a thin wrapper so the hide mark can be a sibling
-   button — a real <button> cannot legally nest inside the cell's button.
-   The wrapper owns the size; the cell and its ::after divider fill it. */
-.web-reorder-item { position: relative; flex: 0 0 auto; display: inline-flex; }
-.web-reorder-item > .web-reorder-cell { display: block; width: 100%; height: 100%; }
-.web-reorder-item.is-hidden > .web-reorder-cell img { opacity: .32; }
-/* The hide mark is a top-right badge in the rail's dark-chip language. It
-   surfaces on hover, on keyboard focus anywhere in the cell, on the tap
-   that picks the photograph up (coarse pointers have no hover), and
-   permanently on a hidden cell — that mark is also the way back. */
-.web-reorder-hide {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 2;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  background: rgba(10, 10, 10, .74);
-  color: #fff;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .16s ease;
-}
-.web-reorder-hide svg { width: 15px; height: 15px; }
-.web-reorder-item:hover .web-reorder-hide,
-.web-reorder-item:focus-within .web-reorder-hide,
-.web-reorder-item.is-revealed .web-reorder-hide,
-.web-reorder-item.is-hidden .web-reorder-hide,
-.web-reorder-hide:focus-visible { opacity: 1; pointer-events: auto; }
-.web-reorder-hide:focus-visible { outline: 2px solid var(--m-data); outline-offset: 1px; }
 .web-settings .m-signout-form { margin: 0; }
 @media (min-width: 960px) {
   .web-settings .m-owner-content { max-width: 760px; }

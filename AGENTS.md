@@ -177,11 +177,11 @@ The matrix scrolls vertically; every thumbnail has the same fixed viewport-relat
 its width follows the source aspect ratio, gaps remain zero, and the active photograph is
 highlighted in shocking pink.
 
-**Web Photo Editor exception (owner-approved 2026-10-10):** the web dashboard's Photo Editor
-is one **non-wrapping horizontal row** per gallery, scrolled sideways, keeping the same
-fixed viewport-relative height, aspect-true widths, zero gaps and pink active highlight. It
-never bleeds past its gallery card. The native picker and Global View keep the matrix rule
-above; the photograph viewer is untouched by either rule.
+**Web photo editing (the horizontal-row exception retired):** the owner's reorder and
+hide editing on web now lives inside the gallery picker's Edit mode, so it follows the
+same picker matrix rule as everywhere else — the dashboard's one-row overlay is gone.
+The native picker and Global View keep the matrix rule above; the photograph viewer is
+untouched by it.
 
 ---
 

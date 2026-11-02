@@ -2169,9 +2169,13 @@ test.describe("display and info sheets", () => {
     const viewBox = await dialog.locator("[data-settings-view]").boundingBox();
     const roleBox = await dialog.locator("[data-settings-role]").boundingBox();
     expect(viewport.width).toBeGreaterThanOrEqual(900);
-    // Wide: View and This gallery sit side by side in two columns.
+    // Wide: View and This gallery sit side by side in two columns, and
+    // their headings share a baseline.
     expect(Math.abs(viewBox!.y - roleBox!.y)).toBeLessThanOrEqual(4);
     expect(roleBox!.x).toBeGreaterThan(viewBox!.x);
+    const viewHead = await dialog.locator("[data-settings-view] > .m-actiongroup-label").boundingBox();
+    const roleHead = await dialog.locator("[data-settings-role] .m-actiongroup-label").first().boundingBox();
+    expect(Math.abs(viewHead!.y - roleHead!.y)).toBeLessThanOrEqual(2);
 
     // The same rules on a phone-width window: one column, and the 14px
     // margins take precedence over the nav-centre anchor.
@@ -2189,8 +2193,16 @@ test.describe("display and info sheets", () => {
     expect(smallCard.x + smallCard.width).toBeLessThanOrEqual(375 - 13);
     expect(smallCard.y).toBeGreaterThanOrEqual(0);
     expect(smallCard.y + smallCard.height).toBeLessThanOrEqual(812);
-    expect(smallNav.top - (smallCard.y + smallCard.height)).toBeGreaterThanOrEqual(8);
-    expect(smallNav.top - (smallCard.y + smallCard.height)).toBeLessThanOrEqual(60);
+    // The popover's 10px enter animation reads as a flush gap if measured
+    // mid-flight — re-measure until the geometry settles.
+    await expect(async () => {
+      const settledCard = (await dialog.boundingBox())!;
+      const settledNav = await page
+        .locator("[data-chrome-bottom]")
+        .evaluate((el) => el.getBoundingClientRect());
+      expect(settledNav.top - (settledCard.y + settledCard.height)).toBeGreaterThanOrEqual(8);
+      expect(settledNav.top - (settledCard.y + settledCard.height)).toBeLessThanOrEqual(60);
+    }).toPass({ timeout: 5000 });
     const smallView = await dialog.locator("[data-settings-view]").boundingBox();
     const smallRole = await dialog.locator("[data-settings-role]").boundingBox();
     // Narrow: the role section stacks under View in one column.
@@ -2585,14 +2597,23 @@ test("admin gallery order is a draft until Save", async ({
   const detailsSurface = page.locator('[data-screen="details"]');
   await expect(detailsSurface).toBeVisible();
   await detailsSurface.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ }).click();
-  const reorder = page.locator("[data-screen=\"reorder\"]");
-  await expect(reorder).toBeVisible();
-  await expect(reorder.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-  await reorder.locator(`[data-image-id="${secondId}"]`).click();
-  await reorder.locator(`[data-image-id="${firstId}"]`).click();
+  // The Details row hands off to the gallery page's picker Edit mode —
+  // the same pick-then-place draft, in the photograph matrix.
+  const editCells = page.locator(".viewer-edit-cell");
+  await expect(editCells.first()).toBeVisible({ timeout: 20000 });
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await expect(save).toBeDisabled();
+  await page.locator(`.viewer-edit-cell [data-image-id="${secondId}"]`).click();
+  await page.locator(`.viewer-edit-cell [data-image-id="${firstId}"]`).click();
   expect(writes).toEqual([]);
-  await reorder.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.locator(".admin-toast")).toHaveText("Order saved", { timeout: 20000 });
+  await expect(save).toBeEnabled();
+  await save.click();
+  // Save resolves the PATCH, then reloads the gallery at the on-stage
+  // photo — navigating away before that reload would abort the write.
+  // The filmstrip only detaches once the replace lands.
+  await expect(page.locator('.viewer-filmstrip')).toHaveCount(0, { timeout: 20000 });
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   await expect(card.locator(".admin-gallery-strip-item").nth(0)).toHaveAttribute("data-image-id", secondId!);
   await expect(card.locator(".admin-gallery-strip-item").nth(1)).toHaveAttribute("data-image-id", firstId!);
 });
