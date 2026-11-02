@@ -2181,6 +2181,17 @@ button.lib-card-title {
    the "Library" voice, not captions. */
 .lib-section-title { margin: 0 0 18px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
 .gallery-list section + section { margin-top: clamp(44px, 6vw, 72px); }
+/* The section's one-line contract: permanent, strips, downloaded whole. */
+.lib-section-sub { margin: -10px 0 18px; color: rgba(var(--ink), .55); font-size: 13px; }
+
+/* The Free pin-cap chooser: pick a permanent gallery to give up, or the
+   plan that lifts the cap. */
+.lib-pin-choice { display: flex; flex-direction: column; gap: 14px; }
+.lib-pin-choice-copy { margin: 0; color: rgba(var(--ink), .72); font-size: 14px; line-height: 1.5; }
+.lib-pin-choice-list { list-style: none; margin: 0; padding: 0; }
+.lib-pin-choice-list > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(var(--ink), .1); }
+.lib-pin-choice-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; color: rgb(var(--ink)); }
+.lib-pin-choice-upgrade { align-self: flex-start; }
 .lib-compact-grid { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 14px; }
 /* Three across fills the card column — a fourth column made the covers
    read as thumbnails instead of galleries. */

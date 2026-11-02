@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { libraryLayout, LIBRARY_STRIP_LIMIT, PIN_LIMIT } from './library-layout'
+import { libraryLayout } from './library-layout'
 
 const entry = (slug: string, extra: Partial<{ retention: 'retained' | 'pipeline'; pinnedAt: string | null }> = {}) =>
   ({ slug, retention: 'retained' as const, pinnedAt: null, ...extra })
@@ -7,7 +7,7 @@ const entry = (slug: string, extra: Partial<{ retention: 'retained' | 'pipeline'
 const slugs = (count: number, prefix = 'g') => Array.from({ length: count }, (_, index) => entry(`${prefix}-${index}`))
 
 describe('libraryLayout', () => {
-  test('free: retained galleries strip, pipeline galleries compact', () => {
+  test('free: the retained set strips, pipeline galleries compact', () => {
     const entries = [
       entry('a'), entry('pipe-1', { retention: 'pipeline' }),
       entry('b'), entry('c'), entry('pipe-2', { retention: 'pipeline' }),
@@ -18,52 +18,50 @@ describe('libraryLayout', () => {
     })
   })
 
-  test('free: retained galleries past the cap compact instead of disappearing', () => {
-    // A downgrade keeps every retained gallery — the retained cap binds on
-    // creation, not retroactively — so the overflow must land in compact
-    // cards rather than in neither list.
+  test('free: every retained gallery strips — permanence is what the section shows', () => {
+    // A downgrade keeps every retained gallery — the cap binds at pin
+    // time, not retroactively — so an over-cap surplus is still permanent
+    // and still belongs under "Your galleries".
     const entries = [entry('a'), entry('b'), entry('c'), entry('d'), entry('pipe', { retention: 'pipeline' })]
     expect(libraryLayout(entries, 'free')).toEqual({
-      strips: ['a', 'b', 'c'],
-      compact: ['d', 'pipe'],
+      strips: ['a', 'b', 'c', 'd'],
+      compact: ['pipe'],
     })
   })
 
-  test('pro with no pins: the three most recent strip, the rest compact', () => {
+  test('free: pinned retained galleries lead by pinnedAt, legacy unpinned follow', () => {
+    const entries = [
+      entry('a', { pinnedAt: '2026-10-02T00:00:00.000Z' }),
+      entry('legacy'),
+      entry('b', { pinnedAt: '2026-10-01T00:00:00.000Z' }),
+      entry('pipe', { retention: 'pipeline' }),
+    ]
+    expect(libraryLayout(entries, 'free')).toEqual({
+      strips: ['b', 'a', 'legacy'],
+      compact: ['pipe'],
+    })
+  })
+
+  test('pro: with no pins everything is a compact card', () => {
     const layout = libraryLayout(slugs(12), 'pro')
-    expect(layout.strips).toEqual(['g-0', 'g-1', 'g-2'])
-    expect(layout.compact).toEqual(slugs(9).map((_, index) => `g-${index + 3}`))
+    expect(layout.strips).toEqual([])
+    expect(layout.compact).toEqual(slugs(12).map((item) => item.slug))
   })
 
-  test('pro: pinned galleries lead by pinnedAt, recency fills to the limit', () => {
+  test('pro: pinned galleries strip, oldest pin first, with no cap', () => {
     const entries = slugs(12)
-    entries[10].pinnedAt = '2026-10-02T00:00:00.000Z'
-    entries[11].pinnedAt = '2026-10-01T00:00:00.000Z'
+    for (let index = 4; index < 9; index += 1) {
+      entries[index].pinnedAt = `2026-10-0${index - 3}T00:00:00.000Z`
+    }
     const layout = libraryLayout(entries, 'pro')
-    // Oldest pin first; then the most recent unpinned until three.
-    expect(layout.strips).toEqual(['g-11', 'g-10', 'g-0'])
-    expect(layout.compact).toEqual(['g-1', 'g-2', 'g-3', 'g-4', 'g-5', 'g-6', 'g-7', 'g-8', 'g-9'])
+    // Five pins, five strips — Visionary pins any number.
+    expect(layout.strips).toEqual(['g-4', 'g-5', 'g-6', 'g-7', 'g-8'])
+    expect(layout.compact).toEqual(['g-0', 'g-1', 'g-2', 'g-3', 'g-9', 'g-10', 'g-11'])
   })
 
-  test('pro: a pin bump in past the limit drops the oldest recent strip', () => {
-    const entries = slugs(12)
-    entries[0].pinnedAt = '2026-10-01T00:00:00.000Z'
-    entries[1].pinnedAt = '2026-10-02T00:00:00.000Z'
-    const layout = libraryLayout(entries, 'pro')
-    // Two pins lead; g-2 is the most recent unpinned and takes slot three.
-    expect(layout.strips).toEqual(['g-0', 'g-1', 'g-2'])
-    expect(layout.compact[0]).toBe('g-3')
-  })
-
-  test('fewer galleries than the limit gives no compact cards', () => {
-    expect(libraryLayout(slugs(2), 'pro').compact).toEqual([])
-    expect(libraryLayout(slugs(2), 'pro').strips).toHaveLength(2)
+  test('empty and small libraries still resolve both lists', () => {
+    expect(libraryLayout(slugs(2), 'pro').compact).toEqual(slugs(2).map((item) => item.slug))
     expect(libraryLayout([], 'pro')).toEqual({ strips: [], compact: [] })
-  })
-
-  test('the strip limit and the pin limit are the same three', () => {
-    // A pin is a claim on a strip slot — a fourth pin has nowhere to go.
-    expect(LIBRARY_STRIP_LIMIT).toBe(3)
-    expect(PIN_LIMIT).toBe(LIBRARY_STRIP_LIMIT)
+    expect(libraryLayout([], 'free')).toEqual({ strips: [], compact: [] })
   })
 })

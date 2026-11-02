@@ -5,8 +5,11 @@ export const PIPELINE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 export const PIPELINE_LOCK_MESSAGE = 'This temporary gallery cannot be edited on the free plan. Upgrade to keep it and make changes.'
 export const FREE_RETENTION_DISCLOSURE = 'Free accounts retain up to 3 editable galleries. Additional galleries are temporary and are removed after 30 days unless you upgrade.'
 export class GalleryPolicyError extends Error {
-  constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY', message: string) { super(message); this.name = 'GalleryPolicyError' }
+  constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY' | 'PIN_LIMIT', message: string) { super(message); this.name = 'GalleryPolicyError' }
 }
+/** A Free owner already pins all FREE_RETAINED_LIMIT permanent galleries —
+ *  keeping another means choosing which pin to give up, or choosing a plan. */
+export const pinLimitError = () => new GalleryPolicyError('PIN_LIMIT', `All ${FREE_RETAINED_LIMIT} permanent galleries are pinned already — unpin one to make room for another, or upgrade to Visionary for unlimited pins.`)
 export const paidGalleryLimitError = () => new GalleryPolicyError('GALLERY_LIMIT', 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.')
 /** Throws a typed read-only error when a pipeline gallery is edited. */
 export const assertGalleryEditable = (gallery: { retention?: GalleryRetention }) => {

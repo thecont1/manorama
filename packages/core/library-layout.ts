@@ -1,13 +1,5 @@
 import type { AccountTier } from './account'
 
-/** How many galleries earn a photo-strip card, for every tier. The rail
- *  shows the whole gallery — this bounds only how many cards get one;
- *  everything past the limit becomes a compact card. The same number caps
- *  pins: a pin is a claim on a strip slot, so a fourth pin has nowhere to
- *  go. */
-export const LIBRARY_STRIP_LIMIT = 3
-export const PIN_LIMIT = LIBRARY_STRIP_LIMIT
-
 type LibraryLayoutEntry = {
   slug: string
   retention?: 'retained' | 'pipeline'
@@ -15,34 +7,45 @@ type LibraryLayoutEntry = {
 }
 
 /** Which of the owner's galleries render as full photo strips and which
- *  collapse to compact rows. `entries` must arrive newest-first, the same
- *  order listGalleries/sortRecent produce; both output lists preserve it.
+ *  collapse to compact cover cards. `entries` must arrive newest-first,
+ *  the same order listGalleries/sortRecent produce; both output lists
+ *  preserve it.
  *
- *  Free: the first LIBRARY_STRIP_LIMIT retained galleries strip; every
- *  other gallery compacts — pipeline rows plus any retained surplus a
- *  downgrade left behind (the retained cap binds at creation, not
- *  retroactively).
+ *  A pin is a claim on permanence: "Your galleries" is the permanent
+ *  section, so what strips is what is permanent. For Visionary every
+ *  gallery is retained already, so the pin itself decides — pinned
+ *  galleries strip, oldest pin first so the top of the Library is stable
+ *  until the owner re-pins; every unpinned gallery compacts, and there is
+ *  no cap on how many strips an owner keeps.
  *
- *  Visionary: pinned galleries strip first — oldest pin first, so the top
- *  of the Library is stable until the owner re-pins — then the most recent
- *  unpinned until the limit; everything else compacts. */
+ *  For Free the retained set *is* the pinned set — pinning a temporary
+ *  gallery is the only way it becomes permanent, and unpinning hands it
+ *  back to the pipeline. Strips therefore follow retention rather than
+ *  the flag alone, so a legacy retained row missing its pinned_at still
+ *  renders where it belongs; pinned rows lead by pinnedAt for the same
+ *  stability. Everything in the pipeline compacts. */
 export const libraryLayout = (
   entries: readonly LibraryLayoutEntry[],
   tier: AccountTier,
 ): { strips: string[]; compact: string[] } => {
-  if (tier !== 'pro') {
-    const strips = entries
-      .filter((entry) => entry.retention !== 'pipeline')
-      .slice(0, LIBRARY_STRIP_LIMIT)
-      .map((entry) => entry.slug)
-    const stripSet = new Set(strips)
-    return { strips, compact: entries.filter((entry) => !stripSet.has(entry.slug)).map((entry) => entry.slug) }
+  if (tier === 'pro') {
+    const pinned = entries
+      .filter((entry) => Boolean(entry.pinnedAt))
+      .sort((a, b) => String(a.pinnedAt) < String(b.pinnedAt) ? -1 : 1)
+    const stripSet = new Set(pinned.map((entry) => entry.slug))
+    return {
+      strips: pinned.map((entry) => entry.slug),
+      compact: entries.filter((entry) => !stripSet.has(entry.slug)).map((entry) => entry.slug),
+    }
   }
-  const pinned = entries
-    .filter((entry) => Boolean(entry.pinnedAt))
-    .sort((a, b) => String(a.pinnedAt) < String(b.pinnedAt) ? -1 : 1)
-  const unpinned = entries.filter((entry) => !entry.pinnedAt)
-  const strips = [...pinned, ...unpinned].slice(0, LIBRARY_STRIP_LIMIT).map((entry) => entry.slug)
-  const stripSet = new Set(strips)
-  return { strips, compact: entries.filter((entry) => !stripSet.has(entry.slug)).map((entry) => entry.slug) }
+  const retained = entries.filter((entry) => entry.retention !== 'pipeline')
+  const strips = [
+    ...retained.filter((entry) => Boolean(entry.pinnedAt)).sort((a, b) => String(a.pinnedAt) < String(b.pinnedAt) ? -1 : 1),
+    ...retained.filter((entry) => !entry.pinnedAt),
+  ]
+  const stripSet = new Set(strips.map((entry) => entry.slug))
+  return {
+    strips: strips.map((entry) => entry.slug),
+    compact: entries.filter((entry) => !stripSet.has(entry.slug)).map((entry) => entry.slug),
+  }
 }

@@ -9,9 +9,8 @@ import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
-import { PIN_LIMIT } from '../packages/core/library-layout'
-import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
@@ -86,6 +85,25 @@ const slugify = (value: string) => value
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
+
+/** Pin policy in one place: a pin claims permanence for a Free owner —
+ *  promoting a pipeline row, capped by the retained limit — while a Free
+ *  unpin hands the gallery back to the pipeline with a fresh window.
+ *  Visionary rows are all retained already, so only the timestamp moves. */
+const applyGalleryPin = async (accountId: string, gallery: GalleryRecord, pinned: boolean, env: GalleryEnv | undefined) => {
+  const user = await getUserByAccountId(accountId, env)
+  const pro = user?.tier === 'pro'
+  if (pinned && !pro) {
+    const others = await listGalleries(accountId, env)
+    const pinnedCount = others.filter((item) => item.pinnedAt && item.slug !== gallery.slug).length
+    const retainedCount = others.filter((item) => item.retention !== 'pipeline' && item.slug !== gallery.slug).length
+    // A pin spends a pin slot; pinning a *pipeline* row spends a permanent
+    // slot too, so both counts gate the request — the cap a downgrade
+    // overfilled binds here, not retroactively.
+    if (pinnedCount >= FREE_RETAINED_LIMIT || (gallery.retention === 'pipeline' && retainedCount >= FREE_RETAINED_LIMIT)) throw pinLimitError()
+  }
+  return setGalleryPinned(accountId, gallery.slug, pinned, { demote: !pro }, env)
+}
 
 /** Rejects editorial requests for pipeline galleries before their handlers
  *  run. Missing galleries continue to the handler so it can return 404. */
@@ -734,17 +752,10 @@ export const createManoramaApi = () => {
       let gallery = nextSlug !== undefined ? await updateGallerySlug(session.accountId, c.req.param('slug'), nextSlug, dbEnv(c)) : await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (pinned !== undefined) {
-        // Pinning is a Visionary feature, capped so the strip section stays
-        // honest — the server's count is authoritative, not the UI's.
-        const user = await getUserByAccountId(session.accountId, dbEnv(c))
-        if (user?.tier !== 'pro') return c.json({ error: 'Pinning is part of Visionary' }, 403)
-        if (pinned) {
-          const slug = gallery.slug
-          const others = await listGalleries(session.accountId, dbEnv(c))
-          const pinnedCount = others.filter((item) => item.pinnedAt && item.slug !== slug).length
-          if (pinnedCount >= PIN_LIMIT) return c.json({ error: `Up to ${PIN_LIMIT} galleries can be pinned — unpin one first` }, 409)
-        }
-        gallery = await setGalleryPinned(session.accountId, gallery.slug, pinned, dbEnv(c))
+        // The edit middleware already ran, so only retained rows reach
+        // this branch — pin semantics still go through the shared policy
+        // so a Free unpin demotes and a Free pin respects the cap.
+        gallery = await applyGalleryPin(session.accountId, gallery, pinned, dbEnv(c))
         if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       }
       if (order) gallery = await updateGalleryOrder(session.accountId, gallery.slug, order, dbEnv(c))
@@ -757,6 +768,26 @@ export const createManoramaApi = () => {
     } catch (error) {
       if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be updated' }, 422)
+    }
+  })
+
+  /** The pin route stands apart from the edit PATCH on purpose: pinning a
+   *  pipeline gallery is exactly how a Free owner makes it permanent, so
+   *  requireEditableGallery must not run ahead of it. */
+  api.patch('/api/galleries/:slug/pin', async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ pinned?: boolean }>().catch((): { pinned?: boolean } => ({}))
+    const pinned = typeof payload.pinned === 'boolean' ? payload.pinned : undefined
+    if (pinned === undefined) return c.json({ error: 'Provide a pin state to update' }, 400)
+    try {
+      const stored = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!stored || isGalleryExpired(stored)) return c.json({ error: 'That gallery was not found' }, 404)
+      const gallery = await applyGalleryPin(session.accountId, stored, pinned, dbEnv(c))
+      if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ gallery: toSummary(gallery) })
+    } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'PIN_LIMIT' ? 409 : 403)
+      return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be pinned' }, 422)
     }
   })
 

@@ -373,23 +373,35 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
   return nextGallery
 }
 
-/** Sets or clears the pinned timestamp on a retained gallery. The pin is
- *  Library presentation, not gallery content, so a pipeline gallery is not
- *  a candidate — the retained guard matches every other update here. */
-export const setGalleryPinned = async (ownerId: string, slug: string, pinned: boolean, env?: GalleryEnv): Promise<GalleryRecord | null> => {
+/** Sets or clears the pinned timestamp — and with it, for a Free owner,
+ *  permanence itself. Pinning promotes a pipeline row to retained (the
+ *  only way a Free gallery becomes permanent, so the retained edit guard
+ *  does not apply here); `demote` on unpin hands a Free gallery back to
+ *  the pipeline with a fresh 30-day window. Visionary rows are all
+ *  retained already, so only the timestamp moves for them either way. */
+export const setGalleryPinned = async (ownerId: string, slug: string, pinned: boolean, options: { demote?: boolean } = {}, env?: GalleryEnv): Promise<GalleryRecord | null> => {
   const pinnedAt = pinned ? new Date().toISOString() : null
+  const demoteExpiresAt = !pinned && options.demote ? new Date(Date.now() + PIPELINE_LIFETIME_MS).toISOString() : null
   if (d1Configured(env)) {
     const result = await env.DB.prepare(
-      `UPDATE galleries SET pinned_at = ? WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
-    ).bind(pinnedAt, ownerId, slug).run()
+      pinned
+        ? `UPDATE galleries SET pinned_at = ?, retention = 'retained', expires_at = NULL WHERE owner_id = ? AND slug = ?`
+        : demoteExpiresAt
+          ? `UPDATE galleries SET pinned_at = NULL, retention = 'pipeline', expires_at = ? WHERE owner_id = ? AND slug = ?`
+          : `UPDATE galleries SET pinned_at = NULL WHERE owner_id = ? AND slug = ?`,
+    ).bind(...(pinned ? [pinnedAt, ownerId, slug] : demoteExpiresAt ? [demoteExpiresAt, ownerId, slug] : [ownerId, slug])).run()
     if ((result.meta.changes ?? 0) === 0) return null
     return getGallery(ownerId, slug, env)
   }
   const store = ownerStore(ownerId)
   const current = store.get(slug)
   if (!current) return null
-  assertGalleryEditable(current)
-  const updated = { ...normalizeRecord(current), pinnedAt }
+  const updated = {
+    ...normalizeRecord(current),
+    pinnedAt,
+    ...(pinned ? { retention: 'retained' as const, expiresAt: null } : {}),
+    ...(demoteExpiresAt ? { retention: 'pipeline' as const, expiresAt: demoteExpiresAt } : {}),
+  }
   store.set(slug, updated)
   return updated
 }

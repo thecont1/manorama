@@ -6,7 +6,7 @@ import renderer from './routes/_renderer'
 import ownerPage from './routes/[owner]'
 import viewerPage from './routes/[owner]/[slug]'
 import { resetUserStore, setUserTier } from './lib/user-repository'
-import { createGallery, resetGalleryStore } from './lib/gallery-repository'
+import { createGallery, resetGalleryStore, setGalleryPinned } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 import { FREE_RETENTION_DISCLOSURE, paidGalleryLimitError, PIPELINE_LOCK_MESSAGE } from './lib/gallery-policy'
 import type { GalleryImage } from './lib/imagesource'
@@ -319,7 +319,7 @@ describe('the dashboard renders retention state', () => {
 })
 
 describe('the lean library layout', () => {
-  test('a Visionary library renders three strips then compact cards', async () => {
+  test('a Visionary library strips the pinned galleries and compacts the rest', async () => {
     const html = await renderDashboard(async () => {
       await setUserTier(TEST_OWNER.accountId, 'pro')
       for (let index = 0; index < 12; index += 1) {
@@ -329,9 +329,14 @@ describe('the lean library layout', () => {
           images: [image(`lean-${index}`)],
         })
       }
+      // Visionary pins any number — four pins is four strips.
+      for (const slug of ['lean-0', 'lean-2', 'lean-5', 'lean-7']) {
+        await setGalleryPinned(TEST_OWNER.accountId, slug, true)
+      }
     })
-    expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
-    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(9)
+    expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(4)
+    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(8)
+    expect(html).toContain('Your galleries')
     expect(html).toContain('More galleries')
     expect(html).not.toContain('Temporary galleries')
   })
@@ -368,6 +373,8 @@ describe('the lean library layout', () => {
         slug: 'big', title: 'Big', caption: '', date: '',
         images: Array.from({ length: 20 }, (_, index) => image(`big-${index}`)),
       })
+      // Only pinned galleries strip for Visionary — pin it first.
+      await setGalleryPinned(TEST_OWNER.accountId, 'big', true)
     })
     // The rail is the whole gallery — no preview window, no "+N" tile.
     expect((html.match(/data-image-id=/g) ?? []).length).toBe(20)

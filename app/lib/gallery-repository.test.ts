@@ -42,9 +42,11 @@ describe('toLibrarySummaries', () => {
   test('strip galleries ship the whole rail incl. hidden; counts stay full', async () => {
     const { toLibrarySummaries } = await import('./gallery-repository')
     const images = Array.from({ length: 20 }, (_, index) => still(`i${index}`, index === 3))
+    // Visionary strips are the pinned set — these three carry the pin.
     const summaries = toLibrarySummaries([
-      named('new', images), named('old', [still('a'), still('hidden-cover', true)]),
-      named('blank', [still('h1', true), still('h2', true)]),
+      named('new', images, { pinnedAt: '2026-10-01T00:00:00.000Z' }),
+      named('old', [still('a'), still('hidden-cover', true)], { pinnedAt: '2026-10-02T00:00:00.000Z' }),
+      named('blank', [still('h1', true), still('h2', true)], { pinnedAt: '2026-10-03T00:00:00.000Z' }),
       named('x1', [still('x')]), named('x2', [still('x')]), named('x3', [still('x')]),
       named('x4', [still('x')]), named('x5', [still('x')]), named('x6', [still('x')]),
       named('x7', [still('x')]), named('x8', [still('x')]), named('x9', [still('x')]),
@@ -67,8 +69,9 @@ describe('toLibrarySummaries', () => {
   test('compact galleries ship exactly their first visible item', async () => {
     const { toLibrarySummaries } = await import('./gallery-repository')
     const records = Array.from({ length: 13 }, (_, index) => named(`g-${index}`, [still(`s-${index}`)]))
-    // g-12 lands in compact territory; its first item is hidden, so its
-    // cover must be the second.
+    // Three pins is three strips; g-12 lands in compact territory and its
+    // first item is hidden, so its cover must be the second.
+    for (const index of [0, 1, 2]) records[index].pinnedAt = `2026-10-0${index + 1}T00:00:00.000Z`
     records[12].images = [still('hid', true), still('cover')]
     const summaries = toLibrarySummaries(records, 'pro')
     const compact = summaries.filter((summary) => summary.layout === 'compact')

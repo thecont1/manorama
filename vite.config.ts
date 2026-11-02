@@ -86,8 +86,12 @@ const manoramaDevSeed = (): Plugin => {
       displayName: 'Retention QA',
       email: 'retention-qa@manorama.xyz',
     }, devEnv())
-    for (const { ownerId, gallery } of pristine) {
+    for (const [index, { ownerId, gallery }] of pristine.entries()) {
       await galleries.createGallery(ownerId, structuredClone(gallery), devEnv())
+      // The fixture pretends to an established account: its first three
+      // galleries carry the pin — permanence arrives via it — and any
+      // further scans stand as the compact "More galleries" cards.
+      if (index < 3) await galleries.setGalleryPinned(ownerId, gallery.slug, true, {}, devEnv())
     }
     return owner
   }
@@ -359,7 +363,7 @@ const manoramaDevSeed = (): Plugin => {
         const items = Array.isArray(body.galleries) ? body.galleries : []
         const results: Record<string, unknown>[] = []
         for (const item of items) {
-          const entry = item as { slug?: unknown; createdAt?: unknown; images?: unknown }
+          const entry = item as { slug?: unknown; createdAt?: unknown; images?: unknown; pinned?: unknown }
           if (typeof entry?.slug !== 'string' || !entry.slug) {
             results.push({ ok: false, reason: 'invalid' })
             continue
@@ -373,6 +377,7 @@ const manoramaDevSeed = (): Plugin => {
             createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
             images: (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images'],
           } as GalleryRecord, devEnv())
+          if (result.ok && entry.pinned === true) await galleries.setGalleryPinned(accountId, entry.slug, true, {}, devEnv())
           results.push(result.ok
             ? { ok: true, slug: entry.slug, retention: result.gallery.retention ?? 'retained', expiresAt: result.gallery.expiresAt ?? null }
             : { ok: false, slug: entry.slug, reason: result.reason })

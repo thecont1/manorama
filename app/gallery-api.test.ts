@@ -770,44 +770,76 @@ describe('pinning and the lean library', () => {
       images: [pixel(`${slug}-item`)],
     })
   }
+  const patchPin = (slug: string, pinned: boolean) =>
+    api.request(`/api/galleries/${slug}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ pinned }),
+    }, env)
 
-  test('a pro owner pins and unpins a gallery', async () => {
+  test('a pro owner pins any number of galleries, and unpin keeps retention', async () => {
     const { setUserTier } = await import('./lib/user-repository')
     await setUserTier(TEST_OWNER.accountId, 'pro')
     await seed('pin-me')
-    const pinned = await patch('pin-me', { pinned: true })
+    // Visionary pins any number — no strip cap refuses a fourth pin.
+    for (let index = 0; index < 4; index += 1) {
+      await seed(`pin-many-${index}`, index + 30)
+      expect((await patchPin(`pin-many-${index}`, true)).status).toBe(200)
+    }
+    const pinned = await patchPin('pin-me', true)
     expect(pinned.status).toBe(200)
     const payload = await pinned.json() as { gallery?: { pinnedAt?: string | null } }
     expect(payload.gallery?.pinnedAt).toBeTruthy()
-    const unpinned = await patch('pin-me', { pinned: false })
+    const unpinned = await patchPin('pin-me', false)
     expect(unpinned.status).toBe(200)
-    expect(((await unpinned.json()) as { gallery?: { pinnedAt?: string | null } }).gallery?.pinnedAt).toBeNull()
+    const after = await unpinned.json() as { gallery?: { pinnedAt?: string | null; retention?: string } }
+    expect(after.gallery?.pinnedAt).toBeNull()
+    expect(after.gallery?.retention).toBe('retained')
   })
 
-  test('free tier is refused with a Visionary message', async () => {
+  test('the metadata PATCH honors pinned for a retained gallery through the same policy', async () => {
     const { setUserTier } = await import('./lib/user-repository')
+    await setUserTier(TEST_OWNER.accountId, 'pro')
+    const response = await patch('pin-many-0', { pinned: true })
+    expect(response.status).toBe(200)
+  })
+
+  test('a free pin promotes a pipeline gallery once a permanent slot frees', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    const { resetGalleryStore } = await import('./lib/gallery-repository')
     await setUserTier(TEST_OWNER.accountId, 'free')
-    const response = await patch('pin-me', { pinned: true })
-    expect(response.status).toBe(403)
-    expect(((await response.json()) as { error?: string }).error).toBe('Pinning is part of Visionary')
+    // The cap counts permanent galleries, so the fixture must be hermetic:
+    // every gallery seeded earlier in this file would otherwise count.
+    resetGalleryStore()
+    for (let index = 0; index < 3; index += 1) await seed(`free-keep-${index}`, index + 10)
+    await seed('free-temp', 40)
+    // All permanent slots are taken: pinning the temporary one is refused
+    // with the unpin-or-upgrade answer, not a generic denial.
+    const refused = await patchPin('free-temp', true)
+    expect(refused.status).toBe(409)
+    expect(((await refused.json()) as { code?: string }).code).toBe('PIN_LIMIT')
+    // Unpinning a retained gallery hands it to the pipeline — a fresh
+    // 30-day window — which frees the permanent slot the temp claims.
+    const demoted = await patchPin('free-keep-0', false)
+    expect(demoted.status).toBe(200)
+    const demotedPayload = await demoted.json() as { gallery?: { retention?: string; pinnedAt?: string | null; expiresAt?: string | null } }
+    expect(demotedPayload.gallery?.retention).toBe('pipeline')
+    expect(demotedPayload.gallery?.pinnedAt).toBeNull()
+    expect(Date.parse(demotedPayload.gallery?.expiresAt ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000)
+    const promoted = await patchPin('free-temp', true)
+    expect(promoted.status).toBe(200)
+    const promotedPayload = await promoted.json() as { gallery?: { retention?: string; pinnedAt?: string | null; expiresAt?: string | null } }
+    expect(promotedPayload.gallery?.retention).toBe('retained')
+    expect(promotedPayload.gallery?.pinnedAt).toBeTruthy()
+    expect(promotedPayload.gallery?.expiresAt).toBeNull()
     await setUserTier(TEST_OWNER.accountId, 'pro')
-  })
-
-  test('a pin past the strip limit is refused until another is unpinned', async () => {
-    const { setUserTier } = await import('./lib/user-repository')
-    await setUserTier(TEST_OWNER.accountId, 'pro')
-    for (let index = 0; index < 3; index += 1) {
-      await seed(`pin-fill-${index}`, index + 30)
-      expect((await patch(`pin-fill-${index}`, { pinned: true })).status).toBe(200)
-    }
-    const fourth = await patch('pin-me', { pinned: true })
-    expect(fourth.status).toBe(409)
-    expect(((await fourth.json()) as { error?: string }).error).toBe('Up to 3 galleries can be pinned — unpin one first')
-    expect((await patch('pin-fill-2', { pinned: false })).status).toBe(200)
-    expect((await patch('pin-me', { pinned: true })).status).toBe(200)
   })
 
   test('GET /api/galleries/:slug returns the full summary, 404 when missing', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    await setUserTier(TEST_OWNER.accountId, 'pro')
+    await seed('pin-me')
+    expect((await patchPin('pin-me', true)).status).toBe(200)
     const found = await api.request('/api/galleries/pin-me', { headers: { Cookie: cookie } }, env)
     expect(found.status).toBe(200)
     const payload = await found.json() as { gallery?: { slug?: string; images?: unknown[]; pinnedAt?: string | null } }
