@@ -18,6 +18,17 @@ describe('libraryLayout', () => {
     })
   })
 
+  test('free: retained galleries past the cap compact instead of disappearing', () => {
+    // A downgrade keeps every retained gallery — the FREE_RETAINED_LIMIT
+    // cap binds on creation, not retroactively — so the overflow must land
+    // in compact rows rather than in neither list.
+    const entries = [entry('a'), entry('b'), entry('c'), entry('d'), entry('pipe', { retention: 'pipeline' })]
+    expect(libraryLayout(entries, 'free')).toEqual({
+      strips: ['a', 'b', 'c'],
+      compact: ['d', 'pipe'],
+    })
+  })
+
   test('pro with no pins: the ten most recent strip, the rest compact', () => {
     const layout = libraryLayout(slugs(12), 'pro')
     expect(layout.strips).toHaveLength(STRIP_LIMIT_PRO)

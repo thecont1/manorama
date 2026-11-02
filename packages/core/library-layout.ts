@@ -17,8 +17,9 @@ type LibraryLayoutEntry = {
  *  collapse to compact rows. `entries` must arrive newest-first, the same
  *  order listGalleries/sortRecent produce; both output lists preserve it.
  *
- *  Free: retained galleries strip (the policy already caps them at
- *  FREE_RETAINED_LIMIT), temporary galleries compact.
+ *  Free: the first FREE_RETAINED_LIMIT retained galleries strip; every
+ *  other gallery compacts — pipeline rows plus any retained surplus a
+ *  downgrade left behind (the cap binds at creation, not retroactively).
  *
  *  Visionary: pinned galleries strip first — oldest pin first, so the top
  *  of the Library is stable until the owner re-pins — then the most recent
@@ -32,7 +33,8 @@ export const libraryLayout = (
       .filter((entry) => entry.retention !== 'pipeline')
       .slice(0, FREE_RETAINED_LIMIT)
       .map((entry) => entry.slug)
-    return { strips, compact: entries.filter((entry) => entry.retention === 'pipeline').map((entry) => entry.slug) }
+    const stripSet = new Set(strips)
+    return { strips, compact: entries.filter((entry) => !stripSet.has(entry.slug)).map((entry) => entry.slug) }
   }
   const pinned = entries
     .filter((entry) => Boolean(entry.pinnedAt))
