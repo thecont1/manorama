@@ -374,6 +374,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const galleryPath = (slug: string) => `/${owner}/${slug}`
   const galleryAddress = (slug: string) => `${publicHost}${galleryPath(slug)}`
+  // A compound count ("19 photographs · 7 hidden") takes its own dot
+  // before the source so the parts read as separate facts; a lone count
+  // flows straight into "from" instead of dangling a separator.
+  const cardCountSource = (count: string, source: string) =>
+    `${count}${count.includes('·') ? ' · ' : ' '}from ${source}`
 
   const cancelOwnerSlugEditing = () => {
     setOwnerSlugDraft(owner)
@@ -775,9 +780,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           </div>
         </div>
         <p class="admin-library-sub">{tier === 'pro' ? (
-          <>You are a manorama Visionary user. You are hosting {retainedCount} of {PAID_RETAINED_LIMIT} permanent galleries.</>
+          <>You are a manorama <strong>Visionary</strong> user hosting <strong>{retainedCount}</strong> of {PAID_RETAINED_LIMIT} permanent galleries.</>
         ) : (
-          <>You are a manorama Free user. You are hosting {retainedCount} of {FREE_RETAINED_LIMIT} permanent galleries{temporaryCount ? ` and ${temporaryCount} temporary ${temporaryCount === 1 ? 'gallery' : 'galleries'}` : ''}. <a class="admin-upgrade-link" href={upgradeHref}>Upgrade to Visionary?</a></>
+          <>You are a manorama <strong>Free</strong> user hosting <strong>{retainedCount}</strong> of {FREE_RETAINED_LIMIT} permanent galleries{temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}. <a class="admin-upgrade-link" href={upgradeHref}>Upgrade to Visionary?</a></>
         )}</p>
         {adsShow && accountAd ? (
           /* The sponsored panel sits between the Library heading and the
@@ -853,7 +858,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
             </div>
             <p class="lib-card-sub">
-              {formatMediaCount(summaryMediaCount(gallery))} from {sourceLabelFor(gallery.sourceUrl)}
+              {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
               {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
@@ -884,7 +889,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 <div class="lib-compact-body">
                   <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
                   <p class="lib-card-sub">
-                    {formatMediaCount(summaryMediaCount(gallery))} from {sourceLabelFor(gallery.sourceUrl)}
+                    {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
                     {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
                   </p>
                 </div>

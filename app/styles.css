@@ -1799,11 +1799,22 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 @media (min-width: 860px) {
   .admin-page--selector .admin-content {
     display: grid;
-    grid-template-columns: minmax(180px, min(240px, var(--admin-pane-limit, 240px))) minmax(0, 1fr);
+    grid-template-columns: minmax(225px, min(300px, var(--admin-pane-limit, 300px))) minmax(0, 1fr);
     column-gap: clamp(24px, 4vw, 56px);
     align-items: start;
   }
-  .admin-page--selector .admin-rail { position: sticky; top: 16px; min-width: 0; }
+  .admin-page--selector .admin-rail {
+    position: sticky;
+    top: 16px;
+    min-width: 0;
+    /* A rail taller than the viewport would pin at the top with its
+       bottom — usually the sponsored card's CTA — unreachable. Cap it
+       and let the column scroll inside itself instead. */
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .admin-page--selector .admin-rail::-webkit-scrollbar { display: none; }
 }
 .admin-rail { min-width: 0; }
 .admin-rail .admin-library-heading { flex-direction: column; align-items: stretch; gap: 14px; }
@@ -1819,7 +1830,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    heading, above every gallery — its own surface shaped for a vertical
    photograph, never the first gallery, never inside a card. */
 .account-ad {
-  width: min(480px, 100%);
+  width: min(600px, 100%);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1837,23 +1848,26 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   line-height: 1;
   text-transform: uppercase;
 }
-/* The creative keeps its own ratio. In flow (narrow widths) the media is
-   a fixed-ratio panel the image fills exactly; in the desktop rail it
-   height-fills the card and the box hugs whatever width that gives —
-   never an inner frame squeezing it, never a stretch. */
+/* The creative keeps its own ratio and the media box hugs it exactly —
+   a fixed-ratio frame would letterbox the photograph, and a percentage
+   height on the img resolves against nothing when the box height comes
+   from aspect-ratio, so the img used to overflow and clip at the
+   bottom. Caps, never a crop: a creative taller than the viewport
+   shrinks whole rather than slicing. */
 .account-ad-media {
   flex: 0 0 auto;
-  width: min(360px, 100%);
-  aspect-ratio: 4 / 5;
+  width: min(450px, 100%);
   margin-inline: auto;
   overflow: hidden;
   border-radius: 8px;
   background: rgba(var(--ink), .12);
 }
-.account-ad-media img { width: 100%; height: 100%; object-fit: contain; display: block; }
-/* The creative is the link's whole target — a definite box so the image's
-   own caps still measure against the media panel, never against nothing. */
-.account-ad-media-link { display: grid; place-items: center; width: 100%; height: 100%; min-height: 0; color: inherit; }
+/* The empty state keeps the portrait silhouette the creative would have
+   occupied. */
+.account-ad-media:not(:has(img)) { aspect-ratio: 4 / 5; }
+.account-ad-media img { display: block; width: auto; max-width: 100%; height: auto; max-height: min(60vh, 560px); margin-inline: auto; }
+/* The creative is the link's whole target. */
+.account-ad-media-link { display: block; width: 100%; color: inherit; }
 .account-ad-media-link:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -2px; border-radius: 8px; }
 .account-ad-placeholder {
   padding: 10px;
@@ -2160,8 +2174,9 @@ button.lib-card-title {
    heights vary. The lean payload ships only the cover item for these. */
 .lib-compact-title { margin: 28px 0 0; padding: 0 0 10px; font-size: var(--m-fs-small); font-weight: 600; color: var(--m-secondary); }
 .lib-compact-grid { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 14px; }
+/* Three across fills the card column — a fourth column made the covers
+   read as thumbnails instead of galleries. */
 @media (min-width: 640px) { .lib-compact-grid { columns: 3; } }
-@media (min-width: 1100px) { .lib-compact-grid { columns: 4; } }
 .lib-compact-card { position: relative; display: inline-block; width: 100%; margin: 0 0 14px; break-inside: avoid; }
 .lib-compact-cover { display: block; overflow: hidden; border-radius: 10px; background: rgba(var(--ink), .06); }
 .lib-compact-cover img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity .32s ease; }
