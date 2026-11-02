@@ -84,6 +84,24 @@ describe('the web owner panel', () => {
     expect(root.querySelector('.m-owner-panel-note')?.textContent).toContain('Removing it leaves every photograph in Dropbox.')
   })
 
+  test('a present caption reads in full on the head — the row never ellipsizes it', () => {
+    const root = mounted()
+    expect(root.querySelector('.m-owner-panel-cap')?.textContent).toBe('A quiet set')
+    // The Caption row keeps only its empty state — a real caption never
+    // appears inside an m-actionrow-value cell where it would truncate.
+    expect(row(root, 'Caption')?.querySelector('.m-actionrow-value')).toBeNull()
+    const bare = mounted({ caption: '' })
+    expect(bare.querySelector('.m-owner-panel-cap')).toBeNull()
+    expect(row(bare, 'Caption')?.querySelector('.m-actionrow-value')?.textContent).toBe('None')
+  })
+
+  test('the Open row only renders when a host asks for it', () => {
+    const inside = mounted()
+    expect(row(inside, 'Open gallery')).toBeFalsy()
+    const library = mounted({ onOpen: () => {} })
+    expect(row(library, 'Open gallery')).toBeTruthy()
+  })
+
   test('name and caption PATCH their own field and report through onTitleSaved', async () => {
     calls = []
     const saved: string[] = []

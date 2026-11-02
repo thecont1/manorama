@@ -348,10 +348,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // SSR title, this override is the live one.
   const [titleOverride, setTitleOverride] = useState<string | undefined>(undefined)
   const displayTitle = titleOverride ?? galleryTitle
-  // The wide, two-column popover belongs to the web owner's inline
-  // management; everyone else keeps the single-column card.
+  // The web owner manages the gallery inline in the popover; everyone
+  // else gets the role action only. One column at every width.
   const ownerInline = Boolean(ownerGallery) && !onOpenDetails
-  const [settingsWide, setSettingsWide] = useState(false)
   const [popoverAnchor, setPopoverAnchor] = useState<Record<string, string | undefined>>({})
   const openSettings = () => {
     previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
@@ -363,15 +362,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     // between the bars and the body scrolls when it must.
     const rect = document.querySelector<HTMLElement>('[data-chrome-bottom]')?.getBoundingClientRect()
     if (rect) {
-      const wide = ownerInline && window.innerWidth >= 900
-      const width = Math.min(wide ? 760 : 480, window.innerWidth - 28)
+      const width = Math.min(560, window.innerWidth - 28)
       const left = Math.round(clamp(rect.left + rect.width / 2 - width / 2, 14, Math.max(14, window.innerWidth - width - 14)))
       // rect.top reads mid-animation when the chrome is still sliding in —
       // the nav's settled offset (its own height + 16px dock) is the floor
       // so the card never lands flush against the bar.
       const bottom = Math.round(Math.max(window.innerHeight - rect.top, rect.height + 16) + 10)
       const viewportHeight = Math.round(window.visualViewport?.height ?? window.innerHeight)
-      setSettingsWide(wide)
       setPopoverAnchor({
         left: `${left}px`,
         right: 'auto',
@@ -2920,7 +2917,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           magnifierActive={magnifierActive}
           deviceControls={deviceControls}
           actions={settingsActions}
-          wide={settingsWide}
           panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
         />
       </div>

@@ -4,14 +4,14 @@ import { Switch } from '../ui/Switch'
 import type { Child } from 'hono/jsx'
 import { useId } from 'hono/jsx'
 
-/** The Settings popover: a "View" column (layout, canvas, arrows,
+/** The Settings popover: a "View" group (layout, canvas, arrows,
  *  fullscreen and the native device block) then one role-bound `actions`
- *  column the caller composes — the web owner's inline gallery panel, a
+ *  group the caller composes — the web owner's inline gallery panel, a
  *  member's Add to Library, a visitor's Sign in, native's Details
- *  handoff. Keyboard shortcuts come last, full width. `wide` splits the
- *  body into two columns (owner inline management on roomy viewports);
- *  narrow stacks View → role → shortcuts. Changes apply immediately and
- *  the popover stays open; persistence is the caller's. */
+ *  handoff. Keyboard shortcuts come last. One column at every width —
+ *  a split used to starve the owner rows into clipped values. Changes
+ *  apply immediately and the popover stays open; persistence is the
+ *  caller's. */
 
 export type SettingsSheetProps = {
   open: boolean
@@ -33,15 +33,13 @@ export type SettingsSheetProps = {
   deviceControls?: Child
   /** The role-bound ActionGroup rendered beside the view controls. */
   actions?: Child
-  /** Two-column body — the owner panel earns the extra width. */
-  wide?: boolean
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
 export default function SettingsSheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  magnifierAvailable, magnifierActive, deviceControls, actions, wide = false, panelStyle,
+  magnifierAvailable, magnifierActive, deviceControls, actions, panelStyle,
 }: SettingsSheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
@@ -56,7 +54,7 @@ export default function SettingsSheet({
   return (
     <div class="m-dark">
       <Sheet open={open} onClose={onClose} title="Settings" popover panelStyle={panelStyle}>
-        <div class={`m-sheet-cols${wide ? ' m-sheet-cols--two' : ''}`}>
+        <div class="m-sheet-cols">
           <div class="m-sheet-col" data-settings-view>
             <h3 class="m-actiongroup-label">View</h3>
             {deviceControls ? <section class="m-sheet-section"><h3 class="m-sheet-label">On this device</h3>{deviceControls}</section> : null}

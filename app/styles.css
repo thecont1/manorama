@@ -409,7 +409,7 @@ a.m-actionrow, button.m-actionrow { cursor: pointer; }
   right: 14px;
   top: auto;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
-  width: min(480px, calc(100vw - 28px));
+  width: min(560px, calc(100vw - 28px));
   max-width: none;
   max-height: calc(var(--m-vvh, 100dvh) - 24px);
   border-radius: var(--m-radius-sheet);
@@ -563,16 +563,10 @@ button { color: inherit; }
    stacked with a small gap. */
 .m-sheet-section { padding: 18px 0; border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); display: grid; gap: 12px; }
 .m-sheet-section:last-child { border-bottom: 0; }
-/* The Settings popover's two-column body: View left, the role column
-   right, one wide row in the owner's inline-management card. A section
-   following the columns (keyboard shortcuts, always last) keeps the
-   separator the stacked layout would have drawn. */
-.m-sheet-cols--two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-items: start; }
+/* The Settings popover's single-column body: View first, the role
+   group under it, shortcuts last. The former two-column split left the
+   owner rows ~350px wide and clipped real values at the card edge. */
 .m-sheet-col { min-width: 0; }
-/* In the two-column card the View heading floats outside a section while
-   This gallery sits inside one (18px top padding) — level the column
-   heads on the same line. The stacked layout keeps its tight label. */
-.m-sheet-cols--two > .m-sheet-col > .m-actiongroup-label:first-child { margin-top: 18px; }
 .m-sheet-cols:has(+ .m-sheet-section) { border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
@@ -608,6 +602,9 @@ kbd { border: 1px solid rgba(var(--ink), .23); padding: 3px 5px; color: rgba(var
 .m-owner-panel-head { margin: 0 0 12px; }
 .m-owner-panel-title { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
 .m-owner-panel-meta { margin: 2px 0 0; color: var(--m-secondary); font-size: var(--m-fs-small); }
+/* The caption belongs to the panel head as full text — an ActionRow's
+   value cell would ellipsize it mid-sentence. */
+.m-owner-panel-cap { margin: 8px 0 0; font-size: var(--m-fs-small); color: rgba(var(--m-ink, var(--ink)), .78); overflow-wrap: anywhere; }
 .m-owner-panel-lock a { color: inherit; text-decoration: underline; }
 .m-owner-panel-note { margin: 6px 4px 0; font-size: var(--m-fs-small); color: var(--m-meta); }
 .m-owner-edit, .m-owner-confirm { display: grid; gap: 10px; padding: 12px 16px; }

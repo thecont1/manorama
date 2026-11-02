@@ -2168,14 +2168,16 @@ test.describe("display and info sheets", () => {
     await expect(sections.nth(count - 1).getByText("Keyboard shortcuts")).toHaveCount(1);
     const viewBox = await dialog.locator("[data-settings-view]").boundingBox();
     const roleBox = await dialog.locator("[data-settings-role]").boundingBox();
-    expect(viewport.width).toBeGreaterThanOrEqual(900);
-    // Wide: View and This gallery sit side by side in two columns, and
-    // their headings share a baseline.
-    expect(Math.abs(viewBox!.y - roleBox!.y)).toBeLessThanOrEqual(4);
-    expect(roleBox!.x).toBeGreaterThan(viewBox!.x);
-    const viewHead = await dialog.locator("[data-settings-view] > .m-actiongroup-label").boundingBox();
-    const roleHead = await dialog.locator("[data-settings-role] .m-actiongroup-label").first().boundingBox();
-    expect(Math.abs(viewHead!.y - roleHead!.y)).toBeLessThanOrEqual(2);
+    // One column at every width: the role group stacks under View — the
+    // two-column split starved the owner rows into clipped values.
+    expect(roleBox!.y).toBeGreaterThanOrEqual(viewBox!.y + viewBox!.height - 1);
+    expect(Math.abs(viewBox!.x - roleBox!.x)).toBeLessThanOrEqual(4);
+    // The body never overflows the card horizontally — nothing inside may
+    // touch the card's edges but the containers themselves.
+    const bodyOverflow = await dialog.locator(".m-sheet-body").evaluate(
+      (el) => el.scrollWidth - el.clientWidth,
+    );
+    expect(bodyOverflow).toBeLessThanOrEqual(0);
 
     // The same rules on a phone-width window: one column, and the 14px
     // margins take precedence over the nav-centre anchor.
@@ -2205,7 +2207,7 @@ test.describe("display and info sheets", () => {
     }).toPass({ timeout: 5000 });
     const smallView = await dialog.locator("[data-settings-view]").boundingBox();
     const smallRole = await dialog.locator("[data-settings-role]").boundingBox();
-    // Narrow: the role section stacks under View in one column.
+    // Narrow keeps the same single-column order.
     expect(smallRole!.y).toBeGreaterThanOrEqual(smallView!.y + smallView!.height - 1);
   });
 
@@ -2538,8 +2540,9 @@ test("owner admin lists galleries without a selector and remains noindex", async
     .boundingBox())!;
   // The mark's box starts 28px left of the bold "m" — the PNG's bearing
   // plus the script overhang — so the glyph lands on the heading's edge.
+  // In the rail the mark scales with the column rather than a fixed 306.
   expect(Math.abs(brandBox.x + 28 - headingBox.x)).toBeLessThan(2);
-  expect(brandBox.width).toBeGreaterThanOrEqual(306);
+  expect(brandBox.width).toBeGreaterThanOrEqual(180);
   await expect(page.locator(".admin-section-index")).toHaveCount(0);
   await expect(page.getByText("View gallery")).toHaveCount(0);
   await expect(page.locator(".lib-card .admin-eyebrow")).toHaveCount(0);

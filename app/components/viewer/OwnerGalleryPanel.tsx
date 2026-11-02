@@ -25,8 +25,14 @@ export type OwnerGalleryPanelProps = {
   expiresAt?: string | null
   mediaCount: MediaCount
   /** The owner's library — the post-delete landing and the pipeline
-   *  lock's Upgrade link. */
+   *  lock's Upgrade link when no `upgradeHref` is passed. */
   libraryHref?: string
+  /** The billing/mail upgrade destination — preferred over libraryHref
+   *  for the pipeline lock's Upgrade link when the host has one. */
+  upgradeHref?: string
+  /** An "Open gallery" row — hosts that are not already inside the
+   *  gallery (the Library's settings sheet) pass it; the viewer does not. */
+  onOpen?: () => void
   /** Reorder stays a dashboard deep-link until Phase B replaces it. */
   onReorder?: () => void
   /** The on-stage photograph at save time — the rename redirect returns
@@ -34,6 +40,9 @@ export type OwnerGalleryPanelProps = {
   currentPhotoId: () => string
   /** A saved name propagates to the viewer's displayed title. */
   onTitleSaved: (title: string) => void
+  /** A saved caption propagates to a host list (the Library's summary
+   *  would otherwise reopen the sheet with the stale text). */
+  onCaptionSaved?: (caption: string) => void
 }
 
 type EditField = 'name' | 'caption' | 'address'
@@ -48,9 +57,12 @@ export default function OwnerGalleryPanel({
   expiresAt,
   mediaCount,
   libraryHref,
+  upgradeHref,
+  onOpen,
   onReorder,
   currentPhotoId,
   onTitleSaved,
+  onCaptionSaved,
 }: OwnerGalleryPanelProps) {
   const [liveTitle, setLiveTitle] = useState(title)
   const [liveCaption, setLiveCaption] = useState(caption)
@@ -122,7 +134,9 @@ export default function OwnerGalleryPanel({
           setLiveTitle(next)
           onTitleSaved(next)
         } else {
-          setLiveCaption(payload.gallery?.caption ?? value.trim())
+          const next = payload.gallery?.caption ?? value.trim()
+          setLiveCaption(next)
+          onCaptionSaved?.(next)
         }
         announce('Saved')
         setEditing(null)
@@ -234,14 +248,26 @@ export default function OwnerGalleryPanel({
           {formatMediaCount(mediaCount)} · {sourceLabel}
           {temporary ? ` · Temporary gallery${expiresAt ? ` · expires ${expiresAt.slice(0, 10)}` : ''}` : ''}
         </p>
+        {liveCaption ? <p class="m-owner-panel-cap">{liveCaption}</p> : null}
       </header>
       {temporary ? (
         <p class="m-note m-owner-panel-lock">
           {PIPELINE_LOCK_MESSAGE}{' '}
-          {libraryHref ? <a href={libraryHref}>Upgrade</a> : null}
+          {upgradeHref ?? libraryHref ? <a href={upgradeHref ?? libraryHref}>Upgrade</a> : null}
         </p>
       ) : null}
       <ActionGroup>
+        {onOpen ? (
+          <ActionRow
+            label="Open gallery"
+            icon={(
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/>
+              </svg>
+            )}
+            onClick={onOpen}
+          />
+        ) : null}
         <ActionRow
           label={linkCopied ? 'Link copied' : 'Share link'}
           icon={DETAILS_ICONS.share()}
@@ -254,10 +280,12 @@ export default function OwnerGalleryPanel({
         )) : (
           <ActionRow label="Name" icon={DETAILS_ICONS.name()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
         )}
+        {/* A present caption reads in full on the head — the row only
+            carries the empty state, so nothing ellipsizes. */}
         {editing === 'caption' ? editBlock('Caption', (
           <textarea class="m-input" rows={3} value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
-          <ActionRow label="Caption" icon={DETAILS_ICONS.caption()} value={liveCaption || 'None'} onClick={() => startEdit('caption')} disabled={locked} />
+          <ActionRow label="Caption" icon={DETAILS_ICONS.caption()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
         )}
         {editing === 'address' ? editBlock('Address', (
           <input class="m-input" type="text" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />

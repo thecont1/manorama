@@ -88,10 +88,11 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
 })
 
 test('card Details is web-only (no vault/offline) and browser Back/Forward round-trips', async ({ browser }) => {
-  const { context, page, card, slug } = await openDashboard(browser)
+  const { context, page, slug } = await openDashboard(browser)
   try {
-    await card.getByRole('button', { name: /actions$/i }).click()
-    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
+    // The ⋯ menu now opens the gallery-settings sheet; the Details surface
+    // survives as its own addressable screen via ?details=<slug>.
+    await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
     await expect(page).toHaveURL(`${base}/${owner}?details=${slug}`)
@@ -112,8 +113,7 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
     await expect(page).toHaveURL(`${base}/${owner}`)
 
     // Browser Back/Forward across the Details entry.
-    await card.getByRole('button', { name: /actions$/i }).click()
-    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
+    await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
     await expect(details).toBeVisible()
     await page.evaluate(() => { setTimeout(() => window.history.back(), 0) })
     await expect(details).toHaveCount(0)
@@ -128,11 +128,31 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
   }
 })
 
-test('Details Share opens the shared sheet with the correct public URL', async ({ browser }) => {
+test('the ⋯ menu opens the gallery’s own Settings sheet — the same panel the viewer hosts', async ({ browser }) => {
   const { context, page, card, title } = await openDashboard(browser)
   try {
     await card.getByRole('button', { name: /actions$/i }).click()
-    await page.getByRole('button', { name: 'Gallery details', exact: true }).click()
+    await page.getByRole('button', { name: 'Gallery settings', exact: true }).click()
+    const sheet = page.getByRole('dialog', { name: 'Gallery settings' })
+    await expect(sheet).toBeVisible()
+    // The library keeps its URL — the sheet is a panel, not a surface.
+    await expect(page).toHaveURL(`${base}/${owner}`)
+    await expect(sheet.locator('.m-owner-panel-title')).toHaveText(title)
+    // From the Library the panel earns an Open row the viewer never needs.
+    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again', 'Remove gallery']) {
+      await expect(sheet.getByRole('button', { name: label }), label).toBeVisible()
+    }
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(sheet).toHaveCount(0)
+  } finally {
+    await context.close()
+  }
+})
+
+test('Details Share opens the shared sheet with the correct public URL', async ({ browser }) => {
+  const { context, page, slug, title } = await openDashboard(browser)
+  try {
+    await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
     const details = page.locator('[data-screen="details"]')
     await expect(details).toBeVisible()
 

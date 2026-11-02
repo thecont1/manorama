@@ -13,6 +13,7 @@ import { Sheet } from '../components/ui/Sheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
+import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
 import { copyText } from '../lib/gallery-share'
 import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
@@ -146,10 +147,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [editField, setEditField] = useState<GalleryEditField | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editNote, setEditNote] = useState<string | null>(null)
-  // The card overflow sheet (···) and the share sheet it can open are keyed
-  // by slug so they work without Details being mounted underneath.
+  // The card overflow sheet (···) and the share/settings sheets it can
+  // open are keyed by slug so they work without Details mounted beneath.
   const [shareSlug, setShareSlug] = useState<string | null>(null)
   const [menuSlug, setMenuSlug] = useState<string | null>(null)
+  const [galSettingsSlug, setGalSettingsSlug] = useState<string | null>(null)
   // Remove runs as an inline confirm on the card, like the native list —
   // never a window.confirm dialog.
   const [removeSlug, setRemoveSlug] = useState<string | null>(null)
@@ -344,15 +346,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
-  const openDetails = (slug: string) => {
-    if (!galleries.some((gallery) => gallery.slug === slug)) return
-    setDetailsSlug(slug)
-    setDetailsNote(null)
-    setShareSlug(null)
-    const params = new URLSearchParams(window.location.search)
-    params.set('details', slug)
-    window.history.pushState({ surface: 'details', slug }, '', `${window.location.pathname}?${params}`)
-  }
   const closeDetails = () => {
     if (!detailsSlug) return
     window.history.back()
@@ -746,6 +739,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const temporaryCount = liveGalleries.filter(isLocked).length
   const detailsGallery = detailsSlug ? liveGalleries.find((gallery) => gallery.slug === detailsSlug) ?? null : null
   const menuGallery = menuSlug ? liveGalleries.find((gallery) => gallery.slug === menuSlug) ?? null : null
+  const galSettingsGallery = galSettingsSlug ? liveGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
   const shareGallery = shareSlug ? liveGalleries.find((gallery) => gallery.slug === shareSlug) ?? null : null
   // client_reference_id is how the Stripe webhook maps a completed checkout
   // back to this account — hex-encoded because Stripe drops ids outside its
@@ -947,7 +941,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               >{menuGallery.pinnedAt ? 'Unpin' : 'Pin to top'}</button>
             ) : null}
             <button type="button" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
-            <button type="button" onClick={() => { openDetails(menuGallery.slug); setMenuSlug(null) }}>Gallery details</button>
+            {/* The gallery's own Settings — the same panel the viewer's
+                Settings popover hosts, so the owner edits in place. */}
+            <button type="button" onClick={() => { setGalSettingsSlug(menuGallery.slug); setMenuSlug(null) }}>Gallery settings</button>
             <button
               type="button"
               disabled={busy || isLocked(menuGallery)}
@@ -964,6 +960,30 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               >Read the folder again</button>
             ) : null}
             <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
+          </div>
+        </Sheet>
+      ) : null}
+
+      {galSettingsGallery ? (
+        <Sheet open onClose={() => setGalSettingsSlug(null)} title="Gallery settings">
+          <div class="m-dark">
+            <OwnerGalleryPanel
+              owner={owner}
+              slug={galSettingsGallery.slug}
+              title={galSettingsGallery.title}
+              caption={galSettingsGallery.caption}
+              sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
+              temporary={isLocked(galSettingsGallery)}
+              expiresAt={galSettingsGallery.expiresAt}
+              mediaCount={summaryMediaCount(galSettingsGallery)}
+              libraryHref={`/${owner}`}
+              upgradeHref={upgradeHref}
+              onOpen={() => { window.location.assign(`/${owner}/${galSettingsGallery.slug}`) }}
+              onReorder={() => { window.location.assign(`/${owner}/${galSettingsGallery.slug}?edit=1`) }}
+              currentPhotoId={() => ''}
+              onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
+              onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
+            />
           </div>
         </Sheet>
       ) : null}
