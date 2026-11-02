@@ -408,6 +408,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     void (async () => {
       try {
         const items = await loadGalleryItems(slug)
+        // The picker may have closed while the summary was in flight —
+        // writing pickerEdit now would surface the editor, not browse,
+        // on the next open.
+        if (!gridOpenRef.current) return
         setEditItems(items)
         setGridSel(Math.max(0, items.findIndex((item) => item.id === images[indexRef.current]?.id)))
         setPickerEdit(true)
@@ -1415,6 +1419,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useLayoutEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
+        // A consumed Escape (overlay stack, dialog, or the editor putting
+        // a held photograph back) must not also close the picker.
+        if (event.defaultPrevented) return
+        // Focus outside the dialog skips its onKeyDown, so the editor's
+        // first claim on Escape routes through here too.
+        if (pickerActionsRef.current?.onKey(event)) return
         event.preventDefault()
         requestCloseModals()
         return

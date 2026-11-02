@@ -253,6 +253,10 @@ export default function PickerEditor({
     }
     if (saving) return false
     if (key === 'Enter' || key === ' ') {
+      // Save, Cancel, the size slider, and the per-cell mark activate
+      // natively — claiming the key would turn them into a pick-up.
+      const el = event.target as HTMLElement | null
+      if (el?.closest?.('.viewer-edit-controls, .viewer-edit-mark')) return true
       const target = sessionRef.current.items[selIndex]
       if (!target) return true
       event.preventDefault()

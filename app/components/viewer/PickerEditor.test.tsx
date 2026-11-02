@@ -162,6 +162,32 @@ describe('the picker Edit mode', () => {
     expect(exited).toBe(1)
   })
 
+  test('keyboard: Enter and Space on the controls keep their native activation', () => {
+    const root = mounted({ selIndex: 0 })
+    // Dispatch first so the event carries a real target, the way the
+    // dialog's onKeyDown sees it; then run it through the editor.
+    const keyOn = (el: Element, value: string) => {
+      const event = new dom.window.KeyboardEvent('keydown', { key: value, bubbles: true }) as unknown as KeyboardEvent
+      el.dispatchEvent(event)
+      let handled = false
+      flushSync(() => { handled = actions.current!.onKey(event) })
+      return { handled, prevented: event.defaultPrevented }
+    }
+    const mark = cells(root)[0].querySelector('.viewer-edit-mark')!
+    const save = saveButton(root)
+    const cancel = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!
+    const sizer = root.querySelector('.viewer-edit-sizer input')!
+    for (const el of [mark, save, cancel, sizer]) {
+      for (const value of ['Enter', ' ']) {
+        const result = keyOn(el, value)
+        expect(result.handled).toBe(true)
+        expect(result.prevented).toBe(false)
+      }
+    }
+    // None of them picked the selected photograph up.
+    expect(root.querySelector('.is-held')).toBeNull()
+  })
+
   test('thumbnails mark themselves loaded so they render visible', () => {
     const root = mounted()
     const img = root.querySelector<HTMLElement>('.viewer-edit-cell img')!

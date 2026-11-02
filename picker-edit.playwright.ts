@@ -140,6 +140,41 @@ test('the library card menu and the legacy ?reorder=1 link land in Edit mode', a
   }
 })
 
+test('Escape steps back through Edit mode instead of closing the picker', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await signIn(context)
+  const page = await context.newPage()
+  try {
+    const slug = await discoverSlug(page)
+    await openGallery(page, slug)
+    await openPicker(page)
+    await enterEdit(page)
+
+    const held = page.locator('.viewer-edit-item.is-held')
+    const cell = page.locator('.viewer-edit-cell [data-grid-item]').first()
+    await cell.click()
+    await expect(held).toHaveCount(1)
+
+    // Escape reaches the editor even when focus sits outside the dialog —
+    // it puts the held photograph back, it does not close the picker.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Escape')
+    await expect(held).toHaveCount(0)
+    await expect(page.locator('.viewer-edit-cell').first()).toBeVisible()
+
+    // With nothing held, Escape exits Edit mode; the picker stays open.
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.viewer-edit-cell')).toHaveCount(0)
+    await expect(page.locator('.viewer-filmstrip')).toBeVisible()
+
+    // Browse-mode Escape still closes the picker.
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.viewer-filmstrip')).toHaveCount(0, { timeout: 20_000 })
+  } finally {
+    await context.close().catch(() => {})
+  }
+})
+
 test('visitors and members see no Edit button in the picker', async ({ browser }) => {
   const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   await signIn(ownerContext)
