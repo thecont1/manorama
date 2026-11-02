@@ -48,10 +48,10 @@ type SummaryImages = GallerySummary['images']
  *  manifest deliberately does not. orderKey is the Worker's persistence
  *  key (ref ?? filename), the same key the PATCH route writes. */
 export const loadGalleryItems = async (slug: string): Promise<PickerEditItem[]> => {
-  const response = await fetch('/api/galleries')
-  const payload = await response.json().catch(() => ({})) as { galleries?: { slug: string; images: SummaryImages }[]; error?: string }
-  if (!response.ok) throw new Error(payload.error || 'The gallery list could not be read')
-  const summary = payload.galleries?.find((gallery) => gallery.slug === slug)
+  const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}`)
+  const payload = await response.json().catch(() => ({})) as { gallery?: { images: SummaryImages }; error?: string }
+  if (!response.ok) throw new Error(payload.error || 'That gallery could not be read')
+  const summary = payload.gallery
   if (!summary) throw new Error('That gallery could not be found in the account')
   return summary.images.map((image) => {
     const video = isVideoItem(image as GalleryMediaItem)

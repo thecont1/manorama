@@ -121,7 +121,11 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-menu-bars')
     expect(html).not.toContain('admin-gallery-editor-label')
     expect(html).not.toContain('Photo Editor')
-    expect(html).toContain('aria-label="Locked photographs"')
+    // The pipeline gallery is a compact row now — a cover and the
+    // Temporary label, not a rail of items.
+    expect(html).toContain('data-gallery-card="locked"')
+    expect(html).toContain('Temporary galleries')
+    expect(html).not.toContain('aria-label="Locked photographs"')
     expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
 
@@ -310,5 +314,86 @@ describe('the dashboard renders retention state', () => {
     expect(settings).toContain('Type your URL name (test-owner) to confirm')
     expect(settings).toContain('Nothing in your Dropbox, Google Drive, iCloud or MEGA is touched')
     expect(settings).toContain('Delete my account')
+  })
+})
+
+describe('the lean library layout', () => {
+  test('a Visionary library renders ten strips then compact rows', async () => {
+    const html = await renderDashboard(async () => {
+      await setUserTier(TEST_OWNER.accountId, 'pro')
+      for (let index = 0; index < 12; index += 1) {
+        await createGallery(TEST_OWNER.accountId, {
+          slug: `lean-${index}`, title: `Lean ${index}`, caption: '', date: '',
+          createdAt: new Date(Date.now() - index * 60_000).toISOString(),
+          images: [image(`lean-${index}`)],
+        })
+      }
+    })
+    expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(10)
+    expect((html.match(/lib-compact-row/g) ?? []).length).toBe(2)
+    expect(html).toContain('More galleries')
+    expect(html).not.toContain('Temporary galleries')
+  })
+
+  test('a free library renders retained strips then temporary rows', async () => {
+    const html = await renderDashboard(async () => {
+      for (let index = 0; index < 3; index += 1) {
+        await createGallery(TEST_OWNER.accountId, {
+          slug: `kept-${index}`, title: `Kept ${index}`, caption: '', date: '',
+          createdAt: new Date(Date.now() - index * 60_000).toISOString(),
+          images: [image(`kept-${index}`)],
+        })
+      }
+      for (let index = 0; index < 2; index += 1) {
+        await createGallery(TEST_OWNER.accountId, {
+          slug: `temp-${index}`, title: `Temp ${index}`, caption: '', date: '',
+          createdAt: new Date(Date.now() - (index + 10) * 60_000).toISOString(),
+          images: [image(`temp-${index}`)],
+        })
+      }
+    })
+    // Free: only the retained three strip; both pipelines are compact rows
+    // under the Temporary label.
+    expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
+    expect((html.match(/lib-compact-row/g) ?? []).length).toBe(2)
+    expect(html).toContain('Temporary galleries')
+    expect(html).toContain('data-retention="pipeline"')
+  })
+
+  test('a rail past the preview window ends in a quiet +N tile', async () => {
+    const html = await renderDashboard(async () => {
+      await setUserTier(TEST_OWNER.accountId, 'pro')
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'big', title: 'Big', caption: '', date: '',
+        images: Array.from({ length: 20 }, (_, index) => image(`big-${index}`)),
+      })
+    })
+    expect((html.match(/data-image-id=/g) ?? []).length).toBe(12)
+    expect(html).toContain('aria-label="8 more in Big"')
+    expect(html).toContain('>+8</a>')
+  })
+
+  test('a pinned gallery leads its strips with the pin glyph', async () => {
+    const html = await renderDashboard(async () => {
+      const { setGalleryPinned } = await import('./lib/gallery-repository')
+      await setUserTier(TEST_OWNER.accountId, 'pro')
+      for (let index = 0; index < 12; index += 1) {
+        await createGallery(TEST_OWNER.accountId, {
+          slug: `sort-${index}`, title: `Sort ${index}`, caption: '', date: '',
+          createdAt: new Date(Date.now() - index * 60_000).toISOString(),
+          images: [image(`sort-${index}`)],
+        })
+      }
+      await setGalleryPinned(TEST_OWNER.accountId, 'sort-11', true)
+    })
+    // The oldest gallery pins into the first strip position.
+    expect(html.indexOf('aria-label="Pinned"')).toBeGreaterThan(-1)
+    const firstCard = html.indexOf('data-gallery-card="sort-11"')
+    const secondCard = html.indexOf('data-gallery-card="sort-0"')
+    expect(firstCard).toBeGreaterThan(-1)
+    expect(firstCard).toBeLessThan(secondCard)
+    // And it still renders as a strip, not a compact row.
+    const card = cardSection(html, 'sort-11')
+    expect(card).toContain('admin-gallery-strip')
   })
 })

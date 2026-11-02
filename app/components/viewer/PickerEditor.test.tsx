@@ -190,15 +190,14 @@ describe('the picker Edit mode', () => {
 
 describe('loadGalleryItems', () => {
   test('maps the slug\'s summary, keeping hidden flags and orderKeys from ref ?? filename', async () => {
-    globals.fetch = (async () => new Response(JSON.stringify({
-      galleries: [
-        { slug: 'other', images: [] },
-        { slug: 'mixed', images: [
-          { id: 'p1', ref: 'ref-p1', filename: 'p1.jpg', src: '/p1.jpg', width: 4, height: 3, alt: '', placeholder: '', hidden: true },
-          { id: 'v1', filename: 'v1.mp4', src: '/v1.mp4', width: 16, height: 9, alt: '', placeholder: '', type: 'video', durationSeconds: 12, poster: { src: '/v1p.jpg', width: 16, height: 9 } },
-        ] },
-      ],
-    }), { status: 200 })) as unknown as typeof fetch
+    globals.fetch = (async (input: string | URL | Request) => new Response(JSON.stringify(
+      typeof input === 'string' && input.includes('/api/galleries/mixed')
+        ? { gallery: { slug: 'mixed', images: [
+            { id: 'p1', ref: 'ref-p1', filename: 'p1.jpg', src: '/p1.jpg', width: 4, height: 3, alt: '', placeholder: '', hidden: true },
+            { id: 'v1', filename: 'v1.mp4', src: '/v1.mp4', width: 16, height: 9, alt: '', placeholder: '', type: 'video', durationSeconds: 12, poster: { src: '/v1p.jpg', width: 16, height: 9 } },
+          ] } }
+        : { error: 'missing' },
+    ), { status: 200 })) as unknown as typeof fetch
     const loaded = await loadGalleryItems('mixed')
     expect(loaded).toHaveLength(2)
     expect(loaded[0]).toMatchObject({ id: 'p1', orderKey: 'ref-p1', hidden: true })

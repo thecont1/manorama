@@ -1,7 +1,7 @@
 import { Fragment } from 'hono/jsx'
 import { createRoute } from 'honox/factory'
 import Admin from '../islands/Admin'
-import { listGalleries, toSummary, type GalleryEnv } from '../lib/gallery-repository'
+import { listGalleries, toLibrarySummaries, type GalleryEnv } from '../lib/gallery-repository'
 import { getUserByOwnerSlug } from '../lib/user-repository'
 import { accessEnvOf, resolveManoramaSession } from '../lib/session'
 
@@ -38,7 +38,7 @@ export default createRoute(async (c) => {
   return c.render(
     <Fragment>
       <Admin
-        galleries={galleries.map(toSummary)}
+        galleries={toLibrarySummaries(galleries, user.tier)}
         owner={owner}
         ownerName={user.displayName}
         publicHost={env.PUBLIC_HOST || requestHost}

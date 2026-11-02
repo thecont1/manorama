@@ -2180,6 +2180,43 @@ button.lib-card-title {
 .lib-empty h3 { margin: 0; font-size: 19px; font-weight: 650; }
 .lib-empty p { margin: 6px 0 18px; color: var(--m-secondary); }
 
+/* Compact galleries get a single quiet row — a cover, the title and
+   count line, and the same ··· menu — under a small section label. The
+   lean payload ships only the cover item for these rows. */
+.lib-compact-title { margin: 28px 0 0; padding: 0 0 6px; font-size: var(--m-fs-small); font-weight: 600; color: var(--m-secondary); }
+.lib-compact-list { list-style: none; margin: 0; padding: 0; }
+.lib-compact-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
+.lib-compact-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 0; }
+.lib-compact-cover { display: block; flex: 0 0 auto; height: 64px; max-width: 40%; overflow: hidden; }
+.lib-compact-cover img { display: block; height: 64px; width: auto; max-width: none; opacity: 0; transition: opacity .32s ease; }
+.lib-compact-cover img.is-loaded { opacity: 1; }
+.lib-compact-body { flex: 1; min-width: 140px; }
+.lib-compact-body .lib-card-title { min-height: 0; font-size: 16px; }
+.lib-compact-row > .lib-remove-confirm { flex: 0 0 100%; padding-bottom: 6px; }
+
+/* A pinned card carries the pin beside its title — presentation only,
+   the pin itself lives in the ··· menu. */
+.lib-pin { display: inline-flex; align-items: center; margin-left: 6px; color: rgba(var(--ink), .55); }
+
+/* The "+N" tile ends a trimmed rail — same height as the items, quiet
+   like the count line, and it still opens the gallery. */
+.admin-strip-more a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  height: 100%;
+  padding: 0 14px;
+  color: rgba(239, 236, 223, .72);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  letter-spacing: .02em;
+}
+html.light .admin-strip-more a { color: var(--m-secondary); }
+.admin-strip-more a:hover { color: rgb(var(--ink)); }
+.admin-strip-more a:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -2px; }
+
 /* The card menu is a sheet of rows, each a finger-sized target. Rows are
    plain buttons and links — no menu role, since there is no roving focus. */
 .lib-menu { display: grid; gap: 2px; }

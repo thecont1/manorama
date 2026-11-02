@@ -49,6 +49,7 @@ describe('deleteAccount', () => {
       '0006_auth_flows.sql',
       '0007_device_galleries.sql',
       '0008_master_accounts_and_country.sql',
+      '0012_gallery_pinned.sql',
     ]) {
       await applyMigration(db, migration)
     }
