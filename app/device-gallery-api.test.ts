@@ -42,6 +42,7 @@ beforeAll(async () => {
   await applyMigration(db, '0005_provider_neutral_accounts.sql')
   await applyMigration(db, '0006_auth_flows.sql')
   await applyMigration(db, '0007_device_galleries.sql')
+  await applyMigration(db, '0012_gallery_pinned.sql')
 }, 15_000)
 
 afterAll(async () => {

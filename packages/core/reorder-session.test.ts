@@ -7,6 +7,7 @@ import {
   pickUpItem,
   putDownItem,
   reorderIsDirty,
+  rowStepIndex,
   visibleRowRange,
 } from './reorder-session'
 
@@ -52,5 +53,24 @@ describe('photo matrix layout', () => {
     const range = visibleRowRange(layout.rows, 100, 0, 100)
     expect(range.start).toBe(0)
     expect(range.end).toBeLessThan(layout.rows.length - 1)
+  })
+})
+
+describe('rowStepIndex', () => {
+  // Two rows: three cells across, then two — tops group rows, left picks
+  // the nearest column.
+  const cells = [
+    { top: 0, left: 0 }, { top: 0, left: 110 }, { top: 0, left: 220 },
+    { top: 100, left: 0 }, { top: 100, left: 150 },
+  ]
+  test('moves to the nearest cell in the row below or above', () => {
+    expect(rowStepIndex(cells, 0, 1)).toBe(3)
+    expect(rowStepIndex(cells, 2, 1)).toBe(4)
+    expect(rowStepIndex(cells, 4, -1)).toBe(1)
+    expect(rowStepIndex(cells, 3, -1)).toBe(0)
+  })
+  test('stays put at the matrix edges', () => {
+    expect(rowStepIndex(cells, 0, -1)).toBe(0)
+    expect(rowStepIndex(cells, 3, 1)).toBe(3)
   })
 })

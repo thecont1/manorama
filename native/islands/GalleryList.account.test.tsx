@@ -936,7 +936,7 @@ describe('signed-in account area', () => {
       owner: 'quiet-owner',
       slug: 'saved-album',
       title: 'Saved Album',
-      frames: [{ id: 'cached-one', entryId: 'thumb:cached-one', mimeType: 'image/jpeg', width: 1200, height: 800, alt: 'Cached photograph', index: 0 }],
+      frames: [{ id: 'cached-one', entryId: 'thumb:cached-one', mimeType: 'image/jpeg', video: false, width: 1200, height: 800, alt: 'Cached photograph', index: 0 }],
     }
     const store = {
       listGalleries: async () => [{ status: 'cached', galleryId: grid.galleryId, owner: grid.owner, slug: grid.slug, title: grid.title, images: 1 }],

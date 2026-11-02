@@ -9,7 +9,8 @@ import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
+import { STRIP_LIMIT_PRO } from '../packages/core/library-layout'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -467,6 +468,7 @@ export const createManoramaApi = () => {
   })
   api.use('/api/galleries', requireSession())
   api.use('/api/galleries/*', requireSession())
+  api.use('/api/library', requireSession())
   api.use('/api/account', requireSession())
   api.use('/api/account/*', requireSession())
 
@@ -488,6 +490,33 @@ export const createManoramaApi = () => {
       return c.json({ galleries: galleries.map(toSummary) })
     } catch {
       return c.json({ error: 'The gallery list is temporarily unavailable' }, 503)
+    }
+  })
+
+  // The lean list the web Library renders from: the same summaries, but
+  // strip galleries carry only a rail preview and compact ones only a
+  // cover — the native/desktop surfaces keep reading /api/galleries.
+  api.get('/api/library', async (c) => {
+    const session = c.get('manoramaSession')
+    try {
+      const [user, galleries] = await Promise.all([
+        getUserByAccountId(session.accountId, dbEnv(c)),
+        listGalleries(session.accountId, dbEnv(c)),
+      ])
+      return c.json({ galleries: toLibrarySummaries(galleries, user?.tier ?? 'free') })
+    } catch {
+      return c.json({ error: 'The library is temporarily unavailable' }, 503)
+    }
+  })
+
+  api.get('/api/galleries/:slug', async (c) => {
+    const session = c.get('manoramaSession')
+    try {
+      const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ gallery: toSummary(gallery) })
+    } catch {
+      return c.json({ error: 'That gallery is temporarily unavailable' }, 503)
     }
   })
 
@@ -691,18 +720,33 @@ export const createManoramaApi = () => {
     const session = c.get('manoramaSession')
     // Body `slug` is intentionally not read: the URL slug is the resource
     // identity; a rename arrives only as `newSlug`.
-    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; hidden?: string[]; newSlug?: string }>().catch((): { title?: string; caption?: string; order?: string[]; hidden?: string[]; newSlug?: string } => ({}))
+    const payload = await c.req.json<{ title?: string; caption?: string; order?: string[]; hidden?: string[]; newSlug?: string; pinned?: boolean }>().catch((): { title?: string; caption?: string; order?: string[]; hidden?: string[]; newSlug?: string; pinned?: boolean } => ({}))
     const title = typeof payload.title === 'string' ? smartQuotes(payload.title.trim().slice(0, 120)) : undefined
     const caption = typeof payload.caption === 'string' ? smartQuotes(payload.caption.trim().slice(0, 500)) : undefined
     const order = Array.isArray(payload.order) ? payload.order.filter((item): item is string => typeof item === 'string').slice(0, MAX_GALLERY_ITEMS) : undefined
     const hidden = Array.isArray(payload.hidden) ? payload.hidden.filter((item): item is string => typeof item === 'string').slice(0, MAX_GALLERY_ITEMS) : undefined
     const nextSlug = typeof payload.newSlug === 'string' ? payload.newSlug.trim().toLowerCase() : undefined
+    const pinned = typeof payload.pinned === 'boolean' ? payload.pinned : undefined
     if (title !== undefined && !title) return c.json({ error: 'A gallery title cannot be empty' }, 400)
     if (nextSlug !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(nextSlug)) return c.json({ error: 'Use lowercase letters, numbers, and single hyphens for the gallery URL' }, 400)
-    if (title === undefined && caption === undefined && !order && !hidden && nextSlug === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
+    if (title === undefined && caption === undefined && !order && !hidden && nextSlug === undefined && pinned === undefined) return c.json({ error: 'Provide a gallery URL, metadata, or an image order to update' }, 400)
     try {
       let gallery = nextSlug !== undefined ? await updateGallerySlug(session.accountId, c.req.param('slug'), nextSlug, dbEnv(c)) : await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      if (pinned !== undefined) {
+        // Pinning is a Visionary feature, capped so the strip section stays
+        // honest — the server's count is authoritative, not the UI's.
+        const user = await getUserByAccountId(session.accountId, dbEnv(c))
+        if (user?.tier !== 'pro') return c.json({ error: 'Pinning is part of Visionary' }, 403)
+        if (pinned) {
+          const slug = gallery.slug
+          const others = await listGalleries(session.accountId, dbEnv(c))
+          const pinnedCount = others.filter((item) => item.pinnedAt && item.slug !== slug).length
+          if (pinnedCount >= STRIP_LIMIT_PRO) return c.json({ error: 'Up to 10 galleries can be pinned — unpin one first' }, 409)
+        }
+        gallery = await setGalleryPinned(session.accountId, gallery.slug, pinned, dbEnv(c))
+        if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      }
       if (order) gallery = await updateGalleryOrder(session.accountId, gallery.slug, order, dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (hidden) gallery = await updateGalleryHidden(session.accountId, gallery.slug, hidden, dbEnv(c))

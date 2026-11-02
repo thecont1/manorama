@@ -25,6 +25,18 @@ describe('GalleryShell curtain status accessibility', () => {
     expect(html).not.toContain('curtain-date')
   })
 
+  test('the count line splits stills and videos and stays silent on empty', () => {
+    const mixed = String(GalleryShell({ settings, mediaCount: { stills: 24, videos: 1 }, children: '' }))
+    expect(mixed).toContain('24 photographs · 1 video')
+    const stills = String(GalleryShell({ settings, mediaCount: { stills: 1, videos: 0 }, children: '' }))
+    expect(stills).toContain('1 photograph')
+    const videos = String(GalleryShell({ settings, mediaCount: { stills: 0, videos: 2 }, children: '' }))
+    expect(videos).toContain('2 videos')
+    expect(videos).not.toContain('photograph')
+    const empty = String(GalleryShell({ settings, mediaCount: { stills: 0, videos: 0 }, children: '' }))
+    expect(empty).not.toContain('curtain-count')
+  })
+
   test('does not point at a missing description when no status is present', () => {
     const html = render()
 

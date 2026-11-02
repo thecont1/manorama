@@ -759,3 +759,86 @@ describe('add to library', () => {
     expect((await adopt({ owner: 'no-such-owner', slug: 'adopt-source' }, memberCookie)).status).toBe(404)
   })
 })
+
+describe('pinning and the lean library', () => {
+  const pixel = (id: string) => ({ id, filename: `${id}.jpg`, src: `/images/${id}.jpg`, width: 4, height: 3, alt: '', c2pa: false, placeholder: '' })
+  const seed = async (slug: string, minutesAgo = 0) => {
+    const { createGallery } = await import('./lib/gallery-repository')
+    return createGallery(TEST_OWNER.accountId, {
+      slug, title: slug, caption: '', date: '',
+      createdAt: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+      images: [pixel(`${slug}-item`)],
+    })
+  }
+
+  test('a pro owner pins and unpins a gallery', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    await setUserTier(TEST_OWNER.accountId, 'pro')
+    await seed('pin-me')
+    const pinned = await patch('pin-me', { pinned: true })
+    expect(pinned.status).toBe(200)
+    const payload = await pinned.json() as { gallery?: { pinnedAt?: string | null } }
+    expect(payload.gallery?.pinnedAt).toBeTruthy()
+    const unpinned = await patch('pin-me', { pinned: false })
+    expect(unpinned.status).toBe(200)
+    expect(((await unpinned.json()) as { gallery?: { pinnedAt?: string | null } }).gallery?.pinnedAt).toBeNull()
+  })
+
+  test('free tier is refused with a Visionary message', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    await setUserTier(TEST_OWNER.accountId, 'free')
+    const response = await patch('pin-me', { pinned: true })
+    expect(response.status).toBe(403)
+    expect(((await response.json()) as { error?: string }).error).toBe('Pinning is part of Visionary')
+    await setUserTier(TEST_OWNER.accountId, 'pro')
+  })
+
+  test('an eleventh pin is refused until another is unpinned', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    await setUserTier(TEST_OWNER.accountId, 'pro')
+    for (let index = 0; index < 10; index += 1) {
+      await seed(`pin-fill-${index}`, index + 30)
+      expect((await patch(`pin-fill-${index}`, { pinned: true })).status).toBe(200)
+    }
+    const eleventh = await patch('pin-me', { pinned: true })
+    expect(eleventh.status).toBe(409)
+    expect(((await eleventh.json()) as { error?: string }).error).toBe('Up to 10 galleries can be pinned — unpin one first')
+    expect((await patch('pin-fill-9', { pinned: false })).status).toBe(200)
+    expect((await patch('pin-me', { pinned: true })).status).toBe(200)
+  })
+
+  test('GET /api/galleries/:slug returns the full summary, 404 when missing', async () => {
+    const found = await api.request('/api/galleries/pin-me', { headers: { Cookie: cookie } }, env)
+    expect(found.status).toBe(200)
+    const payload = await found.json() as { gallery?: { slug?: string; images?: unknown[]; pinnedAt?: string | null } }
+    expect(payload.gallery?.slug).toBe('pin-me')
+    expect(payload.gallery?.pinnedAt).toBeTruthy()
+    const missing = await api.request('/api/galleries/not-a-gallery', { headers: { Cookie: cookie } }, env)
+    expect(missing.status).toBe(404)
+  })
+
+  test('GET /api/library returns lean summaries with a layout field', async () => {
+    const response = await api.request('/api/library', { headers: { Cookie: cookie } }, env)
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { galleries?: { slug: string; layout: string; images: unknown[]; pinnedAt?: string | null }[] }
+    const galleries = payload.galleries ?? []
+    expect(galleries.every((summary) => summary.layout === 'strip' || summary.layout === 'compact')).toBe(true)
+    expect(galleries.filter((summary) => summary.layout === 'strip').length).toBeLessThanOrEqual(10)
+    expect(galleries.filter((summary) => summary.layout === 'compact').every((summary) => summary.images.length <= 1)).toBe(true)
+    // Every pinned gallery is in the strip set.
+    const stripSlugs = galleries.filter((summary) => summary.layout === 'strip').map((summary) => summary.slug)
+    expect(galleries.filter((summary) => summary.pinnedAt).every((summary) => stripSlugs.includes(summary.slug))).toBe(true)
+  })
+
+  test('GET /api/galleries is unchanged — strip galleries keep every image', async () => {
+    const { createGallery } = await import('./lib/gallery-repository')
+    await createGallery(TEST_OWNER.accountId, {
+      slug: 'full-list', title: 'Full', caption: '', date: '',
+      createdAt: new Date(Date.now() - 30_000).toISOString(),
+      images: Array.from({ length: 20 }, (_, index) => ({ id: `fl-${index}`, filename: `fl-${index}.jpg`, src: `/images/fl-${index}.jpg`, width: 4, height: 3, alt: '', c2pa: false, placeholder: '' })),
+    })
+    const response = await api.request('/api/galleries', { headers: { Cookie: cookie } }, env)
+    const payload = await response.json() as { galleries?: { slug: string; images: unknown[] }[] }
+    expect(payload.galleries?.find((summary) => summary.slug === 'full-list')?.images).toHaveLength(20)
+  })
+})

@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx'
+import { formatMediaCount } from '../lib/imagesource'
 import type { GallerySettings } from '../lib/gallery-settings'
 
 type Props = {
@@ -26,11 +27,10 @@ const escapeHtml = (value: string): string => value
 
 /** Shared public gallery chrome for SSR and the native client. */
 export default function GalleryShell({ settings, status, viewerRole, libraryHref, mediaCount, entered = false, children }: Props) {
-  const countLine = mediaCount
-    ? [
-        mediaCount.stills ? `${mediaCount.stills} photograph${mediaCount.stills === 1 ? '' : 's'}` : null,
-        mediaCount.videos ? `${mediaCount.videos} video${mediaCount.videos === 1 ? '' : 's'}` : null,
-      ].filter(Boolean).join(' · ')
+  // The curtain stays silent on an empty gallery — formatMediaCount would
+  // say "0 photographs", which the veil never does.
+  const countLine = mediaCount && mediaCount.stills + mediaCount.videos > 0
+    ? formatMediaCount(mediaCount)
     : ''
   return (
     <main class="gallery-shell" data-viewer-role={viewerRole} data-library-href={libraryHref}>

@@ -1,5 +1,5 @@
 import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
-import { isVideoItem, type GalleryImage, type GalleryMediaItem, type VideoItem } from '../lib/imagesource'
+import { formatMediaCount, isVideoItem, mediaCountOf, type GalleryImage, type GalleryMediaItem, type MediaCount, type VideoItem } from '../lib/imagesource'
 import { heicObjectUrl, isHeicFilename } from '../lib/heic'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
@@ -8,6 +8,8 @@ import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import ViewerChrome from '../components/viewer/ViewerChrome'
 import SettingsSheet from '../components/viewer/SettingsSheet'
+import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
+import PickerEditor, { loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
@@ -77,6 +79,21 @@ type Props = {
   /** Where the owner's library lives, resolved by the route — stored for
    *  later phases. */
   libraryHref?: string
+  /** The web owner's inline gallery management — the route fills it for
+   *  viewerRole 'owner' and the Settings popover edits in place. A shell
+   *  that passes onOpenDetails instead (native) keeps its own Details
+   *  handoff and never gets this panel. */
+  ownerGallery?: {
+    title: string
+    caption: string
+    sourceLabel: string
+    temporary: boolean
+    expiresAt?: string | null
+    mediaCount: MediaCount
+  }
+  /** `?edit=1` — the owner's reorder/hide intent, opening the picker
+   *  straight into Edit mode (the retired dashboard overlay's place). */
+  initialEdit?: boolean
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -114,6 +131,20 @@ const isTypingTarget = (el: HTMLElement | null) =>
   !!el && (el.isContentEditable || /^(textarea|select)$/i.test(el.tagName) ||
     (/^input$/i.test(el.tagName) &&
       !/^(button|checkbox|radio|range|file|image|submit|reset|color|hidden)$/i.test((el as HTMLInputElement).type)))
+
+// env(safe-area-inset-top) has no JS accessor — a one-time fixed probe
+// resolves the px so the popover's max-height can stay under the top bar.
+let measuredSafeAreaTop: number | null = null
+const safeAreaTopPx = () => {
+  if (measuredSafeAreaTop !== null) return measuredSafeAreaTop
+  if (typeof document === 'undefined') return 0
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:fixed;top:env(safe-area-inset-top,0px);left:-999px;width:1px;height:1px'
+  document.body.appendChild(probe)
+  measuredSafeAreaTop = probe.getBoundingClientRect().top
+  probe.remove()
+  return measuredSafeAreaTop
+}
 
 // hono/jsx queues passive runners for a later animation frame; a second commit
 // can collect the same runner or supersede it before that frame. Version each
@@ -199,7 +230,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
@@ -208,6 +239,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [gridOpen, setGridOpen] = useState(false)
+  // The picker's owner Edit mode: a fetched all-items list (the page
+  // manifest omits hidden ones), a session draft, and the editor's
+  // render-synced actions the chrome handlers consult.
+  const [pickerEdit, setPickerEdit] = useState(false)
+  const [editItems, setEditItems] = useState<PickerEditItem[] | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editNote, setEditNote] = useState<string | null>(null)
+  const pickerActionsRef = useRef<PickerEditActions | null>(null)
   const [gridSel, setGridSel] = useState(index)
   const [gridClosing, setGridClosing] = useState(false)
   const gridOpenRef = useRef(false)
@@ -299,28 +338,41 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
   anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
+  // A saved name propagates into the picker's header — the prop is the
+  // SSR title, this override is the live one.
+  const [titleOverride, setTitleOverride] = useState<string | undefined>(undefined)
+  const displayTitle = titleOverride ?? galleryTitle
+  // The wide, two-column popover belongs to the web owner's inline
+  // management; everyone else keeps the single-column card.
+  const ownerInline = Boolean(ownerGallery) && !onOpenDetails
+  const [settingsWide, setSettingsWide] = useState(false)
   const [popoverAnchor, setPopoverAnchor] = useState<Record<string, string | undefined>>({})
   const openSettings = () => {
     previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
     anyModalOpenRef.current = true
-    // Anchor the popover's right edge to the pill's right edge — the card
-    // floats straight above the control that opened it. The pill sits
-    // centered in the bar, so on a phone its right edge is mid-screen and
-    // the same anchor would hang the card's left half off-screen: clamp the
-    // offset so the card can never leave the viewport (the card is
-    // min(360px, vw-28) wide and keeps a 14px margin).
-    const rect = displayButtonRef.current?.getBoundingClientRect()
+    // The card anchors to the bottom nav, not the Settings pill: centred
+    // on the nav's own centre line and clamped to 14px viewport margins,
+    // it reads as the bar's panel rather than a bubble off one pill. Its
+    // bottom edge floats 10px above the nav; its height fills the space
+    // between the bars and the body scrolls when it must.
+    const rect = document.querySelector<HTMLElement>('[data-chrome-bottom]')?.getBoundingClientRect()
     if (rect) {
-      const width = Math.min(360, window.innerWidth - 28)
-      const right = Math.min(
-        Math.max(14, Math.round(window.innerWidth - rect.right)),
-        window.innerWidth - width - 14,
-      )
+      const wide = ownerInline && window.innerWidth >= 900
+      const width = Math.min(wide ? 760 : 480, window.innerWidth - 28)
+      const left = Math.round(clamp(rect.left + rect.width / 2 - width / 2, 14, Math.max(14, window.innerWidth - width - 14)))
+      // rect.top reads mid-animation when the chrome is still sliding in —
+      // the nav's settled offset (its own height + 16px dock) is the floor
+      // so the card never lands flush against the bar.
+      const bottom = Math.round(Math.max(window.innerHeight - rect.top, rect.height + 16) + 10)
+      const viewportHeight = Math.round(window.visualViewport?.height ?? window.innerHeight)
+      setSettingsWide(wide)
       setPopoverAnchor({
-        left: 'auto',
+        left: `${left}px`,
+        right: 'auto',
         top: 'auto',
-        right: `${right}px`,
-        bottom: `${Math.round(window.innerHeight - rect.top + 8)}px`,
+        bottom: `${bottom}px`,
+        width: `${width}px`,
+        maxHeight: `${Math.max(160, viewportHeight - bottom - (safeAreaTopPx() + 64))}px`,
       })
     }
     setModalOpen(true)
@@ -347,12 +399,46 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     setGridClosing(false)
     setGridOpen(true)
   }
+  // Edit mode's draft lives in the summary — the page's manifest never
+  // carries hidden items — fetched once per session, not per open.
+  const beginEdit = () => {
+    if (editLoading || pickerEdit) return
+    setEditLoading(true)
+    setEditNote(null)
+    void (async () => {
+      try {
+        const items = await loadGalleryItems(slug)
+        // The picker may have closed while the summary was in flight —
+        // writing pickerEdit now would surface the editor, not browse,
+        // on the next open.
+        if (!gridOpenRef.current) return
+        setEditItems(items)
+        setGridSel(Math.max(0, items.findIndex((item) => item.id === images[indexRef.current]?.id)))
+        setPickerEdit(true)
+      } catch (error) {
+        setEditNote(error instanceof Error ? error.message : 'The gallery could not be loaded for editing')
+      } finally {
+        setEditLoading(false)
+      }
+    })()
+  }
+  const exitEdit = () => {
+    pickerActionsRef.current = null
+    setPickerEdit(false)
+    setEditItems(null)
+    setEditNote(null)
+  }
   const closeModals = () => {
     anyModalOpenRef.current = false
     gridOpenRef.current = false
     setModalOpen(false)
     setInfoOpen(false)
     setGridOpen(false)
+    // Leaving the picker ends any in-flight edit — the draft's component
+    // unmounts, so its state dies with it.
+    setPickerEdit(false)
+    setEditItems(null)
+    pickerActionsRef.current = null
     setGridClosing(false)
     scheduleChromeHide()
   }
@@ -643,22 +729,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // The end card's Library exit follows the chrome's rule exactly:
   // signed-out visitors keep Rewind only.
   const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
-  const defaultOpenOwnerDetails = viewerRole === 'owner' && libraryHref ? (reorder = false) => {
-    // The gallery history entry being left must carry the open photograph:
-    // Back lands on `?photo=`'s deep link instead of resetting to the
-    // curtain.
-    const here = new URL(window.location.href)
-    here.searchParams.set('photo', images[index]?.id ?? '')
-    window.history.replaceState(window.history.state, '', `${here.pathname}${here.search}${here.hash}`)
-    const target = new URL(libraryHref, window.location.origin)
-    target.searchParams.set('details', slug)
-    target.searchParams.set('photo', images[index]?.id ?? '')
-    // `reorder=1` lands straight inside the reorder overlay, a tap short of
-    // the Details surface that carries it.
-    if (reorder) target.searchParams.set('reorder', '1')
-    window.location.assign(`${target.pathname}${target.search}`)
-  } : undefined
-  const openOwnerDetails = onOpenDetails ?? (defaultOpenOwnerDetails ? () => defaultOpenOwnerDetails() : undefined)
+  // Reorder moved from a dashboard overlay into this picker — the
+  // panel's row just closes the popover and opens Edit mode.
+  const openPickerEdit = () => {
+    closeModals()
+    openGrid()
+    beginEdit()
+  }
   // The same chrome slot serves the member and the visitor. A member's
   // "Add to Library" copies the gallery into their account and lands on
   // the copy — the 409 duplicate path answers the existing gallery's URL,
@@ -692,76 +769,29 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     ? `/?next=${encodeURIComponent(`/${galleryOwner}/${slug}`)}`
     : undefined)
 
-  // The Settings popover's role-bound rows. Owner rows split by reach:
-  // link-copy and folder re-reads run inline, surfaces that already exist
-  // (reorder, the full Details drawer) deep-link into them.
-  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [linkCopied, setLinkCopied] = useState(false)
-  const copyShareLink = () => {
-    if (!galleryOwner) return
-    void (async () => {
-      try {
-        await navigator.clipboard.writeText(`${window.location.origin}/${galleryOwner}/${slug}`)
-        setLinkCopied(true)
-        if (copyResetRef.current) clearTimeout(copyResetRef.current)
-        copyResetRef.current = setTimeout(() => setLinkCopied(false), 1600)
-      } catch { /* clipboard denied — the address bar still carries it */ }
-    })()
-  }
-  const [readState, setReadState] = useState<'idle' | 'busy' | 'error'>('idle')
-  const [readNote, setReadNote] = useState<string | null>(null)
-  const readFolderAgain = () => {
-    if (readState === 'busy') return
-    setReadState('busy')
-    setReadNote(null)
-    void (async () => {
-      try {
-        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}/refresh`, { method: 'POST' })
-        const payload = await response.json().catch(() => ({})) as { error?: string }
-        if (!response.ok) throw new Error(payload.error || 'That folder could not be read again')
-        // The manifest is SSR state — reload into the fresh gallery at the
-        // same photograph so the re-read shows what changed.
-        const here = new URL(window.location.href)
-        here.searchParams.set('photo', images[index]?.id ?? '')
-        window.location.assign(`${here.pathname}${here.search}${here.hash}`)
-      } catch (error) {
-        setReadState('error')
-        setReadNote(error instanceof Error ? error.message : 'That folder could not be read again')
-      }
-    })()
-  }
-
-  const rowIcon = (...paths: string[]) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-      {paths.map((path) => <path key={path} d={path} />)}
-    </svg>
-  )
-  const settingsActions = openOwnerDetails ? (
-    <ActionGroup label="This gallery" note={readNote ?? undefined}>
-      {libraryHref ? (
-        <ActionRow
-          label={linkCopied ? 'Link copied' : 'Share link'}
-          icon={rowIcon('M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6')}
-          onClick={copyShareLink}
-        />
-      ) : null}
-      {defaultOpenOwnerDetails ? (
-        <ActionRow
-          label="Reorder photographs"
-          icon={rowIcon('M7 4v16M4 7l3-3 3 3', 'M17 20V4M14 17l3 3 3-3')}
-          onClick={() => defaultOpenOwnerDetails(true)}
-        />
-      ) : null}
-      {libraryHref ? (
-        <ActionRow
-          label={readState === 'busy' ? 'Reading the folder…' : 'Read the folder again'}
-          icon={rowIcon('M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7')}
-          onClick={readFolderAgain}
-          disabled={readState === 'busy'}
-        />
-      ) : null}
-      <ActionRow label="Manage gallery" onClick={() => openOwnerDetails({ imageId: images[index]?.id ?? '', index })} />
+  // The Settings popover's role-bound section. A shell that passes
+  // onOpenDetails (native) keeps its single Details handoff; the web
+  // owner's management moved inline into OwnerGalleryPanel, so the web
+  // viewer no longer navigates away for editing.
+  const settingsActions = onOpenDetails ? (
+    <ActionGroup label="This gallery">
+      <ActionRow label="Manage gallery" onClick={() => onOpenDetails({ imageId: images[index]?.id ?? '', index })} />
     </ActionGroup>
+  ) : ownerGallery ? (
+    <OwnerGalleryPanel
+      owner={galleryOwner ?? ''}
+      slug={slug}
+      title={ownerGallery.title}
+      caption={ownerGallery.caption}
+      sourceLabel={ownerGallery.sourceLabel}
+      temporary={ownerGallery.temporary}
+      expiresAt={ownerGallery.expiresAt}
+      mediaCount={ownerGallery.mediaCount}
+      libraryHref={libraryHref}
+      onReorder={openPickerEdit}
+      currentPhotoId={() => images[indexRef.current]?.id ?? ''}
+      onTitleSaved={(title) => setTitleOverride(title)}
+    />
   ) : addToLibrary ? (
     <ActionGroup>
       <ActionRow
@@ -1389,6 +1419,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   useLayoutEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
+        // A consumed Escape (overlay stack, dialog, or the editor putting
+        // a held photograph back) must not also close the picker.
+        if (event.defaultPrevented) return
+        // Focus outside the dialog skips its onKeyDown, so the editor's
+        // first claim on Escape routes through here too.
+        if (pickerActionsRef.current?.onKey(event)) return
         event.preventDefault()
         requestCloseModals()
         return
@@ -1434,6 +1470,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       if (isTypingTarget(event.target as HTMLElement | null)) return
       const actions = gridActionsRef.current
       if (gridOpenRef.current) {
+        // Edit mode claims its keys first; unconsumed arrows fall through
+        // to the same selection stepping as browse.
+        if (pickerActionsRef.current?.onKey(event)) return
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') { event.preventDefault(); actions.stepGridSel(event.key); return }
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); actions.commitGridSel(); return }
       }
@@ -1446,6 +1485,19 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // `?edit=1` is an opening intent, not an address — the owner lands
+  // inside the picker's Edit mode and the param goes away so a reload
+  // lands on the plain gallery.
+  useEffect(() => {
+    if (!initialEdit) return
+    openGrid()
+    beginEdit()
+    const url = new URL(window.location.href)
+    url.searchParams.delete('edit')
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -2720,7 +2772,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
         onOpenSettings={openSettings}
         onOpenInfo={openImageProvenance}
         onOpenPicker={openGrid}
-        pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${galleryTitle || slug}`}
+        pickerAriaLabel={`Photograph ${index + 1} of ${images.length} — open ${displayTitle || slug}`}
         onRequestShow={requestShowChrome}
         onActivity={pauseChrome}
         onIdle={scheduleChromeHide}
@@ -2731,8 +2783,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       />
 
       {gridOpen ? <>
-        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={requestCloseModals} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${galleryTitle || slug} photographs`} onKeyDown={(event) => {
+        <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={() => { if (pickerActionsRef.current) pickerActionsRef.current.cancel(); else requestCloseModals() }} />
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
+          if (pickerActionsRef.current?.onKey(event)) return
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
             stepGridSel(event.key)
@@ -2745,14 +2798,32 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           }
           onModalKeyDown(event)
         }}>
+          {pickerEdit && editItems ? (
+            <PickerEditor
+              slug={slug}
+              items={editItems}
+              selIndex={gridSel}
+              frameRef={filmstripFrameRef}
+              pan={{ onPointerDown: startFilmstripPan, onPointerMove: moveFilmstripPan, onPointerUp: endFilmstripPan, onPointerCancel: endFilmstripPan, onWheel: wheelFilmstrip }}
+              suppressClickRef={gridSuppressClickRef}
+              actionsRef={pickerActionsRef}
+              currentPhotoId={() => images[indexRef.current]?.id ?? ''}
+              onExit={exitEdit}
+            />
+          ) : (
+          <>
           <div class="viewer-picker-header">
             <strong>
-              <span>{galleryTitle || slug}</span>
+              <span>{displayTitle || slug}</span>
               <span class="viewer-picker-meta">
-                {galleryTitle ? `${galleryTitle} · ` : ''}{images.length} photos
+                {formatMediaCount(mediaCountOf(images))}
               </span>
+              {editNote ? <span class="viewer-picker-alert" role="alert">{editNote}</span> : null}
             </strong>
-            <button type="button" onClick={requestCloseModals} aria-label={`Close ${galleryTitle || slug}`}>Close</button>
+            {ownerInline ? (
+              <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
+            ) : null}
+            <button type="button" onClick={requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>
             <div class="viewer-filmstrip-track">
@@ -2764,6 +2835,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                   class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
                   data-grid-item
                   data-grid-active={imageIndex === gridSel ? 'true' : undefined}
+                  data-image-id={image.id}
                   aria-current={imageIndex === gridSel ? 'true' : undefined}
                   aria-label={`${video ? 'Video' : 'Photograph'} ${imageIndex + 1} of ${images.length}`}
                   onPointerMove={() => {
@@ -2778,6 +2850,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               })}
             </div>
           </div>
+          </>
+          )}
         </div>
       </> : null}
 
@@ -2799,6 +2873,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           magnifierActive={magnifierActive}
           deviceControls={deviceControls}
           actions={settingsActions}
+          wide={settingsWide}
           panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
         />
       </div>

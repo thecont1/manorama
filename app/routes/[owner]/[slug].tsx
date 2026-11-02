@@ -5,9 +5,11 @@ import { BundledSource, mediaCountOf } from '../../lib/imagesource'
 import { defaultGallerySettings } from '../../lib/gallery-settings'
 import {
   getGallery,
+  retentionOf,
   type GalleryEnv,
   type GalleryRecord,
 } from '../../lib/gallery-repository'
+import { sourceLabelFor } from '../../lib/source-label'
 import { getUserByOwnerSlug } from '../../lib/user-repository'
 import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
@@ -46,6 +48,9 @@ export default createRoute(async (c) => {
   // the client so a reload starts at the first photograph. Only manifest
   // item ids count (ad plates never do).
   const photoParam = c.req.query('photo')
+  // `?edit=1` is the owner's picker's Edit mode deep-link — it also counts
+  // as entered (no curtain); for anyone else it is ignored entirely.
+  const ownerEdit = viewerRole === 'owner' && c.req.query('edit') === '1'
   // Hidden items are kept in the stored manifest (so a source refresh can
   // merge around them) but never reach a public surface — not even for the
   // owner, whose view must match what the gallery publishes.
@@ -54,6 +59,7 @@ export default createRoute(async (c) => {
   const photoIndex = photoParam ? source.list().findIndex((item) => item.id === photoParam) : -1
 
   const plate = await webAdFrameForRequest(c.req.raw, accessEnvOf(c), undefined, gallery.slug)
+  const media = mediaCountOf(source.list())
 
   const settings = defaultGallerySettings(gallery)
   // Per-gallery social card: the first frame with the wordmark over it.
@@ -67,7 +73,7 @@ export default createRoute(async (c) => {
   c.header('Cache-Control', 'private, no-store')
 
   return c.render(
-    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={mediaCountOf(source.list())} entered={photoIndex >= 0}>
+    <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>
       <Viewer
         slug={gallery.slug}
         galleryTitle={gallery.title}
@@ -77,6 +83,17 @@ export default createRoute(async (c) => {
         viewerRole={viewerRole}
         galleryOwner={owner}
         libraryHref={libraryHref}
+        ownerGallery={viewerRole === 'owner' ? {
+          title: gallery.title,
+          caption: gallery.caption,
+          sourceLabel: sourceLabelFor(gallery.sourceUrl),
+          temporary: retentionOf(gallery) === 'pipeline',
+          expiresAt: gallery.expiresAt,
+          // Hidden items never leave this route — the owner panel gets
+          // their count only, matching what the library cards say.
+          mediaCount: { ...media, hidden: gallery.images.length - visible.length },
+        } : undefined}
+        initialEdit={ownerEdit}
         initialIndex={photoIndex > 0 ? photoIndex : 0}
       />
     </GalleryShell>,

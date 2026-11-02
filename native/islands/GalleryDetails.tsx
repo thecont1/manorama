@@ -3,6 +3,7 @@ import GalleryDetailsView from '../../app/components/GalleryDetailsView'
 import { Button } from '../../app/components/ui/Button'
 import { Sheet } from '../../app/components/ui/Sheet'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
+import { summaryMediaCount } from '../../app/lib/imagesource'
 import { deleteGallery, refreshGallery, updateGalleryMetadata } from '../lib/api'
 import { sourceLabelFor } from '../lib/library-media'
 import { nativeDeviceLabel } from '../lib/device-label'
@@ -130,6 +131,7 @@ export default function GalleryDetails({
         caption={gallery.caption ?? ''}
         address={`manorama.xyz/${owner}/${gallery.slug}`}
         imageCount={gallery.imageCount}
+        mediaCount={summaryMediaCount(gallery)}
         sourceLabel={sourceLabelFor(gallery.sourceUrl)}
         temporary={gallery.retention === 'pipeline'}
         expiresAt={gallery.expiresAt}

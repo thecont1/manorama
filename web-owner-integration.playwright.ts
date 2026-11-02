@@ -152,16 +152,10 @@ test('Details Share opens the shared sheet with the correct public URL', async (
   }
 })
 
-test('owner viewer chrome Details navigates to dashboard Details with details/photo query and Back returns to the viewer', async ({ browser }) => {
+test('owner viewer Settings carries gallery management inline — no Details navigation on web', async ({ browser }) => {
   test.setTimeout(30_000)
   const { context, page, slug, title } = await openDashboard(browser)
   try {
-    const firstPhotoId = await page
-      .locator(`[data-gallery-card="${slug}"] .admin-gallery-strip-item`)
-      .first()
-      .getAttribute('data-image-id')
-    expect(firstPhotoId).toBeTruthy()
-
     await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
     await dismissCurtain(page)
     await expect(page.locator('[data-viewer-role="owner"]')).toHaveCount(1)
@@ -171,24 +165,19 @@ test('owner viewer chrome Details navigates to dashboard Details with details/ph
     const settingsPill = page.locator('nav[aria-label="Viewer controls"] button', { hasText: 'Settings' })
     await expect(settingsPill).toBeVisible()
     await settingsPill.click()
-    const manageRow = page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Manage gallery' })
-    await expect(manageRow).toBeVisible()
-    await manageRow.click({ noWaitAfter: true })
-
-    await page.waitForURL((url) => {
-      return url.pathname === `/${owner}` && url.searchParams.get('details') === slug
-        && url.searchParams.get('photo') === firstPhotoId
-    }, { timeout: 25_000 })
-
-    await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20_000 })
-    const details = page.locator('[data-screen="details"]')
-    await expect(details).toBeVisible()
-    await expect(details.locator('.d-name')).toHaveText(title)
-
-    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 25_000 })
-    await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`), { timeout: 25_000 })
-    await dismissCurtain(page)
-    await expect(page.locator('[data-chrome-position]')).toBeVisible({ timeout: 15_000 })
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await expect(dialog).toBeVisible()
+    // The panel is the gallery: header, inline edit rows, share/refresh,
+    // and the destructive row — and no "Manage gallery" handoff to the
+    // dashboard anywhere on web.
+    await expect(dialog.locator('.m-owner-panel-title')).toHaveText(title)
+    await expect(dialog.getByRole('button', { name: 'Manage gallery' })).toHaveCount(0)
+    // The rows' accessible names carry their values ("Name Mixed album"),
+    // so match on the label itself.
+    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again', 'Remove gallery']) {
+      await expect(dialog.getByRole('button', { name: label }), label).toBeVisible()
+    }
+    await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`))
   } finally {
     await context.close()
   }

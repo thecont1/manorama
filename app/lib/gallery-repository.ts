@@ -1,5 +1,6 @@
 import type { D1Database } from '@cloudflare/workers-types'
-import { isVideoItem, type GalleryMediaItem, type GalleryManifest } from './imagesource'
+import { libraryLayout, STRIP_PREVIEW_ITEMS } from '../../packages/core/library-layout'
+import { isVideoItem, mediaCountOf, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 import { getUserByAccountId } from './user-repository'
 import { clearDeviceGalleryLink } from './device-gallery-repository'
 import {
@@ -11,6 +12,7 @@ import {
   PIPELINE_LIFETIME_MS,
   type GalleryRetention,
 } from './gallery-policy'
+import type { AccountTier } from '../../packages/core/account'
 
 /**
  * Gallery storage. Every gallery belongs to exactly one owner (a Dropbox
@@ -27,6 +29,7 @@ export type GalleryRecord = GalleryManifest & {
   createdAt?: string
   retention?: GalleryRetention
   expiresAt?: string | null
+  pinnedAt?: string | null
 }
 
 type GalleryRow = {
@@ -39,6 +42,7 @@ type GalleryRow = {
   created_at: string | null
   retention: string | null
   expires_at: string | null
+  pinned_at: string | null
 }
 
 export type GalleryEnv = { DB?: D1Database }
@@ -57,13 +61,14 @@ const ownerStore = (ownerId: string) => {
   return store
 }
 
-const retentionOf = (gallery: { retention?: GalleryRetention }): GalleryRetention =>
+export const retentionOf = (gallery: { retention?: GalleryRetention }): GalleryRetention =>
   gallery.retention === 'pipeline' ? 'pipeline' : 'retained'
 
 const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
   ...gallery,
   retention: retentionOf(gallery),
   expiresAt: gallery.expiresAt ?? null,
+  pinnedAt: gallery.pinnedAt ?? null,
 })
 
 const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
@@ -77,6 +82,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
     createdAt: row.created_at ?? undefined,
     retention: row.retention === 'pipeline' ? 'pipeline' : 'retained',
     expiresAt: row.expires_at ?? null,
+    pinnedAt: row.pinned_at ?? null,
     images: [],
   }
   if (row.images_json) {
@@ -90,7 +96,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'slug, title, caption, date, source_url, images_json, created_at, retention, expires_at'
+const GALLERY_COLUMNS = 'slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at'
 
 type GalleryInsertRow = {
   slug: string
@@ -367,6 +373,27 @@ export const updateGallerySlug = async (ownerId: string, slug: string, nextSlug:
   return nextGallery
 }
 
+/** Sets or clears the pinned timestamp on a retained gallery. The pin is
+ *  Library presentation, not gallery content, so a pipeline gallery is not
+ *  a candidate — the retained guard matches every other update here. */
+export const setGalleryPinned = async (ownerId: string, slug: string, pinned: boolean, env?: GalleryEnv): Promise<GalleryRecord | null> => {
+  const pinnedAt = pinned ? new Date().toISOString() : null
+  if (d1Configured(env)) {
+    const result = await env.DB.prepare(
+      `UPDATE galleries SET pinned_at = ? WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
+    ).bind(pinnedAt, ownerId, slug).run()
+    if ((result.meta.changes ?? 0) === 0) return null
+    return getGallery(ownerId, slug, env)
+  }
+  const store = ownerStore(ownerId)
+  const current = store.get(slug)
+  if (!current) return null
+  assertGalleryEditable(current)
+  const updated = { ...normalizeRecord(current), pinnedAt }
+  store.set(slug, updated)
+  return updated
+}
+
 /** Order/dedupe key: `ref` when the provider gives a stable item ID
  *  (Drive file ID, iCloud photo GUID), else the filename (Dropbox names
  *  are unique per folder). Identical for images and videos — a mixed
@@ -563,8 +590,32 @@ export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: 
   return ownerStore(key.ownerId).delete(key.slug)
 }
 
-export const toSummary = (gallery: GalleryRecord) => ({ slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, images: previewImages(gallery.images) })
+export const toSummary = (gallery: GalleryRecord) => {
+  // stills/videos count what the published gallery shows — the route
+  // filters `hidden` — while `hidden` carries the concealed total so owner
+  // surfaces can state it. `imageCount` stays the full count: the native
+  // vault's "Saving n of imageCount" progress reads it.
+  const visible = gallery.images.filter((image) => !image.hidden)
+  const { stills, videos } = mediaCountOf(visible)
+  return { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, images: previewImages(gallery.images) }
+}
 export type GallerySummary = ReturnType<typeof toSummary>
+
+/** The Library's payload diet: strip galleries ship a bounded rail preview
+ *  in stored order (hidden items ride along — the owner rail dims them),
+ *  compact galleries ship only their first visible item as a cover, and
+ *  every summary keeps its real counts. `layout` names the treatment so
+ *  the Admin island never recomputes it. */
+export const toLibrarySummaries = (galleries: readonly GalleryRecord[], tier: AccountTier) => {
+  const layout = libraryLayout(galleries, tier)
+  const strips = new Set(layout.strips)
+  return galleries.map((gallery) => {
+    const summary = toSummary(gallery)
+    if (strips.has(gallery.slug)) return { ...summary, images: summary.images.slice(0, STRIP_PREVIEW_ITEMS), layout: 'strip' as const }
+    return { ...summary, images: summary.images.filter((image) => !image.hidden).slice(0, 1), layout: 'compact' as const }
+  })
+}
+export type LibrarySummary = ReturnType<typeof toLibrarySummaries>[number]
 
 /** Drops one owner's whole in-memory store so the non-D1 branch of
  *  deleteAccount leaves no orphaned gallery records behind. */

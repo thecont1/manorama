@@ -4,7 +4,7 @@ import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
 import { decideBack } from '../lib/back-decision'
 import { nativeDeviceLabel } from '../lib/device-label'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
-import { isVideoItem, mediaCountOf } from '../../app/lib/imagesource'
+import { formatMediaCount, isVideoItem, mediaCountOf, summaryMediaCount } from '../../app/lib/imagesource'
 import type { GallerySettings } from '../../app/lib/gallery-settings'
 import type { FoldLayout } from '../../packages/core/fold'
 import type { Theme } from '../../app/lib/owner-theme'
@@ -1369,7 +1369,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           >···</button>
         </div>
         <p class="lib-card-sub">
-          {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'}
+          {formatMediaCount(summaryMediaCount(gallery))}
           {' · '}{sourceLabelFor(gallery.sourceUrl)}
           {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
           <LibraryDeviceStatus
@@ -1409,7 +1409,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <button type="button" class="lib-card-title" onClick={() => openSelectionAt(gallery.owner, gallery.slug, 0)}>{gallery.title}</button>
         <button type="button" class="lib-card-menu" aria-label={`${gallery.title} saved-copy actions`} aria-haspopup="dialog" onClick={() => setCachedMenuGallery(gallery)}>···</button>
       </div>
-      <p class="lib-card-sub">{gallery.frames.length} {gallery.frames.length === 1 ? 'photograph' : 'photographs'} · Offline copy complete · Saved on this device{accountGalleries && !accountListFailed ? ' · not in the online account list' : ' · account list pending'}</p>
+      <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Offline copy complete · Saved on this device{accountGalleries && !accountListFailed ? ' · not in the online account list' : ' · account list pending'}</p>
     </article>
   )
   // Render gate: an unresolved entitlement drops the slot in the same paint

@@ -50,6 +50,35 @@ export const moveHeldItem = <I extends ReorderItem>(state: ReorderState<I>, to: 
   return moveItem(state, from, bounded)
 }
 
+/** The target index a vertical arrow should land on in the matrix: the
+ *  cell in the row above/below whose horizontal position is closest to
+ *  the current cell's. Rows are cells sharing a top edge; unknown rows
+ *  keep the current index. */
+export const rowStepIndex = (
+  cells: readonly { top: number; left: number }[],
+  current: number,
+  direction: -1 | 1,
+): number => {
+  const here = cells[current]
+  if (!here) return current
+  const tops = [...new Set(cells.map((cell) => cell.top))].sort((a, b) => a - b)
+  const rowIndex = tops.findIndex((top) => Math.abs(top - here.top) < 1)
+  if (rowIndex < 0) return current
+  const targetRow = rowIndex + direction
+  if (targetRow < 0 || targetRow >= tops.length) return current
+  let best = current
+  let bestDistance = Infinity
+  cells.forEach((cell, index) => {
+    if (Math.abs(cell.top - tops[targetRow]) >= 1) return
+    const distance = Math.abs(cell.left - here.left)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = index
+    }
+  })
+  return best
+}
+
 export const discardReorder = <I extends ReorderItem>(state: ReorderState<I>): ReorderState<I> => {
   const byKey = new Map(state.items.map((item) => [item.orderKey, item]))
   const seen = new Set<string>()

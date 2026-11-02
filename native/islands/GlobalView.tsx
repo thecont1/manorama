@@ -135,6 +135,7 @@ const manifestFrames = (
       id: image.id,
       entryId: saved?.entryId ?? '',
       mimeType: saved?.mimeType ?? '',
+      video: isVideoItem(image),
       width: image.width,
       height: image.height,
       alt: image.alt,

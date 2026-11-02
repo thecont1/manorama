@@ -99,6 +99,7 @@ const sharedD1Database = async () => {
     // Gallery deletes clear device_galleries links — the table is part of
     // the real schema, so the fixture carries it too.
     await applyMigration(proxy.env.DB, '0007_device_galleries.sql')
+    await applyMigration(proxy.env.DB, '0012_gallery_pinned.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB
@@ -174,6 +175,9 @@ describe('migration 0002 on a legacy database', () => {
       .bind('legacy', OWNER, 'Legacy', '', '', 'https://www.dropbox.com/scl/fo/legacy', '[]', '2026-01-01T00:00:00.000Z')
       .run()
     await applyMigration(db, '0002_gallery_retention.sql')
+    // The repository reads pinned_at on every row fetch — the column is
+    // part of the real schema now, so the rehearsal carries it too.
+    await applyMigration(db, '0012_gallery_pinned.sql')
   }, 15_000)
 
   afterAll(async () => {

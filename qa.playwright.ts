@@ -472,9 +472,15 @@ for (const vp of viewports) {
       await page.getByRole("button", { name: "Settings", exact: true }).click();
       const settingsDialog = page.getByRole("dialog", { name: "Settings" });
       await expect(settingsDialog).toBeVisible();
+      // The owner's management lives inline in the popover now — the web
+      // viewer never hands off to dashboard Details.
+      await expect(settingsDialog.getByText("This gallery")).toBeVisible();
+      await expect(
+        settingsDialog.getByRole("button", { name: "Share link" }),
+      ).toBeVisible();
       await expect(
         settingsDialog.getByRole("button", { name: "Manage gallery" }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       // Vertical scroll keeps the bars working in their docks.
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
@@ -2126,6 +2132,111 @@ test.describe("display and info sheets", () => {
     await expect(dialog).not.toBeVisible();
   });
 
+  test("the popover anchors to the bottom nav and fills the space between the bars", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    await expect(dialog).toBeVisible();
+    const card = (await dialog.boundingBox())!;
+    const nav = await page
+      .locator("[data-chrome-bottom]")
+      .evaluate((el) => el.getBoundingClientRect());
+    const viewport = page.viewportSize()!;
+    // Fully inside the viewport with at least the 14px margin rule.
+    expect(card.x).toBeGreaterThanOrEqual(13);
+    expect(card.x + card.width).toBeLessThanOrEqual(viewport.width - 13);
+    expect(card.y).toBeGreaterThanOrEqual(0);
+    expect(card.y + card.height).toBeLessThanOrEqual(viewport.height);
+    // Centred on the nav's centre line when the card fits unclamped —
+    // on phone the 14px margins win over the centre.
+    const cardCentre = card.x + card.width / 2;
+    const navCentre = nav.x + nav.width / 2;
+    if (card.width <= viewport.width - 28) {
+      expect(Math.abs(cardCentre - navCentre)).toBeLessThanOrEqual(2);
+    }
+    // The card floats just above the nav it anchors to.
+    expect(nav.top - (card.y + card.height)).toBeGreaterThanOrEqual(8);
+    expect(nav.top - (card.y + card.height)).toBeLessThanOrEqual(60);
+    // The owner gets inline management, never a Details handoff, and the
+    // shortcuts section always closes the sheet.
+    await expect(dialog.getByRole("button", { name: "Manage gallery" })).toHaveCount(0);
+    const sections = dialog.locator(".m-sheet-section");
+    const count = await sections.count();
+    await expect(sections.nth(count - 1).getByText("Keyboard shortcuts")).toHaveCount(1);
+    const viewBox = await dialog.locator("[data-settings-view]").boundingBox();
+    const roleBox = await dialog.locator("[data-settings-role]").boundingBox();
+    expect(viewport.width).toBeGreaterThanOrEqual(900);
+    // Wide: View and This gallery sit side by side in two columns, and
+    // their headings share a baseline.
+    expect(Math.abs(viewBox!.y - roleBox!.y)).toBeLessThanOrEqual(4);
+    expect(roleBox!.x).toBeGreaterThan(viewBox!.x);
+    const viewHead = await dialog.locator("[data-settings-view] > .m-actiongroup-label").boundingBox();
+    const roleHead = await dialog.locator("[data-settings-role] .m-actiongroup-label").first().boundingBox();
+    expect(Math.abs(viewHead!.y - roleHead!.y)).toBeLessThanOrEqual(2);
+
+    // The same rules on a phone-width window: one column, and the 14px
+    // margins take precedence over the nav-centre anchor.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await page.setViewportSize({ width: 375, height: 812 });
+    await showChrome(page);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(dialog).toBeVisible();
+    const smallCard = (await dialog.boundingBox())!;
+    const smallNav = await page
+      .locator("[data-chrome-bottom]")
+      .evaluate((el) => el.getBoundingClientRect());
+    expect(smallCard.x).toBeGreaterThanOrEqual(13);
+    expect(smallCard.x + smallCard.width).toBeLessThanOrEqual(375 - 13);
+    expect(smallCard.y).toBeGreaterThanOrEqual(0);
+    expect(smallCard.y + smallCard.height).toBeLessThanOrEqual(812);
+    // The popover's 10px enter animation reads as a flush gap if measured
+    // mid-flight — re-measure until the geometry settles.
+    await expect(async () => {
+      const settledCard = (await dialog.boundingBox())!;
+      const settledNav = await page
+        .locator("[data-chrome-bottom]")
+        .evaluate((el) => el.getBoundingClientRect());
+      expect(settledNav.top - (settledCard.y + settledCard.height)).toBeGreaterThanOrEqual(8);
+      expect(settledNav.top - (settledCard.y + settledCard.height)).toBeLessThanOrEqual(60);
+    }).toPass({ timeout: 5000 });
+    const smallView = await dialog.locator("[data-settings-view]").boundingBox();
+    const smallRole = await dialog.locator("[data-settings-role]").boundingBox();
+    // Narrow: the role section stacks under View in one column.
+    expect(smallRole!.y).toBeGreaterThanOrEqual(smallView!.y + smallView!.height - 1);
+  });
+
+  test("the owner edits the gallery name inline and it persists", async ({
+    page,
+  }) => {
+    await dismissCurtain(page);
+    await showChrome(page);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    // Typing inside an editor must not reach the viewer's shortcuts —
+    // the "g" completes the name, it does not open the picker. The row's
+    // accessible name carries its value, so locate the label inside it.
+    await dialog
+      .locator(".m-actionrow")
+      .filter({ has: page.locator(".m-actionrow-label", { hasText: "Name" }) })
+      .first()
+      .click();
+    const field = dialog.locator(".m-owner-edit input");
+    await expect(field).toBeVisible();
+    await field.fill("Gallery ta");
+    await page.keyboard.press("g");
+    await expect(page.locator(".viewer-filmstrip")).toHaveCount(0);
+    await expect(field).toHaveValue("Gallery tag");
+    await field.press("Enter");
+    await expect(dialog.locator(".m-owner-edit")).toHaveCount(0);
+    // A reload proves the PATCH landed — the curtain and the panel agree.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-curtain-title]")).toContainText("Gallery tag");
+  });
+
   test("keyboard shortcuts render only where a fine pointer exists", async ({
     page,
   }) => {
@@ -2486,14 +2597,23 @@ test("admin gallery order is a draft until Save", async ({
   const detailsSurface = page.locator('[data-screen="details"]');
   await expect(detailsSurface).toBeVisible();
   await detailsSurface.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ }).click();
-  const reorder = page.locator("[data-screen=\"reorder\"]");
-  await expect(reorder).toBeVisible();
-  await expect(reorder.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
-  await reorder.locator(`[data-image-id="${secondId}"]`).click();
-  await reorder.locator(`[data-image-id="${firstId}"]`).click();
+  // The Details row hands off to the gallery page's picker Edit mode —
+  // the same pick-then-place draft, in the photograph matrix.
+  const editCells = page.locator(".viewer-edit-cell");
+  await expect(editCells.first()).toBeVisible({ timeout: 20000 });
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await expect(save).toBeDisabled();
+  await page.locator(`.viewer-edit-cell [data-image-id="${secondId}"]`).click();
+  await page.locator(`.viewer-edit-cell [data-image-id="${firstId}"]`).click();
   expect(writes).toEqual([]);
-  await reorder.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.locator(".admin-toast")).toHaveText("Order saved", { timeout: 20000 });
+  await expect(save).toBeEnabled();
+  await save.click();
+  // Save resolves the PATCH, then reloads the gallery at the on-stage
+  // photo — navigating away before that reload would abort the write.
+  // The filmstrip only detaches once the replace lands.
+  await expect(page.locator('.viewer-filmstrip')).toHaveCount(0, { timeout: 20000 });
+  await page.goto(`${BASE}/${OWNER}`, { waitUntil: "domcontentloaded" });
+  await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20000 });
   await expect(card.locator(".admin-gallery-strip-item").nth(0)).toHaveAttribute("data-image-id", secondId!);
   await expect(card.locator(".admin-gallery-strip-item").nth(1)).toHaveAttribute("data-image-id", firstId!);
 });

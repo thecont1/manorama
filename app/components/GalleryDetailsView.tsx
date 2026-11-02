@@ -1,5 +1,6 @@
 import type { Child } from 'hono/jsx'
 import { PIPELINE_LOCK_MESSAGE } from '../lib/gallery-policy'
+import { formatMediaCount, type MediaCount } from '../lib/imagesource'
 import { ActionGroup, ActionRow } from './ui/ActionRow'
 import { Button } from './ui/Button'
 import { Switch } from './ui/Switch'
@@ -10,6 +11,10 @@ type Props = {
   caption: string
   address: string
   imageCount: number
+  /** The sub line's still/video/hidden split — every surface counts media
+   *  the same way now, so the header never collapses videos into
+   *  photographs. `imageCount` stays for the Reorder row's item total. */
+  mediaCount: MediaCount
   sourceLabel: string
   temporary?: boolean
   expiresAt?: string | null
@@ -55,7 +60,7 @@ const icon = (...paths: string[]) => (
     {paths.map((path) => <path key={path} d={path} />)}
   </svg>
 )
-const ICONS = {
+export const DETAILS_ICONS = {
   share: () => icon('M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6'),
   name: () => icon('M4 20h4L19 9l-4-4L4 16z', 'M13.5 6.5l4 4'),
   caption: () => icon('M4 6h16M4 11h16M4 16h10'),
@@ -76,6 +81,7 @@ export function GalleryDetailsView({
   caption,
   address,
   imageCount,
+  mediaCount,
   sourceLabel,
   temporary = false,
   expiresAt,
@@ -128,7 +134,7 @@ export function GalleryDetailsView({
           {rail ? <div class="d-rail">{rail}</div> : null}
           <div class="d-name">{title}</div>
           <div class="d-sub">
-            {imageCount} {imageCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel}
+            {formatMediaCount(mediaCount)} · {sourceLabel}
             {temporary ? ` · Temporary gallery${expiresAt ? ` · expires ${expiresAt.slice(0, 10)}` : ''}` : ''}
             {deviceStatus}
           </div>
@@ -155,21 +161,21 @@ export function GalleryDetailsView({
                 action, not a second copy of the path. */}
             <ActionRow
               label="Share link"
-              icon={ICONS.share()}
+              icon={DETAILS_ICONS.share()}
               onClick={onShare}
               disabled={busy}
             />
           </ActionGroup>
 
           <ActionGroup>
-            <ActionRow label="Name" icon={ICONS.name()} value={title} onClick={onEditName} disabled={locked} />
+            <ActionRow label="Name" icon={DETAILS_ICONS.name()} value={title} onClick={onEditName} disabled={locked} />
             {/* A present caption reads in full on the header — only an empty
                 one needs the row to state it. */}
-            <ActionRow label="Caption" icon={ICONS.caption()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
+            <ActionRow label="Caption" icon={DETAILS_ICONS.caption()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
             {onEditAddress ? (
               <ActionRow label="Address" value={address} onClick={onEditAddress} disabled={locked} />
             ) : null}
-            <ActionRow label="Reorder photographs" icon={ICONS.reorder()} value={imageCount} onClick={onReorder} disabled={locked} />
+            <ActionRow label="Reorder photographs" icon={DETAILS_ICONS.reorder()} value={imageCount} onClick={onReorder} disabled={locked} />
           </ActionGroup>
 
           {platform === 'native' ? (
@@ -179,7 +185,7 @@ export function GalleryDetailsView({
                   span's index and swap the switch node mid-gesture. */}
               <ActionRow
                 label={`Keep on ${deviceLabel}`}
-                icon={ICONS.keep()}
+                icon={DETAILS_ICONS.keep()}
                 value={keepValue ?? ''}
                 control={(
                   <Switch
@@ -196,18 +202,18 @@ export function GalleryDetailsView({
               </p>
               {vaultNote ? <p class="m-note m-panel-note" role="status" aria-live="polite">{vaultNote}</p> : null}
               {hasSavedCopy ? <ActionRow label={`Remove saved copy from ${deviceLabel}`} onClick={onPurge} disabled={busy} /> : null}
-              <ActionRow label="Read the folder again" icon={ICONS.refresh()} onClick={onRefresh} disabled={locked} />
+              <ActionRow label="Read the folder again" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
             </ActionGroup>
           ) : (
             <ActionGroup>
-              <ActionRow label="Read the folder again" icon={ICONS.refresh()} onClick={onRefresh} disabled={locked} />
+              <ActionRow label="Read the folder again" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
             </ActionGroup>
           )}
 
           {note ? <p class="m-note" role="status">{note}</p> : null}
 
           <ActionGroup>
-            <ActionRow label="Remove gallery" icon={ICONS.remove()} tone="destructive" onClick={onRemove} disabled={busy} />
+            <ActionRow label="Remove gallery" icon={DETAILS_ICONS.remove()} tone="destructive" onClick={onRemove} disabled={busy} />
           </ActionGroup>
           <p class="d-acts-note">Removing it leaves every photograph in {sourceLabel}.</p>
         </div>

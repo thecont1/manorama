@@ -4,6 +4,7 @@ import Viewer from '../../app/islands/Viewer'
 import { defaultGallerySettings } from '../../app/lib/gallery-settings'
 import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
 import type { GalleryManifest } from '../../app/lib/imagesource'
+import { formatMediaCount, summaryMediaCount } from '../../app/lib/imagesource'
 import {
   classifyRoot,
   galleryTitleForRoot,
@@ -918,7 +919,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
                   </div>
                   <p class="lib-card-sub">
-                    {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} · {sourceLabelFor(gallery.sourceUrl)} · cloud gallery
+                    {formatMediaCount(summaryMediaCount(gallery))} · {sourceLabelFor(gallery.sourceUrl)} · cloud gallery
                   </p>
                 </article></li>
               })}

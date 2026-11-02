@@ -13,9 +13,10 @@ import { Sheet } from '../components/ui/Sheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
-import { WebReorderView } from '../components/WebReorderView'
 import { copyText } from '../lib/gallery-share'
+import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
+import { libraryLayout, STRIP_LIMIT_PRO, STRIP_PREVIEW_ITEMS } from '../../packages/core/library-layout'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -104,10 +105,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // title doubles as the flag and the Name placeholder.
   const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
   const [addChecking, setAddChecking] = useState(false)
-  const [reorderSlug, setReorderSlug] = useState<string | null>(null)
-  // A failed draft save stays visible inside the reorder overlay instead of
-  // only in the toast behind it.
-  const [reorderNote, setReorderNote] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // In-progress messages are sticky: they hold until the outcome
@@ -316,15 +313,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const slug = params.get('details')
+    // `reorder=1` was the dashboard's own reorder deep-link — editing now
+    // lives in the gallery picker's Edit mode, so old links land there.
+    if (slug && params.get('reorder') === '1' && galleries.some((gallery) => gallery.slug === slug)) {
+      window.location.replace(`/${owner}/${slug}?edit=1`)
+      return
+    }
     if (slug && galleries.some((gallery) => gallery.slug === slug)) {
       initialDetailsRef.current = slug
       setDetailsSlug(slug)
-      // `reorder=1` is the viewer Settings popover's reorder deep-link —
-      // land inside the overlay, not on the Details surface carrying it.
-      if (params.get('reorder') === '1') {
-        const gallery = galleries.find((item) => item.slug === slug)
-        if (gallery) reorderFromDetails(gallery)
-      }
     } else if (params.get('settings') === '1') {
       setSettingsOpen(true)
     }
@@ -419,48 +416,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       setSettingsNote(error instanceof Error ? error.message : 'That URL could not be saved')
       setBusy(false)
     }
-  }
-
-  // Resolves to the failure message so the open reorder view can show it
-  // beside its status line; null means the order was saved.
-  const persistGalleryOrder = async (gallery: GallerySummary, orderKeys: readonly string[], hiddenKeys: readonly string[]): Promise<string | null> => {
-    if (blockPipelineEdit(gallery)) return PIPELINE_LOCK_MESSAGE
-    if (busy) return 'Still saving — try again in a moment.'
-    setBusy(true)
-    announce('Saving order…', true)
-    try {
-      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: [...orderKeys], hidden: [...hiddenKeys] }),
-      })
-      const payload = await response.json() as { gallery?: GallerySummary; error?: string }
-      if (!response.ok || !payload.gallery) throw new Error(payload.error || 'That order could not be saved')
-      setGalleries((previous) => sortRecent(previous.map((item) => item.slug === payload.gallery!.slug ? payload.gallery! : item)))
-      announce('Order saved')
-      return null
-    } catch (error) {
-      setGalleries((previous) => previous.map((item) => item.slug === gallery.slug ? gallery : item))
-      const message = error instanceof Error ? error.message : 'That order could not be saved'
-      announce(message)
-      return message
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const saveDraftOrder = async (gallery: GallerySummary, orderKeys: readonly string[], hiddenKeys: readonly string[]) => {
-    const byKey = new Map(gallery.images.map((image) => [image.ref ?? image.filename, image]))
-    const images = orderKeys.map((key) => byKey.get(key)).filter((image): image is GallerySummary['images'][number] => image !== undefined)
-    if (images.length !== gallery.images.length) {
-      setReorderNote('That order could not be saved')
-      announce('That order could not be saved')
-      return
-    }
-    const failure = await persistGalleryOrder(gallery, orderKeys, hiddenKeys)
-    if (failure) { setReorderNote(failure); return }
-    setReorderNote(null)
-    setReorderSlug(null)
   }
 
   const trackTouchPointer = (event: PointerEvent) => {
@@ -737,6 +692,32 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
+  /** Pinning reshuffles the whole strip/compact split, so the lean list is
+   *  refetched rather than patched — covers and rails come back in sync. */
+  const togglePin = async (gallery: GallerySummary) => {
+    if (blockPipelineEdit(gallery)) return
+    setBusy(true)
+    setMenuSlug(null)
+    try {
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: !gallery.pinnedAt }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'That gallery could not be pinned')
+      const fresh = await fetch('/api/library')
+      const list = await fresh.json() as { galleries?: GallerySummary[]; error?: string }
+      if (!fresh.ok || !list.galleries) throw new Error(list.error || 'The library could not be reloaded')
+      setGalleries(sortRecent(list.galleries))
+      announce(gallery.pinnedAt ? `“${gallery.title}” unpinned` : `“${gallery.title}” pinned to top`)
+    } catch (error) {
+      announce(error instanceof Error ? error.message : 'That gallery could not be pinned')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const openGalleryTab = (gallery: GallerySummary) => {
     const anchor = document.createElement('a')
     anchor.href = `https://${galleryAddress(gallery.slug)}`
@@ -747,29 +728,19 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     anchor.remove()
   }
 
-  const reorderFromDetails = (gallery: GallerySummary) => {
-    if (blockPipelineEdit(gallery)) return
-    setReorderNote(null)
-    setReorderSlug(gallery.slug)
-    // Reorder takes over the surface in place — it must NOT run closeDetails'
-    // history.back(): Details opened from the viewer's ?details= link is this
-    // tab's current entry, so popping it walks back to the gallery page and
-    // unloads the dashboard under the overlay.
-    setDetailsSlug(null)
-    setShareSlug(null)
-    const params = new URLSearchParams(window.location.search)
-    // `photo` is the viewer's own back-target — dead weight on the library URL.
-    params.delete('details')
-    params.delete('photo')
-    params.delete('reorder')
-    const query = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
-  }
 
   // A card can cross its expiry while the dashboard stays open (the `now`
   // ticker rerenders every minute): expired pipeline galleries are already
   // gone logically and drop out of the next fetch, so skip them here too.
   const liveGalleries = galleries.filter((gallery) => !isGalleryExpired(gallery, new Date(now).toISOString()))
+  // Which galleries earn a rail and which collapse to a row is decided by
+  // the shared layout rule, recomputed here so a PATCH response carrying a
+  // full summary or a missing `layout` field never changes the shape.
+  const layout = libraryLayout(liveGalleries, tier)
+  const bySlug = new Map(liveGalleries.map((gallery) => [gallery.slug, gallery]))
+  const stripGalleries = layout.strips.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const pinnedCount = liveGalleries.filter((gallery) => gallery.pinnedAt).length
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
   const temporaryCount = liveGalleries.filter(isLocked).length
@@ -838,14 +809,18 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
-        {liveGalleries.length ? <ul class="lib-list">{liveGalleries.map((gallery) => {
+        {stripGalleries.length ? <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
+          // The rail previews at most a window of items; a quiet tail tile
+          // counts the rest without paying their payload.
+          const shown = gallery.images.slice(0, STRIP_PREVIEW_ITEMS)
+          const extra = gallery.imageCount - shown.length
           return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
             <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onClickCapture={suppressDraggedClick} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
-                {gallery.images.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
-                  <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${imageIndex + 1} of ${gallery.images.length}`}>
+                {shown.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
+                  <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${imageIndex + 1} of ${gallery.imageCount}`}>
                     <HeicImg src={image.src} preview={image.variants?.[0]?.src} filename={image.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
                       const img = event.currentTarget as HTMLImageElement
                       // Stored dims are the placeholder's shape — the decoded
@@ -878,14 +853,17 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                       : null}
                   </a>
                 </li>)}
+                {extra > 0 ? <li class="admin-gallery-strip-item admin-strip-more" aria-hidden="true">
+                  <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${extra} more in ${title}`} tabIndex={-1}>+{extra}</a>
+                </li> : null}
               </ul>
             </div>
             <div class="lib-card-head">
-              <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}</a>
+              <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
               <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
             </div>
             <p class="lib-card-sub">
-              {gallery.imageCount} {gallery.imageCount === 1 ? 'photograph' : 'photographs'} from {sourceLabelFor(gallery.sourceUrl)}
+              {formatMediaCount(summaryMediaCount(gallery))} from {sourceLabelFor(gallery.sourceUrl)}
               {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
@@ -895,13 +873,44 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
             </div> : null}
           </article></li>
-        })}</ul> : (
+        })}</ul> : null}
+        {compactGalleries.length ? (
+          <section aria-labelledby="lib-compact-title">
+            <h3 id="lib-compact-title" class="lib-compact-title">{tier === 'pro' ? 'More galleries' : 'Temporary galleries'}</h3>
+            <ul class="lib-compact-list">{compactGalleries.map((gallery) => {
+              const title = gallery.title || gallery.slug
+              const locked = isLocked(gallery)
+              // One visible cover item is all the row needs — a state
+              // summary carrying more never leaks past the render slice.
+              const cover = gallery.images.find((image) => !image.hidden)
+              return <li key={gallery.slug} class="lib-compact-row" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+                <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
+                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} filename={cover.filename} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
+                </a>
+                <div class="lib-compact-body">
+                  <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+                  <p class="lib-card-sub">
+                    {formatMediaCount(summaryMediaCount(gallery))} from {sourceLabelFor(gallery.sourceUrl)}
+                    {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+                  </p>
+                </div>
+                <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
+                {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
+                  <p>Remove “{title}” from manorama?{gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(gallery.sourceUrl)}.` : ''}</p>
+                  <button type="button" disabled={busy} onClick={() => void removeGallery(gallery)}>Remove gallery</button>
+                  <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
+                </div> : null}
+              </li>
+            })}</ul>
+          </section>
+        ) : null}
+        {!liveGalleries.length ? (
           <div class="lib-empty">
             <h3>No galleries yet</h3>
             <p>Paste a link to a folder or album you already share. Nothing is copied or moved.</p>
             <button type="button" class="m-btn m-btn--primary" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}>Add a gallery</button>
           </div>
-        )}
+        ) : null}
       </section>
       </div>
 
@@ -930,13 +939,21 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           {/* Native buttons and links, not menu/menuitem roles: there is no
               arrow-key roving focus here, so the menu role would overpromise. */}
           <div class="lib-menu">
+            {tier === 'pro' && !isLocked(menuGallery) ? (
+              <button
+                type="button"
+                disabled={busy || (!menuGallery.pinnedAt && pinnedCount >= STRIP_LIMIT_PRO)}
+                title={!menuGallery.pinnedAt && pinnedCount >= STRIP_LIMIT_PRO ? 'Up to 10 galleries can be pinned — unpin one first' : undefined}
+                onClick={() => { void togglePin(menuGallery) }}
+              >{menuGallery.pinnedAt ? 'Unpin' : 'Pin to top'}</button>
+            ) : null}
             <button type="button" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
             <button type="button" onClick={() => { openDetails(menuGallery.slug); setMenuSlug(null) }}>Gallery details</button>
             <button
               type="button"
               disabled={busy || isLocked(menuGallery)}
               title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
-              onClick={() => { setReorderNote(null); setReorderSlug(menuGallery.slug); setMenuSlug(null) }}
+              onClick={() => { window.location.assign(`/${owner}/${menuGallery.slug}?edit=1`) }}
             >Reorder photographs</button>
             {menuGallery.sourceUrl ? <a href={menuGallery.sourceUrl} target="_blank" rel="noreferrer">Open source</a> : null}
             {menuGallery.sourceUrl ? (
@@ -998,6 +1015,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             caption={detailsGallery.caption}
             address={`${publicHost}/${owner}/${detailsGallery.slug}`}
             imageCount={detailsGallery.imageCount}
+            mediaCount={summaryMediaCount(detailsGallery)}
             sourceLabel={sourceLabelFor(detailsGallery.sourceUrl)}
             temporary={isLocked(detailsGallery)}
             expiresAt={detailsGallery.expiresAt}
@@ -1014,7 +1032,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             onEditName={() => { setEditField('name'); setEditValue(detailsGallery.title); setEditNote(null) }}
             onEditCaption={() => { setEditField('caption'); setEditValue(detailsGallery.caption || ''); setEditNote(null) }}
             onEditAddress={() => { setEditField('address'); setEditValue(detailsGallery.slug); setEditNote(null) }}
-            onReorder={() => reorderFromDetails(detailsGallery)}
+            onReorder={() => { window.location.assign(`/${owner}/${detailsGallery.slug}?edit=1`) }}
             onRefresh={() => void refreshGalleryFromDetails(detailsGallery)}
             onRemove={() => void removeGalleryFromDetails(detailsGallery)}
             upgradeHref={upgradeHref}
@@ -1031,30 +1049,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           />
         </>
       ) : null}
-      {(() => {
-        const reorderGallery = reorderSlug ? galleries.find((item) => item.slug === reorderSlug) : undefined
-        if (!reorderGallery) return null
-        return (
-          <WebReorderView
-            title={reorderGallery.title}
-            busy={busy}
-            note={reorderNote}
-            images={reorderGallery.images.map((image) => ({
-              id: image.id,
-              orderKey: image.ref ?? image.filename,
-              width: image.width,
-              height: image.height,
-              src: image.src,
-              preview: image.variants?.[0]?.src,
-              filename: image.filename,
-              label: image.filename,
-              hidden: image.hidden,
-            }))}
-            onCancel={() => { setReorderNote(null); setReorderSlug(null) }}
-            onSave={(orderKeys, hiddenKeys) => { void saveDraftOrder(reorderGallery, orderKeys, hiddenKeys) }}
-          />
-        )
-      })()}
     </>
   )
 }

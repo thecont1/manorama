@@ -104,4 +104,17 @@ describe('gallery route viewer role and photo intent', () => {
     expect(html).toContain('Photograph 1 of 3 — open')
     expect(html).toContain('data-curtain')
   })
+
+  // `?edit=1` is the owner's Edit-mode deep link: it counts as entered
+  // (no curtain) only for the owner — members and visitors see the same
+  // page as without it.
+  test('?edit=1 skips the curtain for the owner only', async () => {
+    const asOwner = await get(`/${ownerSlug}/role-gallery?edit=1`, ownerCookie)
+    expect(asOwner.status).toBe(200)
+    expect(await asOwner.text()).not.toContain('data-curtain')
+    const asMember = await get(`/${ownerSlug}/role-gallery?edit=1`, memberCookie)
+    expect(await asMember.text()).toContain('data-curtain')
+    const asVisitor = await get(`/${ownerSlug}/role-gallery?edit=1`)
+    expect(await asVisitor.text()).toContain('data-curtain')
+  })
 })
