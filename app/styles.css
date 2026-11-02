@@ -1786,14 +1786,34 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .admin-galleries-heading { margin: 0; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
 /* The PNG carries transparent bearing, and the bold "m" starts a further
    ~4.6% in — the calligraphic overlay is what touches the canvas edge
-   (9.17% total, col 199 of 2170). Rendering the file at 306px puts the
-   ink near 280px, and the -28px margin pulls that bearing back so the
-   bold "m" starts square on the heading's left edge; the thin script may
-   overhang a few px left, like a proper optical margin. */
-.admin-brand-mark { display: block; width: 306px; height: auto; margin: 0 0 18px -28px; }
+   (9.17% total, col 199 of 2170). The -28px margin pulls that bearing
+   back so the bold "m" starts square on the heading's left edge; the
+   thin script may overhang a few px left, like a proper optical margin.
+   In the rail the mark scales with the column instead of a fixed 306px. */
+.admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin: 0 0 18px -28px; }
 .admin-library-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .admin-heading-actions { display: flex; align-items: center; gap: 10px; }
 .admin-library-sub { margin: 10px 0 28px; color: rgba(var(--ink), .55); font-size: 13px; }
+
+/* The Library's left rail — mark, heading, Add/Settings, tier line and
+   the sponsored slot — is one sticky column while the gallery cards
+   scroll beside it. Below the split width it stacks back into the page
+   flow as one column. */
+@media (min-width: 860px) {
+  .admin-page--selector .admin-content {
+    display: grid;
+    grid-template-columns: minmax(180px, min(240px, var(--admin-pane-limit, 240px))) minmax(0, 1fr);
+    column-gap: clamp(24px, 4vw, 56px);
+    align-items: start;
+  }
+  .admin-page--selector .admin-rail { position: sticky; top: 16px; min-width: 0; }
+}
+.admin-rail { min-width: 0; }
+.admin-rail .admin-library-heading { flex-direction: column; align-items: stretch; gap: 14px; }
+.admin-rail .admin-heading-actions { justify-content: flex-start; }
+.admin-rail .admin-library-sub { margin-bottom: 24px; }
+.admin-rail .account-ad { width: 100%; margin: 0; padding: 14px; gap: 12px; }
+.admin-rail .account-ad-media { width: 100%; }
 .admin-upgrade-link { color: rgb(var(--ink)); text-underline-offset: 3px; }
 .admin-add-pill { border-radius: 999px; padding: 9px 18px; margin: 0; min-height: var(--m-touch); font-family: var(--m-font); font-size: 15px; font-weight: 650; }
 .admin-settings-pill { border-radius: 999px; width: var(--m-touch); height: var(--m-touch); padding: 0; margin: 0; display: inline-flex; align-items: center; justify-content: center; }
@@ -1850,72 +1870,12 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
 .account-ad-sub { margin-top: 4px; color: rgba(var(--ink), .55); font-size: 13px; line-height: 1.45; }
 .account-ad-cta { margin-top: 8px; color: rgb(var(--ink)); font-size: 14px; line-height: 1.2; text-underline-offset: 3px; }
 
-@media (min-width: 900px) {
-  /* The sponsored slot lives in a second grid column — only when a
-     placement actually renders. --has-ad marks that, so a suppressed,
-     absent or unavailable ad never leaves an empty gutter, and the macOS
-     catalogue (same classes, never renders .account-ad) inherits nothing.
-     The column is sticky-height, so the card stays on screen while the
-     list scrolls beneath it. */
-  .admin-page--selector .gallery-list--has-ad {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(220px, 24vw, 320px);
-    column-gap: 28px;
-    align-items: start;
-    padding-right: 0;
-  }
-  .admin-page--selector .gallery-list--has-ad > :not(.account-ad) { grid-column: 1; }
-  .admin-page--selector .gallery-list--has-ad > .account-ad {
-    grid-column: 2;
-    /* Row 4 is the list itself — the slot's top lands level with the
-       first card's strip, and its sticky area is the list's full height. */
-    grid-row-start: 4;
-    position: sticky;
-    top: 16px;
-    width: 100%;
-    height: auto;
-    max-height: calc(100vh - 32px);
-    margin: 0;
-  }
-  /* In the rail the media is a definite-width panel claiming the room left
-     below the copy; the image fits inside it whole — capped on both axes,
-     ratio kept, never cropped. fit-content would leave the image nothing
-     definite to measure its caps against, which is how it got clipped. */
-  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media {
-    flex: 1 1 auto;
-    min-height: 0;
-    width: 100%;
-    aspect-ratio: auto;
-    display: grid;
-    place-items: center;
-  }
-  .admin-page--selector .gallery-list--has-ad > .account-ad .account-ad-media img {
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-}
-
-/* A surface panel never straddles the hinge — the sponsored slot stays
-   inside the leading segment's padded column. The right rail is a
-   single-window layout: under segmentation the ad returns to the flow so
-   it can neither straddle the hinge nor cover the content column, and the
-   reserved gutter goes with it. */
-.admin-page[data-admin-segmented] .gallery-list--has-ad { display: block; padding-right: 0; }
-.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad {
-  position: static;
-  height: auto;
-  margin: 0 0 40px;
-  width: min(480px, calc(var(--admin-left-end) - 160px));
-}
-.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad .account-ad-media {
-  flex: 0 0 auto;
-  width: min(360px, 100%);
-  aspect-ratio: 4 / 5;
-}
-.admin-page[data-admin-segmented] .gallery-list--has-ad > .account-ad .account-ad-media img { width: 100%; height: 100%; }
+/* A surface panel never straddles the hinge — the rail column is capped
+   by --admin-pane-limit, which the fold script sets to the leading
+   segment's right edge, so the sponsored slot and the buttons stay
+   inside the first pane. */
+.admin-page[data-admin-segmented] .admin-rail { position: static; }
+.admin-page[data-admin-segmented] .admin-content { column-gap: 32px; }
 
 /* Owner-approved on 10 October 2026: the web Photo Editor is a single
    horizontal row per gallery. The Photo Picker and Global View stay matrices.
@@ -2198,42 +2158,36 @@ button.lib-card-title {
 .lib-empty h3 { margin: 0; font-size: 19px; font-weight: 650; }
 .lib-empty p { margin: 6px 0 18px; color: var(--m-secondary); }
 
-/* Compact galleries get a single quiet row — a cover, the title and
-   count line, and the same ··· menu — under a small section label. The
-   lean payload ships only the cover item for these rows. */
-.lib-compact-title { margin: 28px 0 0; padding: 0 0 6px; font-size: var(--m-fs-small); font-weight: 600; color: var(--m-secondary); }
-.lib-compact-list { list-style: none; margin: 0; padding: 0; }
-.lib-compact-list > li + li { border-top: 1px solid rgba(var(--ink), .12); }
-.lib-compact-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 0; }
-.lib-compact-cover { display: block; flex: 0 0 auto; height: 64px; max-width: 40%; overflow: hidden; }
-.lib-compact-cover img { display: block; height: 64px; width: auto; max-width: none; opacity: 0; transition: opacity .32s ease; }
+/* Compact galleries fall into a masonry feed under a small section
+   label — one cover card each, the cover kept at its own ratio so card
+   heights vary. The lean payload ships only the cover item for these. */
+.lib-compact-title { margin: 28px 0 0; padding: 0 0 10px; font-size: var(--m-fs-small); font-weight: 600; color: var(--m-secondary); }
+.lib-compact-grid { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 14px; }
+@media (min-width: 640px) { .lib-compact-grid { columns: 3; } }
+@media (min-width: 1100px) { .lib-compact-grid { columns: 4; } }
+.lib-compact-card { position: relative; display: inline-block; width: 100%; margin: 0 0 14px; break-inside: avoid; }
+.lib-compact-cover { display: block; overflow: hidden; border-radius: 10px; background: rgba(var(--ink), .06); }
+.lib-compact-cover img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity .32s ease; }
 .lib-compact-cover img.is-loaded { opacity: 1; }
-.lib-compact-body { flex: 1; min-width: 140px; }
-.lib-compact-body .lib-card-title { min-height: 0; font-size: 16px; }
-.lib-compact-row > .lib-remove-confirm { flex: 0 0 100%; padding-bottom: 6px; }
+.lib-compact-card .lib-card-menu {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(17, 19, 18, .55);
+  color: rgba(244, 240, 232, .9);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.lib-compact-body { padding: 8px 2px 0; }
+.lib-compact-body .lib-card-title { min-height: 0; font-size: 15px; }
+.lib-compact-card > .lib-remove-confirm { padding-bottom: 6px; }
 
 /* A pinned card carries the pin beside its title — presentation only,
    the pin itself lives in the ··· menu. */
 .lib-pin { display: inline-flex; align-items: center; margin-left: 6px; color: rgba(var(--ink), .55); }
-
-/* The "+N" tile ends a trimmed rail — same height as the items, quiet
-   like the count line, and it still opens the gallery. */
-.admin-strip-more a {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 64px;
-  height: 100%;
-  padding: 0 14px;
-  color: rgba(239, 236, 223, .72);
-  font-size: 15px;
-  font-weight: 600;
-  text-decoration: none;
-  letter-spacing: .02em;
-}
-html.light .admin-strip-more a { color: var(--m-secondary); }
-.admin-strip-more a:hover { color: rgb(var(--ink)); }
-.admin-strip-more a:focus-visible { outline: 2px solid rgb(var(--ink)); outline-offset: -2px; }
 
 /* The card menu is a sheet of rows, each a finger-sized target. Rows are
    plain buttons and links — no menu role, since there is no roving focus. */

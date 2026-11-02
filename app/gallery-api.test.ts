@@ -793,17 +793,17 @@ describe('pinning and the lean library', () => {
     await setUserTier(TEST_OWNER.accountId, 'pro')
   })
 
-  test('an eleventh pin is refused until another is unpinned', async () => {
+  test('a pin past the strip limit is refused until another is unpinned', async () => {
     const { setUserTier } = await import('./lib/user-repository')
     await setUserTier(TEST_OWNER.accountId, 'pro')
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       await seed(`pin-fill-${index}`, index + 30)
       expect((await patch(`pin-fill-${index}`, { pinned: true })).status).toBe(200)
     }
-    const eleventh = await patch('pin-me', { pinned: true })
-    expect(eleventh.status).toBe(409)
-    expect(((await eleventh.json()) as { error?: string }).error).toBe('Up to 10 galleries can be pinned — unpin one first')
-    expect((await patch('pin-fill-9', { pinned: false })).status).toBe(200)
+    const fourth = await patch('pin-me', { pinned: true })
+    expect(fourth.status).toBe(409)
+    expect(((await fourth.json()) as { error?: string }).error).toBe('Up to 3 galleries can be pinned — unpin one first')
+    expect((await patch('pin-fill-2', { pinned: false })).status).toBe(200)
     expect((await patch('pin-me', { pinned: true })).status).toBe(200)
   })
 

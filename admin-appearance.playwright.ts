@@ -40,17 +40,21 @@ for (const size of sizes) {
         const gear = page.getByRole('button', { name: 'Settings', exact: true })
         await expect(page.locator('.m-topbar')).toHaveCount(0)
         await expect(gear).toBeVisible()
+        const rail = page.locator('.admin-rail')
+        const railBox = (await rail.boundingBox())!
         const heroMark = page.locator('.admin-brand-mark')
         await expect(heroMark).toHaveAttribute('src', '/manorama-merged-logo.png')
         const heroBox = (await heroMark.boundingBox())!
-        expect(heroBox.width).toBeGreaterThanOrEqual(280)
+        expect(heroBox.width).toBeGreaterThanOrEqual(180)
+        // The gear lives in the left rail with the mark, heading and Add —
+        // never past the rail's right edge.
         const gearBox = await gear.boundingBox()
-        expect(gearBox!.x).toBeGreaterThan(size.width / 2)
+        expect(gearBox!.x + gearBox!.width).toBeLessThanOrEqual(railBox.x + railBox.width + 1)
         expect(gearBox!.width).toBeGreaterThanOrEqual(44)
         await expect(page.getByText('Photo Editor', { exact: true })).toHaveCount(0)
 
-        // The Library leads with its heading; the sponsored portrait slot sits
-        // between it and the first card.
+        // The rail holds the mark, Library heading, actions and the
+        // sponsored portrait slot, in that order, above/left of the cards.
         await expect(page.getByRole('region', { name: 'Welcome to manorama' })).toHaveCount(0)
         const heading = page.getByRole('heading', { name: 'Library', exact: true })
         const sponsored = page.locator('.account-ad')
@@ -60,31 +64,28 @@ for (const size of sizes) {
         expect(headingBox.y).toBeGreaterThanOrEqual(heroBox.y + heroBox.height)
         const sponsoredBox = (await sponsored.boundingBox())!
         const cardBox = (await firstCard.boundingBox())!
-        if (size.width >= 900) {
-          // Wide: the slot is the grid's second column, beside the list —
-          // and its left edge never invades the content column.
-          expect(sponsoredBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1)
-          // The mark's bold "m" squares on the heading's left edge — "m"
-          // over "L". The box starts 28px left (bearing + script overhang).
-          expect(Math.abs(heroBox.x + 28 - headingBox.x)).toBeLessThan(2)
-          // The slot's top sits level with the first card's strip.
-          expect(Math.abs(sponsoredBox.y - cardBox.y)).toBeLessThan(2)
-          // The creative fits its media box whole — never cropped.
-          const mediaBox = (await sponsored.locator('.account-ad-media').boundingBox())!
-          const adImgBox = (await sponsored.locator('img').boundingBox())!
-          expect(adImgBox.x).toBeGreaterThanOrEqual(mediaBox.x - 1)
-          expect(adImgBox.x + adImgBox.width).toBeLessThanOrEqual(mediaBox.x + mediaBox.width + 1)
-          // Sticky: scrolling the list keeps the card on screen at its
-          // reserved top offset, while the cards pass underneath.
+        // The mark's bold "m" squares on the heading's left edge — "m"
+        // over "L". The box starts 28px left (bearing + script overhang).
+        expect(Math.abs(heroBox.x + 28 - headingBox.x)).toBeLessThan(2)
+        // The creative fits its media box whole — never cropped.
+        const mediaBox = (await sponsored.locator('.account-ad-media').boundingBox())!
+        const adImgBox = (await sponsored.locator('img').boundingBox())!
+        expect(adImgBox.x).toBeGreaterThanOrEqual(mediaBox.x - 1)
+        expect(adImgBox.x + adImgBox.width).toBeLessThanOrEqual(mediaBox.x + mediaBox.width + 1)
+        expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)
+        if (size.width >= 860) {
+          // Wide: the rail is the left column — the sponsored slot ends it,
+          // and cards live entirely to its right.
+          expect(cardBox.x).toBeGreaterThanOrEqual(railBox.x + railBox.width - 1)
+          // Sticky: scrolling the list keeps the rail (and the ad inside
+          // it) on screen while the cards pass underneath.
           await page.evaluate(() => window.scrollBy(0, 600))
-          const stuckBox = (await sponsored.boundingBox())!
+          const stuckBox = (await rail.boundingBox())!
           expect(stuckBox.y).toBeLessThanOrEqual(20)
           expect(stuckBox.y + stuckBox.height).toBeGreaterThan(0)
           await page.evaluate(() => window.scrollTo(0, 0))
         } else {
-          // Narrow: the slot stays in flow — under the heading, above the
-          // first card.
-          expect(sponsoredBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height)
+          // Narrow: the rail stacks — mark, heading, ad, then cards.
           expect(cardBox.y).toBeGreaterThanOrEqual(sponsoredBox.y + sponsoredBox.height)
         }
 

@@ -8,7 +8,9 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test'
  *      load and on `hashchange`, and the opening index comes from the
  *      `initialIndex` prop (default 0) and is never persisted — so a refresh
  *      always starts at the first photograph with a clean URL.
- *   2. The dashboard's gallery anchor already carries target="_blank".
+ *   2. The Library's gallery anchors open same-page: the strip preview is
+ *      already in the dashboard, so drilling in is a navigation, not a new
+ *      tab. External links (ad CTA, Open source) still carry _blank.
  *
  * This spec exists so neither can be undone quietly. It asserts the contracts
  * rather than the implementation, so refactors are free to move the code.
@@ -57,7 +59,13 @@ const dismissCurtain = async (page: Page) => {
  * event, which can outlast the whole test budget.
  */
 const openGallery = async (page: Page, url: string) => {
-  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  // The specs share one seeded store: a neighbouring spec's reset can
+  // land between our navigation and the render and 404 the gallery —
+  // re-navigate until a seeded page answers.
+  await expect(async () => {
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-curtain]')).toBeVisible({ timeout: 6_000 })
+  }).toPass({ timeout: 30_000 })
   await dismissCurtain(page)
   const sequence = page.locator('[data-chrome-position]')
   await expect(sequence).toBeVisible({ timeout: 15_000 })
@@ -67,7 +75,7 @@ const openGallery = async (page: Page, url: string) => {
 test.describe('standing preferences', () => {
   test.setTimeout(90_000)
 
-  test('every gallery link in the dashboard opens in a new tab', async ({ browser }) => {
+  test('every gallery link in the dashboard opens in the same tab', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
     await signIn(context)
     const page = await context.newPage()
@@ -80,14 +88,16 @@ test.describe('standing preferences', () => {
     for (let index = 0; index < count; index += 1) {
       const link = links.nth(index)
       const href = await link.getAttribute('href')
-      await expect(link, `${href} opens in a new tab`).toHaveAttribute('target', '_blank')
-      await expect(link, `${href} does not hand over the opener`).toHaveAttribute('rel', /noreferrer/)
+      // Internal drill-ins stay in the tab — a _blank anchor would strand
+      // a duplicate Library behind the gallery every time.
+      await expect(link, `${href} stays in the tab`).not.toHaveAttribute('target', '_blank')
     }
 
-    // Nothing may navigate the current tab to a gallery: a same-tab anchor
-    // would have no target, and a script navigation would have left the
-    // dashboard entirely.
-    await expect(page).toHaveURL(new RegExp(`/${owner}$`))
+    // The click actually navigates the same tab — Back returns to the
+    // Library rather than closing a spawned tab.
+    const first = await links.first().getAttribute('href')
+    await links.first().click()
+    await expect(page).toHaveURL(new RegExp(`${first!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
     await context.close()
   })
 
@@ -122,12 +132,23 @@ test.describe('standing preferences', () => {
     const page = await context.newPage()
 
     // The manifest's fourth image id comes from the SSR frames, so the
-    // test survives seed renames — data-index is the strip position.
-    await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
-    const fourthId = await page.locator('[data-image-id][data-index="4"]').getAttribute('data-image-id')
-    expect(fourthId).toBeTruthy()
+    // test survives seed renames — data-index is the strip position. The
+    // same shared-store reset race as openGallery applies: retry until a
+    // seeded page answers.
+    let fourthId = ''
+    await expect(async () => {
+      await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
+      fourthId = await page.locator('[data-image-id][data-index="4"]').getAttribute('data-image-id') ?? ''
+      expect(fourthId).toBeTruthy()
+    }).toPass({ timeout: 30_000 })
 
-    const sequence = await openGallery(page, `${base}/${owner}/${slug}?photo=${fourthId}`)
+    // A valid ?photo= id counts as already entered — the route renders no
+    // curtain, so the open frame is what Back lands on. Wait for the
+    // viewer, not the veil.
+    await page.goto(`${base}/${owner}/${slug}?photo=${fourthId}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-curtain]')).toHaveCount(0)
+    const sequence = page.locator('[data-chrome-position]')
+    await expect(sequence).toBeVisible({ timeout: 15_000 })
     await expect(sequence).toHaveAttribute('aria-label', /Photograph 4 of \d+/)
     // The transient param is stripped — a reload restarts at the first
     // photograph on the bare gallery URL.

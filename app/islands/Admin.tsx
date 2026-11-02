@@ -16,7 +16,7 @@ import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
 import { copyText } from '../lib/gallery-share'
 import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
-import { libraryLayout, STRIP_LIMIT_PRO, STRIP_PREVIEW_ITEMS } from '../../packages/core/library-layout'
+import { libraryLayout, PIN_LIMIT } from '../../packages/core/library-layout'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -765,10 +765,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           in the site footer. */}
       {/* Import and curation remain usable at any window or segment width. */}
       <div class="admin-content">
-      <section class={adsShow && accountAd ? 'gallery-list gallery-list--has-ad' : 'gallery-list'} aria-labelledby="galleries-heading">
-        {/* The owner header leads with the wordmark in the content column —
-            the mark's left edge is the heading's left edge, so the "m" sits
-            squarely over the "L" of Library. */}
+      {/* The Library is a two-column surface on any wide-enough viewport —
+          a narrow sticky rail (mark, heading, actions, sponsored slot) on
+          the left, the gallery cards scrolling on the right. Single-column
+          screens stack the rail above the list. */}
+      <aside class="admin-rail">
         <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
@@ -809,17 +810,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
+      </aside>
+      <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
-          // The rail previews at most a window of items; a quiet tail tile
-          // counts the rest without paying their payload.
-          const shown = gallery.images.slice(0, STRIP_PREVIEW_ITEMS)
-          const extra = gallery.imageCount - shown.length
           return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
             <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onClickCapture={suppressDraggedClick} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
-                {shown.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
+                {gallery.images.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${imageIndex + 1} of ${gallery.imageCount}`}>
                     <HeicImg src={image.src} preview={image.variants?.[0]?.src} filename={image.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
                       const img = event.currentTarget as HTMLImageElement
@@ -853,9 +852,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                       : null}
                   </a>
                 </li>)}
-                {extra > 0 ? <li class="admin-gallery-strip-item admin-strip-more" aria-hidden="true">
-                  <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${extra} more in ${title}`} tabIndex={-1}>+{extra}</a>
-                </li> : null}
               </ul>
             </div>
             <div class="lib-card-head">
@@ -877,16 +873,20 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
             <h3 id="lib-compact-title" class="lib-compact-title">{tier === 'pro' ? 'More galleries' : 'Temporary galleries'}</h3>
-            <ul class="lib-compact-list">{compactGalleries.map((gallery) => {
+            {/* A masonry feed of cover cards — the cover keeps its own
+                ratio (nothing is ever cropped), so card heights vary the
+                way a pin feed does. */}
+            <ul class="lib-compact-grid">{compactGalleries.map((gallery) => {
               const title = gallery.title || gallery.slug
               const locked = isLocked(gallery)
-              // One visible cover item is all the row needs — a state
+              // One visible cover item is all the card needs — a state
               // summary carrying more never leaks past the render slice.
               const cover = gallery.images.find((image) => !image.hidden)
-              return <li key={gallery.slug} class="lib-compact-row" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+              return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                 <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} filename={cover.filename} alt="" loading="lazy" draggable="false" onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
+                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
                 </a>
+                <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
                 <div class="lib-compact-body">
                   <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
                   <p class="lib-card-sub">
@@ -894,7 +894,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                     {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
                   </p>
                 </div>
-                <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
                 {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
                   <p>Remove “{title}” from manorama?{gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(gallery.sourceUrl)}.` : ''}</p>
                   <button type="button" disabled={busy} onClick={() => void removeGallery(gallery)}>Remove gallery</button>
@@ -942,8 +941,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             {tier === 'pro' && !isLocked(menuGallery) ? (
               <button
                 type="button"
-                disabled={busy || (!menuGallery.pinnedAt && pinnedCount >= STRIP_LIMIT_PRO)}
-                title={!menuGallery.pinnedAt && pinnedCount >= STRIP_LIMIT_PRO ? 'Up to 10 galleries can be pinned — unpin one first' : undefined}
+                disabled={busy || (!menuGallery.pinnedAt && pinnedCount >= PIN_LIMIT)}
+                title={!menuGallery.pinnedAt && pinnedCount >= PIN_LIMIT ? `Up to ${PIN_LIMIT} galleries can be pinned — unpin one first` : undefined}
                 onClick={() => { void togglePin(menuGallery) }}
               >{menuGallery.pinnedAt ? 'Unpin' : 'Pin to top'}</button>
             ) : null}

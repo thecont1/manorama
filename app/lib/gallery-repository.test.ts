@@ -39,7 +39,7 @@ describe('toLibrarySummaries', () => {
     slug, title: slug, caption: '', date: '', images, ...extra,
   })
 
-  test('strip galleries keep a 12-item preview incl. hidden; counts stay full', async () => {
+  test('strip galleries ship the whole rail incl. hidden; counts stay full', async () => {
     const { toLibrarySummaries } = await import('./gallery-repository')
     const images = Array.from({ length: 20 }, (_, index) => still(`i${index}`, index === 3))
     const summaries = toLibrarySummaries([
@@ -52,7 +52,8 @@ describe('toLibrarySummaries', () => {
     ], 'pro')
     const strip = summaries[0]
     expect(strip.layout).toBe('strip')
-    expect(strip.images).toHaveLength(12)
+    // The rail is the whole gallery — no preview window, no "+N" tile.
+    expect(strip.images).toHaveLength(20)
     expect(strip.images[3].hidden).toBe(true)
     expect(strip.imageCount).toBe(20)
     expect(strip.mediaCount).toEqual({ stills: 19, videos: 0, hidden: 1 })
@@ -71,9 +72,9 @@ describe('toLibrarySummaries', () => {
     records[12].images = [still('hid', true), still('cover')]
     const summaries = toLibrarySummaries(records, 'pro')
     const compact = summaries.filter((summary) => summary.layout === 'compact')
-    expect(compact).toHaveLength(3)
+    expect(compact).toHaveLength(10)
     expect(compact.every((summary) => summary.images.length === 1)).toBe(true)
-    expect(compact[2].images[0].id).toBe('cover')
+    expect(compact[9].images[0].id).toBe('cover')
     // A compact gallery whose items are all hidden ships an empty cover.
     const tail = toLibrarySummaries([...records.slice(0, 12), named('dark', [still('h', true)])], 'pro')
     expect(tail[12].layout).toBe('compact')

@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types'
-import { libraryLayout, STRIP_PREVIEW_ITEMS } from '../../packages/core/library-layout'
+import { libraryLayout } from '../../packages/core/library-layout'
 import { isVideoItem, mediaCountOf, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 import { getUserByAccountId } from './user-repository'
 import { clearDeviceGalleryLink } from './device-gallery-repository'
@@ -601,9 +601,9 @@ export const toSummary = (gallery: GalleryRecord) => {
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 
-/** The Library's payload diet: strip galleries ship a bounded rail preview
- *  in stored order (hidden items ride along — the owner rail dims them),
- *  compact galleries ship only their first visible item as a cover, and
+/** The Library's payload diet: a strip gallery ships its whole rail in
+ *  stored order (hidden items ride along — the owner rail dims them),
+ *  a compact gallery ships only its first visible item as a cover, and
  *  every summary keeps its real counts. `layout` names the treatment so
  *  the Admin island never recomputes it. */
 export const toLibrarySummaries = (galleries: readonly GalleryRecord[], tier: AccountTier) => {
@@ -611,7 +611,7 @@ export const toLibrarySummaries = (galleries: readonly GalleryRecord[], tier: Ac
   const strips = new Set(layout.strips)
   return galleries.map((gallery) => {
     const summary = toSummary(gallery)
-    if (strips.has(gallery.slug)) return { ...summary, images: summary.images.slice(0, STRIP_PREVIEW_ITEMS), layout: 'strip' as const }
+    if (strips.has(gallery.slug)) return { ...summary, layout: 'strip' as const }
     return { ...summary, images: summary.images.filter((image) => !image.hidden).slice(0, 1), layout: 'compact' as const }
   })
 }

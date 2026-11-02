@@ -318,7 +318,7 @@ describe('the dashboard renders retention state', () => {
 })
 
 describe('the lean library layout', () => {
-  test('a Visionary library renders ten strips then compact rows', async () => {
+  test('a Visionary library renders three strips then compact cards', async () => {
     const html = await renderDashboard(async () => {
       await setUserTier(TEST_OWNER.accountId, 'pro')
       for (let index = 0; index < 12; index += 1) {
@@ -329,8 +329,8 @@ describe('the lean library layout', () => {
         })
       }
     })
-    expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(10)
-    expect((html.match(/lib-compact-row/g) ?? []).length).toBe(2)
+    expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
+    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(9)
     expect(html).toContain('More galleries')
     expect(html).not.toContain('Temporary galleries')
   })
@@ -352,15 +352,15 @@ describe('the lean library layout', () => {
         })
       }
     })
-    // Free: only the retained three strip; both pipelines are compact rows
-    // under the Temporary label.
+    // Free: only the retained three strip; both pipelines are compact
+    // cards under the Temporary label.
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
-    expect((html.match(/lib-compact-row/g) ?? []).length).toBe(2)
+    expect((html.match(/lib-compact-card/g) ?? []).length).toBe(2)
     expect(html).toContain('Temporary galleries')
     expect(html).toContain('data-retention="pipeline"')
   })
 
-  test('a rail past the preview window ends in a quiet +N tile', async () => {
+  test('a strip rail renders every item in the gallery', async () => {
     const html = await renderDashboard(async () => {
       await setUserTier(TEST_OWNER.accountId, 'pro')
       await createGallery(TEST_OWNER.accountId, {
@@ -368,9 +368,9 @@ describe('the lean library layout', () => {
         images: Array.from({ length: 20 }, (_, index) => image(`big-${index}`)),
       })
     })
-    expect((html.match(/data-image-id=/g) ?? []).length).toBe(12)
-    expect(html).toContain('aria-label="8 more in Big"')
-    expect(html).toContain('>+8</a>')
+    // The rail is the whole gallery — no preview window, no "+N" tile.
+    expect((html.match(/data-image-id=/g) ?? []).length).toBe(20)
+    expect(html).not.toContain('more in Big')
   })
 
   test('a pinned gallery leads its strips with the pin glyph', async () => {

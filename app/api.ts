@@ -10,7 +10,7 @@ import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv } from './lib/gallery-repository'
-import { STRIP_LIMIT_PRO } from '../packages/core/library-layout'
+import { PIN_LIMIT } from '../packages/core/library-layout'
 import { assertGalleryEditable, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -742,7 +742,7 @@ export const createManoramaApi = () => {
           const slug = gallery.slug
           const others = await listGalleries(session.accountId, dbEnv(c))
           const pinnedCount = others.filter((item) => item.pinnedAt && item.slug !== slug).length
-          if (pinnedCount >= STRIP_LIMIT_PRO) return c.json({ error: 'Up to 10 galleries can be pinned — unpin one first' }, 409)
+          if (pinnedCount >= PIN_LIMIT) return c.json({ error: `Up to ${PIN_LIMIT} galleries can be pinned — unpin one first` }, 409)
         }
         gallery = await setGalleryPinned(session.accountId, gallery.slug, pinned, dbEnv(c))
         if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
