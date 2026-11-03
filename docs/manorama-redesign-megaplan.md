@@ -310,7 +310,7 @@ Before creating issues/PRs, inspect live issue ownership and the repository PR t
 - Record clean starting commits, existing test failures, missing env inputs and fixture availability. Use provisioned secrets without printing values.
 - Establish deterministic account/gallery fixtures for empty, free, paid, pipeline, mixed video, original-byte cached, partial fill, offline, C2PA and local desktop states.
 - Make verification run for PRs targeting integration as well as main; keep production deploy trigger unchanged. Use typecheck, unit mirror and all bundle builds in the verification path. Browser jobs need the native fixture too.
-- Inspect any Vendo sync step for external writes before using it on redesign PRs; contract drift verification remains local/read-only in intent. Do not silently publish docs from a design PR.
+- Contract drift verification remains local/read-only in intent. Do not silently publish docs from a design PR.
 - Capture prototype reference states at 390×844 and 375×812 before implementing; use screenshots only as reference, not as evidence of the real app.
 
 **Exit:** decisions and baseline recorded, fixtures reproducible, all failures categorized, no pending product decision from sections 2–5.
@@ -558,8 +558,6 @@ bun run build
 bun run build:native
 bun run build:desktop
 ```
-
-Vendo is disabled and is not a verification gate. Do not run `vendo sync` or treat generated Vendo files as a release check.
 
 `playwright.config.ts` excludes evidence tests by default. Run the relevant evidence spec with `PW_EVIDENCE=1` and its configured `CAPTURE_URL` after preparing the fresh capture bundle. A green default suite does not mean captures were regenerated. Native ad specs fail if `NATIVE_GALLERY_URL` is missing; fold tests can skip, so check the actual executed cases.
 

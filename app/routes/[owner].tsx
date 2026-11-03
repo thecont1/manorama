@@ -1,4 +1,3 @@
-import { Fragment } from 'hono/jsx'
 import { createRoute } from 'honox/factory'
 import Admin from '../islands/Admin'
 import { listGalleries, toLibrarySummaries, type GalleryEnv } from '../lib/gallery-repository'
@@ -36,21 +35,16 @@ export default createRoute(async (c) => {
       ? undefined
       : paymentLink || undefined
   return c.render(
-    <Fragment>
-      <Admin
-        galleries={toLibrarySummaries(galleries, user.tier)}
-        owner={owner}
-        ownerName={user.displayName}
-        publicHost={env.PUBLIC_HOST || requestHost}
-        tier={user.tier}
-        accountId={user.accountId}
-        upgradeUrl={upgradeUrl}
-        initialDetails={c.req.query('details')}
-      />
-      {/* Vendo is disabled platform-wide for now: no surface mounts here
-          and no agent API is routed. Re-enable by reverting this change —
-          the vendo modules and deps remain. */}
-    </Fragment>,
+    <Admin
+      galleries={toLibrarySummaries(galleries, user.tier)}
+      owner={owner}
+      ownerName={user.displayName}
+      publicHost={env.PUBLIC_HOST || requestHost}
+      tier={user.tier}
+      accountId={user.accountId}
+      upgradeUrl={upgradeUrl}
+      initialDetails={c.req.query('details')}
+    />,
     { title: 'manorama', ownerTheme: true },
   )
 })

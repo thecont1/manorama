@@ -72,7 +72,6 @@ Server-side secrets:
 | `STRIPE_WEBHOOK_SIGNING_SECRET` | Authenticates the Stripe webhook (web pro upgrades) |
 | `MASTER_DROPBOX_SUBJECT` | Bootstrap identity for the master operations console |
 | `AIRTABLE_BASE_ID` / `AIRTABLE_PAT` | Airtable-backed surfaces |
-| `VENDO_API_KEY`, `VENDO_MCP_*` | Vendo surface — disabled platform-wide |
 
 ## Storage
 
@@ -258,8 +257,7 @@ The admin, galleries, and quick-add interstitials send `X-Robots-Tag: noindex, n
 | `migrations/` | D1 migrations 0001–0008 |
 | `submission/` | App Store submission evidence, review notes, Connect fields |
 | `demo-captures/` | Six-state screenshot matrix for iPhone/iPad/macOS |
-| `vendo/`, `app/vendo-client.tsx`, `.vendo/` | Vendo is fully disabled and is not a development or release gate. No route, no mount, no client bundle, no `vendo:*` scripts, no CI sync. Do not consult it for product or verification decisions. |
-| `*.playwright.ts` | Playwright acceptance specs (`qa`, `vendo-surface`, `vendo-slot`, `doodle-background`, `fold`, `video-playback`, `video-size-cap`); `native/ads.playwright.ts`, `native/global-view.playwright.ts` |
+| `*.playwright.ts` | Playwright acceptance specs (`qa`, `doodle-background`, `fold`, `video-playback`, `video-size-cap`); `native/ads.playwright.ts`, `native/global-view.playwright.ts` |
 | `vite.config.ts` / `.native.ts` / `.desktop.ts` / `.native-fixture.ts` | The three build targets plus the native test fixture |
 | `scripts/test-mirror.sh` | Mirrors the worktree into a scratch root and runs the unit suite — `bun test` at repo root dies `EMFILE` on the `.worktrees/` checkouts |
 | `wrangler.toml` | Worker, `DB` binding, environment variables, custom domain route, 03:17 UTC retention cron |
@@ -281,10 +279,10 @@ Run the local acceptance suite against the seeded dev server (`bun run dev`). Th
 GALLERY_URL=http://localhost:5173 GALLERY_VIDEO_SLUG=mixed-album bunx playwright test
 ```
 
-The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, noindex privacy, the fold layout, and the native ad-plate/global-view specs. `bunx playwright test` also discovers `vendo-surface.playwright.ts` and `vendo-slot.playwright.ts`; both assert only that the Vendo surface stays unmounted. They are disabled-state absence smoke, not a contract check, and never a reason to restore the surface or run `vendo sync`.
+The matrix is 375×812 touch, 1440×900 desktop, and 2560×1440 wide. It covers curtain behavior, strip physics, gesture and keyboard navigation, modal and focus behavior, alternate modes, CLS, accessibility, C2PA, owner-scoped routing, admin editing and reordering, quick-add interstitials and zero-click creation, the `M` magnifier, ambient video slides, per-gallery OG cards, noindex privacy, the fold layout, and the native ad-plate/global-view specs.
 
 After any native or desktop presentation change, capture the six-state evidence matrix under `demo-captures/{ios,ipad,macos}/` — opening screen, gallery curtain, first image with controls, display-settings popover, signed-in account/admin surface, and Global View — from freshly built bundles.
 
 ## Known limitations
 
-iCloud shared albums are the only video source — Dropbox, Drive, and MEGA scans remain image-only, and there is no transcode pipeline for master files. MEGA and iCloud ingestion rely on undocumented provider endpoints that may change without notice. Metadata and references are all Manorama stores; original media bytes are proxied, never persisted. The Android shell is generated and buildable but unpolished — kept as a break-glass store option, not a shipped product. Vendo is disabled platform-wide pending re-enable.
+iCloud shared albums are the only video source — Dropbox, Drive, and MEGA scans remain image-only, and there is no transcode pipeline for master files. MEGA and iCloud ingestion rely on undocumented provider endpoints that may change without notice. Metadata and references are all Manorama stores; original media bytes are proxied, never persisted. The Android shell is generated and buildable but unpolished — kept as a break-glass store option, not a shipped product.

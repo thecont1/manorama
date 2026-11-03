@@ -75,8 +75,7 @@ const manoramaDevSeed = (): Plugin => {
       displayName: 'thecontrarian',
       email: 'mahesh@manorama.xyz',
     }, devEnv())
-    // Pro: the admin page mounts the real Vendo surface only for pro tier,
-    // and the vendo-surface spec drives that launcher.
+    // Pro: the seeded owner exercises the pro-tier admin surface.
     await users.setUserTier(owner.accountId, 'pro', devEnv())
     // A second free-tier owner (slug `retention-qa`, no galleries) gives
     // the retention/density specs an isolated account whose gallery count
@@ -413,9 +412,9 @@ export default defineConfig(() => ({
     honox({
       devServer: {
         adapter,
-        // Vite must handle source assets and Vendo config files. When these
-        // are passed to Hono, they 404 because there is no matching route.
-        // This list mirrors HonoX's defaults plus / .vendo/*.
+        // Vite must handle source assets itself. When these are passed to
+        // Hono, they 404 because there is no matching route.
+        // This list mirrors HonoX's defaults.
         exclude: [
           /.*\.css$/,
           /.*\.ts$/,
@@ -434,7 +433,6 @@ export default defineConfig(() => ({
           /.*\.jsx$/,
           /.*\.mjs$/,
           /^\/app\/.+\.tsx?/,
-          /^\/\.vendo\/.*/,
         ],
       },
       client: { input: ['/app/client.ts', '/app/quickadd.ts', '/app/styles.css'] },
@@ -461,10 +459,9 @@ export default defineConfig(() => ({
       // i.e. the whole project root, not just app/**. Any file created or
       // deleted here bounces the dev server and wipes the seeded in-memory
       // galleries for the ~40s live rescan. These tool-managed dirs write
-      // files on their own schedule (vendo's embedded Postgres keeps its
-      // data + WAL under .vendo/data), so keep them out of the watch set.
+      // files on their own schedule, so keep them out of the watch set.
       ignored: [
-        '**/.vendo/**', '**/.playwright-mcp/**', '**/.wrangler/**', '**/.worktrees/**',
+        '**/.playwright-mcp/**', '**/.wrangler/**', '**/.worktrees/**',
         // Captures and native builds are not web source. Watching their
         // add/unlink events restarts HonoX during the very tests it serves,
         // invalidates the SSR graph, and clears the seeded session store.

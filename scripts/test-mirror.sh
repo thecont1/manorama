@@ -61,7 +61,6 @@ rsync -a --delete \
   --exclude 'ios/build-sim/' \
   --exclude 'ios/App/build/' \
   --exclude 'src-tauri/target/' \
-  --exclude '.vendo/data/' \
   "$repo/" "$root/"
 
 # One dependency tree, shared. A spec that resolves `hono` here gets exactly the

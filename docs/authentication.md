@@ -164,8 +164,6 @@ inert until the owner registers each provider's client credentials.
 - `DELETE /api/account/identities/:provider` — removes one method; `404`
   when absent, `409 {error:"last-identity"}` when it is the only one left.
 - `GET /<owner_slug>` — the dashboard; renders only for that owner.
-- `/api/vendo/*` — the Vendo composition applies the same resolver
-  (`vendo/server.ts`) and fails closed on its own.
 
 ## Intentionally public surfaces
 
@@ -180,7 +178,6 @@ inert until the owner registers each provider's client credentials.
 Non-secret configuration (Wrangler `[vars]` or dashboard settings):
 
 - `PUBLIC_HOST` — the public origin.
-- `VENDO_BASE_URL` — the public origin for Vendo's resource URLs.
 
 Secrets (Wrangler secret store only, never in TOML or committed files):
 
@@ -193,7 +190,6 @@ Secrets (Wrangler secret store only, never in TOML or committed files):
 - `APPLE_CLIENT_ID` / `APPLE_TEAM_ID` / `APPLE_KEY_ID` /
   `APPLE_PRIVATE_KEY` — the Sign in with Apple Services ID, team and
   ES256 key for `/auth/apple` (owner setup pending).
-- `VENDO_API_KEY` — the Vendo Cloud key (see `vendo/server.ts`).
 - `AIRTABLE_PAT` / `AIRTABLE_BASE_ID` — legacy; only needed while the
   one-time gallery migration to D1 is pending
   (`scripts/migrate-galleries.ts`).

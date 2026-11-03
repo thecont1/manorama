@@ -33,8 +33,8 @@ const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
   // owner dashboard (/[owner]) gates itself inside the route handler.
   app.route('/', createManoramaApi())
 
-  // The published API contract — the same document the tests pin and Vendo
-  // syncs from. Bundled by the build; no filesystem read at request time.
+  // The published API contract — the same document the contract tests pin.
+  // Bundled by the build; no filesystem read at request time.
   app.get('/openapi.json', (c) => c.json(openapiDocument))
 
   app.use('*', async (c, next) => {
