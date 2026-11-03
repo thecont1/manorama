@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import type { D1Database } from '@cloudflare/workers-types'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 import { applyDevMigrations } from './app/lib/dev-d1.ts'
+import { isEncryptedSourceUrl } from './packages/core/encrypted-source'
 
 /** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
 const DEV_SPAWN_IMAGE = {
@@ -114,12 +115,22 @@ const manoramaDevSeed = (): Plugin => {
     const sources = sourceSeeds.length
       ? await server.ssrLoadModule('/app/lib/sources.ts') as unknown as Sources
       : null
+    // Encrypted providers (MEGA) can no longer be scanned server-side — the
+    // Worker dispatcher rejects them. Seed them through the same client
+    // scanner a browser would run, so the dev fixture exercises the real path.
+    const clientScan = async (url: string) => {
+      if (/\/file\//i.test(new URL(url).pathname)) throw new Error('Use a public MEGA folder or collection link')
+      const { scanMegaSource } = await server.ssrLoadModule('/app/lib/mega-client.ts') as
+        typeof import('./app/lib/mega-client')
+      return scanMegaSource(url)
+    }
     const seenUrls = new Set<string>()
     const scans = await Promise.all(sourceSeeds.map(async ({ slug, url }) => {
       if (seenUrls.has(url)) return null
       seenUrls.add(url)
       try {
-        return { slug, scan: await sources!.scanSource(url, process.env) }
+        const scan = isEncryptedSourceUrl(url) ? await clientScan(url) : await sources!.scanSource(url, process.env)
+        return { slug, url, scan }
       } catch (error) {
         console.warn(`[dev-seed] ${slug} scan failed; gallery not seeded:`, error instanceof Error ? error.message : error)
         return null
@@ -128,7 +139,7 @@ const manoramaDevSeed = (): Plugin => {
     let sourceIndex = 0
     for (const result of scans) {
       if (!result) continue
-      const { slug, scan } = result
+      const { slug, url, scan } = result
       const firstVideo = scan.images.findIndex((item) => item.type === 'video')
       const images = firstVideo > 0
         ? [scan.images[firstVideo], ...scan.images.filter((_, index) => index !== firstVideo)]
@@ -143,6 +154,9 @@ const manoramaDevSeed = (): Plugin => {
           sourceUrl: scan.sourceUrl,
           createdAt: new Date(Date.now() - 60_000 * (sourceIndex + 1)).toISOString(),
           images,
+          // A client-scanned gallery is a v2 manifest; version 1 would route it
+          // through the legacy server-render gate the refs can never satisfy.
+          manifestVersion: isEncryptedSourceUrl(url) ? 2 : 1,
         } as GalleryRecord,
       })
       sourceIndex += 1
@@ -362,19 +376,30 @@ const manoramaDevSeed = (): Plugin => {
         const items = Array.isArray(body.galleries) ? body.galleries : []
         const results: Record<string, unknown>[] = []
         for (const item of items) {
-          const entry = item as { slug?: unknown; createdAt?: unknown; images?: unknown; pinned?: unknown }
+          const entry = item as { slug?: unknown; createdAt?: unknown; images?: unknown; pinned?: unknown; encrypted?: unknown }
           if (typeof entry?.slug !== 'string' || !entry.slug) {
             results.push({ ok: false, reason: 'invalid' })
             continue
           }
+          // encrypted:true stamps a v2 manifest whose items carry keyless
+          // encrypted media refs — the locked path needs no provider call.
+          const encrypted = entry.encrypted === true
+          const images = encrypted
+            ? [{
+                ...DEV_SPAWN_IMAGE,
+                src: '',
+                media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'DevSeedFolder', nodeId: 'DevSeedNode' },
+              }] as unknown as GalleryRecord['images']
+            : (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images']
           const result = await galleries.createGalleryWithinLimit(accountId, {
             slug: entry.slug,
             title: entry.slug,
             caption: '',
             date: '',
-            sourceUrl: `dev-seed://spawn/${entry.slug}`,
+            sourceUrl: encrypted ? 'https://mega.nz/folder/DevSeedFolder' : `dev-seed://spawn/${entry.slug}`,
             createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
-            images: (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images'],
+            images,
+            ...(encrypted ? { manifestVersion: 2 } : {}),
           } as GalleryRecord, devEnv())
           if (result.ok && entry.pinned === true) await galleries.setGalleryPinned(accountId, entry.slug, true, {}, devEnv())
           results.push(result.ok
