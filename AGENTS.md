@@ -165,7 +165,9 @@ manual profile download is needed — the build resolves everything on its own.
 
 **Definition of done for any change:** `bunx tsc --noEmit` clean, `bun run test:unit` green, and the
 Playwright matrix green for anything touching the viewer. No exceptions during a deadline
-week — a red suite on Friday is how a submission gets missed.
+week — a red suite on Friday is how a submission gets missed. That includes the privacy
+canary gate (`app/encrypted-privacy-canary.test.ts`, declared in `VERIFICATION.md` §
+Privacy canaries) — it is a privacy boundary check, not duplication to be tidied away.
 
 **Native/desktop visual evidence:** after every native or desktop presentation change, capture
 the current six-state matrix for iPhone, iPad landscape, and macOS builds under
