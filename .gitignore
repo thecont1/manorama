@@ -12,6 +12,7 @@ playwright-report/
 # Playwright MCP ephemeral artifacts
 .playwright-mcp/
 .devin/
+.qodo/
 
 # Tauri build artifacts and generated capability schemas
 src-tauri/target/
@@ -46,6 +47,9 @@ ios/build-sim/
 .work/macos-local-auth-config.json
 outputs/**/*.app/
 outputs/**/*.zip
+# Loose captures dropped at the top level are evidence, not content; curated
+# capture sets live in their own outputs/<name>/ subdirectories.
+outputs/*.png
 
 # Capture output. The harnesses under .work/stocktake are tracked; the
 # screenshots they produce are evidence, not repository content.
