@@ -43,6 +43,8 @@ import { TopBar } from '../../app/components/ui/TopBar'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
+import { createEncryptedGallery, clearAllEncryptedSources, refreshEncryptedGallery, removeEncryptedSourceForSelection, resolveEncryptedSourceForSelection } from '../lib/encrypted-gallery'
+import { galleryHashForSource, isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
@@ -172,7 +174,7 @@ const openExternal = (url: string) => {
   void Browser.open({ url, toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 
-type Selection = { owner: string; slug: string }
+type Selection = { owner: string; slug: string; galleryId?: string; sourceUrl?: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
 
 const selectionFromLocation = (): Selection => {
@@ -331,7 +333,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   navRef.current = nav
   const selectionRef = useRef(selection)
   selectionRef.current = selection
-  const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose'> | null>(null)
+  const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose' | 'encryptedResolver'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
   useEffect(() => {
@@ -376,7 +378,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     quickAddInFlight.current = sourceUrl
     setQuickAddBusy(true)
     setError(null)
-    void createGalleryFromQuickAdd(base, sourceUrl)
+    void (isEncryptedSourceUrl(sourceUrl) ? createEncryptedGallery(base, sourceUrl, { quick: true }) : createGalleryFromQuickAdd(base, sourceUrl))
       .then((next) => {
         if (quickAddInFlight.current !== sourceUrl) return
         setPendingQuickAdd(null)
@@ -506,7 +508,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       window.removeEventListener('online', upgradeWhenOnline)
       disposeLease()
     }
-  }, [base, offlineStore, loadPolicy, selection.owner, selection.slug, galleryPolicies === null, streamOnly])
+  }, [base, offlineStore, loadPolicy, selection.owner, selection.slug, selection.galleryId, selection.sourceUrl, galleryPolicies === null, streamOnly])
 
   // Visibility resolves once per base — it is a day/region answer, not a
   // per-gallery one.
@@ -826,10 +828,19 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const shareGallery = async (gallery: GallerySummary) => {
     if (!ownerSlug) return
+    let hash = ''
+    if (gallery.manifestVersion === 2 && gallery.id) {
+      const source = await resolveEncryptedSourceForSelection(gallery.id)
+      if (!source) {
+        setGalleryActionNote('This device does not hold the key. Open the full gallery link before sharing it.')
+        return
+      }
+      hash = galleryHashForSource(source, gallery.id)
+    }
     const payload: GallerySharePayload = {
       title: galleryName(gallery),
       caption: gallery.caption ?? '',
-      url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}`,
+      url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}${hash}`,
     }
     const result = await shareGalleryNative(payload)
     if (result === 'fallback') setSharePayload(payload)
@@ -993,6 +1004,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             slug={manifest.slug}
             galleryTitle={manifest.title}
             images={source.list()}
+            encryptedResolver={leaseRef.current?.encryptedResolver ?? null}
             settings={settings}
             plate={plate}
             onReturnToGalleries={returnToGalleries}
@@ -1060,19 +1072,22 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const openSelection = (owner: string, slug: string) => {
     setFrameKick({ index: 0, nonce: 0 })
-    enterGallery({ owner, slug })
+    const summary = accountGalleries?.find((gallery) => gallery.slug === slug && gallery.manifestVersion === 2 && gallery.id)
+    enterGallery({ owner, slug, ...(summary?.id ? { galleryId: summary.id } : {}) })
   }
 
   /** A rail tap opens at the tapped photograph, not at the first. */
   const openSelectionAt = (owner: string, slug: string, index: number) => {
     setFrameKick({ index, nonce: 0 })
-    enterGallery({ owner, slug })
+    const summary = accountGalleries?.find((gallery) => gallery.slug === slug && gallery.manifestVersion === 2 && gallery.id)
+    enterGallery({ owner, slug, ...(summary?.id ? { galleryId: summary.id } : {}) })
   }
 
   const signOut = async () => {
     libraryLoader.release()
     cacheFillRegistry.reset()
     dispatchNav({ type: 'signed-out' })
+    await clearAllEncryptedSources()
     await clearSessionToken()
     try {
       await billing?.signOut()
@@ -1170,6 +1185,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         await deleteAccount(base, slug)
         setAccountDeleted(true)
       }
+      await clearAllEncryptedSources()
       await clearSessionToken()
       try {
         await billing?.signOut()
@@ -1208,7 +1224,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const seq = ++addVerifySeq.current
     setAddChecking(true)
     try {
-      const scan = await scanSourceUrl(base, url)
+      const scan = await (async () => {
+        if (!isEncryptedSourceUrl(url)) return scanSourceUrl(base, url)
+        const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+        const session = await openEncryptedSource(url)
+        try { return { title: session.title } } finally { session.dispose() }
+      })()
       if (seq !== addVerifySeq.current) return
       setError(null)
       setAddVerifiedTitle(scan.title)
@@ -1252,7 +1273,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setQuickAddBusy(true)
     setError(null)
     try {
-      const next = await createGalleryFromSource(base, url, { title: input.name, caption: input.caption })
+      const next = await (isEncryptedSourceUrl(url)
+        ? createEncryptedGallery(base, url, { title: input.name, caption: input.caption })
+        : createGalleryFromSource(base, url, { title: input.name, caption: input.caption }))
       if (quickAddInFlight.current !== flight) return
       setSourceUrl('')
       setSourceName('')
@@ -1291,11 +1314,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     try {
       const token = await getSessionToken()
       if (!token) throw new Error('Sign in to manage this gallery.')
-      const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}${action === 'refresh' ? '/refresh' : ''}`, {
-        method: action === 'refresh' ? 'POST' : 'DELETE', headers: { Authorization: `Bearer ${token}` },
-      })
-      const payload = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(payload.error || 'That gallery could not be updated.')
+      if (action === 'refresh' && gallery.manifestVersion === 2 && gallery.id) {
+        await refreshEncryptedGallery(base, gallery.slug, gallery.id)
+      } else {
+        const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}${action === 'refresh' ? '/refresh' : ''}`, {
+          method: action === 'refresh' ? 'POST' : 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        })
+        const payload = await response.json().catch(() => ({})) as { error?: string }
+        if (!response.ok) throw new Error(payload.error || 'That gallery could not be updated.')
+      }
+      if (action === 'delete' && gallery.id) await removeEncryptedSourceForSelection(gallery.id)
       const galleryId = galleryIds[gallery.slug]
       if (galleryId) libraryLoader.invalidate(galleryId)
       if (action === 'delete') setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)

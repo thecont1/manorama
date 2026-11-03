@@ -73,8 +73,16 @@ export const keylessSourceUrl = (input: string): string => {
 
 /** The complete provider URL lives only in the fragment. Its own '#key' is
  * percent-encoded, so neither the server nor crawlers receive the secret. */
-export const galleryHashForSource = (sourceUrl: string): string =>
-  `#source=${encodeURIComponent(sourceUrl)}`
+export const galleryHashForSource = (sourceUrl: string, galleryId?: string): string =>
+  `#source=${encodeURIComponent(sourceUrl)}${galleryId ? `&gallery=${encodeURIComponent(galleryId)}` : ''}`
+
+/** Immutable public identity for native key custody. Older links may omit it;
+ * they can open online but cannot adopt a key into persistent native storage. */
+export const galleryIdFromGalleryHash = (hash: string): string | null => {
+  if (!hash.startsWith('#')) return null
+  const id = new URLSearchParams(hash.slice(1)).get('gallery')
+  return id && /^[0-9A-Za-z-]{16,64}$/.test(id) ? id : null
+}
 
 export const encryptedSourceFromGalleryHash = (hash: string): string | null => {
   if (!hash.startsWith('#')) return null

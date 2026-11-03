@@ -3,6 +3,7 @@ import {
   contentVersionIsValid,
   encryptedSourceFromGalleryHash,
   galleryHashForSource,
+  galleryIdFromGalleryHash,
   galleryUrlWithPreservedHash,
   isEncryptedSourceUrl,
   keylessSourceUrl,
@@ -18,6 +19,14 @@ describe('encrypted source URL fragment channel', () => {
     expect(hash.startsWith('#source=')).toBe(true)
     expect(hash).not.toContain('#a2V5')
     expect(encryptedSourceFromGalleryHash(hash)).toBe(keyed)
+  })
+
+  test('carries an optional immutable gallery id for native key custody', () => {
+    const hash = galleryHashForSource(keyed, '0123456789abcdef')
+    expect(encryptedSourceFromGalleryHash(hash)).toBe(keyed)
+    expect(galleryIdFromGalleryHash(hash)).toBe('0123456789abcdef')
+    expect(galleryIdFromGalleryHash(galleryHashForSource(keyed))).toBeNull()
+    expect(galleryIdFromGalleryHash('#gallery=slug')).toBeNull()
   })
 
   test('rejects missing, malformed, and unencrypted fragments', () => {

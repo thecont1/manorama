@@ -10,6 +10,7 @@ import {
   gallerySelectionFromDeepLink,
   setOwnerSlug,
 } from './session'
+import { galleryHashForSource } from '../../packages/core/encrypted-source'
 
 const TOKEN_KEY = 'capacitor-storage_manorama.session-token'
 const SLUG_KEY = 'capacitor-storage_manorama.owner-slug'
@@ -120,6 +121,30 @@ describe('native OAuth callback', () => {
     expect(gallerySelectionFromDeepLink('https://www.dropbox.com/scl/fo/folder/key?rlkey=read-key')).toBeNull()
     expect(gallerySelectionFromDeepLink('https://manorama.xyz/https://dropbox.com/')).toBeNull()
     expect(gallerySelectionFromDeepLink('https://manorama.xyz/ftp://dropbox.com/scl/fo/folder/key')).toBeNull()
+  })
+
+  test('a full #source fragment opens an encrypted gallery without leaking the key', () => {
+    const keyed = 'https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA'
+    const hash = `#source=${encodeURIComponent(keyed)}`
+    expect(gallerySelectionFromDeepLink(`https://manorama.xyz/thecontrarian/italy${hash}`)).toEqual({
+      kind: 'encrypted',
+      owner: 'thecontrarian',
+      slug: 'italy',
+      sourceUrl: keyed,
+    })
+    expect(gallerySelectionFromDeepLink(`https://manorama.xyz/thecontrarian/italy${galleryHashForSource(keyed, '0123456789abcdef')}`)).toEqual({
+      kind: 'encrypted', owner: 'thecontrarian', slug: 'italy', sourceUrl: keyed, galleryId: '0123456789abcdef',
+    })
+    // URL encoding leaves base64url characters readable but never leaves a
+    // second, provider-shaped fragment inside the Manorama fragment.
+    expect(hash).not.toContain('#a2V5LXNlY3JldA')
+    expect(hash).toContain('%23a2V5LXNlY3JldA')
+  })
+
+  test('any other fragment shape is still rejected', () => {
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy#photo=3')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy#source=%23bad')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy#source=https%3A%2F%2Fdropbox.com%2Fsh%2Fa%2Fb')).toBeNull()
   })
 
   test('uses the manorama custom scheme and auth host', () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { createGalleryFromQuickAdd, createGalleryFromSource, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError, unlinkAccountIdentity } from './api'
+import { createGalleryFromManifest, createGalleryFromQuickAdd, createGalleryFromSource, fetchAccountGalleries, fetchDeviceGalleries, fetchGallery, NativeGalleryHttpError, refreshGalleryWithManifest, unlinkAccountIdentity } from './api'
 
 const originalFetch = globalThis.fetch
 const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
@@ -103,6 +103,58 @@ describe('native quick-add', () => {
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       url: 'https://www.dropbox.com/scl/fo/folder/key',
     })
+  })
+
+  test('encrypted create submits only the keyless manifest — never the keyed URL', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ galleryUrl: '/thecontrarian/encrypted-album', gallery: { id: '0123456789abcdef' } }, 201))
+    const keyed = 'https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA'
+    const images = [{
+      id: 'mega-FiLeHaNd',
+      ref: 'FiLeHaNd',
+      filename: 'IMG_0001.jpg',
+      src: '',
+      media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'AbCdEf12', nodeId: 'FiLeHaNd', previewId: undefined },
+      contentVersion: 'a'.repeat(64),
+      fidelity: 'original',
+      width: 6000,
+      height: 4000,
+      alt: 'IMG 0001',
+      c2pa: true,
+      placeholder: 'data:image/svg+xml,x',
+    }]
+    const selection = await createGalleryFromManifest('https://manorama.xyz', {
+      provider: 'mega',
+      sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+      title: 'Monsoon',
+      images: images as never,
+    })
+    expect(selection).toEqual({ owner: 'thecontrarian', slug: 'encrypted-album', galleryId: '0123456789abcdef' })
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>
+    expect(body.url).toBeUndefined()
+    expect(String(JSON.stringify(body))).not.toContain('a2V5LXNlY3JldA')
+    expect(body.manifest).toMatchObject({
+      provider: 'mega',
+      sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+      title: 'Monsoon',
+    })
+    expect((body.manifest as { images: unknown[] }).images).toHaveLength(1)
+  })
+
+  test('encrypted refresh submits only the keyless manifest', async () => {
+    installLocalStorage().set(TOKEN_KEY, 'session-token-1')
+    const calls = fetchSpy(() => json({ gallery: { slug: 'encrypted-album', imageCount: 1 } }))
+    const summary = await refreshGalleryWithManifest('https://manorama.xyz', 'encrypted-album', {
+      provider: 'mega',
+      sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+      title: 'Monsoon',
+      images: [],
+    })
+    expect(summary.slug).toBe('encrypted-album')
+    expect(calls[0]?.url).toBe('https://manorama.xyz/api/galleries/encrypted-album/refresh')
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>
+    expect(String(JSON.stringify(body))).not.toContain('a2V5')
+    expect(body.manifest).toMatchObject({ provider: 'mega', sourceUrl: 'https://mega.nz/folder/AbCdEf12' })
   })
 
   test('accepts a duplicate response when it includes the existing gallery URL', async () => {

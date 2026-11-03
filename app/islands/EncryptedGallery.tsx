@@ -65,7 +65,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, ...viewerProps 
         setProblem('Paste a complete Manorama or provider link including its fragment key.')
         return
       }
-      rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${window.location.search}${galleryHashForSource(source)}`)
+      rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${window.location.search}${galleryHashForSource(source, galleryId)}`)
       setUnlockValue('')
       setAttempt((value) => value + 1)
     }

@@ -7,6 +7,8 @@ import { thumbnailEntryId } from './thumbs'
 import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
+import { EncryptedMediaResolver, type EncryptedClientSession } from '../../app/lib/encrypted-resolver'
+import { nativeGalleryKeyStore } from './gallery-key-store'
 import type { CacheFillItem } from './cache-fill'
 import { cacheFillRegistry } from './cache-fill'
 
@@ -15,7 +17,7 @@ const METADATA_ENTRY_ID = 'offline-gallery:metadata:v1'
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-export type GallerySelection = { owner: string; slug: string }
+export type GallerySelection = { owner: string; slug: string; galleryId?: string; sourceUrl?: string }
 export type OfflineCacheResult =
   | { status: 'complete'; images: number }
   | { status: 'skipped-video'; images: 0 }
@@ -68,7 +70,7 @@ export type OfflineGridGallery = {
 }
 
 export interface OfflineGalleryStore {
-  cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void): Promise<OfflineCacheResult>
+  cache(selection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void, encryptedSession?: EncryptedClientSession): Promise<OfflineCacheResult>
   inspect(selection: GallerySelection): Promise<OfflineCacheInspection>
   open(selection: GallerySelection): Promise<OfflineGalleryLease | undefined>
   invalidate(selection: GallerySelection): Promise<void>
@@ -124,9 +126,11 @@ const defaultObjectUrls: OfflineObjectUrlProvider = {
   },
 }
 
-const normalizedSelection = ({ owner, slug }: GallerySelection): GallerySelection => ({
-  owner: owner.trim(),
-  slug: slug.trim(),
+const normalizedSelection = (selection: GallerySelection): GallerySelection => ({
+  owner: selection.owner.trim(),
+  slug: selection.slug.trim(),
+  ...(selection.galleryId ? { galleryId: selection.galleryId } : {}),
+  ...(selection.sourceUrl ? { sourceUrl: selection.sourceUrl } : {}),
 })
 
 const requireSelection = (selection: GallerySelection): GallerySelection => {
@@ -140,6 +144,13 @@ export const offlineGalleryId = async (selection: GallerySelection): Promise<str
   const { owner, slug } = requireSelection(selection)
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(`${owner}\u0000${slug}`)))
   return `offline-gallery:v1:${[...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
+export const openNativeEncryptedSession = async (selection: GallerySelection): Promise<EncryptedClientSession> => {
+  const sourceUrl = selection.sourceUrl ?? (selection.galleryId ? await nativeGalleryKeyStore().get(selection.galleryId) : null)
+  if (!sourceUrl) throw new Error('This encrypted gallery is locked on this device. Open its full link again.')
+  const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+  return openEncryptedSource(sourceUrl)
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -233,6 +244,7 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
   private readonly vault: OfflineVault
   private readonly fetchImage: OfflineImageFetch
   private readonly objectUrls: OfflineObjectUrlProvider
+  private readonly openEncrypted?: (selection: GallerySelection) => Promise<EncryptedClientSession>
   /** Live decrypted object URLs, by gallery. A confirmed purge revokes them so
    *  "erased" never leaves a readable copy held by an open lease. */
   private readonly liveUrls = new Map<string, Set<string>>()
@@ -241,10 +253,17 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     vault: OfflineVault
     fetchImage?: OfflineImageFetch
     objectUrls?: OfflineObjectUrlProvider
+    openEncryptedSession?: (selection: GallerySelection) => Promise<EncryptedClientSession>
   }) {
     this.vault = options.vault
     this.fetchImage = options.fetchImage ?? defaultFetch
     this.objectUrls = options.objectUrls ?? defaultObjectUrls
+    this.openEncrypted = options.openEncryptedSession
+  }
+
+  private async openEncryptedSession(selection: GallerySelection): Promise<EncryptedClientSession> {
+    if (this.openEncrypted) return this.openEncrypted(selection)
+    return openNativeEncryptedSession(selection)
   }
 
   private trackUrl(galleryId: string, url: string): void {
@@ -305,7 +324,21 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     }
   }
 
-  async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void): Promise<OfflineCacheResult> {
+  async cache(rawSelection: GallerySelection, gallery: NativeGalleryResponse, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void, sharedSession?: EncryptedClientSession): Promise<OfflineCacheResult> {
+    let sessionPromise: Promise<EncryptedClientSession> | undefined
+    const openSession = () => {
+      if (sharedSession) return Promise.resolve(sharedSession)
+      sessionPromise ??= this.openEncryptedSession(rawSelection)
+      return sessionPromise
+    }
+    try {
+      return await this.cacheFill(rawSelection, gallery, openSession, signal, onProgress, onItemReady)
+    } finally {
+      if (!sharedSession && sessionPromise) (await sessionPromise).dispose()
+    }
+  }
+
+  private async cacheFill(rawSelection: GallerySelection, gallery: NativeGalleryResponse, openSession: () => Promise<EncryptedClientSession>, signal?: AbortSignal, onProgress?: (progress: OfflineCacheProgress) => void, onItemReady?: (item: OfflineCacheItemReady) => void): Promise<OfflineCacheResult> {
     // Captured synchronously at call time, before the gallery ID resolves: a
     // purge bumps the vault's mutation epoch inside its serialized boundary,
     // and every write below hands back the epoch this fill started under. A
@@ -319,11 +352,12 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // with a new source URL under the same image ID), and its committed
     // MIME survives reuse instead of being re-derived from the filename.
     const prior = await this.readMetadataById(galleryId)
-    const priorById = new Map<string, { src: string; mimeType: string }>()
+    const priorById = new Map<string, { src: string; mimeType: string; contentVersion?: string }>()
     if (prior.status === 'ready') {
       prior.value.images.forEach((priorImage, index) => {
         const src = prior.value.manifest.images[index]?.src
-        if (src) priorById.set(priorImage.id, { src, mimeType: priorImage.mimeType })
+        const priorManifestImage = prior.value.manifest.images[index]
+        priorById.set(priorImage.id, { src: src ?? '', mimeType: priorImage.mimeType, contentVersion: priorManifestImage && 'contentVersion' in priorManifestImage ? priorManifestImage.contentVersion : undefined })
       })
     }
     // Invalidate the commit record first. A failed refresh may leave encrypted
@@ -350,7 +384,10 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
       const existing = await this.vault.read(galleryId, entryId, { touch: true })
       if (existing) {
         existing.fill(0)
-        if (priorImage?.src === image.src) {
+        const unchanged = image.media?.kind === 'encrypted'
+          ? typeof image.contentVersion === 'string' && priorImage?.contentVersion === image.contentVersion
+          : priorImage?.src === image.src
+        if (unchanged && priorImage) {
           cachedImages.push({ id: image.id, entryId, mimeType: priorImage.mimeType })
           const item: OfflineCacheItemReady = { id: image.id, entryId, mimeType: priorImage.mimeType, index }
           cacheFillRegistry.publish({ galleryId, item })
@@ -359,11 +396,19 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
           continue
         }
       }
-      const selected = offlineSourceFor(image)
-      const response = await this.fetchImage(selected.src, { signal })
-      if (!response.ok) throw new Error(`Offline image request failed (${response.status})`)
-      const mimeType = responseMimeType(response, image, selected.format)
-      const bytes = new Uint8Array(await response.arrayBuffer())
+      let bytes: Uint8Array
+      let mimeType: string
+      if (image.media?.kind === 'encrypted') {
+        const materialized = await (await openSession()).materialize(image.media, false, signal)
+        bytes = materialized.bytes
+        mimeType = materialized.mimeType
+      } else {
+        const selected = offlineSourceFor(image)
+        const response = await this.fetchImage(selected.src, { signal })
+        if (!response.ok) throw new Error(`Offline image request failed (${response.status})`)
+        mimeType = responseMimeType(response, image, selected.format)
+        bytes = new Uint8Array(await response.arrayBuffer())
+      }
       try {
         throwIfAborted(signal)
         if (bytes.length === 0) throw new Error('Offline image response was empty')
@@ -574,6 +619,7 @@ export type NetworkFirstGallery = NativeGalleryResponse & {
   source: 'online' | 'offline'
   dispose?: () => void
   cacheFill?: Promise<OfflineCacheResult>
+  encryptedResolver?: EncryptedMediaResolver
 }
 
 export class OfflineGalleryUnavailableError extends Error {
@@ -599,10 +645,14 @@ export const openGalleryNetworkFirst = async (options: {
 }): Promise<NetworkFirstGallery> => {
   try {
     const gallery = await options.fetchOnline(options.signal)
+    const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
+      ? await openNativeEncryptedSession(options.selection)
+      : undefined
+    const encryptedResolver = encryptedSession ? new EncryptedMediaResolver(encryptedSession) : undefined
     const cacheFill = options.cachePolicy === 'stream'
       ? undefined
-      : options.store.cache(options.selection, gallery, options.signal, options.onProgress, options.onItemReady)
-    return { ...gallery, source: 'online', cacheFill }
+      : options.store.cache(options.selection, gallery, options.signal, options.onProgress, options.onItemReady, encryptedSession)
+    return { ...gallery, source: 'online', cacheFill, encryptedResolver, dispose: () => encryptedResolver?.dispose() }
   } catch (networkError) {
     throwIfAborted(options.signal)
     if (networkError instanceof NativeGalleryHttpError) {

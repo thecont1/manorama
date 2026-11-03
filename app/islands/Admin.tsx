@@ -398,7 +398,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) continue
       void webGalleryKeyStore().get(gallery.id).then((source) => {
         if (!live || !source || !gallery.id) return
-        const hash = galleryHashForSource(source)
+        const hash = galleryHashForSource(source, gallery.id)
         setGalleryHashes((previous) => previous[gallery.id!] === hash ? previous : { ...previous, [gallery.id!]: hash })
       })
     }
@@ -411,7 +411,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       return
     }
     void webGalleryKeyStore().get(gallery.id).then((source) => {
-      window.location.assign(`${target}${source ? galleryHashForSource(source) : ''}`)
+      window.location.assign(`${target}${source ? galleryHashForSource(source, gallery.id) : ''}`)
     })
   }
   const openSource = (gallery: GallerySummary) => {
@@ -900,7 +900,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
     if (gallery.manifestVersion === 2 && gallery.id && gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)) {
       void webGalleryKeyStore().get(gallery.id).then((source) => {
-        if (source) open(galleryHashForSource(source))
+        if (source) open(galleryHashForSource(source, gallery.id))
         else announce('This tab does not hold the key. Open the full gallery link before sharing it.', true)
       })
       return
