@@ -106,12 +106,12 @@ describe('PrivacyPolicy renders the shared model verbatim', () => {
     expect(rendered.paragraphs).toEqual(expected.paragraphs)
     expect(rendered.headings).toEqual(expected.headings)
     expect(rendered.hrefs).toEqual(expected.hrefs)
-    expect(rendered.paragraphs.length).toBe(20)
+    expect(rendered.paragraphs.length).toBe(22)
   })
 
   test('keeps the effective date and the on-your-device anchor id from the model', () => {
     const html = String(PrivacyPolicy({}))
-    expect(html).toContain('Last updated: 1 October 2026')
+    expect(html).toContain('Last updated: 4 November 2026')
     expect(html).toContain('id="on-your-device"')
     expect(html).toContain('id="policy-just-looking"')
   })
