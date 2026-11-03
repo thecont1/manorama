@@ -534,6 +534,11 @@ button { color: inherit; }
 .curtain-count { margin: 28px 0 0; font-size: 14px; color: #b8b4ab; }
 .curtain-prompt { margin: 6px 0 0; font-size: 14px; color: #b8b4ab; }
 .curtain-status { margin: 10px 0 0; font-size: 14px; color: #f3f0e8; }
+/* The merged mark's swash bleeds ~9.2% of its box past the "m" (the
+   offset .brand-mark-wrap compensates on the ops surfaces), so the
+   curtain copy indents by that amount — text aligns to the letter,
+   not the artwork's bounding box. */
+.curtain-title, .curtain-caption, .curtain-count, .curtain-prompt, .curtain-status { margin-left: calc(var(--m-logo-w) * .092); }
 .eyebrow { margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .08em; text-transform: lowercase; color: rgba(var(--ink), .62); }
 .curtain:focus-visible { outline: 2px solid #f3f0e8; outline-offset: -8px; }
 
