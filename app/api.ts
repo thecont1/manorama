@@ -24,6 +24,7 @@ import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } 
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
 import { ENCRYPTED_MANIFEST_VERSION, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
 import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
+import { mergeMigratedImages } from './lib/encrypted-migration'
 
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
@@ -870,13 +871,7 @@ export const createManoramaApi = () => {
         return c.json({ gallery: toSummary(gallery), verifiedDevices: verifiedDevices.length, keyRetired: true })
       }
       const keyRetired = payload.optOut === true || verifiedDevices.length >= 2
-      const scanByKey = new Map(submitted.images.map((image) => [image.ref ?? image.filename, image]))
-      const keptKeys = new Set(gallery.images.map((image) => image.ref ?? image.filename))
-      const retained = gallery.images.flatMap((image) => {
-        const fresh = scanByKey.get(image.ref ?? image.filename)
-        return fresh ? [{ ...fresh, ...(image.hidden ? { hidden: true as const } : {}) }] : []
-      })
-      const images = retained.concat(submitted.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
+      const images = mergeMigratedImages(gallery.images, submitted.images)
       const updated = await updateGalleryRecord(session.accountId, {
         ...gallery,
         images,
