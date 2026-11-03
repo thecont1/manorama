@@ -108,6 +108,19 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     }
   }, [galleryId, sourceUrl, legacySourceUrl, attempt])
 
+  // The curtain's dismiss handler lives in Viewer's effect, which the
+  // locked panel replaces — without this it dead-ends visitors over an
+  // unreachable locked panel.
+  useEffect(() => {
+    if (!problem) return
+    const curtain = document.querySelector<HTMLElement>('[data-curtain]')
+    if (curtain) {
+      curtain.classList.remove('fading')
+      curtain.hidden = true
+    }
+    document.body.classList.add('gallery-entered')
+  }, [problem])
+
   if (problem) {
     const unlock = (event: Event) => {
       event.preventDefault()
