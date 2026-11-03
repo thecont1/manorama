@@ -138,15 +138,13 @@ describe('owner dashboard authentication', () => {
     expect(response.headers.get('location')).toBe('/')
   })
 
-  test('a valid owner session renders the dashboard without the disabled Vendo surface', async () => {
+  test('a valid owner session renders the dashboard', async () => {
     const response = await page().request('/test-owner', authed(), env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('>Library<')
     expect(html).toContain('aria-label="Settings"')
-    expect(html).not.toContain('vendo-root')
-    expect(html).not.toContain('vendo-client')
   })
 
   test('a signed-in owner cannot open another owner\'s dashboard', async () => {
@@ -270,7 +268,7 @@ describe('the operations console at /opman', () => {
 })
 
 describe('public gallery pages stay public', () => {
-  test('the viewer page renders without a session and without the Vendo surface', async () => {
+  test('the viewer page renders without a session', async () => {
     const app = new Hono()
     app.use(honoxContext)
     app.use(renderer)
@@ -280,8 +278,6 @@ describe('public gallery pages stay public', () => {
     expect(response.headers.get('content-type')).toContain('text/html')
     const html = await response.text()
     expect(html).toContain('curtain')
-    expect(html).not.toContain('vendo-root')
-    expect(html).not.toContain('vendo-client')
   })
 
   test('a gallery under an unknown owner is a 404', async () => {

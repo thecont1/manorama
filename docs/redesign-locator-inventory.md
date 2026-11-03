@@ -106,12 +106,6 @@ Repeated locators are listed once with all line numbers.
 |---|---|---|---|---|
 | capture:15–34 | `[data-curtain]`, `dialog 'Display settings'`, `Public Dropbox… link` label, `Manorama-fy it!`, `[data-grid-frame]` count 22 | Six-state capture states | P3+P7+P9 | Update state mapping to new labels (Display sheet, `Add gallery`); add Details/Reorder/Settings/Visionary/theme captures per megaplan §8.4. |
 
-## `vendo-slot.playwright.ts` / `vendo-surface.playwright.ts`
-
-| file:line | Locator / assertion | Behaviour it protects | Phase | Replacement |
-|---|---|---|---|---|
-| vendo-slot:40–49, vendo-surface:54–101 | `.landing-brand`, `[data-curtain]`, `#vendo-*` absent/`data-vendo-launcher` 'Ask Manu' | Vendo overlay never leaks into surfaces | — (out of redesign scope) | Keep as-is; re-point `.landing-brand`/curtain waits if those landmarks change (P10). |
-
 ## `desktop-auth-local.playwright.ts`
 
 | file:line | Locator / assertion | Behaviour it protects | Phase | Replacement |

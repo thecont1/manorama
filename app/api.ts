@@ -32,12 +32,6 @@ export type RuntimeEnv = {
   DROPBOX_APP_KEY?: string
   DROPBOX_APP_SECRET?: string
   GOOGLE_DRIVE_API_KEY?: string
-  VENDO_API_KEY?: string
-  VENDO_CONSOLE_URL?: string
-  VENDO_BASE_URL?: string
-  VENDO_SERVICE_KEY?: string
-  VENDO_MCP_BROKER_URL?: string
-  VENDO_MCP_FEDERATION_SECRET?: string
   HOST_API_JWT_SECRET?: string
   MASTER_DROPBOX_SUBJECT?: string
   MASTER_ACCOUNT_ID?: string

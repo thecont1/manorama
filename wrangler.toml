@@ -3,8 +3,6 @@ main = "./dist/index.js"
 compatibility_date = "2026-08-26"
 compatibility_flags = ["nodejs_compat"]
 
-# Vendo derives its OAuth/MCP resource URLs and audience binding from this
-# behind the reverse proxy. The live link MUST land here before launch.
 # Secrets live in Worker bindings — never in this file.
 # See AGENTS.md §6 (Secrets) for details.
 
@@ -20,7 +18,6 @@ custom_domain = true
 
 [vars]
 PUBLIC_HOST = "manorama.xyz"
-VENDO_BASE_URL = "https://manorama.xyz"
 STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
 # Set ANDROID_APP_LINK_SHA256 as a deployment secret/variable to the real
 # release certificate fingerprint before claiming verified Android App Links.
@@ -47,7 +44,6 @@ custom_domain = true
 
 [env.production.vars]
 PUBLIC_HOST = "manorama.xyz"
-VENDO_BASE_URL = "https://manorama.xyz"
 STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
 # ANDROID_APP_LINK_SHA256 is intentionally not guessed or committed here.
 

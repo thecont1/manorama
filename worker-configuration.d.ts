@@ -5,8 +5,6 @@ interface __BaseEnv_Env {
 	ASSETS: Fetcher;
 	PUBLIC_HOST: "manorama.xyz";
 	OWNER_SLUG: "thecontrarian";
-	VENDO_API_KEY: string;
-	VENDO_BASE_URL: string;
 	CF_ACCESS_TEAM_DOMAIN: string;
 	CF_ACCESS_AUD: string;
 	CF_ACCESS_JWKS: string;
@@ -22,7 +20,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "PUBLIC_HOST" | "OWNER_SLUG" | "VENDO_API_KEY" | "VENDO_BASE_URL" | "CF_ACCESS_TEAM_DOMAIN" | "CF_ACCESS_AUD" | "CF_ACCESS_JWKS">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "PUBLIC_HOST" | "OWNER_SLUG" | "CF_ACCESS_TEAM_DOMAIN" | "CF_ACCESS_AUD" | "CF_ACCESS_JWKS">> {}
 }
 
 // Begin runtime types
