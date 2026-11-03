@@ -69,7 +69,7 @@ describe('range forwarding', () => {
         // proxy now requires.
         `/api/mega/file?folder=SYNTH&node=SYNTHNODE&k=${'A'.repeat(43)}`,
         { headers: { Range: 'bytes=0-1023' } },
-        {},
+        { LEGACY_ENCRYPTED_DECRYPT: 'enabled' },
       )
       expect(response.status).toBe(206)
     })

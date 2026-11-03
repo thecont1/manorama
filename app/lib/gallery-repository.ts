@@ -34,6 +34,8 @@ export type GalleryRecord = GalleryManifest & {
   retention?: GalleryRetention
   expiresAt?: string | null
   pinnedAt?: string | null
+  keyRetiredAt?: string | null
+  migrationDevices?: string[]
 }
 
 type GalleryRow = {
@@ -49,6 +51,8 @@ type GalleryRow = {
   retention: string | null
   expires_at: string | null
   pinned_at: string | null
+  key_retired_at: string | null
+  migration_devices: string | null
 }
 
 export type GalleryEnv = { DB?: D1Database }
@@ -75,6 +79,8 @@ const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
   retention: retentionOf(gallery),
   expiresAt: gallery.expiresAt ?? null,
   pinnedAt: gallery.pinnedAt ?? null,
+  keyRetiredAt: gallery.keyRetiredAt ?? null,
+  migrationDevices: gallery.migrationDevices ?? [],
 })
 
 const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
@@ -91,6 +97,8 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
     retention: row.retention === 'pipeline' ? 'pipeline' : 'retained',
     expiresAt: row.expires_at ?? null,
     pinnedAt: row.pinned_at ?? null,
+    keyRetiredAt: row.key_retired_at ?? null,
+    migrationDevices: JSON.parse(row.migration_devices || '[]') as string[],
     images: [],
   }
   if (row.images_json) {
@@ -104,7 +112,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, key_retired_at, migration_devices'
 
 type GalleryInsertRow = {
   id: string
@@ -116,6 +124,8 @@ type GalleryInsertRow = {
   source_url: string | null
   images_json: string
   created_at: string
+  key_retired_at: string | null
+  migration_devices: string
 }
 
 const recordToRow = (gallery: GalleryRecord): GalleryInsertRow => ({
@@ -128,6 +138,8 @@ const recordToRow = (gallery: GalleryRecord): GalleryInsertRow => ({
   source_url: gallery.sourceUrl ?? null,
   images_json: JSON.stringify(gallery.images),
   created_at: new Date(gallery.createdAt || Date.now()).toISOString(),
+  key_retired_at: gallery.keyRetiredAt ?? null,
+  migration_devices: JSON.stringify(gallery.migrationDevices ?? []),
 })
 
 const sortRecent = (galleries: GalleryRecord[]) => galleries.sort((a, b) => {
@@ -269,13 +281,18 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
     const current = await getStoredGallery(ownerId, gallery.slug, env)
     if (!current) return null
     assertGalleryEditable(current)
-    const row = recordToRow(gallery)
+    const row = recordToRow({
+      ...gallery,
+      manifestVersion: gallery.manifestVersion ?? current.manifestVersion,
+      keyRetiredAt: gallery.keyRetiredAt ?? current.keyRetiredAt,
+      migrationDevices: gallery.migrationDevices ?? current.migrationDevices,
+    })
     const result = await env.DB.prepare(
-      `UPDATE galleries SET title = ?, caption = ?, date = ?, source_url = ?, images_json = ?
+      `UPDATE galleries SET manifest_version = ?, title = ?, caption = ?, date = ?, source_url = ?, images_json = ?, key_retired_at = ?, migration_devices = ?
        WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
-    ).bind(row.title, row.caption, row.date, row.source_url, row.images_json, ownerId, gallery.slug).run()
+    ).bind(row.manifest_version, row.title, row.caption, row.date, row.source_url, row.images_json, row.key_retired_at, row.migration_devices, ownerId, gallery.slug).run()
     if ((result.meta.changes ?? 0) === 0) return null
-    return { ...gallery, id: current.id, manifestVersion: current.manifestVersion, createdAt: current.createdAt, retention: current.retention, expiresAt: current.expiresAt }
+    return getStoredGallery(ownerId, gallery.slug, env)
   }
   const store = ownerStore(ownerId)
   const current = store.get(gallery.slug)
@@ -284,7 +301,9 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
   const updated: GalleryRecord = {
     ...gallery,
     id: current.id,
-    manifestVersion: current.manifestVersion,
+    manifestVersion: gallery.manifestVersion ?? current.manifestVersion,
+    keyRetiredAt: gallery.keyRetiredAt ?? current.keyRetiredAt ?? null,
+    migrationDevices: gallery.migrationDevices ?? current.migrationDevices ?? [],
     createdAt: current.createdAt,
     retention: retentionOf(current),
     expiresAt: current.expiresAt ?? null,
@@ -631,7 +650,7 @@ export const toSummary = (gallery: GalleryRecord) => {
   // vault's "Saving n of imageCount" progress reads it.
   const visible = gallery.images.filter((image) => !image.hidden)
   const { stills, videos } = mediaCountOf(visible)
-  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, images: previewImages(gallery.images) }
+  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, images: previewImages(gallery.images) }
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 

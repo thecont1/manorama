@@ -405,6 +405,27 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(requested).toEqual([])
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
+
+  test('an encrypted manifest never starts a fill and never orphans a stored copy', async () => {
+    const { store, requested } = makeHarness()
+    await store.cache(selection, gallery)
+    expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 2 })
+
+    // Same gallery migrated server-side: keyless refs, dead srcs. A fill
+    // would fail mid-way after the commit record was already invalidated.
+    const migrated: NativeGalleryResponse = {
+      manifest: {
+        ...gallery.manifest,
+        sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+        images: gallery.manifest.images.map((item) => ({ ...item, src: '', media: { kind: 'encrypted' as const, provider: 'mega' as const, sourceKind: 'folder' as const, sourceId: 'AbCdEf12', nodeId: 'n' } })),
+      },
+      settings: gallery.settings,
+    }
+    expect(await store.cache(selection, migrated)).toEqual({ status: 'skipped-encrypted', images: 0 })
+    expect(requested).toHaveLength(2) // only the first fill's requests
+    expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 2 })
+    expect((await store.open(selection))?.manifest.images[0]?.src).toBe('blob:offline-1')
+  })
 })
 
 describe('openGalleryNetworkFirst', () => {

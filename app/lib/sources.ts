@@ -2,7 +2,6 @@ import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
-import { scanMegaSource } from './mega-public'
 import { megaIdentityFromUrl } from '../../packages/core/encrypted-source'
 import type { GalleryMediaItem } from './imagesource'
 
@@ -281,7 +280,8 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
       case 'icloud':
         return scanICloudAlbum(input, fetchImpl)
       case 'mega':
-        return scanMegaSource(input, fetchImpl)
+        if (/\/file\//i.test(new URL(input).pathname)) throw new Error('Use a public MEGA folder or collection link')
+        throw new Error('MEGA sources are scanned on your device, never by the server')
       case 'local':
         return scanLocalFolder(input)
     }

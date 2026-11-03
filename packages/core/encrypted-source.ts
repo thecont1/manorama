@@ -137,3 +137,36 @@ export const mediaReferenceIsValid = (value: unknown): value is MediaReference =
   }
   return false
 }
+
+/** Transitional rendering policy. Only an owner may receive the stored legacy
+ * capability for conversion; visitors get it only through a full link.
+ * A version-2 manifest always takes the client gate: its items carry keyless
+ * media references, so the legacy server path could not render them even
+ * while the row's sourceUrl still holds the unretired key. */
+export const encryptedGalleryGate = (input: {
+  sourceUrl: string
+  viewerOwner: boolean
+  keyRetiredAt?: string | null
+  manifestVersion?: number
+  legacyServerDecrypt: boolean
+}): { client: boolean; legacySourceUrl?: string } => {
+  const client = input.viewerOwner || Boolean(input.keyRetiredAt) || !input.legacyServerDecrypt ||
+    input.manifestVersion === ENCRYPTED_MANIFEST_VERSION
+  return {
+    client,
+    ...(input.viewerOwner && input.sourceUrl.includes('#') && !input.keyRetiredAt ? { legacySourceUrl: input.sourceUrl } : {}),
+  }
+}
+
+/** A served manifest is encrypted when its gallery source is, or when any
+ * item carries an encrypted media reference. The item check catches legacy
+ * rows whose stored sourceUrl was never populated. */
+export const manifestIsEncryptedSource = (manifest: {
+  sourceUrl?: string | null
+  images?: readonly unknown[]
+}): boolean => {
+  if (typeof manifest.sourceUrl === 'string' && isEncryptedSourceUrl(manifest.sourceUrl)) return true
+  return (manifest.images ?? []).some((image) =>
+    typeof image === 'object' && image !== null &&
+    (image as { media?: { kind?: unknown } }).media?.kind === 'encrypted')
+}

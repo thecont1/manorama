@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
   contentVersionIsValid,
+  encryptedGalleryGate,
   encryptedSourceFromGalleryHash,
   galleryHashForSource,
   galleryUrlWithPreservedHash,
   isEncryptedSourceUrl,
   keylessSourceUrl,
+  manifestIsEncryptedSource,
   mediaReferenceIsValid,
   validatePublishedDimensions,
 } from './encrypted-source'
@@ -63,5 +65,32 @@ describe('published encrypted manifest rules', () => {
     expect(mediaReferenceIsValid({ kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'abc#secret', nodeId: 'node' })).toBe(false)
     expect(mediaReferenceIsValid({ kind: 'http', url: 'javascript:alert(1)' })).toBe(false)
     expect(mediaReferenceIsValid({ kind: 'http', url: '/api/drive/file?id=abc' })).toBe(true)
+  })
+})
+
+describe('transitional encrypted gallery gate', () => {
+  const legacy = { sourceUrl: keyed, manifestVersion: 1, legacyServerDecrypt: true }
+  test('only an owner receives the stored legacy capability', () => {
+    expect(encryptedGalleryGate({ ...legacy, viewerOwner: true })).toEqual({ client: true, legacySourceUrl: keyed })
+    expect(encryptedGalleryGate({ ...legacy, viewerOwner: false })).toEqual({ client: false })
+  })
+  test('retirement or a disabled server path requires the client gate', () => {
+    expect(encryptedGalleryGate({ ...legacy, viewerOwner: false, keyRetiredAt: '2026-01-01' }).client).toBe(true)
+    expect(encryptedGalleryGate({ ...legacy, viewerOwner: false, legacyServerDecrypt: false }).client).toBe(true)
+    expect(encryptedGalleryGate({ ...legacy, viewerOwner: false, keyRetiredAt: '2026-01-01' }).legacySourceUrl).toBeUndefined()
+  })
+  test('a version-2 manifest always takes the client gate, even mid-migration', () => {
+    // Converted on one device: keyless media refs with the source key still
+    // stored. The server could not render those refs even for a visitor.
+    expect(encryptedGalleryGate({ sourceUrl: keyed, manifestVersion: 2, viewerOwner: false, legacyServerDecrypt: true }).client).toBe(true)
+    expect(encryptedGalleryGate({ sourceUrl: keyed, manifestVersion: 2, viewerOwner: true, legacyServerDecrypt: true }).legacySourceUrl).toBe(keyed)
+  })
+  test('a manifest reports encrypted through its source or any media reference', () => {
+    expect(manifestIsEncryptedSource({ sourceUrl: keyed })).toBe(true)
+    expect(manifestIsEncryptedSource({ sourceUrl: keylessSourceUrl(keyed) })).toBe(true)
+    expect(manifestIsEncryptedSource({ sourceUrl: 'https://dropbox.com/sh/a/b' })).toBe(false)
+    expect(manifestIsEncryptedSource({ images: [{ media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'Ab', nodeId: 'n' } }] })).toBe(true)
+    expect(manifestIsEncryptedSource({ images: [{ media: { kind: 'http', url: '/api/drive/file?id=x' } }] })).toBe(false)
+    expect(manifestIsEncryptedSource({})).toBe(false)
   })
 })

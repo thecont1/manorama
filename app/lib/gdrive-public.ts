@@ -118,6 +118,8 @@ export const scanDriveFolder = async (input: string, env: GDriveEnv, fetchImpl: 
       height,
       alt: filenameLabel(file.name),
       c2pa: true,
+      fidelity: 'original',
+      thumbnailFidelity: 'display-derivative',
       placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
       variants: [{ width: 256, src: thumbnailProxy(file.id, 'w256', file.resourceKey), format: 'jpeg' }],
     }

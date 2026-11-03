@@ -98,6 +98,8 @@ export type VideoItem = {
   filename: string
   /** Proxy URL for the H.264 MP4 derivative — Range-capable. */
   src: string
+  fidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
+  thumbnailFidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
   mimeType: 'video/mp4'
   width: number
   height: number

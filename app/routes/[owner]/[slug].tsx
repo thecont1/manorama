@@ -15,8 +15,9 @@ import { getUserByOwnerSlug } from '../../lib/user-repository'
 import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
-import { isEncryptedSourceUrl } from '../../../packages/core/encrypted-source'
+import { encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../../../packages/core/encrypted-source'
 import { encryptedGalleryDescription } from '../../lib/og-metadata'
+import type { GalleryMediaItem } from '../../lib/imagesource'
 
 export default createRoute(async (c) => {
   const owner = c.req.param('owner') ?? ''
@@ -97,10 +98,27 @@ export default createRoute(async (c) => {
     initialIndex: photoIndex > 0 ? photoIndex : 0,
   }
 
+  const legacyDecryptEnabled = (c.env as { LEGACY_ENCRYPTED_DECRYPT?: string }).LEGACY_ENCRYPTED_DECRYPT === 'enabled'
+  const gate = encryptedGalleryGate({
+    sourceUrl: gallery.sourceUrl ?? '', viewerOwner: viewerRole === 'owner', keyRetiredAt: gallery.keyRetiredAt,
+    manifestVersion: gallery.manifestVersion, legacyServerDecrypt: legacyDecryptEnabled,
+  })
+  const clientGate = encrypted && gallery.id && gate.client
+  const legacySourceUrl = gate.legacySourceUrl
+
+  // A visitor-facing client gate must not inherit the stored capability:
+  // legacy item srcs still carry `k=` keys and sourceUrl can hold the
+  // fragment. Only the owner receives keyed props, for the migration call.
+  const gatedImages = (items: readonly GalleryMediaItem[]): GalleryMediaItem[] =>
+    legacySourceUrl ? [...items] : items.map((item) =>
+      item.type === 'video'
+        ? { ...item, src: '', variants: [], sources: [], captions: [], poster: { ...item.poster, src: '' } }
+        : { ...item, src: '', variants: [] })
+
   return c.render(
     <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>
-      {encrypted && gallery.manifestVersion === 2 && gallery.id
-        ? <EncryptedGallery {...viewerProps} galleryId={gallery.id} sourceUrl={gallery.sourceUrl!} />
+      {clientGate && gallery.id
+        ? <EncryptedGallery {...viewerProps} images={gatedImages(viewerProps.images)} galleryId={gallery.id} sourceUrl={keylessSourceUrl(gallery.sourceUrl!)} legacySourceUrl={legacySourceUrl} />
         : <Viewer {...viewerProps} />}
     </GalleryShell>,
     {

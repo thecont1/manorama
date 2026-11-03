@@ -324,6 +324,7 @@ const makeImage = async (auth: MegaAuth, index: number, node: { h: string; fa?: 
     media: { kind: 'encrypted', provider: 'mega', ...identity, nodeId: node.h, previewId: undefined },
     contentVersion,
     fidelity: 'original',
+    thumbnailFidelity: 'display-derivative',
     // The JPEG/WebP preview doubles as the rail thumbnail: without a
     // variant, admin's `variants?.[0]?.src ?? src` falls back to the
     // multi-MB decrypted original per image. Declared width is the

@@ -386,13 +386,16 @@ describe('CloudKit shared albums (photos.icloud.com/shared/album)', () => {
     expect(scan.images).toHaveLength(1)
     const [item] = scan.images
     expect(item.ref).toBe('rec-001')
-    // HEIC originals take Apple's largest JPEG, not the undecodable original.
-    expect(item.src).toBe(`/api/icloud/image?album=${GUID}&photo=rec-001&c=resJPEGLargeRes&v=ck`)
+    // HEIC originals stay byte-original; the client decoder handles display.
+    expect(item.src).toBe(`/api/icloud/image?album=${GUID}&photo=rec-001&c=resOriginalRes&v=ck`)
+    expect(item.filename).toBe('Photo 1.heic')
+    expect('fidelity' in item && item.fidelity).toBe('original')
+    expect('thumbnailFidelity' in item && item.thumbnailFidelity).toBe('display-derivative')
     expect(item.variants?.[0]?.src).toContain('c=resJPEGThumbRes')
     // Dims report the original's pixels, not the rendition's.
     expect(item.width).toBe(4032)
     expect(item.height).toBe(3024)
-    expect(item.c2pa).toBe(false)
+    expect(item.c2pa).toBe(true)
     expect(calls.some((url) => url.includes('records/resolve'))).toBe(true)
     expect(calls.some((url) => url.includes('records/query'))).toBe(true)
   })
@@ -402,6 +405,17 @@ describe('CloudKit shared albums (photos.icloud.com/shared/album)', () => {
     const scan = await scanICloudAlbum(LINK, fetchImpl)
     expect(scan.images[0]?.src).toContain('c=resOriginalRes')
     expect(scan.images[0]?.c2pa).toBe(true)
+  })
+
+  test('a missing original falls back to a labelled full-resolution render', async () => {
+    const record = master()
+    delete (record.fields as Record<string, unknown>).resOriginalRes
+    const { fetchImpl } = ckFetch([record])
+    const scan = await scanICloudAlbum(LINK, fetchImpl)
+    const item = scan.images[0]!
+    expect(item.src).toContain('c=resJPEGLargeRes')
+    expect(item.c2pa).toBe(false)
+    expect('fidelity' in item && item.fidelity).toBe('full-resolution-render')
   })
 
   test('movie masters become VideoItems with a Vid rendition and JPEG poster', async () => {

@@ -42,7 +42,7 @@ Encrypted-source gallery metadata points directly at `/og-image.png`, without `?
 
 ### D5 — Direct ciphertext transport; relay only if required
 
-The 2026-11-03 synthetic CORS spike demonstrated `Access-Control-Allow-Origin: *` on MEGA API and a live CDN preflight. Direct browser transport is therefore the first path. CSP is narrowly relaxed for MEGA API and `*.userstorage.mega.co.nz`. A real signed CDN GET remains a fixture gate. If direct transport fails, a relay must re-resolve by keyless node reference per request, accept no key or raw URL, restrict hosts/methods/redirects/sizes, stream ciphertext, and disable application/CDN caching and sensitive logging.
+Direct browser transport is implemented as the first path. CSP is narrowly relaxed for MEGA API and `*.userstorage.mega.co.nz`. Synthetic CORS/header checks support the API path, but this run did not verify a rights-cleared real signed CDN media GET; that remains a fixture gate rather than a claimed result. If direct transport fails, a relay must re-resolve by keyless node reference per request, accept no key or raw URL, restrict hosts/methods/redirects/sizes, stream ciphertext, and disable application/CDN caching and sensitive logging.
 
 ### D6 — Encrypted vault with plaintext materialization seam
 
@@ -68,7 +68,7 @@ New encrypted manifests carry integer dimensions and a 64-hex-character SHA-256 
 
 - M1–M4 establish identity, key stores, validated manifest create, client media resolution, and static OG.
 - M5–M6 prove the MEGA client path and native fragment/vault path with a limited synthetic cohort while legacy records remain reversible.
-- M7 removes server MEGA plaintext endpoints, decrypted-preview cache, server probes, and OG decrypt reach. The strict import-graph and no-backend-key canaries are end-state gates from M7 onward; before then, legacy key custody is explicitly transitional.
+- M7 retires server MEGA plaintext endpoints by default (`410 SERVER_DECRYPT_RETIRED`), removes server scan dispatch, and removes retired operations from OpenAPI. `LEGACY_ENCRYPTED_DECRYPT=enabled` is a documented, reversible cohort-migration kill switch; production removes it after the two-device/opt-out cohort is complete. The strict import-graph and no-backend-key canaries are end-state gates from M7 onward.
 - M8 implements the hosted Ente public protocol independently. Upstream `ente/ente` @ `2eb6802727b1c096b0a616b0858b6c1821bf9808` is AGPL-3.0 and is used only as a protocol specification; no code is copied.
 - M9 makes fidelity claims only from evidence. Apple documents legacy 2048px reduction and original resolution for newly shared items in upgraded albums, but anonymous byte identity, edited renders, HEIC originals, and C2PA preservation remain unverified until rights-cleared fixture hashes exist.
 

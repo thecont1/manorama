@@ -19,6 +19,7 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
 import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { isEncryptedSourceUrl, manifestIsEncryptedSource } from '../../packages/core/encrypted-source'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -355,7 +356,8 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   useEffect(() => {
     if (!deepLinkSelection) return
     if (!('owner' in deepLinkSelection)) {
-      setPendingQuickAdd(deepLinkSelection.sourceUrl)
+      if (deepLinkSelection.kind === 'web') openExternal(deepLinkSelection.url)
+      else setPendingQuickAdd(deepLinkSelection.sourceUrl)
       return
     }
     setFrameKick({ index: 0, nonce: 0 })
@@ -373,6 +375,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   useEffect(() => {
     if (!pendingQuickAdd || signedIn !== true || quickAddInFlight.current) return
     const sourceUrl = pendingQuickAdd
+    // Encrypted sources are scanned on-device; the native client path is
+    // not built yet, so the same wrapped link goes through the web's
+    // client scan inside the browser sheet instead of a doomed POST.
+    if (isEncryptedSourceUrl(sourceUrl)) {
+      setPendingQuickAdd(null)
+      void clearPendingQuickAdd()
+      openExternal(`${normalizeApiBase(base)}/${sourceUrl}`)
+      return
+    }
     quickAddInFlight.current = sourceUrl
     setQuickAddBusy(true)
     setError(null)
@@ -412,6 +423,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       leaseRef.current = null
     }
     const applyGallery = (gallery: NetworkFirstGallery) => {
+      // Encrypted-source galleries have no native decrypt path yet: online
+      // opens delegate to the same in-app browser sheet other external
+      // flows use. A vaulted copy still renders below when the network
+      // was unreachable — its stored manifest predates the encrypted refs.
+      if (gallery.source === 'online' && manifestIsEncryptedSource(gallery.manifest)) {
+        disposeLease()
+        gallery.dispose?.()
+        openExternal(`${normalizeApiBase(base)}/${encodeURIComponent(selection.owner)}/${encodeURIComponent(selection.slug)}`)
+        returnToGalleries()
+        return
+      }
       disposeLease()
       leaseRef.current = gallery
       currentManifest = gallery.manifest

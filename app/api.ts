@@ -9,7 +9,7 @@ import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -22,7 +22,7 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
-import { isEncryptedSourceUrl } from '../packages/core/encrypted-source'
+import { isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
 import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
 
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
@@ -40,6 +40,8 @@ export type RuntimeEnv = {
   PUBLIC_HOST?: string
   REVENUECAT_WEBHOOK_AUTH?: string
   REVENUECAT_WEBHOOK_SIGNING_SECRET?: string
+  /** Temporary cohort-migration exception. Absence means server decrypt is retired. */
+  LEGACY_ENCRYPTED_DECRYPT?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
@@ -352,7 +354,12 @@ export const createManoramaApi = () => {
       }
     }
     const images = includeHidden ? gallery.images : gallery.images.filter((image) => !image.hidden)
-    const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images }
+    // Encrypted sources publish the keyless form only: the stored row may
+    // still hold a legacy fragment the native client must never receive.
+    const manifest = {
+      slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images,
+      ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl) ? { sourceUrl: keylessSourceUrl(gallery.sourceUrl) } : {}),
+    }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
   })
   // Public: the native shell asks before composing plates. Geo-IP comes from
@@ -842,6 +849,48 @@ export const createManoramaApi = () => {
     }
   })
 
+  api.post('/api/galleries/:slug/migrate', requireEditableGallery(), async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ manifest?: unknown; deviceId?: string; optOut?: boolean }>().catch((): { manifest?: unknown; deviceId?: string; optOut?: boolean } => ({}))
+    try {
+      const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!gallery?.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) return c.json({ error: 'Only encrypted source galleries can migrate' }, 400)
+      if (typeof payload.deviceId !== 'string' || !/^[0-9A-Za-z-]{8,128}$/.test(payload.deviceId)) return c.json({ error: 'Provide a valid non-secret device id' }, 400)
+      const submitted = validateEncryptedManifest(payload.manifest)
+      if (!canonicalSourceMatches(gallery.sourceUrl, submitted.sourceUrl)) return c.json({ error: 'Migration source identity does not match this gallery' }, 400)
+      const verifiedDevices = [...new Set([...(gallery.migrationDevices ?? []), payload.deviceId])]
+      if (gallery.keyRetiredAt) {
+        return c.json({ gallery: toSummary(gallery), verifiedDevices: verifiedDevices.length, keyRetired: true })
+      }
+      const keyRetired = payload.optOut === true || verifiedDevices.length >= 2
+      const scanByKey = new Map(submitted.images.map((image) => [image.ref ?? image.filename, image]))
+      const keptKeys = new Set(gallery.images.map((image) => image.ref ?? image.filename))
+      const retained = gallery.images.flatMap((image) => {
+        const fresh = scanByKey.get(image.ref ?? image.filename)
+        return fresh ? [{ ...fresh, ...(image.hidden ? { hidden: true as const } : {}) }] : []
+      })
+      const images = retained.concat(submitted.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
+      const updated = await updateGalleryRecord(session.accountId, {
+        ...gallery,
+        images,
+        manifestVersion: 2,
+        sourceUrl: keyRetired ? submitted.sourceUrl : gallery.sourceUrl,
+        migrationDevices: verifiedDevices,
+        keyRetiredAt: keyRetired ? new Date().toISOString() : null,
+      }, dbEnv(c))
+      if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({
+        gallery: toSummary(updated),
+        verifiedDevices: verifiedDevices.length,
+        keyRetired,
+        ...(keyRetired ? { warning: 'The server key was removed. Manorama cannot recover it; keep the full gallery link.' } : {}),
+      })
+    } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be migrated' }, 400)
+    }
+  })
+
   /** Changes the signed-in owner's URL segment. Galleries follow the
    * account, so every public gallery address updates with it. */
   api.patch('/api/account', async (c) => {
@@ -973,6 +1022,7 @@ export const createManoramaApi = () => {
   })
 
   api.get('/api/mega/file', async (c) => {
+    if (envOf(c)?.LEGACY_ENCRYPTED_DECRYPT !== 'enabled') return c.json({ code: 'SERVER_DECRYPT_RETIRED', error: 'MEGA media is decrypted on your device' }, 410)
     const folder = c.req.query('folder')
     const set = c.req.query('set')
     const node = c.req.query('node')
@@ -988,6 +1038,7 @@ export const createManoramaApi = () => {
   })
 
   api.get('/api/mega/preview', async (c) => {
+    if (envOf(c)?.LEGACY_ENCRYPTED_DECRYPT !== 'enabled') return c.json({ code: 'SERVER_DECRYPT_RETIRED', error: 'MEGA previews are decrypted on your device' }, 410)
     const folder = c.req.query('folder')
     const set = c.req.query('set')
     const fah = c.req.query('h')

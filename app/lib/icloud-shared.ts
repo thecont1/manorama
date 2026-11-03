@@ -9,9 +9,9 @@ import { MAX_RETRY_WAIT_MS, PROBE_RETRY_WAIT_MS, retryAfterMs } from './transien
  * Two caveats this module lives with:
  *  - The API is undocumented and unsupported; Apple can change or break
  *    it without notice. Failures surface as friendly scan errors.
- *  - Shared albums serve web-optimized JPEG derivatives only (~2048px
- *    max) — never originals — so `c2pa` is always false and quality is
- *    capped at web display resolution.
+ *  - Legacy sharedstreams albums serve web-optimized JPEG derivatives
+ *    (~2048px max). CloudKit shared albums can expose resOriginalRes;
+ *    those originals, including HEIC, are streamed without re-encoding.
  */
 
 const PHOTOS_UA = 'Photos/5.0 (Macintosh; OS X 10.15.4) AppleWebKit/605.1.15'
@@ -383,6 +383,8 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
         },
         alt: caption || 'Video',
         c2pa: false,
+        fidelity: 'display-derivative',
+        thumbnailFidelity: 'display-derivative',
         placeholder: placeholderFor(width, height),
         // The poster doubles as the rail/strip thumbnail, so every
         // `variants?.[0]?.src` consumer keeps working untouched.
@@ -411,6 +413,8 @@ export const scanICloudAlbum = async (input: string, fetchImpl: typeof fetch = f
       alt: caption || 'Photograph',
       caption,
       c2pa: false,
+      fidelity: 'full-resolution-render',
+      thumbnailFidelity: 'display-derivative',
       placeholder: placeholderFor(width, height),
       variants: [{ width: num(smallest.width) || 256, src: imageProxy(token, photo.photoGuid, smallest.checksum!), format: 'jpeg' }],
     }
@@ -678,11 +682,6 @@ const ckImageProxy = (token: string, record: string, resField: string) =>
 const ckVideoProxy = (token: string, record: string, resField: string) =>
   `/api/icloud/video?album=${encodeURIComponent(token)}&photo=${encodeURIComponent(record)}&c=${encodeURIComponent(resField)}&v=ck`
 
-/** itemType strings on masters are UTIs: `public.heic`, `public.jpeg`,
- *  `public.movie`. Only the UTIs a browser can decode as-is earn the
- *  original rendition; everything else takes Apple's largest JPEG, which
- *  is what the legacy sharedstreams path effectively serves as well. */
-const CK_ORIGINAL_DECODABLE = /^public\.(jpeg|jpg|png|webp|gif|avif|tiff?)$/i
 const CK_VIDEO_TYPE = /movie|video/i
 
 const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = fetch): Promise<ICloudScan> => {
@@ -752,6 +751,8 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
         poster: { src: ckImageProxy(token, recordName, poster.name), width: num(poster.width) || width, height: num(poster.height) || height },
         alt: 'Video',
         c2pa: false,
+        fidelity: video.name === 'resOriginalRes' ? 'original' : 'display-derivative',
+        thumbnailFidelity: 'display-derivative',
         placeholder: placeholderFor(width, height),
         variants: [{ width: num(poster.width) || 256, src: ckImageProxy(token, recordName, poster.name), format: 'jpeg' }],
       }
@@ -760,19 +761,21 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
       continue
     }
 
-    // Original bytes for browser-decodable UTIs; Apple's largest JPEG
-    // rendition otherwise (HEIC masters still display without a decoder).
+    // Original bytes whenever CloudKit exposes them, including HEIC: the
+    // client decoder handles originals without a server-side transcode.
     const original = stills.find((d) => d.name === 'resOriginalRes')
     const renditions = stills.filter((d) => d.name !== 'resOriginalRes')
-    const primary = original && CK_ORIGINAL_DECODABLE.test(itemType) ? original : pickArea(renditions.length ? renditions : stills)
+    const primary = original ?? pickArea(renditions.length ? renditions : stills)
     const thumb = stills.find((d) => d.name === 'resJPEGThumbRes') ?? stills.reduce((small, d) => ((d.width ?? Infinity) * (d.height ?? Infinity) < (small.width ?? Infinity) * (small.height ?? Infinity) ? d : small))
     const width = originalWidth ?? num(primary.width) ?? 4
     const height = originalHeight ?? num(primary.height) ?? 3
     items.push({
       id,
       ref: recordName,
-      filename: `Photo ${position}`,
+      filename: primary === original && /hei[cf]/i.test(itemType) ? `Photo ${position}.heic` : `Photo ${position}`,
       src: ckImageProxy(token, recordName, primary.name),
+      fidelity: primary === original ? 'original' : 'full-resolution-render',
+      thumbnailFidelity: 'display-derivative',
       width,
       height,
       alt: 'Photograph',

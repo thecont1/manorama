@@ -165,6 +165,8 @@ const scanLocalFile = async (dir: string, name: string): Promise<GalleryMediaIte
         height: dims.height,
         alt: name,
         c2pa: true,
+        fidelity: 'original',
+        thumbnailFidelity: 'display-derivative',
         placeholder: placeholderFor(dims.width, dims.height),
         variants: [{ width: 256, src: `${localFileUrl(filePath)}&w=256`, format: 'webp' }],
       }
@@ -186,6 +188,8 @@ const scanLocalFile = async (dir: string, name: string): Promise<GalleryMediaIte
       poster,
       alt: name,
       c2pa: false,
+      fidelity: 'original',
+      thumbnailFidelity: 'display-derivative',
       placeholder: poster.src,
       variants: [{ width: 256, src: poster.src, format: 'svg' }],
     }

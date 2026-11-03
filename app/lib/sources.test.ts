@@ -51,6 +51,10 @@ describe('scanSource', () => {
     await expect(scanSource('https://example.com/photos', {})).rejects.toThrow(UNRECOGNIZED_LINK_MESSAGE)
   })
 
+  test('refuses server-side MEGA scans', async () => {
+    await expect(scanSource('https://mega.nz/folder/AbCdEf12#secret', {})).rejects.toThrow('scanned on your device')
+  })
+
   test('rejects iCloud Drive links with the Shared Album guidance', async () => {
     await expect(scanSource('https://www.icloud.com/iclouddrive/03c_T_Sxo0bE6AecC8_Ol21tw#Moral_Polis', {}))
       .rejects.toThrow('iCloud Drive links cannot be read')

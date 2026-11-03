@@ -9,6 +9,7 @@ import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
 import type { CacheFillItem } from './cache-fill'
 import { cacheFillRegistry } from './cache-fill'
+import { manifestIsEncryptedSource } from '../../packages/core/encrypted-source'
 
 const METADATA_VERSION = 1
 const METADATA_ENTRY_ID = 'offline-gallery:metadata:v1'
@@ -19,6 +20,7 @@ export type GallerySelection = { owner: string; slug: string }
 export type OfflineCacheResult =
   | { status: 'complete'; images: number }
   | { status: 'skipped-video'; images: 0 }
+  | { status: 'skipped-encrypted'; images: 0 }
   | { status: 'over-cap'; images: number }
 
 export type OfflineCacheProgress = { completed: number; total: number }
@@ -313,6 +315,11 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     // repopulating the vault — the fill dies on its next write instead.
     const guard = { since: this.vault.epoch() }
     const selection = requireSelection(rawSelection)
+    // Encrypted-source galleries are delegated to the web before this call
+    // (the client crypto path is not built yet). A fill must not start —
+    // its dead srcs would fail after the commit record was removed and
+    // orphan a healthy vaulted copy. No vault state is touched.
+    if (manifestIsEncryptedSource(gallery.manifest)) return { status: 'skipped-encrypted', images: 0 }
     const galleryId = await offlineGalleryId(selection)
     // Read the prior record before invalidating it: the stored manifest's
     // src is the only validator for reused bytes (a replaced photo arrives

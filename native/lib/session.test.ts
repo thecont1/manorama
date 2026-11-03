@@ -110,6 +110,16 @@ describe('native OAuth callback', () => {
     expect(gallerySelectionFromDeepLink('in.thecontrarian.manorama://auth/callback')).toBeNull()
   })
 
+  test('a keyed gallery link delegates to the web instead of falling through', () => {
+    const keyed = 'https://manorama.xyz/thecontrarian/italy#source=' +
+      encodeURIComponent('https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA')
+    expect(gallerySelectionFromDeepLink(keyed)).toEqual({ kind: 'web', url: keyed })
+    // A fragment that is not a source capability still means "not a gallery".
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy#photo=2')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/thecontrarian/italy#source=' +
+      encodeURIComponent('https://mega.nz/folder/AbCdEf12'))).toBeNull()
+  })
+
   test('accepts only a deliberate Manorama wrapper around a supported cloud folder', () => {
     expect(gallerySelectionFromDeepLink(
       'https://manorama.xyz/https://www.dropbox.com/scl/fo/lf77cf8mbwls8nwbcvq/AHmaVMMaxe926qhJvOiOHtw?rlkey=dvtkshg5wmht49rmyvgklri26&dl=0',
