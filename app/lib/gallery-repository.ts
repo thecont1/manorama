@@ -6,6 +6,7 @@ import { clearDeviceGalleryLink } from './device-gallery-repository'
 import {
   assertGalleryEditable,
   FREE_RETAINED_LIMIT,
+  GalleryPolicyError,
   isGalleryExpired,
   PAID_RETAINED_LIMIT,
   paidGalleryLimitError,
@@ -128,6 +129,18 @@ type GalleryInsertRow = {
   migration_devices: string
 }
 
+/** D1's row ceiling is the real constraint — the 1,000-item cap alone
+ *  allows ~33 MB of worst-case exif/placeholder. 1.8 MB leaves headroom
+ *  under the ~2 MB row limit for the row's other columns. */
+export const MANIFEST_IMAGES_MAX_BYTES = 1_800_000
+const manifestImagesJson = (images: readonly GalleryMediaItem[]): string => {
+  const json = JSON.stringify(images)
+  if (json.length > MANIFEST_IMAGES_MAX_BYTES) {
+    throw new GalleryPolicyError('MANIFEST_TOO_LARGE', 'That manifest is too large to store — reduce the number of items or their metadata')
+  }
+  return json
+}
+
 const recordToRow = (gallery: GalleryRecord): GalleryInsertRow => ({
   id: gallery.id ?? crypto.randomUUID(),
   manifest_version: gallery.manifestVersion ?? 1,
@@ -136,7 +149,7 @@ const recordToRow = (gallery: GalleryRecord): GalleryInsertRow => ({
   caption: gallery.caption ?? '',
   date: gallery.date ?? '',
   source_url: gallery.sourceUrl ?? null,
-  images_json: JSON.stringify(gallery.images),
+  images_json: manifestImagesJson(gallery.images),
   created_at: new Date(gallery.createdAt || Date.now()).toISOString(),
   key_retired_at: gallery.keyRetiredAt ?? null,
   migration_devices: JSON.stringify(gallery.migrationDevices ?? []),
@@ -319,7 +332,7 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
  *  that persisted a client-scanned manifest promotes the gallery to it.
  *  Throws a typed read-only error for pipeline galleries. */
 export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv, manifestVersion?: number): Promise<GalleryRecord | null> => {
-  const imagesJson = JSON.stringify(images)
+  const imagesJson = manifestImagesJson(images)
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, slug, env)
     if (!current) return null

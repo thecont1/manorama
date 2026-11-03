@@ -5,7 +5,7 @@ export const PIPELINE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 export const PIPELINE_LOCK_MESSAGE = 'This temporary gallery cannot be edited on the free plan. Upgrade to keep it and make changes.'
 export const FREE_RETENTION_DISCLOSURE = 'Free accounts retain up to 3 editable galleries. Additional galleries are temporary and are removed after 30 days unless you upgrade.'
 export class GalleryPolicyError extends Error {
-  constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY' | 'PIN_LIMIT', message: string) { super(message); this.name = 'GalleryPolicyError' }
+  constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY' | 'PIN_LIMIT' | 'MANIFEST_TOO_LARGE', message: string) { super(message); this.name = 'GalleryPolicyError' }
 }
 /** A Free owner already pins all FREE_RETAINED_LIMIT permanent galleries —
  *  keeping another means choosing which pin to give up, or choosing a plan. */

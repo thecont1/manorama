@@ -69,6 +69,20 @@ describe('encrypted gallery API', () => {
     const stored = await getGallery(TEST_OWNER.accountId, 'legacy-mega')
     expect(stored?.manifestVersion).toBe(2)
   })
+  test('a manifest that passes item validation but overflows the D1 row is refused', async () => {
+    // Each item is validator-legal (caption < 10K); 1,000 of them total ~2.3 MB
+    // of images_json, past the 1.8 MB bound under D1's row ceiling.
+    const big = Array.from({ length: 1000 }, (_, index) => ({
+      ...item,
+      id: `mega-n${index.toString(36)}`, ref: `n${index.toString(36)}`, filename: `${index}.jpg`,
+      media: { ...item.media, nodeId: `n${index.toString(36)}` },
+      caption: 'x'.repeat(2100),
+    }))
+    const response = await post('/api/galleries', { manifest: { ...manifest(), images: big } })
+    expect(response.status).toBe(422)
+    expect((await response.json() as any).code).toBe('MANIFEST_TOO_LARGE')
+  })
+
   test('legacy server decrypt is retired by default with an explicit migration override', async () => {
     const retired = await api.request('/api/mega/file?folder=Ab&node=node&k=secret')
     expect(retired.status).toBe(410)

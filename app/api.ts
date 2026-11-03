@@ -554,7 +554,7 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries', async (c) => {
+  api.post('/api/galleries', bodyLimit({ maxSize: 8 * 1024 * 1024 }), async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     try {
@@ -665,7 +665,7 @@ export const createManoramaApi = () => {
         suffix += 1
       }
     } catch (error) {
-      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be added' }, 422)
     }
   })
@@ -811,7 +811,7 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries/:slug/refresh', requireEditableGallery(), async (c) => {
+  api.post('/api/galleries/:slug/refresh', bodyLimit({ maxSize: 8 * 1024 * 1024 }), requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     try {
@@ -847,12 +847,12 @@ export const createManoramaApi = () => {
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
-      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be refreshed' }, 422)
     }
   })
 
-  api.post('/api/galleries/:slug/migrate', requireEditableGallery(), async (c) => {
+  api.post('/api/galleries/:slug/migrate', bodyLimit({ maxSize: 8 * 1024 * 1024 }), requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<{ manifest?: unknown; deviceId?: string; optOut?: boolean }>().catch((): { manifest?: unknown; deviceId?: string; optOut?: boolean } => ({}))
     try {
@@ -888,7 +888,7 @@ export const createManoramaApi = () => {
         ...(keyRetired ? { warning: 'The server key was removed. Manorama cannot recover it; keep the full gallery link.' } : {}),
       })
     } catch (error) {
-      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be migrated' }, 400)
     }
   })

@@ -53,6 +53,23 @@ database_name = "manorama"
 database_id = "23a75dd6-1d27-4f61-afc0-79b83c30cee7"
 migrations_dir = "migrations"
 
+# Staging mirrors production's retired-decrypt posture on purpose — it is the
+# canary for M7 (final key retirement), so LEGACY_ENCRYPTED_DECRYPT is
+# deliberately absent here. The production cohort migration enables it in
+# production only, for the window, then removes it again.
+[env.staging]
+workers_dev = true
+
+[env.staging.vars]
+PUBLIC_HOST = "manorama-staging.workers.dev"
+STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "manorama"
+database_id = "23a75dd6-1d27-4f61-afc0-79b83c30cee7"
+migrations_dir = "migrations"
+
 # Optional future adapter binding. Enable when switching ImageSource to R2Source.
 # [[r2_buckets]]
 # binding = "IMAGES"
