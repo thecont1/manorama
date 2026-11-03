@@ -292,8 +292,12 @@ export default function PickerEditor({
     place(item.id)
   }
 
+  // The display:contents wrapper matters, not just the shape: hono
+  // re-inserts a fragment's first child on every render, and detaching
+  // the top bar kills the browser's drag on the size slider mid-gesture.
+  // A real element diffs in place, so nothing under the pointer moves.
   return (
-    <>
+    <div style="display:contents">
       {/* One top bar in both modes: a description of what a tap does on
           the left, the mode's controls on the right. The gallery title
           and count stay in the shared bottom bar the viewer renders. */}
@@ -371,6 +375,6 @@ export default function PickerEditor({
           })}
         </div>
       </div>
-    </>
+    </div>
   )
 }
