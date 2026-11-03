@@ -309,6 +309,35 @@ describe('F2/F3 regressions: dev seed and shipped policy wording', () => {
     // The retired preview cache must no longer be described as current.
     expect(text).not.toContain('in-memory cache')
   })
+
+  test('the shipped model and docs/privacy-policy.md cannot drift apart', () => {
+    const normalize = (text: string) => text
+      .replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '—')
+      .replace(/\s+/g, ' ').trim()
+    const renderInline = (part: { kind: string; text?: string; label?: string; href?: string }) =>
+      part.kind === 'strong' ? `**${part.text}**`
+        : part.kind === 'code' ? `\`${part.text}\``
+        : part.kind === 'link' ? `[${part.label}](${part.href})`
+        : part.text ?? ''
+    const modelParagraphs = [
+      normalize(PRIVACY_POLICY.lede),
+      ...PRIVACY_POLICY.sections.flatMap((section) => [
+        ...(section.paragraphs ?? []).map((p) => p.parts),
+        ...(section.cards ?? []).map((card) => card.paragraph.parts),
+      ].map((parts) => normalize(parts.map(renderInline).join('')))),
+    ]
+
+    const docsPath = new URL('../docs/privacy-policy.md', import.meta.url).pathname
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const docsParagraphs = readFileSync(docsPath, 'utf8')
+      .split(/\n\s*\n/)
+      .map((block) => normalize(block))
+      .filter((block) => block && !block.startsWith('#') && !block.startsWith('Last updated'))
+
+    const missing = modelParagraphs.filter((p) => !docsParagraphs.includes(p))
+    const extra = docsParagraphs.filter((p) => !modelParagraphs.includes(p))
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] })
+  })
 })
 
 describe('F4: the native deep link trusts the fragment over the gallery it names', () => {

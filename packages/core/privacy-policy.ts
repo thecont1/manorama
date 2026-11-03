@@ -46,7 +46,7 @@ const link = (label: string, href: string): PrivacyInline => ({ kind: 'link', la
 
 export const PRIVACY_POLICY: PrivacyDocument = {
   title: 'Privacy Policy',
-  updated: '1 October 2026',
+  updated: '4 November 2026',
   lede:
     'Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS, Windows, and Linux. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.',
   sections: [
@@ -117,7 +117,21 @@ export const PRIVACY_POLICY: PrivacyDocument = {
         {
           parts: [
             t(
-              'If an image includes Content Credentials — information about where an image came from and how it changed — verification happens on the viewer’s device when requested. We do not upload its provenance record for that check. Link previews may fetch a cover image transiently; they are not a stored photo library. One exception: MEGA galleries can hold originals in a format browsers cannot display, so the server decrypts a small preview photo on request. Those previews are held in a bounded in-memory cache — at most 200 entries, roughly 60MB — which is discarded when the server restarts. They are never written to our database or to durable storage.',
+              'If an image includes Content Credentials — information about where an image came from and how it changed — verification happens on the viewer’s device when requested. We do not upload its provenance record for that check. Link previews may fetch a cover image transiently; they are not a stored photo library.',
+            ),
+          ],
+        },
+        {
+          parts: [
+            t(
+              'MEGA galleries work differently. The decryption key travels in the part of the link after the `#` — the fragment — which browsers never send to a server. Listing the folder, fetching the encrypted files, and decrypting them all happen on the viewer’s device; Manorama’s server never receives the key and never caches decrypted photographs or thumbnails. Anyone holding the complete link can also open the folder at MEGA directly, because the fragment is the folder’s own capability. And because no key reaches the server, every encrypted-source gallery shares one static social preview image rather than a per-gallery card.',
+            ),
+          ],
+        },
+        {
+          parts: [
+            t(
+              'Galleries created before this change are a temporary exception: their stored server copy of the folder key is deleted after the owner verifies the gallery on a second device or removes it sooner, and the owner is warned that the deletion cannot be undone. Until such a gallery migrates, the server may still decrypt its media for viewers who open it without the fragment. We recommend rotating the MEGA share link after migration, because earlier logs or backups may retain the old key.',
             ),
           ],
         },
