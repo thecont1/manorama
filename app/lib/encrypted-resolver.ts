@@ -100,7 +100,9 @@ export class EncryptedMediaResolver {
         }
         return entry!.url!
       }).catch((error) => {
-        this.entries.delete(key)
+        // Evict only this entry — a re-acquire after an abort may already
+        // have cached a fresh promise at the same key.
+        if (this.entries.get(key) === entry) this.entries.delete(key)
         throw error
       })
       this.entries.set(key, entry)

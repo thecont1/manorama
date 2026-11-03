@@ -68,6 +68,31 @@ describe('encrypted media resolver', () => {
     resolver.dispose()
   })
 
+  test('an aborted fetch can be re-acquired cleanly', async () => {
+    stubUrls()
+    let calls = 0
+    const resolver = new EncryptedMediaResolver(session(async () => {
+      calls += 1
+      if (calls === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        throw new Error('network gone')
+      }
+      return { bytes: new Uint8Array([9]), mimeType: 'image/jpeg' }
+    }))
+    const controller = new AbortController()
+    const cancelled = resolver.acquire(ref, false, controller.signal)
+    controller.abort()
+    await expect(cancelled).rejects.toThrow()
+    // The in-flight materialize keeps running past the abort; wait for its
+    // rejection to settle and evict before retrying.
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    // The rejected entry must be evicted — a retry fetches fresh bytes
+    // rather than serving the stale rejection.
+    expect(await resolver.acquire(ref, false)).toBe('blob:test-1')
+    expect(calls).toBe(2)
+    resolver.dispose()
+  })
+
   test('wipes session keys and plaintext on disposal', async () => {
     stubUrls()
     let disposed = false

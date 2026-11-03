@@ -188,7 +188,11 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     // path from reopening the gallery.
     try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
     try { sessionStorage.removeItem(PENDING_KEY); localStorage.removeItem(PENDING_KEY) } catch { /* best effort */ }
-    if (encryptedSource && payload.gallery?.id) await webGalleryKeyStore().put(payload.gallery.id, encryptedSource)
+    // A storage failure (quota, private mode) must not swallow a successful
+    // create — the target link carries the key again at open.
+    if (encryptedSource && payload.gallery?.id) {
+      await webGalleryKeyStore().put(payload.gallery.id, encryptedSource).catch((error) => console.warn('encrypted key custody deferred:', error))
+    }
     const target = `${payload.galleryUrl}${encryptedSource ? galleryHashForSource(encryptedSource, payload.gallery?.id) : ''}`
     if (response.status === 201 && (payload.truncated || encryptedSource)) {
       // Accept, but never silently: show the truncation note for a beat

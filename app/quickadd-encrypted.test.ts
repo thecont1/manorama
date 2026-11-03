@@ -53,4 +53,33 @@ describe('encrypted quick-add', () => {
       Object.assign(globals, previous)
     }
   })
+
+  test('a failing key store does not swallow a successful create', async () => {
+    const source = 'https://mega.nz/folder/AbCdEf12#secret'
+    const session = {
+      provider: 'mega', sourceUrl: 'https://mega.nz/folder/AbCdEf12', title: 'Encrypted',
+      images: [{ id: 'mega-node1' }],
+      materialize: async () => { throw new Error('unused') },
+      dispose: () => {},
+    }
+    mock.module('./lib/encrypted-client', () => ({ openEncryptedSource: async () => session }))
+    const navigated: string[] = []
+    const previous = { location: globals.location, sessionStorage: globals.sessionStorage, localStorage: globals.localStorage, document: globals.document, fetch: globals.fetch }
+    globals.location = { href: 'https://manorama.xyz/quick', replace: (url: string) => { navigated.push(url) } }
+    globals.sessionStorage = {
+      getItem: () => null,
+      setItem: () => { throw new Error('QuotaExceededError') },
+      removeItem: () => {},
+    }
+    globals.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+    globals.document = { querySelector: () => null }
+    globals.fetch = async () => new Response(JSON.stringify({ galleryUrl: '/test-owner/encrypted', gallery: { id: '0123456789abcdef', slug: 'encrypted' } }), { status: 409 })
+    try {
+      await createGallery(source, { dataset: {} } as HTMLElement)
+      expect(navigated).toHaveLength(1)
+      expect(navigated[0]).toContain('#source=')
+    } finally {
+      Object.assign(globals, previous)
+    }
+  })
 })

@@ -625,7 +625,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (isEncryptedSourceUrl(url) && payload.gallery?.id) {
-        await webGalleryKeyStore().put(payload.gallery.id, url)
+        // A storage failure (quota, private mode) must not swallow a
+        // successful create — the gallery exists; custody can be deferred.
+        await webGalleryKeyStore().put(payload.gallery.id, url).catch((error) => console.warn('encrypted key custody deferred:', error))
       }
       // 409 "already exists" still carries the gallery — that is a
       // successful reopen, not a scan failure: keep the card, point at it,
