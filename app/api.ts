@@ -22,7 +22,7 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
-import { isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { ENCRYPTED_MANIFEST_VERSION, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
 import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
 
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
@@ -840,7 +840,9 @@ export const createManoramaApi = () => {
       const refreshed = retained.concat(scan.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
       // Persist only the refreshed images, not the stale gallery metadata
       // read before the scan — a concurrent metadata change is preserved.
-      const updated = await updateGalleryImages(session.accountId, gallery.slug, refreshed, dbEnv(c))
+      // A client-scanned manifest also promotes the stored version: its
+      // keyless media refs can never render through the legacy path again.
+      const updated = await updateGalleryImages(session.accountId, gallery.slug, refreshed, dbEnv(c), submitted ? ENCRYPTED_MANIFEST_VERSION : undefined)
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {

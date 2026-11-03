@@ -761,11 +761,14 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
       continue
     }
 
-    // Original bytes whenever CloudKit exposes them, including HEIC: the
-    // client decoder handles originals without a server-side transcode.
+    // Original bytes when the viewer can display their format — HEIC goes
+    // through the client decoder, browsers cover the rest of this list. A
+    // TIFF or RAW original would render nothing, so the JPEG renditions win
+    // when they exist; otherwise the largest-rendition fallback stands.
+    const ORIGINAL_DISPLAYABLE = /jpe?g|png|webp|gif|hei[cf]/i
     const original = stills.find((d) => d.name === 'resOriginalRes')
     const renditions = stills.filter((d) => d.name !== 'resOriginalRes')
-    const primary = original ?? pickArea(renditions.length ? renditions : stills)
+    const primary = original && ORIGINAL_DISPLAYABLE.test(itemType) ? original : pickArea(renditions.length ? renditions : stills)
     const thumb = stills.find((d) => d.name === 'resJPEGThumbRes') ?? stills.reduce((small, d) => ((d.width ?? Infinity) * (d.height ?? Infinity) < (small.width ?? Infinity) * (small.height ?? Infinity) ? d : small))
     const width = originalWidth ?? num(primary.width) ?? 4
     const height = originalHeight ?? num(primary.height) ?? 3
@@ -774,7 +777,7 @@ const scanICloudCloudKitAlbum = async (input: string, fetchImpl: typeof fetch = 
       ref: recordName,
       filename: primary === original && /hei[cf]/i.test(itemType) ? `Photo ${position}.heic` : `Photo ${position}`,
       src: ckImageProxy(token, recordName, primary.name),
-      fidelity: primary === original ? 'original' : 'full-resolution-render',
+      fidelity: primary === original ? 'original' : primary.name === 'resJPEGThumbRes' ? 'display-derivative' : 'full-resolution-render',
       thumbnailFidelity: 'display-derivative',
       width,
       height,

@@ -61,13 +61,14 @@ export const encryptedProviderForUrl = (input: string): EncryptedSourceProvider 
 export const isEncryptedSourceUrl = (input: string): boolean => encryptedProviderForUrl(input) !== null
 
 export const keylessSourceUrl = (input: string): string => {
-  const url = new URL(input.trim())
   if (!isEncryptedSourceUrl(input)) throw new Error('Not an encrypted source URL')
+  // MEGA identity lives in the fragment for legacy #F!/#C! spellings —
+  // clearing the hash would collapse the URL to a bare host and lose the
+  // handle entirely. Canonicalize through the parsed identity instead.
+  const mega = megaIdentityFromUrl(input)
+  if (mega) return `https://mega.nz/${mega.kind}/${mega.id}`
+  const url = new URL(input.trim())
   url.hash = ''
-  if (megaIdentityFromUrl(input)) {
-    url.hostname = 'mega.nz'
-    url.search = ''
-  }
   return url.toString()
 }
 

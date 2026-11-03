@@ -64,6 +64,10 @@ describe('encrypted gallery API', () => {
     })
     const response = await post('/api/galleries/legacy-mega/refresh', { manifest: manifest() })
     expect(response.status).toBe(200)
+    // The persisted manifest is now client-scanned — its keyless refs can
+    // never render through the legacy path, so the version promotes too.
+    const stored = await getGallery(TEST_OWNER.accountId, 'legacy-mega')
+    expect(stored?.manifestVersion).toBe(2)
   })
   test('legacy server decrypt is retired by default with an explicit migration override', async () => {
     const retired = await api.request('/api/mega/file?folder=Ab&node=node&k=secret')

@@ -64,6 +64,17 @@ const completeEncryptedSource = (sourceUrl: string): boolean => {
 export class NativeGalleryKeyStore {
   constructor(private readonly storage: NativeKeyStorage = secureNativeKeyStorage) {}
 
+  /** Registry updates are read-modify-write on one JSON document — without
+   *  serialization, concurrent puts/removes/purges overwrite each other's
+   *  ids. Every mutating op queues behind the last so a completed op is
+   *  always fully visible to the next. */
+  private registryQueue: Promise<void> = Promise.resolve()
+  private enqueueRegistry<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.registryQueue.then(op)
+    this.registryQueue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
   private async readRegistry(): Promise<string[]> {
     const raw = await this.storage.getItem(REGISTRY_KEY)
     if (!raw) return []
@@ -96,8 +107,13 @@ export class NativeGalleryKeyStore {
   async put(galleryId: string, sourceUrl: string): Promise<void> {
     if (!isGalleryIdValid(galleryId)) throw new Error('Gallery id is invalid')
     if (!completeEncryptedSource(sourceUrl)) throw new Error('A complete encrypted source link is required')
-    await this.storage.setItem(`${GALLERY_KEY_PREFIX}${galleryId}`, sourceUrl)
-    await this.register(galleryId)
+    await this.enqueueRegistry(async () => {
+      // Register before the key lands: an id must never exist without its
+      // purge entry — the reverse could strand a written key on a failed
+      // or lost registration.
+      await this.register(galleryId)
+      await this.storage.setItem(`${GALLERY_KEY_PREFIX}${galleryId}`, sourceUrl)
+    })
   }
 
   /** Returns the stored keyed source URL only when it still validates as a
@@ -116,11 +132,13 @@ export class NativeGalleryKeyStore {
   /** Deletion must clear the key so a reused slug can never inherit it. */
   async remove(galleryId: string): Promise<void> {
     if (!isGalleryIdValid(galleryId)) return
-    await this.storage.removeItem(`${GALLERY_KEY_PREFIX}${galleryId}`)
-    if ((await this.storage.getItem(`${GALLERY_KEY_PREFIX}${galleryId}`)) !== null) {
-      throw new Error(`Gallery key survived removal for ${galleryId}`)
-    }
-    await this.unregister(galleryId)
+    await this.enqueueRegistry(async () => {
+      await this.storage.removeItem(`${GALLERY_KEY_PREFIX}${galleryId}`)
+      if ((await this.storage.getItem(`${GALLERY_KEY_PREFIX}${galleryId}`)) !== null) {
+        throw new Error(`Gallery key survived removal for ${galleryId}`)
+      }
+      await this.unregister(galleryId)
+    })
   }
 
   /** Every registered gallery id currently holding a key. */
@@ -137,14 +155,16 @@ export class NativeGalleryKeyStore {
    * account deletion. Keys are removed one by one and each removal is
    * verified before the registry is cleared. */
   async purgeAll(): Promise<void> {
-    const ids = await this.readRegistry()
-    for (const id of ids) {
-      await this.storage.removeItem(`${GALLERY_KEY_PREFIX}${id}`)
-      if ((await this.storage.getItem(`${GALLERY_KEY_PREFIX}${id}`)) !== null) {
-        throw new Error(`Gallery key survived purge for ${id}`)
+    await this.enqueueRegistry(async () => {
+      const ids = await this.readRegistry()
+      for (const id of ids) {
+        await this.storage.removeItem(`${GALLERY_KEY_PREFIX}${id}`)
+        if ((await this.storage.getItem(`${GALLERY_KEY_PREFIX}${id}`)) !== null) {
+          throw new Error(`Gallery key survived purge for ${id}`)
+        }
       }
-    }
-    await this.storage.removeItem(REGISTRY_KEY)
+      await this.storage.removeItem(REGISTRY_KEY)
+    })
   }
 }
 

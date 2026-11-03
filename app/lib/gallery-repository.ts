@@ -315,16 +315,20 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
 /** Updates only the images_json column of an existing gallery, leaving
  *  metadata (title, caption, date) untouched. Used by the refresh flow so
  *  a concurrent metadata change is not overwritten with stale read data.
+ *  manifestVersion is written only when a caller supplies it — a refresh
+ *  that persisted a client-scanned manifest promotes the gallery to it.
  *  Throws a typed read-only error for pipeline galleries. */
-export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
+export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv, manifestVersion?: number): Promise<GalleryRecord | null> => {
   const imagesJson = JSON.stringify(images)
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, slug, env)
     if (!current) return null
     assertGalleryEditable(current)
+    const sets = manifestVersion === undefined ? 'images_json = ?' : 'images_json = ?, manifest_version = ?'
+    const binds = manifestVersion === undefined ? [imagesJson] : [imagesJson, manifestVersion]
     const result = await env.DB.prepare(
-      `UPDATE galleries SET images_json = ? WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
-    ).bind(imagesJson, ownerId, slug).run()
+      `UPDATE galleries SET ${sets} WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
+    ).bind(...binds, ownerId, slug).run()
     if ((result.meta.changes ?? 0) === 0) return null
     return getGallery(ownerId, slug, env)
   }
@@ -332,7 +336,7 @@ export const updateGalleryImages = async (ownerId: string, slug: string, images:
   const current = store.get(slug)
   if (!current) return null
   assertGalleryEditable(current)
-  const updated = { ...normalizeRecord(current), images: [...images] }
+  const updated = { ...normalizeRecord(current), images: [...images], ...(manifestVersion === undefined ? {} : { manifestVersion }) }
   store.set(slug, updated)
   return updated
 }

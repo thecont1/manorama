@@ -14,6 +14,12 @@ const resolverFor = (galleryId: string): Promise<EncryptedMediaResolver> => {
       return new EncryptedMediaResolver(await openEncryptedSource(source))
     })()
     resolvers.set(galleryId, pending)
+    // A rejected open must not poison the cache — the key may be stored or
+    // a transient failure retried moments later. Only evict when the entry
+    // still is this promise; a newer resolver may already have replaced it.
+    pending.catch(() => {
+      if (resolvers.get(galleryId) === pending) resolvers.delete(galleryId)
+    })
   }
   return pending
 }

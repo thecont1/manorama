@@ -70,7 +70,11 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     setProblem(null)
     setMigration(null)
     const fragment = encryptedSourceFromGalleryHash(window.location.hash)
-    void Promise.resolve(fragment ?? webGalleryKeyStore().get(galleryId) ?? legacySourceUrl).then(async (source) => {
+    void Promise.resolve(fragment ?? webGalleryKeyStore().get(galleryId)).then(async (stored) => {
+      // The keystore read must settle before the legacy fallback applies —
+      // a pending promise is truthy, so chaining `?? legacySourceUrl` would
+      // never reach it and the owner's migration path would show "locked".
+      const source = stored ?? legacySourceUrl
       if (!source) {
         if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original MEGA/Ente link.')
         return
@@ -129,9 +133,18 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       </section>
     )
   }
-  // Once a client scan resolves, its manifest is authoritative for every
-  // viewer — the SSR props' srcs may be retired server URLs or stripped.
-  const viewer = <Viewer {...viewerProps} images={scan ? scan.images : viewerProps.images} encryptedResolver={resolver} />
+  // Once a client scan resolves, its media refs replace the SSR props' srcs
+  // (retired server URLs or stripped) — but never its membership: the stored
+  // manifest owns order and hidden flags, and a scan-only item is either
+  // hidden or not yet refreshed, so it stays out until a refresh persists it.
+  const scanByKey = scan ? new Map(scan.images.map((image) => [image.ref ?? image.filename, image])) : null
+  const images = scanByKey
+    ? viewerProps.images.map((item) => {
+      const scanned = scanByKey.get(item.ref ?? item.filename)
+      return scanned ? { ...scanned, ...(item.hidden ? { hidden: true as const } : {}) } : item
+    })
+    : viewerProps.images
+  const viewer = <Viewer {...viewerProps} images={images} encryptedResolver={resolver} />
   if (!legacySourceUrl || !migration) return viewer
   return (
     <>

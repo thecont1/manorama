@@ -75,7 +75,10 @@ const wireSignIn = (sourceUrl: string) => {
     const base = button.getAttribute('href') ?? button.dataset.href
     if (!base) continue
     const next = new URL(location.href)
-    next.hash = ''
+    // The fragment rides inside `next` as literal text, so an encrypted
+    // source's key would reach the server — it must be dropped. Other
+    // providers (iCloud) carry required public tokens there instead.
+    if (isEncryptedSourceUrl(sourceUrl)) next.hash = ''
     button.href = `${base}?next=${encodeURIComponent(next.toString())}`
     button.removeAttribute('data-href')
     button.removeAttribute('aria-disabled')
@@ -193,7 +196,8 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
       const prefix = payload.truncated
         ? `That album has ${payload.truncated.total.toLocaleString()} items — your gallery keeps the first ${payload.truncated.kept.toLocaleString()}.`
         : ''
-      if (encryptedSource) showEncryptedFullLink(target, prefix)
+      // The copy must be an absolute link — target is a path-relative URL.
+      if (encryptedSource) showEncryptedFullLink(new URL(target, location.href).href, prefix)
       else setStatus(prefix)
       setTimeout(() => location.replace(target), 4000)
       return

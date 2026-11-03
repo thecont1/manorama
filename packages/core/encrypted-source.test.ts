@@ -40,6 +40,10 @@ describe('encrypted source URL fragment channel', () => {
 
   test('keyless identity retains only provider and handle', () => {
     expect(keylessSourceUrl(keyed)).toBe('https://mega.nz/folder/AbCdEf12')
+    // Legacy spellings carry the handle inside the fragment — keyless must
+    // still resolve to the canonical provider URL, not a bare host.
+    expect(keylessSourceUrl('https://mega.nz/#F!AbCdEf12!secret')).toBe('https://mega.nz/folder/AbCdEf12')
+    expect(keylessSourceUrl('https://mega.co.nz/#C!AbCdEf12!secret')).toBe('https://mega.nz/collection/AbCdEf12')
     expect(isEncryptedSourceUrl(keylessSourceUrl(keyed))).toBe(true)
     expect(isEncryptedSourceUrl('https://dropbox.com/sh/a/b')).toBe(false)
   })

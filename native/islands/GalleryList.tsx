@@ -707,8 +707,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const enterGallery = (next: Selection) => {
     positionRef.current = null
-    setSelection(next)
-    dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: next.owner, slug: next.slug } })
+    // A bare owner/slug selection still needs custody context for encrypted
+    // galleries: resolve the published gallery id from the account list so
+    // the key store can find this device's key. Explicit metadata wins, and
+    // only the owner's own list can answer — a foreign slug may collide.
+    let resolved = next
+    if (!resolved.galleryId && !resolved.sourceUrl && resolved.owner === ownerSlug) {
+      const summary = accountGalleries?.find((gallery) => gallery.slug === resolved.slug && gallery.manifestVersion === 2 && gallery.id)
+      if (summary?.id) resolved = { ...next, galleryId: summary.id }
+    }
+    setSelection(resolved)
+    dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: resolved.owner, slug: resolved.slug } })
   }
 
   // "Add to Library" on someone else's gallery: the server copies it into
@@ -1099,22 +1108,25 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const openSelection = (owner: string, slug: string) => {
     setFrameKick({ index: 0, nonce: 0 })
-    const summary = accountGalleries?.find((gallery) => gallery.slug === slug && gallery.manifestVersion === 2 && gallery.id)
-    enterGallery({ owner, slug, ...(summary?.id ? { galleryId: summary.id } : {}) })
+    enterGallery({ owner, slug })
   }
 
   /** A rail tap opens at the tapped photograph, not at the first. */
   const openSelectionAt = (owner: string, slug: string, index: number) => {
     setFrameKick({ index, nonce: 0 })
-    const summary = accountGalleries?.find((gallery) => gallery.slug === slug && gallery.manifestVersion === 2 && gallery.id)
-    enterGallery({ owner, slug, ...(summary?.id ? { galleryId: summary.id } : {}) })
+    enterGallery({ owner, slug })
   }
 
   const signOut = async () => {
     libraryLoader.release()
     cacheFillRegistry.reset()
     dispatchNav({ type: 'signed-out' })
-    await clearAllEncryptedSources()
+    try {
+      await clearAllEncryptedSources()
+    } catch {
+      // A failed verified purge must not trap sign-out — surviving keys
+      // stay in the registry and are retried by the next purge.
+    }
     await clearSessionToken()
     try {
       await billing?.signOut()
@@ -1199,6 +1211,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const deleteAccountForever = async () => {
     setDeleteError(null)
     setDeleting(true)
+    // The account row may already be gone from an earlier attempt — the
+    // error below must not report "could not be deleted" in that state.
+    let deletedNow = accountDeleted
     try {
       // The API gates on the typed URL name; the app sends the slug it
       // already holds instead of making the owner retype it.
@@ -1208,9 +1223,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setDeleting(false)
         return
       }
-      if (!accountDeleted) {
+      if (!deletedNow) {
         await deleteAccount(base, slug)
         setAccountDeleted(true)
+        deletedNow = true
       }
       await clearAllEncryptedSources()
       await clearSessionToken()
@@ -1227,9 +1243,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       if (typeof window !== 'undefined') window.location.reload()
     } catch (reason) {
       setDeleteError(
-        reason instanceof Error && reason.message.trim()
-          ? reason.message
-          : 'Your account could not be deleted right now',
+        deletedNow
+          ? 'Your account is deleted, but removing its data from this device did not finish — try again.'
+          : reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : 'Your account could not be deleted right now',
       )
       setDeleting(false)
     }
@@ -1350,13 +1368,29 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That gallery could not be updated.')
       }
-      if (action === 'delete' && gallery.id) await removeEncryptedSourceForSelection(gallery.id)
+      // The server row is already gone at this point — a key-removal
+      // failure must not skip the list updates below or masquerade as a
+      // failed delete. Its outcome only changes the closing note.
+      let keyRemoved = true
+      if (action === 'delete' && gallery.id) {
+        try {
+          await removeEncryptedSourceForSelection(gallery.id)
+        } catch {
+          keyRemoved = false
+        }
+      }
       const galleryId = galleryIds[gallery.slug]
       if (galleryId) libraryLoader.invalidate(galleryId)
       if (action === 'delete') setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)
       setRemoveGallerySlug(null)
       setAccountRevision((revision) => revision + 1)
-      setGalleryActionNote(action === 'refresh' ? 'Gallery refreshed' : 'Gallery removed. Your cloud files were not changed.')
+      setGalleryActionNote(
+        action === 'refresh'
+          ? 'Gallery refreshed'
+          : keyRemoved
+            ? 'Gallery removed. Your cloud files were not changed.'
+            : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.',
+      )
     } catch (reason) {
       setGalleryActionNote(reason instanceof Error ? reason.message : 'That gallery could not be updated.')
     } finally { setGalleryActionBusy(null) }

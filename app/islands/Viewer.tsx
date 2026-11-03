@@ -780,7 +780,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const clearPositionHash = () => {
       const sourceHash = encryptedSourceFromGalleryHash(window.location.hash) ? window.location.hash : ''
       if (window.location.hash !== sourceHash || window.location.search) {
-        rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${sourceHash}`)
+        // The rewrite preserves the current hash when the target lacks one —
+        // only an explicit empty fragment can drop a non-source hash.
+        rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${sourceHash || '#'}`)
       }
     }
     clearPositionHash()
