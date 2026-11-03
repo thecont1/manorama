@@ -860,6 +860,11 @@ export const createManoramaApi = () => {
       if (typeof payload.deviceId !== 'string' || !/^[0-9A-Za-z-]{8,128}$/.test(payload.deviceId)) return c.json({ error: 'Provide a valid non-secret device id' }, 400)
       const submitted = validateEncryptedManifest(payload.manifest)
       if (!canonicalSourceMatches(gallery.sourceUrl, submitted.sourceUrl)) return c.json({ error: 'Migration source identity does not match this gallery' }, 400)
+      // A truncated listing would silently delete the items the scan never
+      // reached, and the key retires in the same request — no second chance.
+      if (submitted.truncated !== undefined) {
+        return c.json({ code: 'PARTIAL_SCAN', error: 'That folder could not be read completely — try again before removing the server key' }, 422)
+      }
       const verifiedDevices = [...new Set([...(gallery.migrationDevices ?? []), payload.deviceId])]
       if (gallery.keyRetiredAt) {
         return c.json({ gallery: toSummary(gallery), verifiedDevices: verifiedDevices.length, keyRetired: true })

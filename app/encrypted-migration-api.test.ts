@@ -19,7 +19,10 @@ describe('legacy encrypted-source migration', () => {
     ownerSlug = (await seedTestUser()).ownerSlug
     cookie = await sessionCookieFor(TEST_OWNER.accountId)
     api = createManoramaApi()
-    await createGallery(TEST_OWNER.accountId, { slug: 'legacy', title: 'Legacy', caption: '', date: '', sourceUrl: source, images: [] })
+    await createGallery(TEST_OWNER.accountId, { slug: 'legacy', title: 'Legacy', caption: '', date: '', sourceUrl: source, images: [
+      { id: 'a', filename: 'a.jpg', src: '', width: 1, height: 1, alt: '', c2pa: false, placeholder: '' },
+      { id: 'b', filename: 'b.jpg', src: '', width: 1, height: 1, alt: '', c2pa: false, placeholder: '' },
+    ] })
   })
   const migrate = async (deviceId: string, extra: Record<string, unknown> = {}) => {
     const response = await api.request('/api/galleries/legacy/migrate', {
@@ -64,6 +67,15 @@ describe('legacy encrypted-source migration', () => {
     const { manifest } = await response.json() as { manifest: { sourceUrl?: string } }
     expect(manifest.sourceUrl).toBe('https://mega.nz/folder/AbCdEf12')
     expect(manifest.sourceUrl).not.toContain('#')
+  })
+
+  test('migrate refuses a truncated manifest', async () => {
+    const response = await migrate('device-one', { manifest: { ...manifest(), truncated: 40 } })
+    expect(response.status).toBe(422)
+    expect((await response.json() as any).code).toBe('PARTIAL_SCAN')
+    const gallery = await getGallery(TEST_OWNER.accountId, 'legacy')
+    expect(gallery?.images).toHaveLength(2)
+    expect(gallery?.keyRetiredAt).toBeNull()
   })
 
   test('a different source identity cannot replace the stored key', async () => {
