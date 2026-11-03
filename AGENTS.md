@@ -93,7 +93,7 @@ app/lib/             Worker-side: provider scanners, OAuth, session, repositorie
 app/api.ts           Session-gated API surface
 native/              (being built) client-only SPA entry, Capacitor shells, vault, billing, ads
 migrations/          D1 migrations
-*.playwright.ts      acceptance specs
+specs/               acceptance specs (*.playwright.ts) plus shared helpers
 ```
 
 Full table in `README.md` § Project layout.

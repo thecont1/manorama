@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { showChrome } from '../../playwright-helpers'
+import { showChrome } from '../../specs/playwright-helpers'
 import { mkdirSync } from 'node:fs'
 
 /** Parity capture: drives the real native bundle (NATIVE_GALLERY_URL serving

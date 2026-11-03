@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { showChrome } from './playwright-helpers'
 import { readFileSync } from 'node:fs'
 import { SignJWT } from 'jose'
-import { seedFromUrl } from './app/lib/doodle-background'
+import { seedFromUrl } from '../app/lib/doodle-background'
 
 /**
  * End-to-end proof for the seeded doodle background, against the real
@@ -22,7 +22,7 @@ const DEV_ACCOUNT = 'dbid:AAATESTowner1'
 const devEnv = (() => {
   const env: Record<string, string> = {}
   try {
-    for (const line of readFileSync(new URL('./.env.local', import.meta.url), 'utf8').split('\n')) {
+    for (const line of readFileSync(new URL('../.env.local', import.meta.url), 'utf8').split('\n')) {
       const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim())
       if (match) env[match[1]] = match[2].replace(/^"(.*)"$/, '$1')
     }
