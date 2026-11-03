@@ -2,7 +2,7 @@ import { SecureStorage } from '@aparajita/capacitor-secure-storage'
 import { App } from '@capacitor/app'
 import { Browser } from '@capacitor/browser'
 import type { AuthProvider } from '../../app/lib/identity-repository'
-import { encryptedSourceFromGalleryHash } from '../../packages/core/encrypted-source'
+import { encryptedSourceFromGalleryHash, galleryIdFromGalleryHash } from '../../packages/core/encrypted-source'
 
 export type { AuthProvider }
 
@@ -14,7 +14,7 @@ export const NATIVE_CALLBACK_URL = 'in.thecontrarian.manorama://auth/callback'
 export type NativeGallerySelection =
   | { owner: string; slug: string }
   | { kind: 'quick-add'; sourceUrl: string }
-  | { kind: 'web'; url: string }
+  | { kind: 'encrypted'; owner: string; slug: string; sourceUrl: string; galleryId?: string }
 
 const supportedQuickAddSource = (sourceUrl: string): boolean => {
   try {
@@ -66,13 +66,13 @@ export const gallerySelectionFromDeepLink = (
     if (parts.length !== 2 || url.search) return null
     const [owner, slug] = parts
     if (!owner || !slug || !/^[a-z0-9-]+$/i.test(owner) || !/^[a-z0-9-]+$/i.test(slug)) return null
-    if (url.hash) {
-      // A keyed gallery link carries the source capability in its fragment.
-      // Until the native fragment channel is built, it opens on the web
-      // inside the in-app browser rather than silently landing on Library.
-      return encryptedSourceFromGalleryHash(url.hash) ? { kind: 'web', url: rawUrl } : null
-    }
-    return { owner, slug }
+    // A gallery deep link may carry an encrypted-source capability in the
+    // fragment (`#source=<encoded provider URL>`). The fragment holds the
+    // provider key, so it is the only hash shape accepted — any other hash
+    // is rejected exactly as before, and the key never reaches the server.
+    const encryptedSource = url.hash ? encryptedSourceFromGalleryHash(url.hash) : null
+    if (url.hash && !encryptedSource) return null
+    return encryptedSource ? { kind: 'encrypted', owner, slug, sourceUrl: encryptedSource, ...(galleryIdFromGalleryHash(url.hash) ? { galleryId: galleryIdFromGalleryHash(url.hash)! } : {}) } : { owner, slug }
   } catch {
     return null
   }

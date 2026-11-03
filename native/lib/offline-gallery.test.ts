@@ -406,22 +406,23 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
   })
 
-  test('an encrypted manifest never starts a fill and never orphans a stored copy', async () => {
+  test('a legacy encrypted manifest never starts a fill and never orphans a stored copy', async () => {
     const { store, requested } = makeHarness()
     await store.cache(selection, gallery)
     expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 2 })
 
-    // Same gallery migrated server-side: keyless refs, dead srcs. A fill
+    // Same gallery under a retired server-decrypt manifest: encrypted
+    // source, but only dead server-mediated refs and no media keys. A fill
     // would fail mid-way after the commit record was already invalidated.
-    const migrated: NativeGalleryResponse = {
+    const legacy: NativeGalleryResponse = {
       manifest: {
         ...gallery.manifest,
         sourceUrl: 'https://mega.nz/folder/AbCdEf12',
-        images: gallery.manifest.images.map((item) => ({ ...item, src: '', media: { kind: 'encrypted' as const, provider: 'mega' as const, sourceKind: 'folder' as const, sourceId: 'AbCdEf12', nodeId: 'n' } })),
+        images: gallery.manifest.images.map((item) => ({ ...item, src: '/api/mega/file?k=dead' })),
       },
       settings: gallery.settings,
     }
-    expect(await store.cache(selection, migrated)).toEqual({ status: 'skipped-encrypted', images: 0 })
+    expect(await store.cache(selection, legacy)).toEqual({ status: 'skipped-encrypted', images: 0 })
     expect(requested).toHaveLength(2) // only the first fill's requests
     expect(await store.inspect(selection)).toEqual({ status: 'complete', images: 2 })
     expect((await store.open(selection))?.manifest.images[0]?.src).toBe('blob:offline-1')
@@ -747,5 +748,71 @@ describe('per-item fill descriptors', () => {
     expect(ready).toHaveLength(2)
     expect(ready[0].index).toBe(0)
     expect(ready[1].index).toBe(1)
+  })
+})
+
+describe('encrypted-source offline materialization', () => {
+  const encryptedSelection = { ...selection, galleryId: '0123456789abcdef', sourceUrl: 'https://mega.nz/folder/AbCdEf12#secret' }
+  const encryptedImage = (version: string): GalleryImage => image({
+    id: 'mega-node1', ref: 'node1', filename: 'one.jpg', src: '',
+    media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'AbCdEf12', nodeId: 'node1' },
+    contentVersion: version, fidelity: 'original',
+  })
+  const encryptedGallery = (version: string): NativeGalleryResponse => {
+    const manifest: GalleryManifest = { slug: selection.slug, title: 'Encrypted', caption: '', date: '', images: [encryptedImage(version)] }
+    return { manifest, settings: defaultGallerySettings(manifest) }
+  }
+  const sessionFor = (images: GalleryImage[], bytes: Uint8Array, disposed: { value: boolean }, materialize: { count: number }) => ({
+    provider: 'mega' as const, sourceUrl: 'https://mega.nz/folder/AbCdEf12', title: 'Encrypted', images,
+    materialize: async () => {
+      materialize.count += 1
+      return { bytes: bytes.slice(), mimeType: 'image/jpeg' }
+    },
+    dispose: () => { disposed.value = true },
+  })
+
+  test('vaults original decrypted bytes, never plaintext storage, and disposes the session', async () => {
+    const harness = makeHarness()
+    const disposed = { value: false }
+    const materialize = { count: 0 }
+    const store = new EncryptedOfflineGalleryStore({
+      vault: harness.vault, objectUrls: harness.urls,
+      fetchImage: async () => { throw new Error('encrypted media must not use the HTTP fetcher') },
+      openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, disposed, materialize),
+    })
+    expect(await store.cache(encryptedSelection, encryptedGallery('a'.repeat(64)))).toEqual({ status: 'complete', images: 1 })
+    expect(materialize.count).toBe(1)
+    expect(disposed.value).toBe(true)
+    expect(storageContains(harness.storage, firstBytes)).toBe(false)
+    const lease = await store.open(encryptedSelection)
+    expect(lease?.manifest.images[0]?.src).toBe('blob:offline-1')
+    expect(harness.urls.created[0]?.bytes).toEqual(firstBytes)
+    expect(harness.urls.created[0]?.mimeType).toBe('image/jpeg')
+    lease?.dispose()
+  })
+
+  test('contentVersion gates byte reuse under a stable encrypted handle', async () => {
+    const harness = makeHarness()
+    const firstDispose = { value: false }
+    const firstCalls = { count: 0 }
+    const firstStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, objectUrls: harness.urls, openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, firstDispose, firstCalls) })
+    await firstStore.cache(encryptedSelection, encryptedGallery('a'.repeat(64)))
+
+    const reuseDispose = { value: false }
+    const reuseCalls = { count: 0 }
+    const reuseStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, objectUrls: harness.urls, openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], secondBytes, reuseDispose, reuseCalls) })
+    await reuseStore.cache(encryptedSelection, encryptedGallery('a'.repeat(64)))
+    expect(reuseCalls.count).toBe(0)
+
+    const replacementDispose = { value: false }
+    const replacementCalls = { count: 0 }
+    const replacementStore = new EncryptedOfflineGalleryStore({ vault: harness.vault, objectUrls: harness.urls, openEncryptedSession: async () => sessionFor([encryptedImage('b'.repeat(64))], secondBytes, replacementDispose, replacementCalls) })
+    await replacementStore.cache(encryptedSelection, encryptedGallery('b'.repeat(64)))
+    expect(replacementCalls.count).toBe(1)
+    expect(replacementDispose.value).toBe(true)
+    const galleryId = await offlineGalleryId(encryptedSelection)
+    const bytes = await harness.vault.read(galleryId, thumbnailEntryId('mega-node1'))
+    expect(bytes).toEqual(secondBytes)
+    bytes?.fill(0)
   })
 })

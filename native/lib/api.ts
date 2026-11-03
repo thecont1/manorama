@@ -117,6 +117,58 @@ export const createGalleryFromQuickAdd = async (
 ): Promise<{ owner: string; slug: string }> =>
   createGalleryFromSource(apiBase, sourceUrl, { quick: true }, fetcher)
 
+/** The keyless manifest shape the server accepts for encrypted sources. The
+ * fragment/key never appears here — `sourceUrl` is the canonical keyless URL,
+ * and every image carries only keyless media references. */
+export type KeylessManifest = {
+  provider: 'mega' | 'ente'
+  sourceUrl: string
+  title: string
+  images: GalleryMediaItem[]
+  truncated?: number
+}
+
+/** Create an encrypted-source gallery from a client-scanned manifest. The
+ * manifest is the only body field — the keyed source URL is never POSTed. */
+export const createGalleryFromManifest = async (
+  apiBase: string,
+  manifest: KeylessManifest,
+  options: { quick?: boolean; title?: string; caption?: string } = {},
+  fetcher: typeof fetch = fetch,
+): Promise<{ owner: string; slug: string; galleryId: string }> => {
+  const title = options.title?.trim()
+  const caption = options.caption?.trim()
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({
+      manifest: {
+        provider: manifest.provider,
+        sourceUrl: manifest.sourceUrl,
+        title: manifest.title,
+        images: manifest.images,
+        ...(manifest.truncated !== undefined ? { truncated: manifest.truncated } : {}),
+      },
+      ...(options.quick ? { quick: true } : {}),
+      ...(!options.quick && title ? { title } : {}),
+      ...(!options.quick && caption ? { caption } : {}),
+    }),
+  })
+  const payload = await response.json().catch(() => ({})) as { galleryUrl?: string; gallery?: { id?: string }; error?: string }
+  const duplicateGallery = response.status === 409 && typeof payload.galleryUrl === 'string'
+  if ((!response.ok && !duplicateGallery) || typeof payload.galleryUrl !== 'string') {
+    throw new NativeGalleryHttpError(response.status, payload.error || 'That cloud folder could not be turned into a gallery')
+  }
+  const target = new URL(payload.galleryUrl, `${normalizeApiBase(apiBase)}/`)
+  const parts = target.pathname.split('/').filter(Boolean)
+  if (target.hostname !== new URL(`${normalizeApiBase(apiBase)}/`).hostname || parts.length !== 2) {
+    throw new Error('The created gallery link was invalid')
+  }
+  const galleryId = payload.gallery?.id
+  if (!galleryId || !/^[0-9A-Za-z-]{16,64}$/.test(galleryId)) throw new Error('The created gallery identity was invalid')
+  return { owner: parts[0]!, slug: parts[1]!, galleryId }
+}
+
 /** "Add to Library" for a gallery the member is viewing — the server copies
  *  the stored manifest into the caller's account (never re-scans the source).
  *  A 409 means a copy already exists; its galleryUrl resolves the same way,
@@ -283,6 +335,32 @@ export const refreshGallery = async (apiBase: string, slug: string): Promise<Gal
   const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/refresh`, {
     method: 'POST',
     headers: await bearerHeaders(),
+  })
+  const payload = await response.json().catch(() => ({})) as { gallery?: GallerySummary; error?: string }
+  if (!response.ok || !payload.gallery) throw new NativeGalleryHttpError(response.status, payload.error || 'The folder could not be read again')
+  return payload.gallery
+}
+
+/** Client-driven refresh for encrypted sources (D3): the device re-scans,
+ * and only the keyless manifest is submitted. The key never reaches the
+ * server, and a server-side refresh of an encrypted gallery is impossible. */
+export const refreshGalleryWithManifest = async (
+  apiBase: string,
+  slug: string,
+  manifest: KeylessManifest,
+): Promise<GallerySummary> => {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await bearerHeaders()) },
+    body: JSON.stringify({
+      manifest: {
+        provider: manifest.provider,
+        sourceUrl: manifest.sourceUrl,
+        title: manifest.title,
+        images: manifest.images,
+        ...(manifest.truncated !== undefined ? { truncated: manifest.truncated } : {}),
+      },
+    }),
   })
   const payload = await response.json().catch(() => ({})) as { gallery?: GallerySummary; error?: string }
   if (!response.ok || !payload.gallery) throw new NativeGalleryHttpError(response.status, payload.error || 'The folder could not be read again')
