@@ -8,7 +8,8 @@ const worktreePrefix =
   path.join(fileURLToPath(new URL('.', import.meta.url)), '.worktrees') + path.sep
 const anchorRe = new RegExp(`^${worktreePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
 
-// The browser suite lives in *.playwright.ts so bun's unit-test discovery
+// The browser suite lives in specs/*.playwright.ts (with surface-owned specs
+// beside their shell, e.g. native/) so bun's unit-test discovery
 // (*.test.ts / *.spec.ts) never loads Playwright specs — `bun test` stays
 // green and `bun run test` runs this suite.
 export default defineConfig({

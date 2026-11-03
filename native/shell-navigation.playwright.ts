@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { showChrome } from '../playwright-helpers'
+import { showChrome } from '../specs/playwright-helpers'
 
 /** P2 navigation seam: the reducer drives the real GalleryList surfaces in
  *  the browser fixture — viewer back lands on the library, a Global View

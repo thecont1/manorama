@@ -15,7 +15,7 @@ const MEMBER_ACCOUNT = "dbid:AAATESTretention";
 const devEnv = (() => {
   const env: Record<string, string> = {};
   try {
-    for (const line of readFileSync(new URL("./.env.local", import.meta.url), "utf8").split("\n")) {
+    for (const line of readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n")) {
       const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
       if (match) env[match[1]] = match[2].replace(/^"(.*)"$/, "$1");
     }

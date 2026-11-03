@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { generateCodeVerifier, pkceChallenge, exchangeDesktopHandoff, buildDesktopAuthUrl } from './desktop/lib/session'
+import { generateCodeVerifier, pkceChallenge, exchangeDesktopHandoff, buildDesktopAuthUrl } from '../desktop/lib/session'
 const base = 'http://localhost:5173'
 test('local browser door returns a verifier-bound handoff redeemable only at the local server', async ({ page, request }) => {
   test.setTimeout(40_000)

@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { expect, test, type Page } from '@playwright/test'
-import { showChrome } from '../playwright-helpers'
+import { showChrome } from '../specs/playwright-helpers'
 import type { GalleryImage } from '../app/lib/imagesource'
 
 const nativeUrl = process.env.NATIVE_GALLERY_URL

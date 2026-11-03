@@ -257,7 +257,7 @@ The admin, galleries, and quick-add interstitials send `X-Robots-Tag: noindex, n
 | `migrations/` | D1 migrations 0001–0008 |
 | `submission/` | App Store submission evidence, review notes, Connect fields |
 | `demo-captures/` | Six-state screenshot matrix for iPhone/iPad/macOS |
-| `*.playwright.ts` | Playwright acceptance specs (`qa`, `doodle-background`, `fold`, `video-playback`, `video-size-cap`); `native/ads.playwright.ts`, `native/global-view.playwright.ts` |
+| `specs/*.playwright.ts` | Playwright acceptance specs (`qa`, `doodle-background`, `fold`, `video-playback`, `video-size-cap`) plus the shared helpers `playwright-helpers.ts` and `desktop-admin-fixture.ts`; domain specs stay beside their surface (`native/*.playwright.ts`) |
 | `vite.config.ts` / `.native.ts` / `.desktop.ts` / `.native-fixture.ts` | The three build targets plus the native test fixture |
 | `scripts/test-mirror.sh` | Mirrors the worktree into a scratch root and runs the unit suite — `bun test` at repo root dies `EMFILE` on the `.worktrees/` checkouts |
 | `wrangler.toml` | Worker, `DB` binding, environment variables, custom domain route, 03:17 UTC retention cron |
