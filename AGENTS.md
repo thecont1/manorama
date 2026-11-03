@@ -275,22 +275,3 @@ well — match its voice: plain, specific, no cheerleading.
 or a branch deletion. Prepare it and hand it over.
 
 ---
-
-## 7. Deadline context
-
-Submission target **Sat Sep 26 2026**; the app must be *released* before **Wed Sep 30,
-11:45 PM PDT**. iOS is the only real target this week. Android is generated but unpolished,
-purely so Galaxy Store stays available as break-glass.
-
-Cut list, in order, if Friday arrives and the build is not submittable:
-#35 → #21 → #27 → #31 → #28 → #32.
-
-#22 (house fallback plate) was promoted out of the cut list on Sep 22: AdMob will not serve
-normally until the app is published and store-linked, so without a house plate the slot is empty
-in front of a reviewer, and Shipaton eligibility rests on the IAP (#18) rather than on ads.
-
-Never cut: #14 #15 (shell) · #16 #18 #19 #23 (Shipaton eligibility and ad safety) ·
-#22 (house plate) · #24 #25 #26 (vault and offline — the Guideline 4.2 defence) · #29 ·
-#36 #37 #38 #40 (submission).
-
-If you are ever unsure whether something belongs in this week's scope, it does not.
