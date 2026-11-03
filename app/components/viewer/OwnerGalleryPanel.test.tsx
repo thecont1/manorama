@@ -75,7 +75,7 @@ const bodies = (method: string) =>
 describe('the web owner panel', () => {
   test('renders the header meta and every management row', () => {
     const root = mounted()
-    expect(root.textContent).toContain('This gallery')
+    expect(root.textContent).not.toContain('This gallery')
     expect(root.textContent).toContain('Mixed album')
     expect(root.textContent).toContain('24 photographs · 1 video · Dropbox')
     for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again', 'Remove gallery']) {

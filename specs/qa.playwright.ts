@@ -1367,7 +1367,7 @@ for (const vp of viewports) {
       await expect(page.locator(".viewer-filmstrip")).toBeHidden();
     });
 
-    test("one-at-a-time steps dissolve the next photograph in over the current one", async ({
+    test("one-at-a-time steps swap through a sequential fade — out, blank, in", async ({
       page,
     }) => {
       // The fade is motion — opt back out of the suite-wide
@@ -1385,20 +1385,37 @@ for (const vp of viewports) {
       );
       await dismissCurtain(page);
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-single/);
+      // A mutation probe records the beat order — polling each phase
+      // separately races the 120ms out window.
+      await page.evaluate(() => {
+        window.__fade = [];
+        new MutationObserver(() => {
+          const signature = [
+            document.querySelectorAll(".viewer-frame--leaving").length,
+            document.querySelectorAll(".viewer-frame--entering").length,
+            document.querySelector("[aria-current='true']")?.getAttribute("data-index"),
+          ].join("");
+          if (window.__fade.at(-1) !== signature) window.__fade.push(signature);
+        }).observe(document.querySelector("[data-track]"), {
+          attributes: true,
+          subtree: true,
+          attributeFilter: ["class", "aria-current"],
+        });
+      });
       await page.keyboard.press("ArrowRight");
-      // The incoming frame waits on decode, then both fade together
-      // over 160ms — a guarded crossfade,
-      // never a directional wipe (clip-path stays 'none' the whole way).
-      // Assert the leaver first: it unmounts ~170ms after the incoming
-      // frame commits.
-      await expect(page.locator(".viewer-frame--leaving")).toHaveCount(1);
-      await expect(page.locator(".viewer-frame--entering")).toHaveCount(1);
-      const entering = page.locator(".viewer-frame--entering");
-      expect(await entering.evaluate((el) => getComputedStyle(el).clipPath)).toBe("none");
       // Settles back into one clean frame on the new index.
+      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "2");
       await expect(page.locator(".viewer-frame--leaving")).toHaveCount(0, { timeout: 3000 });
       await expect(page.locator(".viewer-frame--entering")).toHaveCount(0);
-      await expect(page.locator("[aria-current='true']")).toHaveAttribute("data-index", "2");
+      const beats = await page.evaluate(() => window.__fade);
+      // Out beat first (leaver alone, index uncommitted), then the in
+      // beat (incoming alone, index committed) — the frames never share
+      // a fade and never wipe (clip-path stays 'none').
+      const outBeat = beats.findIndex((s) => s[0] === "1" && s[1] === "0");
+      const inBeat = beats.findIndex((s) => s[0] === "0" && s[1] === "1" && s[2] === "2");
+      expect(outBeat).toBeGreaterThanOrEqual(0);
+      expect(inBeat).toBeGreaterThan(outBeat);
+      expect(beats.some((s) => s[0] === "1" && s[1] === "1")).toBe(false);
     });
 
     test("vertical view complements Strip without pairing or altering source proportions", async ({

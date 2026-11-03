@@ -33,13 +33,16 @@ export type SettingsSheetProps = {
   deviceControls?: Child
   /** The role-bound ActionGroup rendered beside the view controls. */
   actions?: Child
+  /** The popover's intro — the gallery's title/source/caption hoisted
+   *  above View so the card reads top-down: what, then how it shows. */
+  intro?: Child
   panelStyle?: Record<string, string | undefined> | undefined
 }
 
 export default function SettingsSheet({
   open, onClose, mode, onMode, background, onBackground, arrowsOn, onArrows,
   fullscreenAvailable, fullscreenActive, onFullscreen, showShortcuts,
-  magnifierAvailable, magnifierActive, deviceControls, actions, panelStyle,
+  magnifierAvailable, magnifierActive, deviceControls, actions, intro, panelStyle,
 }: SettingsSheetProps) {
   const arrowsDescId = `m-desc-${useId()}`
   const fsDescId = `m-desc-${useId()}`
@@ -54,6 +57,7 @@ export default function SettingsSheet({
   return (
     <div class="m-dark">
       <Sheet open={open} onClose={onClose} title="Settings" popover panelStyle={panelStyle}>
+        {intro ? <div class="m-sheet-intro">{intro}</div> : null}
         <div class="m-sheet-cols">
           <div class="m-sheet-col" data-settings-view>
             <h3 class="m-actiongroup-label">View</h3>

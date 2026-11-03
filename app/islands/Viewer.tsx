@@ -8,7 +8,7 @@ import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import ViewerChrome from '../components/viewer/ViewerChrome'
 import SettingsSheet from '../components/viewer/SettingsSheet'
-import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
+import OwnerGalleryPanel, { OwnerGalleryHead } from '../components/viewer/OwnerGalleryPanel'
 import PickerEditor, { BROWSE_HINT, loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
@@ -273,11 +273,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   const [credentialState, setCredentialState] = useState<Record<string, 'idle' | 'loading' | 'verified' | 'unavailable'>>({})
   const [credentialStores, setCredentialStores] = useState<Record<string, unknown>>({})
   const [heicSrc, setHeicSrc] = useState<Record<string, string>>({})
-  // One-at-a-time fade: the outgoing frame stays mounted and fully
-  // opaque through its 90ms out-fade so no transparency ever lands on
-  // the background field behind the incoming photograph.
-  const [leavingIndex, setLeavingIndex] = useState<number | null>(null)
-  const leavingTimerRef = useRef<number | null>(null)
+  // One-at-a-time sequential fade: the incumbent fades out alone
+  // (120ms), the index commits at opacity 0, then the incoming frame
+  // fades in alone (160ms). `from` stays mounted through both beats so
+  // nothing re-fetches mid-sequence; the busy ref is the input lock —
+  // a press that lands mid-fade is dropped, never queued.
+  const [singleFade, setSingleFade] = useState<{ from: number; to: number; phase: 'out' | 'in' } | null>(null)
+  const singleFadeBusyRef = useRef(false)
   const singleFadeSeqRef = useRef(0)
   // Decoded pixel truth for frames whose stored dims were wrong (4:3
   // fallbacks, stale scans). Held in state because hono/jsx rewrites
@@ -347,6 +349,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // A saved name propagates into the picker's header — the prop is the
   // SSR title, this override is the live one.
   const [titleOverride, setTitleOverride] = useState<string | undefined>(undefined)
+  const [captionOverride, setCaptionOverride] = useState<string | undefined>(undefined)
   const displayTitle = titleOverride ?? galleryTitle
   // The web owner manages the gallery inline in the popover; everyone
   // else gets the role action only. One column at every width.
@@ -751,9 +754,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   const hasMultiple = images.length > 1
   const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
-  // The end card's Library exit follows the chrome's rule exactly:
-  // signed-out visitors keep Rewind only.
-  const showLibraryExit = Boolean(onReturnToGalleries || (viewerRole && viewerRole !== 'visitor' && libraryHref))
+  // The end card carries Rewind only — the chrome's own Library pill is
+  // the way back, not a second exit under "The End."
   // Reorder moved from a dashboard overlay into this picker — the
   // panel's row just closes the popover and opens Edit mode.
   const openPickerEdit = () => {
@@ -799,7 +801,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
   // owner's management moved inline into OwnerGalleryPanel, so the web
   // viewer no longer navigates away for editing.
   const settingsActions = onOpenDetails ? (
-    <ActionGroup label="This gallery">
+    <ActionGroup>
       <ActionRow label="Manage gallery" onClick={() => onOpenDetails({ imageId: images[index]?.id ?? '', index })} />
     </ActionGroup>
   ) : ownerGallery ? (
@@ -813,9 +815,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       expiresAt={ownerGallery.expiresAt}
       mediaCount={ownerGallery.mediaCount}
       libraryHref={libraryHref}
+      headless
       onReorder={openPickerEdit}
       currentPhotoId={() => images[indexRef.current]?.id ?? ''}
       onTitleSaved={(title) => setTitleOverride(title)}
+      onCaptionSaved={(caption) => setCaptionOverride(caption)}
     />
   ) : addToLibrary ? (
     <ActionGroup>
@@ -829,6 +833,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     <ActionGroup>
       <ActionRow label="Sign in" href={resolvedSignInHref} />
     </ActionGroup>
+  ) : null
+  // The popover's intro: the gallery's own identity, hoisted above View
+  // so the card reads top-down — what this is, then how it shows.
+  const settingsIntro = ownerInline && ownerGallery ? (
+    <OwnerGalleryHead
+      title={titleOverride ?? ownerGallery.title}
+      caption={captionOverride ?? ownerGallery.caption}
+      sourceLabel={ownerGallery.sourceLabel}
+      temporary={ownerGallery.temporary}
+      expiresAt={ownerGallery.expiresAt}
+      mediaCount={ownerGallery.mediaCount}
+    />
   ) : null
   const arrowsVisible = arrowsOn && hasMultiple
 
@@ -1092,6 +1108,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   const goTo = (nextIndex: number, instant = false) => {
     const next = clamp(nextIndex, 0, images.length - 1)
+    // The sequential fade locks input for its whole run: a press that
+    // lands mid-fade is dropped, never queued or overlapped.
+    if (mode === 'single' && !instant && singleFadeBusyRef.current) return
     // A later navigation retires the entry anchor. The entry call itself
     // passes the pending target and must keep it.
     if (pendingEntryRef.current !== null && pendingEntryRef.current !== next) pendingEntryRef.current = null
@@ -1101,23 +1120,38 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     singleEndcapRef.current = false
     setSingleEndcap(false)
     if (mode === 'single' && next !== index && !instant) {
-      // One crossfade, never a dip to bare canvas: the incumbent holds
-      // fully opaque while the incoming photograph decodes (the wait is
-      // capped so a stalled fetch cannot freeze stepping), then the
-      // out-fade and the in-fade run together. Rapid presses collapse
-      // onto the latest destination via the sequence guard.
+      singleFadeBusyRef.current = true
+      const seq = ++singleFadeSeqRef.current
+      const from = indexRef.current
+      const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const outMs = reduced ? 1 : 120
+      const inMs = reduced ? 1 : 160
+      const alive = () => seq === singleFadeSeqRef.current && !unmountedRef.current && modeRef.current === 'single'
+      const release = () => { singleFadeBusyRef.current = false; if (!unmountedRef.current) setSingleFade(null) }
+      // The incoming frame decodes while the incumbent holds (the wait
+      // is capped so a stalled fetch cannot freeze stepping); then the
+      // incumbent fades out, the index commits at opacity 0, and the
+      // incoming frame fades in. No overlap, no crossfade.
       const targetImg = trackRef.current?.querySelector<HTMLImageElement>(`[data-index="${next + 1}"] img`)
       const decoded = targetImg?.decode ? targetImg.decode().catch(() => {}) : Promise.resolve()
       const cap = new Promise<void>((resolve) => window.setTimeout(resolve, 800))
-      const seq = ++singleFadeSeqRef.current
       void Promise.race([decoded, cap]).then(() => {
-        if (seq !== singleFadeSeqRef.current || unmountedRef.current) return
-        setLeavingIndex(indexRef.current)
-        setIndex(next)
-        if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
-        leavingTimerRef.current = window.setTimeout(() => { leavingTimerRef.current = null; setLeavingIndex(null) }, 200)
+        if (!alive()) { release(); return }
+        setSingleFade({ from, to: next, phase: 'out' })
+        window.setTimeout(() => {
+          if (!alive()) { release(); return }
+          setIndex(next)
+          setSingleFade({ from, to: next, phase: 'in' })
+          window.setTimeout(release, inMs)
+        }, outMs)
       })
     } else {
+      // An instant landing retires any in-flight fade outright.
+      if (singleFadeBusyRef.current) {
+        singleFadeSeqRef.current += 1
+        singleFadeBusyRef.current = false
+        setSingleFade(null)
+      }
       setIndex(next)
     }
     if (mode === 'strip' && !foldActiveRef.current) {
@@ -1164,6 +1198,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
       // One-by-one has no pan range: next on the last photograph fades
       // the end card in over it, prev while the card is open simply
       // closes it — Rewind inside the card handles the jump home.
+      if (singleFadeBusyRef.current) return
       if (singleEndcapRef.current) {
         if (direction === -1) { singleEndcapRef.current = false; setSingleEndcap(false) }
         return
@@ -2307,7 +2342,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => () => {
     unmountedRef.current = true
-    if (leavingTimerRef.current !== null) window.clearTimeout(leavingTimerRef.current)
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
@@ -2450,9 +2484,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
             // Single mode also keeps the outgoing frame's media mounted
-            // through its out-fade, and pre-mounts the immediate
+            // through the whole fade, and pre-mounts the immediate
             // neighbours so a step starts from decoded pixels, not a fetch.
-            const mountsMedia = isActive || (mode === 'single' && (imageIndex === leavingIndex || Math.abs(imageIndex - index) <= 1))
+            const mountsMedia = isActive || (mode === 'single' && (imageIndex === singleFade?.from || Math.abs(imageIndex - index) <= 1))
             const healed = healedDims[image.id]
             const frameW = healed?.w ?? image.width
             const frameH = healed?.h ?? image.height
@@ -2518,7 +2552,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             const cappedMediaStyle = cappedVideo ? { width: `${cappedVideo.width}px`, height: `${cappedVideo.height}px` } : undefined
             const photoFrame = (
               <figure
-                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (imageIndex === index ? (leavingIndex === null ? '' : 'viewer-frame--entering') : imageIndex === leavingIndex ? 'viewer-frame--leaving' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
+                class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (singleFade?.phase === 'out' && imageIndex === singleFade.from ? 'viewer-frame--leaving' : singleFade?.phase === 'in' && imageIndex === singleFade.to ? 'viewer-frame--entering' : imageIndex === index ? '' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
                 data-image-id={image.id}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
@@ -2697,14 +2731,37 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
                   <span class="ad-plate-badge">{plate.badge}</span>
                   {plate.image ? (
                     <span class="ad-plate-figure">
-                      <img
-                        class="ad-plate-image"
-                        src={plate.image.src}
-                        width={plate.image.width}
-                        height={plate.image.height}
-                        alt=""
-                        draggable={false}
-                      />
+                      {plate.cta ? (
+                        <a
+                          class="ad-plate-link"
+                          href={plate.cta.url}
+                          target="_blank"
+                          rel="noopener"
+                          aria-label={plate.cta.label}
+                          tabIndex={armedPlatePos === imageIndex ? 0 : -1}
+                          onPointerDown={(event) => { if (!plateCanActivate(imageIndex)) event.preventDefault() }}
+                          onClick={(event) => { if (!plateCanActivate(imageIndex)) event.preventDefault() }}
+                          onKeyDown={(event) => { if (!plateCanActivate(imageIndex)) event.preventDefault() }}
+                        >
+                          <img
+                            class="ad-plate-image"
+                            src={plate.image.src}
+                            width={plate.image.width}
+                            height={plate.image.height}
+                            alt=""
+                            draggable={false}
+                          />
+                        </a>
+                      ) : (
+                        <img
+                          class="ad-plate-image"
+                          src={plate.image.src}
+                          width={plate.image.width}
+                          height={plate.image.height}
+                          alt=""
+                          draggable={false}
+                        />
+                      )}
                     </span>
                   ) : null}
                   <span class="ad-plate-headline">{plate.headline ?? plate.advertiser}</span>
@@ -2736,11 +2793,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
                 <button class="endcap-reset" onClick={rewind}>Rewind</button>
-                {showLibraryExit ? (
-                  onReturnToGalleries
-                    ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
-                    : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
-                ) : null}
               </div>
             </div>
           ) : null}
@@ -2752,11 +2804,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
               <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
                 <button class="endcap-reset" onClick={rewind}>Rewind</button>
-                {showLibraryExit ? (
-                  onReturnToGalleries
-                    ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
-                    : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
-                ) : null}
               </div>
             </div>
           ) : null}
@@ -2768,11 +2815,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
             <span class="endcap-line">The End.</span>
             <div class="endcap-actions">
               <button class="endcap-reset" onClick={rewind}>Rewind</button>
-              {showLibraryExit ? (
-                onReturnToGalleries
-                  ? <button class="endcap-reset endcap-library" onClick={onReturnToGalleries}>Library</button>
-                  : libraryHref ? <a class="endcap-reset endcap-library" href={libraryHref}>Library</a> : null
-              ) : null}
             </div>
           </div>
         ) : null}
@@ -2917,6 +2959,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
           magnifierActive={magnifierActive}
           deviceControls={deviceControls}
           actions={settingsActions}
+          intro={settingsIntro}
           panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
         />
       </div>

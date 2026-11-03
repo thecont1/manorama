@@ -24,6 +24,9 @@ export type OwnerGalleryPanelProps = {
   temporary: boolean
   expiresAt?: string | null
   mediaCount: MediaCount
+  /** Drop the in-place head — the caller hoists it elsewhere (the
+   *  Settings popover shows it as the intro above View). */
+  headless?: boolean
   /** The owner's library — the post-delete landing and the pipeline
    *  lock's Upgrade link when no `upgradeHref` is passed. */
   libraryHref?: string
@@ -47,6 +50,21 @@ export type OwnerGalleryPanelProps = {
 
 type EditField = 'name' | 'caption' | 'address'
 
+/** The gallery's identity header — title, the source line ("16
+ *  photographs · Dropbox"), and the caption in full. The Settings
+ *  popover hoists it to the top as the intro; the panel renders it in
+ *  place everywhere else. */
+export const OwnerGalleryHead = ({ title, caption, sourceLabel, temporary, expiresAt, mediaCount }: Pick<OwnerGalleryPanelProps, 'title' | 'caption' | 'sourceLabel' | 'temporary' | 'expiresAt' | 'mediaCount'>) => (
+  <header class="m-owner-panel-head">
+    <div class="m-owner-panel-title">{title}</div>
+    <p class="m-owner-panel-meta">
+      {formatMediaCount(mediaCount)} · {sourceLabel}
+      {temporary ? ` · Temporary gallery${expiresAt ? ` · expires ${expiresAt.slice(0, 10)}` : ''}` : ''}
+    </p>
+    {caption ? <p class="m-owner-panel-cap">{caption}</p> : null}
+  </header>
+)
+
 export default function OwnerGalleryPanel({
   owner,
   slug,
@@ -54,6 +72,7 @@ export default function OwnerGalleryPanel({
   caption,
   sourceLabel,
   temporary,
+  headless = false,
   expiresAt,
   mediaCount,
   libraryHref,
@@ -241,15 +260,16 @@ export default function OwnerGalleryPanel({
 
   return (
     <div class="m-owner-panel" ref={panelRef}>
-      <h3 class="m-actiongroup-label">This gallery</h3>
-      <header class="m-owner-panel-head">
-        <div class="m-owner-panel-title">{liveTitle}</div>
-        <p class="m-owner-panel-meta">
-          {formatMediaCount(mediaCount)} · {sourceLabel}
-          {temporary ? ` · Temporary gallery${expiresAt ? ` · expires ${expiresAt.slice(0, 10)}` : ''}` : ''}
-        </p>
-        {liveCaption ? <p class="m-owner-panel-cap">{liveCaption}</p> : null}
-      </header>
+      {headless ? null : (
+        <OwnerGalleryHead
+          title={liveTitle}
+          caption={liveCaption}
+          sourceLabel={sourceLabel}
+          temporary={temporary}
+          expiresAt={expiresAt}
+          mediaCount={mediaCount}
+        />
+      )}
       {temporary ? (
         <p class="m-note m-owner-panel-lock">
           {PIPELINE_LOCK_MESSAGE}{' '}

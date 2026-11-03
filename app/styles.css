@@ -498,14 +498,14 @@ button { color: inherit; }
 .viewer-track--single .viewer-frame { position: absolute; top: 0; left: 0; width: 100%; height: 100%; place-items: center; opacity: 0; transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 400ms ease; pointer-events: none; }
 .viewer-track--single .viewer-frame:not(.viewer-frame--hidden) { opacity: 1; pointer-events: auto; }
 .viewer-track--single .viewer-frame img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
-/* The one-at-a-time change is a decode-guarded crossfade, not a wipe:
-   the incumbent holds until the incoming photograph has decoded (the
-   wait is capped, so a stalled fetch cannot freeze stepping), then both
-   fade together over the base 160ms — the stage never dips to bare
-   canvas. The keyframe covers a fresh mount (picker jumps) where no
-   hidden-state transition can run. */
-.viewer-track--single .viewer-frame--leaving { z-index: 1; opacity: 0; }
-.viewer-track--single .viewer-frame.viewer-frame--entering { z-index: 2; opacity: 1; animation: single-enter 160ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* The one-at-a-time change is a decode-guarded sequential fade, not a
+   wipe and never a crossfade: the incumbent holds until the incoming
+   photograph has decoded (the wait is capped, so a stalled fetch cannot
+   freeze stepping), fades out alone over 120ms, then the incoming frame
+   fades in alone over 160ms — a blank beat separates them. The keyframe
+   covers a fresh mount (picker jumps) where no transition can run. */
+.viewer-track--single .viewer-frame--leaving { opacity: 0; transition: opacity 120ms ease-out; }
+.viewer-track--single .viewer-frame.viewer-frame--entering { z-index: 2; opacity: 1; animation: single-enter 160ms ease-in both; }
 @keyframes single-enter { from { opacity: 0; } to { opacity: 1; } }
 
 /* The quiet dot remains the sole stage control and opens provenance plus
@@ -524,7 +524,9 @@ button { color: inherit; }
 .curtain.fading { opacity: 0; -webkit-backdrop-filter: blur(0) saturate(1); backdrop-filter: blur(0) saturate(1); pointer-events: none; }
 .curtain.fading > * { opacity: 0; }
 .curtain[hidden] { display: none; }
-.curtain-mark { position: absolute; top: calc(env(safe-area-inset-top, 0px) + (var(--m-bar-h) - var(--m-logo-h)) / 2); left: 50%; margin-left: calc(var(--m-logo-w) / -2); width: var(--m-logo-w); height: var(--m-logo-h); object-fit: contain; }
+/* The mark sits in flow, a couple of line spaces above the title — left-
+   aligned with the curtain copy rather than centred against the top edge. */
+.curtain-mark { display: block; width: var(--m-logo-w); height: var(--m-logo-h); object-fit: contain; margin: 0 0 3rem; }
 .curtain-title { margin: 0; font-size: 36px; line-height: 1.05; font-weight: 700; letter-spacing: -.025em; font-variation-settings: "opsz" 48; overflow-wrap: anywhere; }
 .curtain-caption { max-width: 30ch; margin: 12px 0 0; color: #d9d5cc; font-size: 17px; }
 /* Literal hexes, not --m-* tokens: under html.light those flip dark and the
@@ -567,6 +569,10 @@ button { color: inherit; }
    group under it, shortcuts last. The former two-column split left the
    owner rows ~350px wide and clipped real values at the card edge. */
 .m-sheet-col { min-width: 0; }
+/* The popover's intro: the gallery's title/source/caption hoisted above
+   View, separated by the same hairline as every sheet section. */
+.m-sheet-intro { padding: 18px 0 14px; border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); }
+.m-sheet-intro .m-owner-panel-head { margin: 0; }
 .m-sheet-cols:has(+ .m-sheet-section) { border-bottom: 1px solid rgba(var(--m-ink, var(--ink)), .1); }
 .m-sheet-labelrow { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .m-sheet-label { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; color: var(--m-ink, rgb(var(--ink))); }
@@ -1511,6 +1517,10 @@ html.light .doodle-bg { --doodle-ink: rgba(0, 0, 0, 0.16); }
   justify-content: center;
   margin-bottom: 14px;
 }
+/* The creative carries the same destination as the CTA — the anchor
+   contributes no box, so the image keeps the figure's centring and is
+   itself the whole hit target. */
+.ad-plate-figure > .ad-plate-link { display: contents; }
 .ad-plate-image {
   display: block;
   width: auto;

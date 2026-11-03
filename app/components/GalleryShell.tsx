@@ -49,16 +49,17 @@ export default function GalleryShell({ settings, status, viewerRole, libraryHref
             aria-label="Enter gallery"
             aria-describedby={status ? 'gallery-curtain-status' : undefined}
           >
-            {/* The mark sits in the same 140×47 box the top bar reserves on every
-                owner surface, so opening a gallery never makes it jump. */}
-            <img
-              src="/manorama-merged-logo.png"
-              alt="manorama"
-              width="140"
-              height="47"
-              class="curtain-mark"
-            />
             <div class="curtain-content">
+              {/* The mark floats a couple of line spaces above the title in the
+                  same 140×47 box every surface gives it — a title card, not a
+                  pinned header. */}
+              <img
+                src="/manorama-merged-logo.png"
+                alt="manorama"
+                width="140"
+                height="47"
+                class="curtain-mark"
+              />
               <h2 class="curtain-title" data-curtain-title dangerouslySetInnerHTML={{ __html: escapeHtml(settings.title) }} />
               <p class="curtain-caption" data-curtain-caption dangerouslySetInnerHTML={{ __html: escapeHtml(settings.caption) }} />
               {countLine ? (
