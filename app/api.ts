@@ -5,7 +5,7 @@ import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type G
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
-import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
+import { fetchMegaFile, fetchMegaPreview } from './lib/mega-client'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'

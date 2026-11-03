@@ -3,7 +3,7 @@ import { createManoramaApi } from './api'
 import { createGallery, resetGalleryStore } from './lib/gallery-repository'
 import { resetUserStore, setUserTier, upsertUser } from './lib/user-repository'
 import { sessionCookieFor, TEST_SESSION_SECRET } from './lib/test-fixtures'
-import { fetchMegaPreview } from './lib/mega-public'
+import { fetchMegaPreview } from './lib/mega-client'
 import { FREE_RETAINED_LIMIT } from './lib/gallery-policy'
 
 /**

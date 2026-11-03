@@ -172,10 +172,12 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
   if (storedSourceUrl === candidateUrl) return true
 
   // A provider's public identity is not always enough to identify the
-  // authorization context. MEGA reuses the folder/collection handle with a
-  // fragment key; Drive resource keys and Dropbox rlkeys similarly affect
-  // access. Reopen only when both identity AND access key match. A false
-  // negative merely causes the normal scanner/canonicalizer to run.
+  // authorization context — but how much more is needed differs per
+  // provider. MEGA identity is (kind, handle); the access secret is
+  // separate and is not compared, so a keyless stored URL and a keyed
+  // candidate still match. iCloud tokens, Drive resource keys and Dropbox
+  // rlkeys genuinely gate access and must match. A false negative merely
+  // causes the normal scanner/canonicalizer to run.
   switch (storedProvider) {
     case 'icloud': {
       const storedToken = extractAlbumToken(storedSourceUrl)

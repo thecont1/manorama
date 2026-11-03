@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { fetchICloudImage } from './icloud-shared'
-import { fetchMegaFile, fetchMegaPreview } from './mega-public'
+import { fetchMegaFile, fetchMegaPreview } from './mega-client'
 
 /**
  * The scan path validates provider references; the proxy routes do not.
