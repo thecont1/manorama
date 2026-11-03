@@ -1,6 +1,9 @@
 import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
 import { formatMediaCount, isVideoItem, mediaCountOf, type GalleryImage, type GalleryMediaItem, type MediaCount, type VideoItem } from '../lib/imagesource'
 import { heicObjectUrl, isHeicFilename } from '../lib/heic'
+import { encryptedSourceFromGalleryHash } from '../../packages/core/encrypted-source'
+import { rewriteGalleryHistory } from '../lib/gallery-url'
+import type { EncryptedMediaResolver } from '../lib/encrypted-resolver'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
@@ -36,6 +39,9 @@ type Props = {
   slug: string
   galleryTitle?: string
   images: readonly GalleryMediaItem[]
+  /** Present only after the client fragment/key store unlocks an encrypted
+   *  gallery. Null during SSR keeps keyless refs off the network. */
+  encryptedResolver?: EncryptedMediaResolver | null
   settings: GallerySettings
   plate?: AdFrame | null
   /** Native shells route the existing position pill to their vault-backed
@@ -232,12 +238,60 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
-  const images = useMemo(() => sourceImages.map((image) => imageWithSettings(image, settings)), [sourceImages, settings])
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(() => clamp(initialIndex, 0, Math.max(0, sourceImages.length - 1)))
+  const [resolvedMedia, setResolvedMedia] = useState<Record<string, { src?: string; previews: Record<number, string> }>>({})
+  useEffect(() => {
+    if (!encryptedResolver) return
+    const controller = new AbortController()
+    let cancelled = false
+    const acquired: { reference: NonNullable<GalleryImage['media']>; preview: boolean }[] = []
+    for (const [imageIndex, image] of sourceImages.entries()) {
+      if (isVideoItem(image) || !image.media) continue
+      const requests: { reference: NonNullable<GalleryImage['media']>; preview: boolean }[] = []
+      if (Math.abs(imageIndex - index) <= 2) requests.push({ reference: image.media, preview: false })
+      if (Math.abs(imageIndex - index) <= 8) {
+        image.variants?.forEach((variant) => { if (variant.media) requests.push({ reference: variant.media, preview: true }) })
+      }
+      for (const request of requests) {
+        acquired.push(request)
+        void encryptedResolver.acquire(request.reference, request.preview, controller.signal).then((url) => {
+          if (cancelled) return
+          setResolvedMedia((previous) => {
+            const current = previous[image.id] ?? { previews: {} }
+            const previews = request.preview ? { ...current.previews } : current.previews
+            const variantIndex = request.preview
+              ? image.variants?.findIndex((variant) => variant.media === request.reference) ?? -1
+              : -1
+            if (request.preview && variantIndex >= 0) previews[variantIndex] = url
+            return { ...previous, [image.id]: { src: request.preview ? current.src : url, previews } }
+          })
+        }).catch(() => {
+          // Corrupt, revoked, and cancelled items retain their SSR geometry;
+          // the gate reports session-level failures, and stage error UI owns
+          // per-item retries without falling back to a server decryptor.
+        })
+      }
+    }
+    return () => {
+      cancelled = true
+      controller.abort()
+      for (const request of acquired) encryptedResolver.release(request.reference, request.preview)
+    }
+  }, [sourceImages, index, encryptedResolver])
+  const resolvedSourceImages = useMemo(() => sourceImages.map((image) => {
+    const resolved = resolvedMedia[image.id]
+    if (!resolved || isVideoItem(image)) return image
+    return {
+      ...image,
+      src: resolved.src ?? image.src,
+      variants: image.variants?.map((variant, variantIndex) => ({ ...variant, src: resolved.previews[variantIndex] ?? variant.src })),
+    }
+  }), [sourceImages, resolvedMedia])
+  const images = useMemo(() => resolvedSourceImages.map((image) => imageWithSettings(image, settings)), [resolvedSourceImages, settings])
   const [modalOpen, setModalOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [gridOpen, setGridOpen] = useState(false)
@@ -724,7 +778,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
 
   useEffect(() => {
     const clearPositionHash = () => {
-      if (window.location.hash || window.location.search) history.replaceState(null, '', window.location.pathname)
+      const sourceHash = encryptedSourceFromGalleryHash(window.location.hash) ? window.location.hash : ''
+      if (window.location.hash !== sourceHash || window.location.search) {
+        rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${sourceHash}`)
+      }
     }
     clearPositionHash()
     window.addEventListener('hashchange', clearPositionHash)
@@ -1556,7 +1613,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, setti
     beginEdit()
     const url = new URL(window.location.href)
     url.searchParams.delete('edit')
-    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+    rewriteGalleryHistory(window, 'replace', null, `${url.pathname}${url.search}${url.hash}`)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

@@ -2,6 +2,7 @@ import { jsxRenderer } from 'hono/jsx-renderer'
 import { HasIslands } from 'honox/server'
 import { Link, Script } from 'honox/server'
 import { pageSecurityHeaders } from '../lib/security-headers'
+import { ogImageType } from '../lib/og-metadata'
 
 export default jsxRenderer(({ children, title, description, ogImage, ownerTheme }, c) => {
   // import.meta.env is undefined under bun test, which then exercises the
@@ -30,8 +31,8 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme 
       <meta property="og:title" content={title ?? 'manorama'} />
       {description ? <meta property="og:description" content={description} /> : null}
       <meta property="og:image" content={absoluteImage} />
-      {/* The default card is a PNG; per-gallery cards are composited JPEG. */}
-      <meta property="og:image:type" content={ogImage ? 'image/jpeg' : 'image/png'} />
+      {/* MIME follows the actual asset: static cards are PNG, composites JPEG. */}
+      <meta property="og:image:type" content={ogImageType(image)} />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
       <meta property="og:url" content={`${origin}${c.req.path}`} />

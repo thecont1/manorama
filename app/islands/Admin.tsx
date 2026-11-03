@@ -19,6 +19,11 @@ import { copyText } from '../lib/gallery-share'
 import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 import { libraryLayout } from '../../packages/core/library-layout'
+import { galleryHashForSource, isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
+import { webGalleryKeyStore } from '../lib/key-store'
+import { rewriteGalleryHistory } from '../lib/gallery-url'
+import type { EncryptedClientSession } from '../lib/encrypted-resolver'
+import { releaseAllEncryptedDisplays, releaseEncryptedGallery } from '../lib/encrypted-display'
 
 type Props = {
   galleries: readonly GallerySummary[]
@@ -156,6 +161,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // The card overflow sheet (···) and the share/settings sheets it can
   // open are keyed by slug so they work without Details mounted beneath.
   const [shareSlug, setShareSlug] = useState<string | null>(null)
+  const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
   const [menuSlug, setMenuSlug] = useState<string | null>(null)
   const [galSettingsSlug, setGalSettingsSlug] = useState<string | null>(null)
   // The Free pin cap: when every permanent slot is taken, pinning opens a
@@ -164,6 +170,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // Remove runs as an inline confirm on the card, like the native list —
   // never a window.confirm dialog.
   const [removeSlug, setRemoveSlug] = useState<string | null>(null)
+  useEffect(() => () => releaseAllEncryptedDisplays(), [])
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(tick)
@@ -202,7 +209,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     if (params.has('linked') || params.has('link')) {
       params.delete('linked')
       params.delete('link')
-      window.history.replaceState(null, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
+      rewriteGalleryHistory(window, 'replace', null, `${window.location.pathname}${params.size ? `?${params}` : ''}`)
     }
     return () => { active = false }
   }, [])
@@ -365,7 +372,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     setSettingsNote('')
     const params = new URLSearchParams(window.location.search)
     params.set('settings', '1')
-    window.history.pushState({ surface: 'settings' }, '', `${window.location.pathname}?${params}`)
+    rewriteGalleryHistory(window, 'push', { surface: 'settings' }, `${window.location.pathname}?${params}`)
   }
   const closeSettings = () => {
     if (!settingsOpen) return
@@ -383,6 +390,57 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
 
   const galleryPath = (slug: string) => `/${owner}/${slug}`
   const galleryAddress = (slug: string) => `${publicHost}${galleryPath(slug)}`
+  const galleryAddressWithKey = (gallery: GallerySummary) =>
+    `${galleryAddress(gallery.slug)}${gallery.id ? galleryHashes[gallery.id] ?? '' : ''}`
+  useEffect(() => {
+    let live = true
+    for (const gallery of galleries) {
+      if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) continue
+      void webGalleryKeyStore().get(gallery.id).then((source) => {
+        if (!live || !source || !gallery.id) return
+        const hash = galleryHashForSource(source)
+        setGalleryHashes((previous) => previous[gallery.id!] === hash ? previous : { ...previous, [gallery.id!]: hash })
+      })
+    }
+    return () => { live = false }
+  }, [galleries])
+  const openGallery = (gallery: GallerySummary, suffix = '') => {
+    const target = `${galleryPath(gallery.slug)}${suffix}`
+    if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) {
+      window.location.assign(target)
+      return
+    }
+    void webGalleryKeyStore().get(gallery.id).then((source) => {
+      window.location.assign(`${target}${source ? galleryHashForSource(source) : ''}`)
+    })
+  }
+  const openSource = (gallery: GallerySummary) => {
+    if (!gallery.sourceUrl) return
+    if (gallery.manifestVersion !== 2 || !gallery.id || !isEncryptedSourceUrl(gallery.sourceUrl)) return
+    void webGalleryKeyStore().get(gallery.id).then((source) => {
+      if (source) window.open(source, '_blank', 'noopener,noreferrer')
+    })
+  }
+  // One navigation seam covers rail, cover, title, and shared-sheet anchors.
+  // Modified clicks and new tabs retain normal browser behavior; the durable
+  // full-link copy action is available even when this tab has no key.
+  useEffect(() => {
+    const follow = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]')
+      if (!anchor || anchor.target === '_blank') return
+      const url = new URL(anchor.href, window.location.href)
+      if (url.origin !== window.location.origin) return
+      const parts = url.pathname.split('/').filter(Boolean)
+      if (parts.length !== 2 || parts[0] !== owner) return
+      const gallery = galleries.find((item) => item.slug === parts[1] && item.manifestVersion === 2)
+      if (!gallery) return
+      event.preventDefault()
+      openGallery(gallery, url.search)
+    }
+    document.addEventListener('click', follow)
+    return () => document.removeEventListener('click', follow)
+  }, [galleries, owner])
   // A compound count ("19 photographs · 7 hidden") takes its own dot
   // before the source so the parts read as separate facts; a lone count
   // flows straight into "from" instead of dangling a separator.
@@ -470,9 +528,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // link that was never going to work.
   const addVerifySeq = useRef(0)
   const addVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const addEncryptedSession = useRef<EncryptedClientSession | null>(null)
   const resetAddVerification = () => {
     if (addVerifyTimer.current) clearTimeout(addVerifyTimer.current)
     addVerifySeq.current += 1
+    addEncryptedSession.current?.dispose()
+    addEncryptedSession.current = null
     setAddVerifiedTitle(null)
     setAddChecking(false)
   }
@@ -480,6 +541,17 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const seq = ++addVerifySeq.current
     setAddChecking(true)
     try {
+      if (isEncryptedSourceUrl(url)) {
+        const { openEncryptedSource } = await import('../lib/encrypted-client')
+        const session = await openEncryptedSource(url)
+        if (seq !== addVerifySeq.current) { session.dispose(); return }
+        addEncryptedSession.current?.dispose()
+        addEncryptedSession.current = session
+        setAddError(null)
+        setAddVerifiedTitle(session.title)
+        setAddName((current) => current.trim() ? current : session.title)
+        return
+      }
       const response = await fetch('/api/galleries/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -530,12 +602,31 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     setBusy(true)
     announce('Adding gallery…', true)
     try {
+      let body: Record<string, unknown> = { url, ...(input.name ? { title: input.name } : {}), ...(input.caption ? { caption: input.caption } : {}) }
+      if (isEncryptedSourceUrl(url)) {
+        const session = addEncryptedSession.current ?? await (await import('../lib/encrypted-client')).openEncryptedSource(url)
+        addEncryptedSession.current = session
+        body = {
+          manifest: {
+            provider: session.provider,
+            sourceUrl: session.sourceUrl,
+            title: session.title,
+            images: session.images,
+            ...(session.truncated ? { truncated: session.truncated } : {}),
+          },
+          ...(input.name ? { title: input.name } : {}),
+          ...(input.caption ? { caption: input.caption } : {}),
+        }
+      }
       const response = await fetch('/api/galleries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, ...(input.name ? { title: input.name } : {}), ...(input.caption ? { caption: input.caption } : {}) }),
+        body: JSON.stringify(body),
       })
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
+      if (isEncryptedSourceUrl(url) && payload.gallery?.id) {
+        await webGalleryKeyStore().put(payload.gallery.id, url)
+      }
       // 409 "already exists" still carries the gallery — that is a
       // successful reopen, not a scan failure: keep the card, point at it,
       // and say so instead of showing a could-not-read error.
@@ -576,6 +667,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, { method: 'DELETE' })
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
+      if (gallery.id) {
+        await webGalleryKeyStore().remove(gallery.id)
+        releaseEncryptedGallery(gallery.id)
+      }
       setGalleries((previous) => previous.filter((item) => item.slug !== gallery.slug))
       setRemoveSlug(null)
       announce('Gallery removed')
@@ -586,13 +681,38 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
+  const refreshRequest = async (gallery: GallerySummary): Promise<RequestInit> => {
+    if (!gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) return { method: 'POST' }
+    const stored = gallery.id ? await webGalleryKeyStore().get(gallery.id) : null
+    const source = stored ?? (gallery.sourceUrl.includes('#') ? gallery.sourceUrl : null)
+    if (!source) throw new Error('This device does not hold the key. Open the full gallery link before refreshing.')
+    const { openEncryptedSource } = await import('../lib/encrypted-client')
+    const session = await openEncryptedSource(source)
+    try {
+      if (gallery.id) await webGalleryKeyStore().put(gallery.id, source)
+      return {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manifest: {
+          provider: session.provider,
+          sourceUrl: session.sourceUrl,
+          title: session.title,
+          images: session.images,
+          ...(session.truncated ? { truncated: session.truncated } : {}),
+        } }),
+      }
+    } finally {
+      session.dispose()
+    }
+  }
+
   const refreshGallery = async (gallery: GallerySummary) => {
     if (blockPipelineEdit(gallery)) return
     if (!gallery.sourceUrl) return
     setBusy(true)
     announce(`Refreshing “${gallery.title}”…`, true)
     try {
-      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, { method: 'POST' })
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, await refreshRequest(gallery))
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be refreshed')
       if (payload.gallery) {
@@ -615,7 +735,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     setBusy(true)
     setDetailsNote(null)
     try {
-      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, { method: 'POST' })
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/refresh`, await refreshRequest(gallery))
       const payload = await response.json() as { gallery?: GallerySummary; error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be refreshed')
       if (payload.gallery) {
@@ -637,6 +757,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}`, { method: 'DELETE' })
       const payload = await response.json() as { error?: string }
       if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
+      if (gallery.id) {
+        await webGalleryKeyStore().remove(gallery.id)
+        releaseEncryptedGallery(gallery.id)
+      }
       setGalleries((previous) => previous.filter((item) => item.slug !== gallery.slug))
       setShareSlug(null)
       if (initialDetailsRef.current === gallery.slug) {
@@ -689,7 +813,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         setDetailsSlug(updated.slug)
         const params = new URLSearchParams(window.location.search)
         params.set('details', updated.slug)
-        window.history.replaceState({ surface: 'details', slug: updated.slug }, '', `${window.location.pathname}?${params}`)
+        rewriteGalleryHistory(window, 'replace', { surface: 'details', slug: updated.slug }, `${window.location.pathname}?${params}`)
       }
     } catch (error) {
       setEditNote(error instanceof Error ? error.message : 'That change could not be saved')
@@ -765,13 +889,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   }
 
   const openGalleryTab = (gallery: GallerySummary) => {
-    const anchor = document.createElement('a')
-    anchor.href = `https://${galleryAddress(gallery.slug)}`
-    anchor.target = '_blank'
-    anchor.rel = 'noreferrer'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
+    const open = (hash = '') => {
+      const anchor = document.createElement('a')
+      anchor.href = `https://${galleryAddress(gallery.slug)}${hash}`
+      anchor.target = '_blank'
+      anchor.rel = 'noreferrer'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+    }
+    if (gallery.manifestVersion === 2 && gallery.id && gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)) {
+      void webGalleryKeyStore().get(gallery.id).then((source) => {
+        if (source) open(galleryHashForSource(source))
+        else announce('This tab does not hold the key. Open the full gallery link before sharing it.', true)
+      })
+      return
+    }
+    open()
   }
 
 
@@ -874,7 +1008,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${imageIndex + 1} of ${gallery.imageCount}`}>
-                    <HeicImg src={image.src} preview={image.variants?.[0]?.src} filename={image.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
+                    <HeicImg src={image.src} preview={image.variants?.[0]?.src} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={gallery.id} filename={image.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
                       const img = event.currentTarget as HTMLImageElement
                       // Stored dims are the placeholder's shape — the decoded
                       // derivative (an EXIF-rotated frame, a video poster) owns
@@ -938,7 +1072,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               const cover = gallery.images.find((image) => !image.hidden)
               return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                 <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
+                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
                 </a>
                 <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
                 <div class="lib-compact-body">
@@ -1007,9 +1141,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               type="button"
               disabled={busy || isLocked(menuGallery)}
               title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
-              onClick={() => { window.location.assign(`/${owner}/${menuGallery.slug}?edit=1`) }}
+              onClick={() => { openGallery(menuGallery, '?edit=1') }}
             >Reorder photographs</button>
-            {menuGallery.sourceUrl ? <a href={menuGallery.sourceUrl} target="_blank" rel="noreferrer">Open source</a> : null}
+            {menuGallery.sourceUrl ? <a href={menuGallery.sourceUrl} target="_blank" rel="noreferrer" onClick={(event) => {
+                if (menuGallery.manifestVersion === 2) { event.preventDefault(); openSource(menuGallery) }
+              }}>Open source</a> : null}
             {menuGallery.sourceUrl ? (
               <button
                 type="button"
@@ -1037,8 +1173,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               mediaCount={summaryMediaCount(galSettingsGallery)}
               libraryHref={`/${owner}`}
               upgradeHref={upgradeHref}
-              onOpen={() => { window.location.assign(`/${owner}/${galSettingsGallery.slug}`) }}
-              onReorder={() => { window.location.assign(`/${owner}/${galSettingsGallery.slug}?edit=1`) }}
+              onOpen={() => { openGallery(galSettingsGallery) }}
+              onReorder={() => { openGallery(galSettingsGallery, '?edit=1') }}
               currentPhotoId={() => ''}
               onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
               onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}
@@ -1072,10 +1208,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           payload={{
             title: shareGallery.title,
             caption: shareGallery.caption,
-            url: `https://${galleryAddress(shareGallery.slug)}`,
+            url: `https://${galleryAddressWithKey(shareGallery)}`,
           }}
           onClose={() => setShareSlug(null)}
           onCopy={copyText}
+          shareDisabled={Boolean(shareGallery.manifestVersion === 2 && shareGallery.id && !galleryHashes[shareGallery.id])}
+          shareWarning="This tab does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
         />
       ) : null}
 
@@ -1111,7 +1249,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <GalleryDetailsView
             title={detailsGallery.title}
             caption={detailsGallery.caption}
-            address={`${publicHost}/${owner}/${detailsGallery.slug}`}
+            address={galleryAddressWithKey(detailsGallery)}
             imageCount={detailsGallery.imageCount}
             mediaCount={summaryMediaCount(detailsGallery)}
             sourceLabel={sourceLabelFor(detailsGallery.sourceUrl)}
@@ -1130,7 +1268,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             onEditName={() => { setEditField('name'); setEditValue(detailsGallery.title); setEditNote(null) }}
             onEditCaption={() => { setEditField('caption'); setEditValue(detailsGallery.caption || ''); setEditNote(null) }}
             onEditAddress={() => { setEditField('address'); setEditValue(detailsGallery.slug); setEditNote(null) }}
-            onReorder={() => { window.location.assign(`/${owner}/${detailsGallery.slug}?edit=1`) }}
+            onReorder={() => { openGallery(detailsGallery, '?edit=1') }}
             onRefresh={() => void refreshGalleryFromDetails(detailsGallery)}
             onRemove={() => void removeGalleryFromDetails(detailsGallery)}
             upgradeHref={upgradeHref}

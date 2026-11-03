@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'hono/jsx'
+import { listenForGalleryHistoryWrites } from '../lib/gallery-url'
 import {
   CANVAS_SCALE,
   DEFAULT_MAX_ICONS,
@@ -61,17 +62,10 @@ export default function SeededDoodleBackground({ url, enabled = true, maxIcons =
     const sync = () => setHref(window.location.pathname + window.location.search)
     sync()
     window.addEventListener('popstate', sync)
-    // Native history methods do not emit popstate, so patch them once per
-    // mounted layer and restore them on cleanup. This keeps SPA-style
-    // pushState/replaceState navigation deterministic too.
-    const pushState = window.history.pushState
-    const replaceState = window.history.replaceState
-    window.history.pushState = function (...args) { pushState.apply(this, args); sync() }
-    window.history.replaceState = function (...args) { replaceState.apply(this, args); sync() }
+    const stopListening = listenForGalleryHistoryWrites(window, sync)
     return () => {
       window.removeEventListener('popstate', sync)
-      window.history.pushState = pushState
-      window.history.replaceState = replaceState
+      stopListening()
     }
   }, [url])
 

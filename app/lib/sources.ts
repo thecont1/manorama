@@ -2,7 +2,8 @@ import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
-import { extractMegaLink, scanMegaSource } from './mega-public'
+import { scanMegaSource } from './mega-public'
+import { megaIdentityFromUrl } from '../../packages/core/encrypted-source'
 import type { GalleryMediaItem } from './imagesource'
 
 /**
@@ -183,13 +184,12 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
       return Boolean(storedToken && candidateToken && storedToken === candidateToken)
     }
     case 'mega': {
-      try {
-        const stored = extractMegaLink(storedSourceUrl)
-        const candidate = extractMegaLink(candidateUrl)
-        return Boolean(stored && candidate && stored.kind === candidate.kind && stored.id === candidate.id && stored.key === candidate.key)
-      } catch {
-        return false
-      }
+      const stored = megaIdentityFromUrl(storedSourceUrl)
+      const candidate = megaIdentityFromUrl(candidateUrl)
+      // Identity and access secret are separate: key rotation and keyless
+      // stored URLs must reopen the same gallery instead of hitting the
+      // (owner_id, source_url) uniqueness conflict after a fresh scan.
+      return Boolean(stored && candidate && stored.kind === candidate.kind && stored.id === candidate.id)
     }
     case 'gdrive': {
       try {

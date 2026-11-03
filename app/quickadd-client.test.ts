@@ -79,7 +79,7 @@ describe('createGallery loop guard', () => {
     }))
     const root = { dataset: {} } as HTMLElement
     try {
-      await createGallery('https://mega.nz/folder/Ab#K', root)
+      await createGallery('https://dropbox.com/sh/example/folder', root)
       expect(stub.store.has('manorama:quickadd-attempt')).toBe(false)
     } finally {
       stub.restore()
@@ -96,7 +96,7 @@ describe('createGallery limit handling', () => {
       gallery: { slug: 'fresh-album', retention: 'pipeline' },
     }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
     try {
-      await createGallery('https://mega.nz/folder/Ab#K', root())
+      await createGallery('https://dropbox.com/sh/example/folder', root())
       expect(stub.navigated).toEqual(['/test-owner/fresh-album'])
       expect(stub.status.textContent).toBe('')
     } finally {
@@ -111,7 +111,7 @@ describe('createGallery limit handling', () => {
       dashboardUrl: '/test-owner',
     }), { status: 403, headers: { 'Content-Type': 'application/json' } }))
     try {
-      await createGallery('https://mega.nz/folder/Ab#K', root())
+      await createGallery('https://dropbox.com/sh/example/folder', root())
       expect(stub.navigated).toEqual(['/test-owner'])
       expect(stub.status.textContent).toBe('')
     } finally {
@@ -126,7 +126,7 @@ describe('createGallery limit handling', () => {
       dashboardUrl: 'https://evil.example.com/steal',
     }), { status: 403, headers: { 'Content-Type': 'application/json' } }))
     try {
-      await createGallery('https://mega.nz/folder/Ab#K', root())
+      await createGallery('https://dropbox.com/sh/example/folder', root())
       expect(stub.navigated).toEqual([])
       expect(stub.status.textContent).toBe('Open your dashboard to continue.')
     } finally {

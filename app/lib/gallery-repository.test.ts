@@ -104,5 +104,8 @@ describe('setGalleryPinned', () => {
     expect(await setGalleryPinned(user.accountId, 'missing', true)).toBeNull()
     const found = await getGallery(user.accountId, 'pintest')
     expect(found?.pinnedAt).toBeNull()
+    expect(found?.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(found?.manifestVersion).toBe(1)
+    expect(toSummary(found!).id).toBe(found!.id)
   })
 })

@@ -11,6 +11,9 @@
  * in `?next=` so the round trip lands back on an identical URL.
  */
 
+import { galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { webGalleryKeyStore } from './lib/key-store'
+
 const PENDING_KEY = 'manorama:pending-source'
 const LOOP_GUARD_KEY = 'manorama:quickadd-attempt'
 
@@ -71,15 +74,35 @@ const wireSignIn = (sourceUrl: string) => {
   for (const button of document.querySelectorAll<HTMLAnchorElement>('[data-quickadd-signin]')) {
     const base = button.getAttribute('href') ?? button.dataset.href
     if (!base) continue
-    button.href = `${base}?next=${encodeURIComponent(location.href)}`
+    const next = new URL(location.href)
+    next.hash = ''
+    button.href = `${base}?next=${encodeURIComponent(next.toString())}`
     button.removeAttribute('data-href')
     button.removeAttribute('aria-disabled')
   }
   try {
-    localStorage.setItem(PENDING_KEY, sourceUrl)
+    sessionStorage.setItem(PENDING_KEY, sourceUrl)
+    // Remove the pre-ADR persistent copy if an older tab wrote one.
+    localStorage.removeItem(PENDING_KEY)
   } catch {
     // Private browsing — the OAuth `next` cookie remains the real record.
   }
+}
+
+/** Give the owner a durable capability copy before leaving quick-add. */
+const showEncryptedFullLink = (url: string, prefix = '') => {
+  const node = statusNode()
+  if (!node) return
+  node.textContent = `${prefix}${prefix ? ' ' : ''}Manorama can't recover this key. Keep the full link.`
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'quickadd-copy-full'
+  button.textContent = 'Copy full link'
+  button.addEventListener('click', () => {
+    void navigator.clipboard.writeText(url).then(() => { button.textContent = 'Copied' })
+  })
+  node.appendChild(document.createTextNode(' '))
+  node.appendChild(button)
 }
 
 /** Submits a pasted source link, reports terminal errors in the quick-add
@@ -107,11 +130,29 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
   const stopWaiting = () => clearTimeout(patience)
 
   let response: Response
+  let encryptedSource: string | null = null
   try {
+    let body: Record<string, unknown> = { url: sourceUrl, quick: true }
+    if (isEncryptedSourceUrl(sourceUrl)) {
+      encryptedSource = sourceUrl
+      const { openEncryptedSource } = await import('./lib/encrypted-client')
+      const session = await openEncryptedSource(sourceUrl)
+      body = {
+        manifest: {
+          provider: session.provider,
+          sourceUrl: session.sourceUrl,
+          title: session.title,
+          images: session.images,
+          ...(session.truncated ? { truncated: session.truncated } : {}),
+        },
+        quick: true,
+      }
+      session.dispose()
+    }
     response = await fetch('/api/galleries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: sourceUrl, quick: true }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000),
     })
   } catch (error) {
@@ -130,7 +171,7 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     code?: string
     dashboardUrl?: string
     galleryUrl?: string
-    gallery?: { slug?: string }
+    gallery?: { id?: string; slug?: string }
     truncated?: { kept: number; total: number }
     error?: string
   }
@@ -143,16 +184,21 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     // a later visit to the same quick-add URL in this tab and stop the 409
     // path from reopening the gallery.
     try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
-    try { localStorage.removeItem(PENDING_KEY) } catch { /* best effort */ }
-    if (response.status === 201 && payload.truncated) {
+    try { sessionStorage.removeItem(PENDING_KEY); localStorage.removeItem(PENDING_KEY) } catch { /* best effort */ }
+    if (encryptedSource && payload.gallery?.id) await webGalleryKeyStore().put(payload.gallery.id, encryptedSource)
+    const target = `${payload.galleryUrl}${encryptedSource ? galleryHashForSource(encryptedSource) : ''}`
+    if (response.status === 201 && (payload.truncated || encryptedSource)) {
       // Accept, but never silently: show the truncation note for a beat
       // before opening the gallery so the owner understands the count.
-      const { kept, total } = payload.truncated
-      setStatus(`That album has ${total.toLocaleString()} items — your gallery keeps the first ${kept.toLocaleString()}.`)
-      setTimeout(() => location.replace(payload.galleryUrl!), 4000)
+      const prefix = payload.truncated
+        ? `That album has ${payload.truncated.total.toLocaleString()} items — your gallery keeps the first ${payload.truncated.kept.toLocaleString()}.`
+        : ''
+      if (encryptedSource) showEncryptedFullLink(target, prefix)
+      else setStatus(prefix)
+      setTimeout(() => location.replace(target), 4000)
       return
     }
-    location.replace(payload.galleryUrl)
+    location.replace(target)
     return
   }
   // The guard only exists to stop a redirect loop. Any terminal response
@@ -178,9 +224,20 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
 const start = () => {
   const root = document.querySelector<HTMLElement>('[data-quickadd]')
   if (!root) return
-  const sourceUrl = root.dataset.provider === 'local'
+  let sourceUrl = root.dataset.provider === 'local'
     ? reconstructLocalSourceUrl(location)
     : reconstructSourceUrl(location)
+  if (isEncryptedSourceUrl(sourceUrl)) {
+    try {
+      const pending = sessionStorage.getItem(PENDING_KEY)
+      if (pending && isEncryptedSourceUrl(pending) && keylessSourceUrl(pending) === keylessSourceUrl(sourceUrl)) {
+        sourceUrl = pending
+        sessionStorage.removeItem(PENDING_KEY)
+      }
+    } catch {
+      // A malformed pending value is ignored; the visible link still works.
+    }
+  }
   if (root.dataset.mode === 'create') void createGallery(sourceUrl, root)
   else wireSignIn(sourceUrl)
 }

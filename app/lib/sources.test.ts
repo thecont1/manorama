@@ -112,15 +112,12 @@ describe('canonicalSourceMatches', () => {
     expect(canonicalSourceMatches('https://www.icloud.com/sharedalbum/#TOKEN', 'https://www.icloud.com/sharedalbum/#OTHER')).toBe(false)
   })
 
-  test('MEGA matches on handle plus fragment key, across host and legacy spellings', () => {
+  test('MEGA matches provider identity regardless of key custody or rotation', () => {
     expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.co.nz/folder/ABC123#KEY1')).toBe(true)
     expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/#F!ABC123!KEY1')).toBe(true)
     expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1/file/XYZ', 'https://mega.nz/folder/ABC123#KEY1')).toBe(true)
-  })
-
-  test('MEGA refuses a different decryption key or a different collection kind', () => {
-    // The key is the authorization — same handle, other key, no reopen.
-    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/folder/ABC123#KEY2')).toBe(false)
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123', 'https://mega.nz/folder/ABC123#ROTATED')).toBe(true)
+    expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/folder/ABC123#KEY2')).toBe(true)
     expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/collection/ABC123#KEY1')).toBe(false)
   })
 

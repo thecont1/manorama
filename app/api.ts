@@ -22,8 +22,10 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
+import { isEncryptedSourceUrl } from '../packages/core/encrypted-source'
+import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
 
-type RequestBody = { url?: string; order?: string[]; quick?: boolean; title?: string; caption?: string }
+type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
 export type RuntimeEnv = {
   AIRTABLE_PAT?: string
@@ -535,6 +537,7 @@ export const createManoramaApi = () => {
   api.post('/api/galleries/scan', async (c) => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
+    if (isEncryptedSourceUrl(payload.url)) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted sources are scanned on your device, never by the server' }, 422)
     try {
       const scan = await scanSource(payload.url, envOf(c))
       return c.json({ scan })
@@ -546,8 +549,11 @@ export const createManoramaApi = () => {
   api.post('/api/galleries', async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
-    if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     try {
+      const submitted = payload.manifest === undefined ? null : validateEncryptedManifest(payload.manifest)
+      const sourceInput = submitted?.sourceUrl ?? payload.url?.trim()
+      if (!sourceInput) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
+      if (!submitted && isEncryptedSourceUrl(sourceInput)) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted sources are scanned on your device, never by the server' }, 422)
       // Quick-add revisit fast path: when the pasted link canonicalizes to
       // a gallery this owner already has, reopen it WITHOUT re-scanning
       // the provider. Without this a revisit pays a full album scan just
@@ -555,7 +561,7 @@ export const createManoramaApi = () => {
       // link into a 422 instead of a redirect.
       const galleries = await listGalleries(session.accountId, dbEnv(c))
       const existingBefore = galleries
-        .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, payload.url!))
+        .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, sourceInput))
       if (existingBefore) return c.json({
         error: 'A gallery from that link already exists',
         gallery: toSummary(existingBefore),
@@ -571,7 +577,7 @@ export const createManoramaApi = () => {
         const error = paidGalleryLimitError()
         return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
       }
-      const scan = await scanSource(payload.url, envOf(c))
+      const scan: EncryptedManifestInput | Awaited<ReturnType<typeof scanSource>> = submitted ?? await scanSource(sourceInput, envOf(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       // A revisit to /<share-url> must reopen the gallery that link already
       // produced, so the 409 carries the existing gallery and its address.
@@ -620,6 +626,7 @@ export const createManoramaApi = () => {
           caption,
           date: '',
           sourceUrl: scan.sourceUrl,
+          manifestVersion: submitted ? 2 : 1,
           createdAt: new Date().toISOString(),
           images: orderedImages,
         }, dbEnv(c))
@@ -798,15 +805,20 @@ export const createManoramaApi = () => {
 
   api.post('/api/galleries/:slug/refresh', requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
+    const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     try {
       const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (!gallery.sourceUrl) return c.json({ error: 'Only link-sourced galleries can be refreshed' }, 400)
-      const scan = await scanSource(gallery.sourceUrl, envOf(c))
+      const encrypted = gallery.manifestVersion === 2 || isEncryptedSourceUrl(gallery.sourceUrl)
+      if (encrypted && payload.manifest === undefined) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted refresh requires a manifest scanned on your device' }, 400)
+      const submitted = payload.manifest === undefined ? null : validateEncryptedManifest(payload.manifest)
+      if (submitted && !canonicalSourceMatches(gallery.sourceUrl, submitted.sourceUrl)) return c.json({ error: 'Refresh source identity does not match this gallery' }, 400)
+      const scan: EncryptedManifestInput | Awaited<ReturnType<typeof scanSource>> = submitted ?? await scanSource(gallery.sourceUrl, envOf(c))
       // A budget-cut scan returns a partial listing — persisting it would
       // drop source items the scan never reached, so the refresh is
       // rejected and the gallery keeps its existing images.
-      if (scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
+      if ('partial' in scan && scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
       // Retained images keep the owner's ordering but pick up fresh
       // scanner metadata and source references; images removed from the
       // source drop out, newly discovered ones append at the end.
@@ -1071,6 +1083,9 @@ export const createManoramaApi = () => {
       const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
       if (!user) return noStore(fallback())
       const gallery = await getGallery(user.accountId, c.req.param('slug'), dbEnv(c))
+      // Static encrypted-source cards never enter source selection. This also
+      // covers legacy MEGA rows and stale `?i=` bookmarks from before M7.
+      if (gallery?.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)) return fallback()
       const first = gallery?.images?.find((image) => !image.hidden) as GalleryMediaItem | undefined
       const pipeline = gallery?.retention === 'pipeline'
       if (!first) return noStore(fallback())

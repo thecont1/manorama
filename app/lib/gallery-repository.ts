@@ -25,6 +25,10 @@ import type { AccountTier } from '../../packages/core/account'
  */
 
 export type GalleryRecord = GalleryManifest & {
+  /** Random immutable identity for client-held keys; optional only while
+   *  reading pre-0013 records and constructing legacy test fixtures. */
+  id?: string
+  manifestVersion?: number
   sourceUrl?: string
   createdAt?: string
   retention?: GalleryRetention
@@ -33,6 +37,8 @@ export type GalleryRecord = GalleryManifest & {
 }
 
 type GalleryRow = {
+  id: string | null
+  manifest_version: number | null
   slug: string
   title: string
   caption: string | null
@@ -74,6 +80,8 @@ const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
 const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   if (!row || !row.slug) return null
   const gallery: GalleryRecord = {
+    id: row.id ?? undefined,
+    manifestVersion: row.manifest_version ?? 1,
     slug: row.slug,
     title: row.title || row.slug,
     caption: row.caption ?? '',
@@ -96,9 +104,11 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at'
 
 type GalleryInsertRow = {
+  id: string
+  manifest_version: number
   slug: string
   title: string
   caption: string
@@ -109,6 +119,8 @@ type GalleryInsertRow = {
 }
 
 const recordToRow = (gallery: GalleryRecord): GalleryInsertRow => ({
+  id: gallery.id ?? crypto.randomUUID(),
+  manifest_version: gallery.manifestVersion ?? 1,
   slug: gallery.slug,
   title: gallery.title,
   caption: gallery.caption ?? '',
@@ -194,8 +206,8 @@ export const createGalleryWithinLimit = async (
   if (d1Configured(env)) {
     try {
       const stored = await env.DB.prepare(
-        `INSERT INTO galleries (slug, owner_id, title, caption, date, source_url, images_json, created_at, retention, expires_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+        `INSERT INTO galleries (id, manifest_version, slug, owner_id, title, caption, date, source_url, images_json, created_at, retention, expires_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN 'retained' ELSE 'pipeline' END,
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN NULL ELSE ? END
          FROM (
@@ -203,8 +215,8 @@ export const createGalleryWithinLimit = async (
           (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'retained') AS retained_count
          )
          WHERE tier != 'pro' OR retained_count < 99
-         RETURNING slug, title, caption, date, source_url, images_json, created_at, retention, expires_at`,
-      ).bind(row.slug, ownerId, row.title, row.caption, row.date, row.source_url, row.images_json, row.created_at, pipelineExpiresAt, ownerId, ownerId).first<GalleryRow>()
+         RETURNING ${GALLERY_COLUMNS}`,
+      ).bind(row.id, row.manifest_version, row.slug, ownerId, row.title, row.caption, row.date, row.source_url, row.images_json, row.created_at, pipelineExpiresAt, ownerId, ownerId).first<GalleryRow>()
       if (!stored) return { ok: false, reason: 'limit' }
       return { ok: true, gallery: rowToRecord(stored)! }
     } catch (error) {
@@ -227,6 +239,8 @@ export const createGalleryWithinLimit = async (
   const retention: GalleryRetention = tier === 'pro' || retainedCount < FREE_RETAINED_LIMIT ? 'retained' : 'pipeline'
   const stored: GalleryRecord = {
     ...gallery,
+    id: row.id,
+    manifestVersion: row.manifest_version,
     slug: row.slug,
     sourceUrl: row.source_url ?? undefined,
     createdAt: row.created_at,
@@ -261,7 +275,7 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
        WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
     ).bind(row.title, row.caption, row.date, row.source_url, row.images_json, ownerId, gallery.slug).run()
     if ((result.meta.changes ?? 0) === 0) return null
-    return { ...gallery, createdAt: current.createdAt, retention: current.retention, expiresAt: current.expiresAt }
+    return { ...gallery, id: current.id, manifestVersion: current.manifestVersion, createdAt: current.createdAt, retention: current.retention, expiresAt: current.expiresAt }
   }
   const store = ownerStore(ownerId)
   const current = store.get(gallery.slug)
@@ -269,6 +283,8 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
   assertGalleryEditable(current)
   const updated: GalleryRecord = {
     ...gallery,
+    id: current.id,
+    manifestVersion: current.manifestVersion,
     createdAt: current.createdAt,
     retention: retentionOf(current),
     expiresAt: current.expiresAt ?? null,
@@ -487,7 +503,13 @@ export const updateGalleryHidden = async (ownerId: string, slug: string, hiddenK
  *  key is invented for them. */
 const previewImages = (images: readonly GalleryMediaItem[]) => images.map((image) => {
   const { id, ref, filename, src, width, height, alt, placeholder, variants } = image
-  const base = { id, ref, filename, src, width, height, alt, placeholder, variants }
+  const base = {
+    id, ref, filename, src, width, height, alt, placeholder, variants,
+    ...('media' in image && image.media ? { media: image.media } : {}),
+    ...('contentVersion' in image && image.contentVersion ? { contentVersion: image.contentVersion } : {}),
+    ...('fidelity' in image && image.fidelity ? { fidelity: image.fidelity } : {}),
+    ...('thumbnailFidelity' in image && image.thumbnailFidelity ? { thumbnailFidelity: image.thumbnailFidelity } : {}),
+  }
   // `hidden` stays optional like the stored flag — the conditional spread
   // keeps it absent on visible items, so summary shapes are unchanged.
   const flagged = { ...base, ...(image.hidden ? { hidden: true as const } : {}) }
@@ -609,7 +631,7 @@ export const toSummary = (gallery: GalleryRecord) => {
   // vault's "Saving n of imageCount" progress reads it.
   const visible = gallery.images.filter((image) => !image.hidden)
   const { stills, videos } = mediaCountOf(visible)
-  return { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, images: previewImages(gallery.images) }
+  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, images: previewImages(gallery.images) }
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 

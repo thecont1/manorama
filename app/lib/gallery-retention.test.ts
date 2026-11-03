@@ -100,6 +100,7 @@ const sharedD1Database = async () => {
     // the real schema, so the fixture carries it too.
     await applyMigration(proxy.env.DB, '0007_device_galleries.sql')
     await applyMigration(proxy.env.DB, '0012_gallery_pinned.sql')
+    await applyMigration(proxy.env.DB, '0013_gallery_identity_and_manifest_version.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB
@@ -178,6 +179,7 @@ describe('migration 0002 on a legacy database', () => {
     // The repository reads pinned_at on every row fetch — the column is
     // part of the real schema now, so the rehearsal carries it too.
     await applyMigration(db, '0012_gallery_pinned.sql')
+    await applyMigration(db, '0013_gallery_identity_and_manifest_version.sql')
   }, 15_000)
 
   afterAll(async () => {
