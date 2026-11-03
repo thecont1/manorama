@@ -19,6 +19,13 @@ export class EncryptedSourceLockedError extends Error {
   }
 }
 
+export class EncryptedSourceMismatchError extends Error {
+  constructor() {
+    super('That link opens a different encrypted source than this gallery expects.')
+    this.name = 'EncryptedSourceMismatchError'
+  }
+}
+
 const keyStore = () => nativeGalleryKeyStore()
 
 export const persistEncryptedSourceForSelection = async (galleryId: string, sourceUrl: string): Promise<void> => {

@@ -8,11 +8,11 @@ import { localComputeEntryId } from './local-compute'
 import type { EncryptedVault } from './vault'
 import { productionVault } from './vault'
 import { EncryptedMediaResolver, type EncryptedClientSession } from '../../app/lib/encrypted-resolver'
-import { EncryptedSourceLockedError } from './encrypted-gallery'
+import { EncryptedSourceLockedError, EncryptedSourceMismatchError, persistEncryptedSourceForSelection } from './encrypted-gallery'
 import { nativeGalleryKeyStore } from './gallery-key-store'
 import type { CacheFillItem } from './cache-fill'
 import { cacheFillRegistry } from './cache-fill'
-import { manifestIsEncryptedSource } from '../../packages/core/encrypted-source'
+import { keylessSourceUrl, manifestIsEncryptedSource } from '../../packages/core/encrypted-source'
 
 const METADATA_VERSION = 1
 const METADATA_ENTRY_ID = 'offline-gallery:metadata:v1'
@@ -149,11 +149,22 @@ export const offlineGalleryId = async (selection: GallerySelection): Promise<str
   return `offline-gallery:v1:${[...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
 }
 
-export const openNativeEncryptedSession = async (selection: GallerySelection): Promise<EncryptedClientSession> => {
+export const openNativeEncryptedSession = async (selection: GallerySelection, compareWith?: string): Promise<EncryptedClientSession> => {
   const sourceUrl = selection.sourceUrl ?? (selection.galleryId ? await nativeGalleryKeyStore().get(selection.galleryId) : null)
   if (!sourceUrl) throw new EncryptedSourceLockedError()
+  // A fragment that names a different album must never be adopted into this
+  // gallery's custody — compare keyless identities before any decrypt or put.
+  if (compareWith !== undefined && keylessSourceUrl(sourceUrl) !== keylessSourceUrl(compareWith)) {
+    throw new EncryptedSourceMismatchError()
+  }
   const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
-  return openEncryptedSource(sourceUrl)
+  const session = await openEncryptedSource(sourceUrl)
+  // Only now adopt the key: custody requires both the fragment and the
+  // published manifest agreeing on which source this gallery is.
+  if (selection.sourceUrl && selection.galleryId) {
+    await persistEncryptedSourceForSelection(selection.galleryId, selection.sourceUrl).catch(() => undefined)
+  }
+  return session
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -658,7 +669,7 @@ export const openGalleryNetworkFirst = async (options: {
   try {
     const gallery = await options.fetchOnline(options.signal)
     const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
-      ? await openNativeEncryptedSession(options.selection)
+      ? await openNativeEncryptedSession(options.selection, gallery.manifest.sourceUrl)
       : undefined
     const encryptedResolver = encryptedSession ? new EncryptedMediaResolver(encryptedSession) : undefined
     const cacheFill = options.cachePolicy === 'stream'
@@ -670,7 +681,7 @@ export const openGalleryNetworkFirst = async (options: {
     // A locked encrypted gallery keeps its type through the fallback so the
     // caller can delegate to the web's unlock flow. A vaulted copy still
     // wins — it was decrypted when it was written.
-    if (networkError instanceof EncryptedSourceLockedError) {
+    if (networkError instanceof EncryptedSourceLockedError || networkError instanceof EncryptedSourceMismatchError) {
       const cached = await options.store.open(options.selection)
       if (cached) return cached
       throw networkError

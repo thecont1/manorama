@@ -206,16 +206,18 @@ describe('create / refresh / migrate persist only keyless records', () => {
     expect(gate(true, '2026-11-01T00:00:00.000Z').legacySourceUrl).toBeUndefined()
   })
 
-  test('a truncated manifest passed to migrate silently drops the tail', async () => {
+  test('a truncated manifest passed to migrate is refused before the key retires', async () => {
     await seed({ images: [image(), image({ id: 'mega-second0000000', ref: 'NODEHANDLE02', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'CANARYFOLDER', nodeId: 'NODEHANDLE02' } })] })
     const short = { ...manifest([image()]), truncated: 40 }
     const response = await API.request('/api/galleries/enc/migrate', {
       method: 'POST', ...(await enc({ headers: { 'Content-Type': 'application/json' } })),
       body: JSON.stringify({ manifest: short, deviceId: 'device-aaaaaaaa' }),
     }, env)
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(422)
+    expect((await response.json() as { code?: string }).code).toBe('PARTIAL_SCAN')
     const stored = await getStoredGallery(TEST_OWNER.accountId, 'enc')
-    expect(stored?.images).toHaveLength(1)
+    expect(stored?.images).toHaveLength(2)
+    expect(stored?.keyRetiredAt).toBeNull()
   })
 
   test('the same device twice does not retire the key', async () => {
@@ -320,7 +322,7 @@ describe('F4: the native deep link trusts the fragment over the gallery it names
     purgeGallery: async () => {}, purgeAll: async () => {},
   })
 
-  test('an #source for a different album is opened and adopted without comparison', async () => {
+  test('an #source for a different album is rejected before open or adoption', async () => {
     const opened: string[] = []
     mock.module(new URL('./lib/encrypted-client.ts', import.meta.url).pathname, () => ({
       openEncryptedSource: async (url: string) => {
@@ -329,18 +331,40 @@ describe('F4: the native deep link trusts the fragment over the gallery it names
       },
     }))
     const { openGalleryNetworkFirst } = await import('../native/lib/offline-gallery')
+    const { EncryptedSourceMismatchError } = await import('../native/lib/encrypted-gallery')
+    const published = {
+      slug: 'enc', title: 'Enc', caption: '', date: '', sourceUrl: 'https://mega.nz/folder/REALALBUM',
+      images: [image({ media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'REALALBUM', nodeId: 'NODEHANDLE01' } })],
+    }
+    // The fragment names OTHERALBUM while the published manifest belongs to
+    // REALALBUM — the mismatch must reject before the key is opened or adopted.
+    await expect(openGalleryNetworkFirst({
+      selection: { owner: 'o', slug: 'enc', galleryId: 'a'.repeat(32), sourceUrl: `https://mega.nz/folder/OTHERALBUM#${CANARY}` },
+      fetchOnline: async () => ({ manifest: published as never, settings: {} as never }),
+      store: store() as never,
+    })).rejects.toBeInstanceOf(EncryptedSourceMismatchError)
+    expect(opened).toEqual([])
+  })
+
+  test('a matching #source still opens and adopts the key', async () => {
+    const opened: string[] = []
+    mock.module(new URL('./lib/encrypted-client.ts', import.meta.url).pathname, () => ({
+      openEncryptedSource: async (url: string) => {
+        opened.push(url)
+        return { provider: 'mega', sourceUrl: 'https://mega.nz/folder/REALALBUM', title: 'Real', images: [], materialize: async () => { throw new Error('x') }, dispose: () => {} }
+      },
+    }))
+    const { openGalleryNetworkFirst } = await import('../native/lib/offline-gallery')
     const published = {
       slug: 'enc', title: 'Enc', caption: '', date: '', sourceUrl: 'https://mega.nz/folder/REALALBUM',
       images: [image({ media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'REALALBUM', nodeId: 'NODEHANDLE01' } })],
     }
     const result = await openGalleryNetworkFirst({
-      selection: { owner: 'o', slug: 'enc', galleryId: 'a'.repeat(32), sourceUrl: `https://mega.nz/folder/OTHERALBUM#${CANARY}` },
+      selection: { owner: 'o', slug: 'enc', galleryId: 'a'.repeat(32), sourceUrl: `https://mega.nz/folder/REALALBUM#${CANARY}` },
       fetchOnline: async () => ({ manifest: published as never, settings: {} as never }),
       store: store() as never,
     })
-    // The fragment wins unconditionally: the resolver is built for OTHERALBUM
-    // while the manifest's node handles come from REALALBUM.
-    expect(opened).toEqual([`https://mega.nz/folder/OTHERALBUM#${CANARY}`])
+    expect(opened).toEqual([`https://mega.nz/folder/REALALBUM#${CANARY}`])
     result.dispose?.()
   })
 })

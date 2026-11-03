@@ -44,7 +44,7 @@ import { TopBar } from '../../app/components/ui/TopBar'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
-import { createEncryptedGallery, clearAllEncryptedSources, persistEncryptedSourceForSelection, refreshEncryptedGallery, removeEncryptedSourceForSelection, resolveEncryptedSourceForSelection, EncryptedSourceLockedError } from '../lib/encrypted-gallery'
+import { createEncryptedGallery, clearAllEncryptedSources, refreshEncryptedGallery, removeEncryptedSourceForSelection, resolveEncryptedSourceForSelection, EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../lib/encrypted-gallery'
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
@@ -360,13 +360,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setPendingQuickAdd(deepLinkSelection.sourceUrl)
       return
     }
-    // An encrypted deep link carries the provider key in its fragment. When
-    // it also names the immutable gallery id, adopt the key into device
-    // custody — the same custody createEncryptedGallery establishes — so a
-    // later cold open does not need the full link again.
-    if ('kind' in deepLinkSelection && deepLinkSelection.kind === 'encrypted' && deepLinkSelection.galleryId) {
-      void persistEncryptedSourceForSelection(deepLinkSelection.galleryId, deepLinkSelection.sourceUrl)
-    }
+    // An encrypted deep link carries the provider key in its fragment.
+    // Custody adoption happens inside openNativeEncryptedSession after the
+    // fragment's source identity compares equal to the published manifest —
+    // never here, where a mismatched link could poison the key store.
     setFrameKick({ index: 0, nonce: 0 })
     enterGallery(deepLinkSelection)
   }, [deepLinkSelection])
@@ -420,6 +417,16 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       leaseRef.current?.dispose?.()
       leaseRef.current = null
     }
+    // The web handoff carries the key fragment when this device holds it —
+    // the browser sheet can then unlock without asking for the full link.
+    const externalGalleryUrl = async () => {
+      const stored = selection.galleryId
+        ? await resolveEncryptedSourceForSelection(selection.galleryId).catch(() => null)
+        : null
+      const hash = stored && selection.galleryId ? galleryHashForSource(stored, selection.galleryId) : ''
+      return `${normalizeApiBase(base)}/${encodeURIComponent(selection.owner)}/${encodeURIComponent(selection.slug)}${hash}`
+    }
+    const openExternally = () => { void externalGalleryUrl().then(openExternal) }
     const applyGallery = (gallery: NetworkFirstGallery) => {
       // Version-2 manifests decrypt on-device through the lease's resolver.
       // What native still cannot render is a *legacy* manifest — an encrypted
@@ -430,7 +437,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       if (gallery.source === 'online' && legacyEncrypted) {
         disposeLease()
         gallery.dispose?.()
-        openExternal(`${normalizeApiBase(base)}/${encodeURIComponent(selection.owner)}/${encodeURIComponent(selection.slug)}`)
+        openExternally()
         returnToGalleries()
         return
       }
@@ -503,9 +510,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           if (!active || controller.signal.aborted) return
           if (currentManifest && currentStatus === 'offline') return
           // A keyless encrypted gallery cannot be unlocked in-app; the web
-          // sheet shows its locked panel and accepts a pasted full link.
-          if (reason instanceof EncryptedSourceLockedError) {
-            openExternal(`${normalizeApiBase(base)}/${encodeURIComponent(selection.owner)}/${encodeURIComponent(selection.slug)}`)
+          // sheet shows its locked panel and accepts a pasted full link. A
+          // mismatched link lands the same way — the page renders the real
+          // gallery's locked state rather than trusting the wrong fragment.
+          if (reason instanceof EncryptedSourceLockedError || reason instanceof EncryptedSourceMismatchError) {
+            openExternally()
             returnToGalleries()
             return
           }
