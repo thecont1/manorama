@@ -2380,7 +2380,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     images.forEach((image, imageIndex) => {
       if (!isFrameActive(imageIndex)) return
       keep.add(image.id)
-      if (isHeic(image) && !heicSrc[image.id]) void decodeHeic(image)
+      // Encrypted entries hold an empty src until the resolver materializes
+      // bytes — decoding earlier fetches the page itself and caches the HTML
+      // as this frame's "decoded" image permanently.
+      if (isHeic(image) && image.src && !heicSrc[image.id]) void decodeHeic(image)
     })
     // Decoded blobs are megabytes each — drop entries that leave the
     // window and revoke their object URLs.

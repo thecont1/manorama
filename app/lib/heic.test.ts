@@ -31,6 +31,15 @@ describe('heicObjectUrl', () => {
     })
   })
 
+  test('an empty src never reaches fetch — it would return the page as the "image"', async () => {
+    await withGlobals(async () => {
+      let fetches = 0
+      globals.fetch = (() => { fetches += 1; return Promise.resolve(new Response('<html/>')) }) as unknown as typeof fetch
+      expect(await heicObjectUrl('')).toBeNull()
+      expect(fetches).toBe(0)
+    })
+  })
+
   test('a decoded URL is served from cache — a second surface pays nothing', async () => {
     await withGlobals(async () => {
       const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0])
