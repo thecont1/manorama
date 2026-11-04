@@ -5,6 +5,8 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import { summaryMediaCount } from '../../app/lib/imagesource'
 import { deleteGallery, refreshGallery, updateGalleryMetadata } from '../lib/api'
+import { refreshEncryptedGallery } from '../lib/encrypted-gallery'
+import { isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
 import { sourceLabelFor } from '../lib/library-media'
 import { nativeDeviceLabel } from '../lib/device-label'
 
@@ -86,7 +88,11 @@ export default function GalleryDetails({
     setBusy('refresh')
     setNote(null)
     try {
-      const stored = await refreshGallery(apiBase, gallery.slug)
+      // Encrypted sources refresh from a client re-scan — a bare POST has no
+      // manifest and the server refuses it (CLIENT_SCAN_REQUIRED).
+      const stored = isEncryptedSourceUrl(gallery.sourceUrl ?? '')
+        ? await refreshEncryptedGallery(apiBase, gallery.slug, gallery.id ?? '')
+        : await refreshGallery(apiBase, gallery.slug)
       await onChanged(stored)
       setNote('Read just now')
     } catch (reason) {

@@ -1,4 +1,5 @@
 import { createGalleryFromManifest, refreshGalleryWithManifest, type KeylessManifest } from './api'
+import type { GallerySummary } from '../../app/lib/gallery-repository'
 import { nativeGalleryKeyStore } from './gallery-key-store'
 import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
 
@@ -74,13 +75,13 @@ export const createEncryptedGallery = async (
 /** Client-driven refresh (D3): re-scan from the stored key, submit the
  * keyless manifest. Without a stored key this raises a locked error — the
  * server can never refresh an encrypted gallery on its own. */
-export const refreshEncryptedGallery = async (apiBase: string, slug: string, galleryId: string): Promise<void> => {
+export const refreshEncryptedGallery = async (apiBase: string, slug: string, galleryId: string): Promise<GallerySummary> => {
   const sourceUrl = await resolveEncryptedSourceForSelection(galleryId)
   if (!sourceUrl) throw new EncryptedSourceLockedError()
   const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
   const session = await openEncryptedSource(sourceUrl)
   try {
-    await refreshGalleryWithManifest(apiBase, slug, await manifestOf(session))
+    return await refreshGalleryWithManifest(apiBase, slug, await manifestOf(session))
   } finally {
     session.dispose()
   }
