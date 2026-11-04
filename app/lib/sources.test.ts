@@ -250,3 +250,11 @@ describe('a file link still earns its provider-specific guidance', () => {
     })
   }
 })
+
+describe('friendlySourceError', () => {
+  test('passes an item-count refusal through — the numbers are the message', () => {
+    const message = friendlySourceError(new Error('That MEGA folder has 1,423 images — galleries are limited to 1,000 items'))
+    expect(message).toContain('1,423 images')
+    expect(message).toContain('1,000 items')
+  })
+})

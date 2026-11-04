@@ -37,6 +37,12 @@ const MAX_FILE_BYTES = 48 * 1024 * 1024
 // File-attribute (preview/thumbnail) ceiling — these are decrypted into
 // memory and cached, so an unbounded one would balloon the isolate.
 const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
+// The shared 950-request default in scan-budget is the Workers subrequest
+// ceiling; the client scan runs in a browser, which has none. Measured on
+// a live share the probe pass costs ~2 requests per item (ufa+POST or
+// g+range), so 3×MAX bounds the pass with headroom and stays a backstop
+// against runaway fan-out rather than a platform limit.
+const MEGA_SCAN_REQUEST_BUDGET = MAX_GALLERY_ITEMS * 3
 
 type MegaNode = {
   h: string
@@ -438,10 +444,15 @@ const listMegaFolder = async (input: string, fetchImpl: typeof fetch, keys?: Map
  *  batches — a disposed session rejects its scan rather than finishing
  *  manifest fields nobody can still consume. */
 const probeFolderScan = async (listed: MegaListed & { files: MegaFolderFile[] }, fetchImpl: typeof fetch, closed?: () => boolean): Promise<MegaScan> => {
-  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  // A count-capped listing is a hard refusal, not a truncated scan — name
+  // the limit instead of probing a thousand items to fail at submit.
+  if (listed.foundTotal > MAX_GALLERY_ITEMS) {
+    throw new SourceFetchError(`That MEGA folder has ${listed.foundTotal.toLocaleString()} images — galleries are limited to ${MAX_GALLERY_ITEMS.toLocaleString()} items`, 422)
+  }
+  const budgetFetch = createScanBudget(MEGA_SCAN_REQUEST_BUDGET).fetch(fetchImpl)
   const { images, truncatedTail } = await probeImages(listed.auth, listed.files, budgetFetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }), closed)
   if (!images.length) throw new Error('No image files were found in that public MEGA folder')
-  return { sourceUrl: listed.sourceUrl, title: listed.title, images, ...(listed.foundTotal > listed.files.length || truncatedTail ? { truncated: listed.foundTotal } : {}) }
+  return { sourceUrl: listed.sourceUrl, title: listed.title, images, ...(truncatedTail ? { truncated: listed.foundTotal } : {}) }
 }
 
 export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> =>
@@ -499,14 +510,17 @@ const listMegaCollection = async (input: string, fetchImpl: typeof fetch, keys?:
 }
 
 const probeCollectionScan = async (listed: MegaListed & { files: MegaCollectionFile[] }, fetchImpl: typeof fetch, closed?: () => boolean): Promise<MegaScan> => {
-  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  if (listed.foundTotal > MAX_GALLERY_ITEMS) {
+    throw new SourceFetchError(`That MEGA collection has ${listed.foundTotal.toLocaleString()} images — galleries are limited to ${MAX_GALLERY_ITEMS.toLocaleString()} items`, 422)
+  }
+  const budgetFetch = createScanBudget(MEGA_SCAN_REQUEST_BUDGET).fetch(fetchImpl)
   const { images, truncatedTail } = await probeImages(listed.auth, listed.files, budgetFetch, ({ element, elementKey, meta, name }) => ({
     node: { h: element.h!, fa: meta?.fa, s: meta?.s, ts: meta?.ts ?? element.ts },
     nodeKey: elementKey,
     name,
   }), closed)
   if (!images.length) throw new Error('No image files were found in that public MEGA collection')
-  return { sourceUrl: listed.sourceUrl, title: listed.title, images, ...(listed.foundTotal > listed.files.length || truncatedTail ? { truncated: listed.foundTotal } : {}) }
+  return { sourceUrl: listed.sourceUrl, title: listed.title, images, ...(truncatedTail ? { truncated: listed.foundTotal } : {}) }
 }
 
 export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> =>
