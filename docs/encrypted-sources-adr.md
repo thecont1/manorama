@@ -42,7 +42,7 @@ Encrypted-source gallery metadata points directly at `/og-image.png`, without `?
 
 ### D5 — Direct ciphertext transport; relay only if required
 
-Direct browser transport is implemented as the first path. CSP is narrowly relaxed for MEGA API and `*.userstorage.mega.co.nz`. Synthetic CORS/header checks support the API path, but this run did not verify a rights-cleared real signed CDN media GET; that remains a fixture gate rather than a claimed result. If direct transport fails, a relay must re-resolve by keyless node reference per request, accept no key or raw URL, restrict hosts/methods/redirects/sizes, stream ciphertext, and disable application/CDN caching and sensitive logging.
+Direct browser transport is implemented as the first path. CSP is narrowly relaxed for MEGA API and `*.userstorage.mega.co.nz`. Synthetic CORS/header checks support the API path. On 2026-11-04 a rights-configured live share (69-item seeded collection) completed a real CDN media GET in the browser: ciphertext fetch, AES-128-CTR decryption, and whole-file meta-MAC verification all passed — the strongest check, since a wrong MAC algorithm would reject every real file. Limits: preview materialization is a ranged read and deliberately unverified by the meta-MAC (the chain covers the complete file), and only the `*.userstorage.mega.co.nz` CDN family was exercised — other MEGA CDN hosts remain a fixture gate, not a claimed result. If direct transport fails, a relay must re-resolve by keyless node reference per request, accept no key or raw URL, restrict hosts/methods/redirects/sizes, stream ciphertext, and disable application/CDN caching and sensitive logging.
 
 ### D6 — Encrypted vault with plaintext materialization seam
 
@@ -78,6 +78,6 @@ Legacy MEGA records retain server-held keys until the owner verifies the convert
 
 ## External research record
 
-- MEGA CORS: synthetic preflight/header evidence supports direct access; CDN host rotation is real. Actual media GET requires a rights-cleared share fixture.
+- MEGA CORS: a rights-configured 69-item share completed real CDN media GETs in-browser on 2026-11-04 (CTR decrypt + whole-file meta-MAC verified). CDN host rotation is real; only `*.userstorage.mega.co.nz` was exercised, so other CDN families remain unverified.
 - Ente: hosted link token is query data, album key is fragment data. Public album API supports wrapped collection/file keys, paginated diff, local password derivation, expiry/revocation/device limits, and separate media origins. `enable_download` hides UI but was not proven to be a server enforcement boundary; Manorama treats it as a UI control only.
 - Apple: Shared Album limits and upgrade behavior are documented by Apple Support HT148868 and HT108916. Public CloudKit behavior remains undocumented and must not be equated with byte-identical original delivery without hashes.
