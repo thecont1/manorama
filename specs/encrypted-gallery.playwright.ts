@@ -4,10 +4,15 @@ const base = 'http://localhost:5173'
 const owner = 'thecontrarian'
 const ownerId = 'dbid:AAATESTowner1'
 
-const spawn = (request: APIRequestContext, slug: string) =>
-  request.post(`${base}/.dev-seed/spawn`, {
+const spawn = async (request: APIRequestContext, slug: string) => {
+  const response = await request.post(`${base}/.dev-seed/spawn`, {
     data: { accountId: ownerId, galleries: [{ slug, createdAt: new Date().toISOString(), encrypted: true }] },
   })
+  // Surface seeding failures (e.g. duplicate-source rejection) instead of
+  // discovering them as a missing gallery at the route.
+  const body = (await response.json()) as { results?: { ok: boolean; slug?: string; reason?: string }[] }
+  expect(body.results?.[0]?.ok, `spawn ${slug} failed: ${JSON.stringify(body)}`).toBe(true)
+}
 
 // The three matrix viewports — the locked path is the same SSR + island at
 // every size, but the matrix must stay green after viewer/route changes.
@@ -55,7 +60,7 @@ for (const viewport of [
       expect(html).not.toMatch(/[#?&]k=/)
       expect(html).not.toContain('#source=')
       expect(html).not.toContain('mega.nz/file')
-      expect(html).not.toContain('mega.nz/folder/DevSeedFolder#')
+      expect(html).not.toContain(`mega.nz/folder/DevSeed-${slug}#`)
 
       // v2 SSR keeps the stored aspect ratio on the frame so the locked
       // panel can replace the shell without a layout shift.

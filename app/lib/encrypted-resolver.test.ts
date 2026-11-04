@@ -83,11 +83,9 @@ describe('encrypted media resolver', () => {
     const cancelled = resolver.acquire(ref, false, controller.signal)
     controller.abort()
     await expect(cancelled).rejects.toThrow()
-    // The in-flight materialize keeps running past the abort; wait for its
-    // rejection to settle and evict before retrying.
-    await new Promise((resolve) => setTimeout(resolve, 30))
-    // The rejected entry must be evicted — a retry fetches fresh bytes
-    // rather than serving the stale rejection.
+    // The aborted, unreferenced entry is evicted at lookup — a retry gets a
+    // fresh entry and controller even while the old materialize is still
+    // settling its rejection.
     expect(await resolver.acquire(ref, false)).toBe('blob:test-1')
     expect(calls).toBe(2)
     resolver.dispose()

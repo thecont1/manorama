@@ -290,7 +290,7 @@ describe('web key store is id-scoped so slug reuse cannot inherit a key', () => 
 
   test('a keyless URL is refused', async () => {
     const store = new WebGalleryKeyStore(memory())
-    expect(store.put('a'.repeat(32), KEYLESS_URL)).rejects.toThrow()
+    await expect(store.put('a'.repeat(32), KEYLESS_URL)).rejects.toThrow()
   })
 })
 

@@ -131,7 +131,7 @@ export const PRIVACY_POLICY: PrivacyDocument = {
         {
           parts: [
             t(
-              'Galleries created before this change are a temporary exception: their stored server copy of the folder key is deleted after the owner verifies the gallery on a second device or removes it sooner, and the owner is warned that the deletion cannot be undone. Until such a gallery migrates, the server may still decrypt its media for viewers who open it without the fragment. We recommend rotating the MEGA share link after migration, because earlier logs or backups may retain the old key.',
+              'Galleries created before this change are a temporary exception: until they are migrated, the server may still decrypt their media for viewers who open them without the fragment. For the small existing cohort, the stored server copy of the folder key is retired by an operator-run migration rather than by the owner verifying the gallery on a second device — there is no opt-out step and no in-app warning, so viewers should keep their full Manorama link: without it, and without the key already held on their device, the gallery cannot be opened after migration. We recommend rotating the MEGA share link after migration, because earlier logs or backups may retain the old key.',
             ),
           ],
         },

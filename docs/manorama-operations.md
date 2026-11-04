@@ -99,6 +99,8 @@ sets.
 
 ## Encrypted-source cohort migration
 
+Staging binds the same `manorama` D1 database as production (see `wrangler.toml`) — every migration command below targets the database name, never an `--env`, and there is no staging-only migration path.
+
 Legacy MEGA galleries whose stored `source_url` still carries a `#`-fragment key are migrated by the operator, not by each owner through the two-device web flow (the cohort is small enough that a reviewed one-shot is safer):
 
 1. Apply migrations 0013+0014: `bunx wrangler d1 migrations apply manorama --remote`.

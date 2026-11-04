@@ -72,6 +72,14 @@ export class EncryptedMediaResolver {
     if (reference.kind === 'http') return Promise.resolve(reference.url)
     const key = referenceKey(reference, preview)
     let entry = this.entries.get(key)
+    // An abort leaves the dying entry in the map until its in-flight
+    // materialize rejects — do not join it; start a fresh entry and
+    // controller instead. The old promise's rejection handler is
+    // identity-checked below, so it cannot delete this replacement.
+    if (entry && entry.refs === 0 && !entry.url && entry.controller.signal.aborted) {
+      this.entries.delete(key)
+      entry = undefined
+    }
     if (!entry) {
       const controller = new AbortController()
       entry = {

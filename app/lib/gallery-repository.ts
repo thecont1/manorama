@@ -135,7 +135,9 @@ type GalleryInsertRow = {
 export const MANIFEST_IMAGES_MAX_BYTES = 1_800_000
 const manifestImagesJson = (images: readonly GalleryMediaItem[]): string => {
   const json = JSON.stringify(images)
-  if (json.length > MANIFEST_IMAGES_MAX_BYTES) {
+  // D1's row limit is in UTF-8 bytes — json.length undercounts multibyte
+  // metadata and would let an oversized row through.
+  if (new TextEncoder().encode(json).byteLength > MANIFEST_IMAGES_MAX_BYTES) {
     throw new GalleryPolicyError('MANIFEST_TOO_LARGE', 'That manifest is too large to store — reduce the number of items or their metadata')
   }
   return json

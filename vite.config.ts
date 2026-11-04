@@ -388,7 +388,7 @@ const manoramaDevSeed = (): Plugin => {
             ? [{
                 ...DEV_SPAWN_IMAGE,
                 src: '',
-                media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'DevSeedFolder', nodeId: 'DevSeedNode' },
+                media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: `DevSeed-${entry.slug}`, nodeId: 'DevSeedNode' },
               }] as unknown as GalleryRecord['images']
             : (Array.isArray(entry.images) ? entry.images : [DEV_SPAWN_IMAGE]) as GalleryRecord['images']
           const result = await galleries.createGalleryWithinLimit(accountId, {
@@ -396,7 +396,9 @@ const manoramaDevSeed = (): Plugin => {
             title: entry.slug,
             caption: '',
             date: '',
-            sourceUrl: encrypted ? 'https://mega.nz/folder/DevSeedFolder' : `dev-seed://spawn/${entry.slug}`,
+            // A shared fixture sourceUrl would trip the duplicate-source
+            // rejection when parallel specs each spawn an encrypted gallery.
+            sourceUrl: encrypted ? `https://mega.nz/folder/DevSeed-${encodeURIComponent(entry.slug)}` : `dev-seed://spawn/${entry.slug}`,
             createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
             images,
             ...(encrypted ? { manifestVersion: 2 } : {}),

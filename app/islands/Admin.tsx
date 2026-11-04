@@ -410,7 +410,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       window.location.assign(target)
       return
     }
-    void webGalleryKeyStore().get(gallery.id).then((source) => {
+    void webGalleryKeyStore().get(gallery.id).catch(() => null).then((source) => {
       window.location.assign(`${target}${source ? galleryHashForSource(source, gallery.id) : ''}`)
     })
   }

@@ -70,17 +70,20 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     setProblem(null)
     setMigration(null)
     const fragment = encryptedSourceFromGalleryHash(window.location.hash)
-    void Promise.resolve(fragment ?? webGalleryKeyStore().get(galleryId)).then(async (stored) => {
+    void Promise.resolve(fragment ?? webGalleryKeyStore().get(galleryId).catch(() => null)).then(async (stored) => {
       // The keystore read must settle before the legacy fallback applies —
       // a pending promise is truthy, so chaining `?? legacySourceUrl` would
       // never reach it and the owner's migration path would show "locked".
+      // A storage read failure degrades to null, not a lockout.
       const source = stored ?? legacySourceUrl
       if (!source) {
         if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original MEGA/Ente link.')
         return
       }
       if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That key belongs to a different source album')
-      await webGalleryKeyStore().put(galleryId, source)
+      // Best-effort custody: quota or private-mode failures must not block
+      // opening with a key this session already has.
+      await webGalleryKeyStore().put(galleryId, source).catch(() => undefined)
       const { openEncryptedSource } = await import('../lib/encrypted-client')
       const session = await openEncryptedSource(source)
       if (session.sourceUrl !== keylessSourceUrl(sourceUrl)) {

@@ -34,6 +34,9 @@ import { validateEncryptedManifest } from '../app/lib/encrypted-manifest'
 import { mergeMigratedImages } from '../app/lib/encrypted-migration'
 
 const DB_NAME = 'manorama'
+/** D1 rejects statements longer than 100,000 bytes — a serialized manifest
+ *  alone can reach ~1.8 MB, so oversized UPDATEs are skipped, not shipped. */
+const D1_STATEMENT_MAX_BYTES = 100_000
 const outFlag = process.argv.indexOf('--out')
 const OUT_FILE = outFlag > -1 ? process.argv[outFlag + 1] : 'out/encrypted-migration.sql'
 
@@ -102,8 +105,17 @@ const main = async () => {
     const images = mergeMigratedImages(existing, submitted.images as GalleryMediaItem[])
     const hidden = images.filter((image) => image.hidden).length
     const retained = images.filter((image) => existing.some((old) => (old.ref ?? old.filename) === (image.ref ?? image.filename))).length
-    statements.push(
-      `UPDATE galleries SET images_json = ${sqlLiteral(JSON.stringify(images))}, manifest_version = 2, source_url = ${sqlLiteral(submitted.sourceUrl)}, key_retired_at = ${sqlLiteral(retiredAt)}, migration_devices = '["operator-script"]' WHERE id = ${sqlLiteral(row.id)} AND source_url LIKE '%#%';`)
+    // Optimistic concurrency on images_json: the snapshot may be days old by
+    // the time the file is applied — owner edits since then must not be
+    // overwritten. The guard lives inside the measured statement so its cost
+    // counts against the statement limit too.
+    const statement =
+      `UPDATE galleries SET images_json = ${sqlLiteral(JSON.stringify(images))}, manifest_version = 2, source_url = ${sqlLiteral(submitted.sourceUrl)}, key_retired_at = ${sqlLiteral(retiredAt)}, migration_devices = '["operator-script"]' WHERE id = ${sqlLiteral(row.id)} AND source_url LIKE '%#%' AND images_json = ${sqlLiteral(row.images_json)};`
+    if (new TextEncoder().encode(statement).byteLength > D1_STATEMENT_MAX_BYTES) {
+      console.error(`  ${row.slug}: UPDATE exceeds D1's ${D1_STATEMENT_MAX_BYTES}-byte statement limit — migrate this gallery manually; skipped`)
+      continue
+    }
+    statements.push(statement)
     planned += 1
     console.log(`  ${row.slug}: ${existing.length} stored → ${images.length} scanned (${retained} kept${hidden ? `, ${hidden} hidden` : ''}, ${images.length - retained} new) → ${submitted.sourceUrl}`)
   }
