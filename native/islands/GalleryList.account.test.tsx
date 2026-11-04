@@ -985,6 +985,32 @@ describe('signed-in account area', () => {
     await settle()
   })
 
+  test('cached galleries survive a rejected account list', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({ galleries: Promise.reject(new Error('offline')) })
+    const grid: OfflineGridGallery = {
+      galleryId: 'offline-gallery:v1:cached',
+      owner: 'quiet-owner',
+      slug: 'saved-album',
+      title: 'Saved Album',
+      frames: [{ id: 'cached-one', entryId: 'thumb:cached-one', mimeType: 'image/jpeg', video: false, width: 1200, height: 800, alt: 'Cached photograph', index: 0 }],
+    }
+    const store = {
+      listGalleries: async () => [{ status: 'cached', galleryId: grid.galleryId, owner: grid.owner, slug: grid.slug, title: grid.title, images: 1 }],
+      listGridGalleries: async () => [grid],
+      readThumbnail: async () => undefined,
+    } as unknown as OfflineGalleryStore
+    const { container } = mountAccount({ store })
+    await settle()
+
+    expect(container.querySelector('[data-account]')?.textContent).toContain('could not be loaded')
+    const card = container.querySelector('[data-cached-gallery="saved-album"]')
+    expect(card).not.toBeNull()
+    expect(card?.textContent).toContain('Saved on this device')
+    expect(card?.textContent).toContain('account list unavailable')
+  })
+
   test('the kept count follows committed copies, not the stream-only flag', async () => {
     installLocalStorage()
     signInStorage()

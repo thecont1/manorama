@@ -265,10 +265,9 @@ async function originalBytes(image: Json): Promise<Uint8Array> {
  *  by the time the island reads its session. */
 const PREBOOT = async (which: number) => {
   // 3 is the account screenshot; 5 and 6 are the preview takes, which open on
-  // that same account surface. All three seed the session and answer the two
-  // session-gated lists; only 5 and 6 also need a gallery they can navigate
-  // into, which the branch below adds.
-  const account = which === 3 || which === 5 || which === 6
+  // that same account surface; 9 is the offline take — same seeding, but the
+  // API answers fail so the vault is the only source left.
+  const account = which === 3 || which === 5 || which === 6 || which === 9
   if (!account) {
     const gallery = JSON.stringify(await localGallery())
     return `
@@ -347,6 +346,7 @@ const PREBOOT = async (which: number) => {
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url) ? input.url : String(input)
     if (url.indexOf('__capture') !== -1) return real(input, init)
+    if (${which === 9}) return Promise.reject(new TypeError('Load failed'))
     if (url.indexOf('/api/gallery/') !== -1) return Promise.resolve(json(local))
     if (url.indexOf('/api/device-galleries') !== -1) return Promise.resolve(json(seeded.deviceGalleries))
     if (url.indexOf('/api/galleries') !== -1) {
@@ -475,7 +475,7 @@ const DRIVER = (which: number) => `
   })
 
   ;(async () => {
-    if (${which} === 3) return
+    if (${which} === 3 || ${which} === 9) return
     const curtain = await waitFor('[data-curtain]')
     log('state ${which}, curtain present:', !!curtain)
     const image = await firstImage()
@@ -923,14 +923,16 @@ async function html(source: string) {
     window.__captureErrors = [];
     window.addEventListener('error', (event) => window.__captureErrors.push(event.message));
     window.addEventListener('unhandledrejection', (event) => window.__captureErrors.push(String(event.reason)));
-    // Stream in captures: do not fill or modify a simulator's encrypted vault.
-    localStorage.setItem('CapacitorStorage.manorama.vault.load-policy', 'stream');
+    // Stream in captures: do not fill or modify a simulator's encrypted vault —
+    // unless the take opts into a fill by flagging __captureVaultPolicy first.
+    const __vaultPolicy = window.__captureVaultPolicy || 'stream';
+    localStorage.setItem('CapacitorStorage.manorama.vault.load-policy', __vaultPolicy);
     const bridge = window.Capacitor;
     if (bridge && bridge.nativePromise) {
       const real = bridge.nativePromise.bind(bridge);
       bridge.nativePromise = (plugin, method, options) => {
         if (plugin === 'Preferences' && method === 'get' && options.key === 'manorama.vault.load-policy') {
-          return Promise.resolve({ value: 'stream' });
+          return Promise.resolve({ value: __vaultPolicy });
         }
         return real(plugin, method, options);
       };

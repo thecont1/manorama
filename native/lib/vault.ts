@@ -464,6 +464,33 @@ export class EncryptedVault {
       return results
     })
   }
+  /** Bumps `lastAccess` for the listed entries without reading their bytes,
+   *  and reports the entryIds that are not present — absent from the index,
+   *  or gone from storage when a listing can say so. One file walk answers
+   *  every stat, so an unchanged fill never pays a decrypt per entry. */
+  async touch(galleryId: string, entryIds: string[]): Promise<string[]> {
+    return this.serial(async () => {
+      const index = await this.loadIndex()
+      let onDisk: Set<string> | null = null
+      try {
+        const files = await this.listFilesIfAvailable()
+        if (files) onDisk = new Set(files.map((file) => file.path))
+      } catch { onDisk = null }
+      const missing: string[] = []
+      const present: Entry[] = []
+      for (const entryId of entryIds) {
+        const entry = index.entries[entryKey(galleryId, entryId)]
+        if (!entry || (onDisk && !onDisk.has(entry.path))) { missing.push(entryId); continue }
+        present.push(entry)
+      }
+      if (missing.length === 0) {
+        const now = this.now()
+        for (const entry of present) entry.lastAccess = now
+        await this.saveIndex(index)
+      }
+      return missing
+    })
+  }
   /** Gallery IDs known to the vault: index entries plus identities decoded from on-disk files. */
   async listGalleryIds(): Promise<string[]> {
     return this.serial(async () => {

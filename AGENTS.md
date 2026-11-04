@@ -7,7 +7,7 @@ implementing it.
 Companion documents:
 
 - `README.md` — the system as it exists today. Authoritative on architecture.
-- `docs/native-launch-plan.md` — the native/Shipaton plan. Authoritative on what we are building this week.
+- `docs/native-launch-plan.md` — the native launch plan. It documents the completed launch; treat it as a record, not a live schedule.
 - `docs/manorama-operations.md` — gallery lifecycle, source-link rules, destructive-action policy.
 - `VERIFICATION.md` — how to prove a change works.
 - `docs/owner-setup-runbook.md` — Apple, RevenueCat, AdMob and Mac setup. Owner-only; agents cannot action it.
