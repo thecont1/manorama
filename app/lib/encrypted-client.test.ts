@@ -13,24 +13,25 @@ describe('openEncryptedSource provider gate', () => {
     expect(encryptedProviderForUrl('https://albums.ente.io/?t=AbCdEfGh')).toBe('ente')
   })
 
-  test('ente is refused at the provider gate — no network path opens for it', () => {
+  test('provider branches stay dynamically imported — the dispatch file holds no network code', () => {
     const dispatch = source.indexOf('encryptedProviderForUrl(sourceUrl)')
     const megaBranch = source.indexOf("provider === 'mega'")
     const megaImport = source.indexOf("import('./mega-client')")
-    const enteRefusal = source.indexOf("provider === 'ente'")
+    const enteBranch = source.indexOf("provider === 'ente'")
+    const enteImport = source.indexOf("import('./ente-client')")
     expect(dispatch).toBeGreaterThan(-1)
-    // Provider detection runs before any provider branch, the only dynamic
-    // import is the mega client inside the mega branch, and the file holds no
-    // fetch — so an ente URL exits via the refusal without touching a network.
+    // Provider detection runs before any branch, each branch lazily imports
+    // its own client module, and the dispatch file itself holds no fetch —
+    // provider crypto stays out of the Worker graph.
     expect(dispatch).toBeLessThan(megaBranch)
     expect(megaBranch).toBeLessThan(megaImport)
-    expect(enteRefusal).toBeGreaterThan(-1)
-    expect(source).toContain('Ente public albums are not supported yet')
-    expect(source.match(/import\(/g)).toHaveLength(1)
+    expect(enteBranch).toBeGreaterThan(-1)
+    expect(enteBranch).toBeLessThan(enteImport)
+    expect(source.match(/import\(/g)).toHaveLength(2)
     expect(source).not.toContain('fetch(')
   })
 
-  test('unrecognized links fall through to MEGA-only guidance', () => {
-    expect(source).toContain('Use a complete MEGA public album link')
+  test('unrecognized links fall through to provider guidance', () => {
+    expect(source).toContain('Use a complete MEGA or Ente public album link')
   })
 })
