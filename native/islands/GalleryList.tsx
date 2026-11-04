@@ -1237,7 +1237,13 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setAccountDeleted(true)
         deletedNow = true
       }
-      await clearAllEncryptedSources()
+      try {
+        await clearAllEncryptedSources()
+      } catch {
+        // Same rule as sign-out: a failed verified purge must not trap the
+        // session teardown — surviving keys stay in the registry for the
+        // next purge.
+      }
       await clearSessionToken()
       try {
         await billing?.signOut()
