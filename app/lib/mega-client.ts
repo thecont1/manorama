@@ -608,44 +608,89 @@ export const fetchMegaPreview = async (folder: string | undefined, set: string |
 
 export type MegaClientSession = {
   sourceUrl: string
-  /** The probe pass, still running when open returns. A viewer's
-   *  materialize works off the listed keys immediately — only manifest
-   *  submitters wait on `scan`. */
+  /** Listing plus probe pass, running in the background. A viewer's
+   *  materialize works off whichever keys have landed so far — only
+   *  manifest submitters wait on `scan`. */
   scan: Promise<MegaScan>
   materialize(nodeId: string, previewId?: string, signal?: AbortSignal): Promise<{ bytes: Uint8Array; mimeType: string }>
   dispose(): void
 }
 
-/** Re-listing unwraps per-node keys into a closure. The listing is the
- *  only awaited phase: probes that build manifest fields keep running in
- *  the background as `scan`, so a viewer reaches first media off the
- *  listing alone. Only `scan` output is eligible for manifest submission;
+type PendingKey = { resolve: (key: Uint8Array) => void; reject: (error?: unknown) => void }
+
+/** The session returns before the share listing resolves: a materialize
+ *  that names a known item parks on its key rather than waiting for the
+ *  whole share to unwrap. Keys land node-by-node through the notifying
+ *  map, so a parked materializer resumes the moment its node is read;
+ *  anything still pending when the listing settles can never arrive and
+ *  fails then. Only `scan` output is eligible for manifest submission;
  *  the key map never appears in JSON or URLs. */
 export const openMegaSession = async (input: string, fetchImpl: typeof fetch = fetch): Promise<MegaClientSession> => {
   const link = extractMegaLink(input)
   if (!link) throw new Error('Use a complete public MEGA folder or collection link')
-  const keys = new Map<string, Uint8Array>()
+  const pending = new Map<string, PendingKey[]>()
+  const keys = new class extends Map<string, Uint8Array> {
+    set(h: string, key: Uint8Array) {
+      // A listing that lands after dispose must not leave live key bytes
+      // in a session nothing can read.
+      if (disposed) key.fill(0)
+      const out = super.set(h, key)
+      const waiters = pending.get(h)
+      if (waiters) {
+        pending.delete(h)
+        for (const waiter of waiters) waiter.resolve(key)
+      }
+      return out
+    }
+  }()
   let disposed = false
+  let listed = false
+  let listError: unknown
   const closed = () => disposed
-  let listed: MegaListed
-  let scan: Promise<MegaScan>
-  if (link.kind === 'collection') {
-    const collection = await listMegaCollection(input, fetchImpl, keys)
-    listed = collection
-    scan = probeCollectionScan(collection, fetchImpl, closed)
-  } else {
-    const folder = await listMegaFolder(input, fetchImpl, keys)
-    listed = folder
-    scan = probeFolderScan(folder, fetchImpl, closed)
+  const failWaiters = (error: unknown) => {
+    for (const waiters of pending.values()) for (const waiter of waiters) waiter.reject(error)
+    pending.clear()
   }
+  const awaitKey = (nodeId: string): Promise<Uint8Array> => {
+    const hit = keys.get(nodeId)
+    if (hit) return Promise.resolve(hit)
+    if (disposed) return Promise.reject(new Error('This MEGA session is closed'))
+    if (listed) {
+      return Promise.reject(listError instanceof Error ? listError : new Error('This media reference is not present in the opened MEGA share'))
+    }
+    let resolve!: (key: Uint8Array) => void, reject!: (error?: unknown) => void
+    const promise = new Promise<Uint8Array>((res, rej) => { resolve = res; reject = rej })
+    const waiter: PendingKey = { resolve, reject }
+    const waiters = pending.get(nodeId)
+    if (waiters) waiters.push(waiter)
+    else pending.set(nodeId, [waiter])
+    return promise
+  }
+  // The listing settles every parked waiter — a node that never appears
+  // is absent — then the probe pass builds manifest fields without
+  // holding materialize up.
+  const listAndSettle = async <T>(list: Promise<T>): Promise<T> => {
+    try {
+      return await list
+    } catch (error) {
+      listError = error
+      throw error
+    } finally {
+      listed = true
+      failWaiters(listError ?? new Error('This media reference is not present in the opened MEGA share'))
+    }
+  }
+  const scan = link.kind === 'collection'
+    ? listAndSettle(listMegaCollection(input, fetchImpl, keys)).then((resolved) => probeCollectionScan(resolved, fetchImpl, closed))
+    : listAndSettle(listMegaFolder(input, fetchImpl, keys)).then((resolved) => probeFolderScan(resolved, fetchImpl, closed))
   const auth = linkAuth(link)
   return {
-    sourceUrl: listed.sourceUrl,
+    sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)),
     scan,
     async materialize(nodeId, previewId, signal) {
       if (disposed) throw new Error('This MEGA session is closed')
-      const nodeKey = keys.get(nodeId)
-      if (!nodeKey) throw new Error('This media reference is not present in the opened MEGA share')
+      const nodeKey = await awaitKey(nodeId)
+      if (disposed) throw new Error('This MEGA session is closed')
       const signalFetch = ((url: RequestInfo | URL, init?: RequestInit) => fetchImpl(url, { ...init, signal })) as typeof fetch
       const response = previewId
         ? await fetchMegaPreview(auth.n, auth.s, previewId, b64uEncode(nodeKey), signalFetch, signal)
@@ -655,6 +700,7 @@ export const openMegaSession = async (input: string, fetchImpl: typeof fetch = f
     },
     dispose() {
       disposed = true
+      failWaiters(new Error('This MEGA session is closed'))
       for (const key of keys.values()) key.fill(0)
       keys.clear()
     },
