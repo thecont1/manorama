@@ -1,9 +1,9 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { keylessSourceUrl } from '../../packages/core/encrypted-source'
 import { parseJpegDimensions, parseWebpDimensions, probeImageDimensions } from './image-dims'
-import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
+import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, decryptTlvRecords, ecbDecrypt, foldKey, metaMacMatches } from './mega-crypto'
 import { createScanBudget, ScanBudgetExhausted } from './scan-budget'
-import { cbcDecryptClient, ctrDecryptClient } from './mega-decrypt'
+import { cbcDecryptClient, ctrDecryptClient, ctrDecryptMetaMacClient } from './mega-decrypt'
 
 /**
  * Browser/native MEGA client. Share and per-node keys stay in this module's
@@ -19,9 +19,10 @@ import { cbcDecryptClient, ctrDecryptClient } from './mega-decrypt'
  *    the file's folded key + 8-byte nonce, decrypted at proxy time.
  *
  * Caveats: undocumented API; the `k` key embedded in proxy URLs is
- * derived from the already-public share key; MAC verification is skipped
- * (Manorama proxies, it does not attest integrity); free accounts hit
- * MEGA bandwidth quotas (509) which surface as temporary failures.
+ * derived from the already-public share key; the file meta-MAC is
+ * verified on whole-file retrieval (ranged reads fetch windows the
+ * MAC cannot cover); free accounts hit MEGA bandwidth quotas (509)
+ * which surface as temporary failures.
  */
 
 // Accepted formats only: JPEG, WebP, AVIF, HEIC, HEIF. PNG, GIF, TIFF,
@@ -504,7 +505,10 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
     })
   }
   const bytes = await fetchRange(info.g, 0, size - 1, fetchImpl)
-  const plain = await decryptContent(bytes, nodeKey, 0, signal)
+  // Whole-file fetch verifies the uploader's meta-MAC before bytes are
+  // served; a ranged read skips it — chunk MACs chain across the file.
+  const { plain, mac } = await ctrDecryptMetaMacClient(foldKey(nodeKey), nodeKey.subarray(16, 24), bytes, signal)
+  if (!metaMacMatches(mac, nodeKey)) throw new SourceFetchError('That MEGA file failed its integrity check', 502)
   return new Response(plain.slice().buffer as ArrayBuffer, { status: 200, headers: { 'Accept-Ranges': 'bytes', 'Content-Length': String(plain.length) } })
 }
 

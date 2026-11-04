@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey } from './mega-crypto'
-import { extractMegaFolder, extractMegaLink, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-client'
+import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey, metaMac, verifyMegaMac } from './mega-crypto'
+import { extractMegaFolder, extractMegaLink, fetchMegaFile, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-client'
 
 const hex = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
@@ -57,6 +57,30 @@ describe('mega-crypto', () => {
   test('b64u round-trips', () => {
     const bytes = hex('0123456789abcdef')
     expect(b64uDecode(b64uEncode(bytes))).toEqual(bytes)
+  })
+
+  // meta-MAC known-answer vectors: the 200KB input crosses the first
+  // 128KB chunk boundary, exercising the chained outer MAC. Values are
+  // pinned — verified against a literal port of the reference client's
+  // MAC loop across progressive and 1MB-tail chunk boundaries.
+  const MAC_KEY = hex('0f1e2d3c4b5a69788796a5b4c3d2e1f0')
+  const MAC_NONCE = hex('aabbccddeeff0011')
+
+  test('metaMac matches the pinned vectors for single and multi-chunk inputs', () => {
+    const small = new Uint8Array(100).map((_, i) => (i * 13 + 7) & 0xff)
+    const big = new Uint8Array(200000).map((_, i) => (i * 17 + 3) & 0xff)
+    expect([...metaMac(MAC_KEY, MAC_NONCE, small)].map((b) => b.toString(16).padStart(2, '0')).join('')).toBe('68772ac9eee32891')
+    expect([...metaMac(MAC_KEY, MAC_NONCE, big)].map((b) => b.toString(16).padStart(2, '0')).join('')).toBe('6a6250e0f5c5365b')
+  })
+
+  test('verifyMegaMac accepts the matching key tail and rejects a wrong one', () => {
+    const plain = new Uint8Array(5000).map((_, i) => (i * 29 + 11) & 0xff)
+    const goodKey = fileKeyFor(metaMac(MAC_KEY, MAC_NONCE, plain))
+    expect(verifyMegaMac(plain, goodKey)).toBe(true)
+    const badKey = goodKey.slice()
+    badKey[24]! ^= 0xff
+    expect(verifyMegaMac(plain, badKey)).toBe(false)
+    expect(verifyMegaMac(plain.subarray(0, 4999), goodKey)).toBe(false)
   })
 })
 
@@ -476,3 +500,60 @@ const jpegHead = () => {
   bytes[10] = 0x70
   return bytes
 }
+
+// A 32-byte file key is obfuscatedKey(16) ∥ nonce(8) ∥ metaMac(8), where
+// obfuscatedKey = fileKey ⊕ (nonce ∥ metaMac). Building it this way keeps
+// foldKey and the nonce stable while the expected MAC varies.
+const MAC_FILE_KEY = hex('0f1e2d3c4b5a69788796a5b4c3d2e1f0')
+const MAC_FILE_NONCE = hex('aabbccddeeff0011')
+const fileKeyFor = (meta: Uint8Array) => {
+  const tail = new Uint8Array(16)
+  tail.set(MAC_FILE_NONCE, 0)
+  tail.set(meta, 8)
+  const key = new Uint8Array(32)
+  key.set(MAC_FILE_KEY.map((b, i) => b ^ tail[i]!), 0)
+  key.set(tail, 16)
+  return key
+}
+
+describe('fetchMegaFile', () => {
+  const PLAIN = new Uint8Array(300000).map((_, i) => (i * 41 + 19) & 0xff)
+  const CIPHER = ctrCrypt(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN)
+
+  const fetchImpl = (size = PLAIN.length, bytes = CIPHER) => async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = String(input)
+    if (url.includes('cs?')) return jsonResponse({ g: 'https://cdntest/file', s: size })
+    if (url.startsWith('https://cdntest/')) {
+      const [, start, end] = url.match(/\/(\d+)-(\d+)$/) ?? []
+      return new Response(bytes.subarray(Number(start), Number(end) + 1).slice(), { status: 200 })
+    }
+    return jsonResponse({}, 404)
+  }
+
+  test('serves decrypted bytes when the meta-MAC matches', async () => {
+    const key = fileKeyFor(metaMac(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN))
+    const response = await fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64uEncode(key), fetchImpl() as typeof fetch)
+    expect(response.status).toBe(200)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PLAIN)
+  })
+
+  test('rejects a full-file fetch when the meta-MAC mismatches', async () => {
+    const key = fileKeyFor(new Uint8Array(8))
+    await expect(fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64uEncode(key), fetchImpl() as typeof fetch)).rejects.toThrow('integrity check')
+  })
+
+  test('rejects corrupted ciphertext even though it decrypts cleanly', async () => {
+    const tampered = CIPHER.slice()
+    tampered[150000]! ^= 0xff
+    const key = fileKeyFor(metaMac(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN))
+    await expect(fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64uEncode(key), fetchImpl(PLAIN.length, tampered) as typeof fetch)).rejects.toThrow('integrity check')
+  })
+
+  test('serves ranged reads unverified — the MAC cannot cover a window', async () => {
+    const key = fileKeyFor(new Uint8Array(8)) // wrong MAC, accepted for ranges
+    const response = await fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64uEncode(key), fetchImpl() as typeof fetch, 'bytes=17-40')
+    expect(response.status).toBe(206)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PLAIN.subarray(17, 41))
+    expect(response.headers.get('Content-Range')).toBe(`bytes 17-40/${PLAIN.length}`)
+  })
+})
