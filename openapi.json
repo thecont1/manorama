@@ -431,6 +431,7 @@
               "GALLERY_READ_ONLY",
               "MANIFEST_TOO_LARGE",
               "PARTIAL_SCAN",
+              "PIN_LIMIT",
               "SERVER_DECRYPT_RETIRED"
             ],
             "type": "string"

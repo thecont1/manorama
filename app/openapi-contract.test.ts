@@ -64,7 +64,7 @@ describe('OpenAPI contract: static spec', () => {
     const error = spec.components.schemas.Error as { properties: Record<string, Record<string, unknown>> }
     expect(error.properties.code.enum).toEqual([
       'CLIENT_SCAN_REQUIRED', 'GALLERY_LIMIT', 'GALLERY_READ_ONLY',
-      'MANIFEST_TOO_LARGE', 'PARTIAL_SCAN', 'SERVER_DECRYPT_RETIRED',
+      'MANIFEST_TOO_LARGE', 'PARTIAL_SCAN', 'PIN_LIMIT', 'SERVER_DECRYPT_RETIRED',
     ])
     expect(error.properties.dashboardUrl.type).toBe('string')
   })

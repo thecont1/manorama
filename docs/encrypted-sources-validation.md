@@ -36,15 +36,18 @@ review asked for, and states plainly what could not be run in this checkout.
 Script: `scripts/measure-encrypted-gallery.mjs` (committed). Fixture: the live
 seeded share, 69 items. No deterministic local encrypted fixture exists, so
 these numbers carry live-network variance and are informational, not a budget
-gate. Chromium (Playwright), 5 cold + 3 warm opens per viewport.
+gate. Chromium (Playwright), 5 cold + 3 warm opens per viewport. A cold run
+navigates to the keyed `#source=` link; a warm run navigates to the bare
+gallery URL in the same browser context, so opening depends on the stored
+session key — not a reload of the keyed link.
 
 Time to first `blob:` image (ms):
 
 | Viewport | Cold median | Cold p95 | Warm median | Warm p95 |
 |---|---|---|---|---|
-| 375×812 | 14,944 | 16,392 | 11,858 | 17,914 |
-| 1440×900 | 15,407 | 15,892 | 11,849 | 20,403 |
-| 2560×1440 | 15,418 | 17,436 | 11,355 | 13,355 |
+| 375×812 | 16,400 | 17,091 | 11,360 | 19,460 |
+| 1440×900 | 14,908 | 15,408 | 11,841 | 12,855 |
+| 2560×1440 | 15,413 | 18,904 | 11,846 | 20,426 |
 
 Observations:
 
@@ -53,10 +56,11 @@ Observations:
 - One `blob:` image at first-frame settle — the resolver's bounded object-URL
   set holds; full-strip materialization proceeds in the background after the
   first frame (issue #173 tracks thumbnail-first loading).
-- JS heap ~22–23 MB at settle.
-- Warm opens (stored session key) save ~3–4 s — the stored key skips custody
-  checks, but the folder is re-listed every open. The remaining latency is the
-  MEGA listing + per-item probe, matching the #173 follow-up.
+- JS heap ~11–17 MB at settle.
+- Warm opens (stored session key, fragment-less URL) save ~3–4 s — the stored
+  key skips custody checks, but the folder is re-listed every open. The
+  remaining latency is the MEGA listing + per-item probe, matching the #173
+  follow-up.
 
 ## Not runnable in this checkout
 

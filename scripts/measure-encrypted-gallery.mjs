@@ -89,9 +89,11 @@ const run = async () => {
       cold.push(m.firstBlob)
       lastStats = m
       for (let w = 0; w < WARM_RUNS; w++) {
-        // Stored session key survives the reload — this is the cached-key open.
+        // Navigate WITHOUT the fragment: the session key in the same
+        // context's storage must open the gallery — a reload of the keyed
+        // URL would measure the fragment path instead.
         const t0 = Date.now()
-        await page.reload({ waitUntil: 'domcontentloaded' })
+        await page.goto(`${base}/${owner}/${slug}`, { waitUntil: 'domcontentloaded' })
         await page.locator('img[src^="blob:"]').first().waitFor({ state: 'visible', timeout: BLOB_TIMEOUT })
         warm.push(Date.now() - t0)
       }

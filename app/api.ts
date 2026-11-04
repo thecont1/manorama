@@ -839,8 +839,13 @@ export const createManoramaApi = () => {
       const scan: EncryptedManifestInput | Awaited<ReturnType<typeof scanSource>> = submitted ?? await scanSource(gallery.sourceUrl, envOf(c))
       // A budget-cut scan returns a partial listing — persisting it would
       // drop source items the scan never reached, so the refresh is
-      // rejected and the gallery keeps its existing images.
+      // rejected and the gallery keeps its existing images. A submitted
+      // manifest carries the same admission as `truncated`; the migrate
+      // endpoint uses the identical refusal.
       if ('partial' in scan && scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
+      if (submitted?.truncated !== undefined) {
+        return c.json({ code: 'PARTIAL_SCAN', error: 'That folder could not be read completely — try again before refreshing' }, 422)
+      }
       // Retained images keep the owner's ordering but pick up fresh
       // scanner metadata and source references; images removed from the
       // source drop out, newly discovered ones append at the end.

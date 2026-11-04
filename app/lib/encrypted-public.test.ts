@@ -52,13 +52,28 @@ describe('stripLegacyDeliveryCapabilities', () => {
     expect(video.type).toBe('video')
   })
 
+  test('keeps media-bearing variants with a blanked src and omits media-less ones', () => {
+    const image = stripLegacyDeliveryCapabilities({
+      ...legacyImage(),
+      variants: [
+        // A keyed variant that also carries a media ref loses the URL, not the ref.
+        { src: `/api/mega/preview?h=FA&k=${KEY}`, format: 'jpeg', width: 400, media: { kind: 'encrypted' as const, provider: 'mega' as const, sourceKind: 'folder' as const, sourceId: 'FOLDER', nodeId: 'NODEHANDLE01', previewId: 'FA' } },
+        { src: `/api/mega/preview?h=FB&k=${KEY}`, format: 'jpeg', width: 800 },
+      ],
+    })
+    expect(image.variants).toHaveLength(1)
+    expect(image.variants![0]).toMatchObject({ src: '', media: { kind: 'encrypted', previewId: 'FA' } })
+    expect(JSON.stringify(image)).not.toContain(KEY)
+  })
+
   test('round-trips a v2 keyless item — stripping is lossless where no capability exists', () => {
     const image: GalleryImage = {
       id: 'mega-abcdefghij012345', filename: 'x.jpg', src: '',
       media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'FOLDER', nodeId: 'N1' },
       width: 10, height: 10, alt: '', c2pa: false, placeholder: 'p',
+      variants: [{ src: '', format: 'jpeg', width: 400, media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'FOLDER', nodeId: 'N1', previewId: 'PREVIEWH1' } }],
     }
-    expect(stripLegacyDeliveryCapabilities(image)).toEqual({ ...image, variants: [] })
+    expect(stripLegacyDeliveryCapabilities(image)).toEqual(image)
   })
 
   test('does not mutate the input item', () => {
