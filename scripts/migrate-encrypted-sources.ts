@@ -121,6 +121,12 @@ const main = async () => {
     if (new TextEncoder().encode(statement).byteLength > D1_STATEMENT_MAX_BYTES) {
       statement = `${setClause} AND key_retired_at IS NULL;`
       console.warn(`  ${row.slug}: ${existing.length} items — statement exceeds ${D1_STATEMENT_MAX_BYTES} B with the images_json guard; emitted WITHOUT it (last-writer-wins — apply at a quiet moment)`)
+      // The SET clause itself can still blow the ceiling on very large
+      // manifests — never ship a statement D1 will refuse to parse.
+      if (new TextEncoder().encode(statement).byteLength > D1_STATEMENT_MAX_BYTES) {
+        console.error(`  ${row.slug}: UPDATE exceeds ${D1_STATEMENT_MAX_BYTES} B even unguarded — migrate this gallery manually; skipped`)
+        continue
+      }
     }
     statements.push(statement)
     planned += 1
