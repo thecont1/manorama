@@ -157,6 +157,7 @@ describe('ente identity and keyless canonicalization', () => {
   test('both spellings parse to the same album identity', () => {
     expect(enteIdentityFromUrl(linkPath)).toEqual({ kind: 'album', id: TOKEN })
     expect(enteIdentityFromUrl(linkLegacy)).toEqual({ kind: 'album', id: TOKEN })
+    expect(enteIdentityFromUrl(`https://albums.ente.io/${TOKEN}/`)).toEqual({ kind: 'album', id: TOKEN })
   })
 
   test('keylessSourceUrl canonicalizes both spellings without the fragment', () => {

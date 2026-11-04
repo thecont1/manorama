@@ -46,7 +46,7 @@ export const enteIdentityFromUrl = (input: string): { kind: 'album'; id: string 
     const url = new URL(input.trim())
     if (url.protocol !== 'https:' || !['albums.ente.com', 'albums.ente.io'].includes(url.hostname)) return null
     // Current links put the access token in the path; legacy ones use ?t=.
-    const token = url.searchParams.get('t')?.trim() || url.pathname.replace(/^\/+/, '').trim()
+    const token = url.searchParams.get('t')?.trim() || url.pathname.replace(/^\/+|\/+$/g, '').trim()
     return token && HANDLE.test(token) ? { kind: 'album', id: token } : null
   } catch {
     return null

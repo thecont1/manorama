@@ -1,5 +1,5 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
-import { keylessSourceUrl } from '../../packages/core/encrypted-source'
+import { enteIdentityFromUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import { probeImageDimensions } from './image-dims'
 import { createScanBudget, ScanBudgetExhausted } from './scan-budget'
 
@@ -84,18 +84,17 @@ export type EnteLink = { token: string; key: Uint8Array }
 
 /** albums.ente.io|com/{token}#{key} and the legacy ?t={token}#{key} form. */
 export const extractEnteLink = (input: string): EnteLink | null => {
+  const identity = enteIdentityFromUrl(input)
+  if (!identity) return null
   let url: URL
   try {
     url = new URL(input.trim())
   } catch {
     return null
   }
-  if (url.protocol !== 'https:' || !['albums.ente.com', 'albums.ente.io'].includes(url.hostname)) return null
-  const token = url.searchParams.get('t')?.trim() || url.pathname.replace(/^\/+/, '').trim()
-  if (!token || !/^[0-9A-Za-z_-]{1,256}$/.test(token)) return null
   const fragment = url.hash.startsWith('#') ? url.hash.slice(1) : ''
   if (!fragment) return null
-  return { token, key: albumKeyFromFragment(fragment) }
+  return { token: identity.id, key: albumKeyFromFragment(fragment) }
 }
 
 /** Thrown when the album advertises password protection — the caller
@@ -185,6 +184,17 @@ const b64 = (sodium: Sodium, input: string) => sodium.from_base64(input, sodium.
 
 const decryptBox = (sodium: Sodium, box: { encryptedData: string; nonce: string }, key: Uint8Array): Uint8Array =>
   sodium.crypto_secretbox_open_easy(b64(sodium, box.encryptedData), b64(sodium, box.nonce), key)
+
+/** Album-key-scoped decryptions: a secretbox auth failure here means the
+ *  link's fragment key is wrong for this album, not that a record is
+ *  corrupt — surface it as the key error, not a generic crypto throw. */
+const decryptWithAlbumKey = (sodium: Sodium, box: { encryptedData: string; nonce: string }, albumKey: Uint8Array): Uint8Array => {
+  try {
+    return decryptBox(sodium, box, albumKey)
+  } catch {
+    throw new SourceFetchError('That Ente album key is malformed', 400)
+  }
+}
 
 const decryptBlob = (sodium: Sodium, blob: { encryptedData: Uint8Array; decryptionHeader: Uint8Array }, key: Uint8Array): Uint8Array => {
   const state = sodium.crypto_secretstream_xchacha20poly1305_init_pull(blob.decryptionHeader, key)
@@ -324,7 +334,7 @@ export const openEnteSession = async (input: string, fetchImpl: typeof fetch = f
     }
     const title = collection.name ||
       (collection.encryptedName && collection.nameDecryptionNonce
-        ? new TextDecoder().decode(decryptBox(sodium, { encryptedData: collection.encryptedName, nonce: collection.nameDecryptionNonce }, albumKey))
+        ? new TextDecoder().decode(decryptWithAlbumKey(sodium, { encryptedData: collection.encryptedName, nonce: collection.nameDecryptionNonce }, albumKey))
         : 'Ente album')
     const files: { remote: RemoteFile; metadata: Record<string, unknown> | null; width?: number; height?: number }[] = []
     let sinceTime = 0
@@ -338,7 +348,7 @@ export const openEnteSession = async (input: string, fetchImpl: typeof fetch = f
         if (remote.updationTime && remote.updationTime > sinceTime) sinceTime = remote.updationTime
         if (remote.isDeleted || !remote.encryptedKey || !remote.keyDecryptionNonce) continue
         foundTotal += 1
-        const fileKey = decryptBox(sodium, { encryptedData: remote.encryptedKey, nonce: remote.keyDecryptionNonce }, albumKey)
+        const fileKey = decryptWithAlbumKey(sodium, { encryptedData: remote.encryptedKey, nonce: remote.keyDecryptionNonce }, albumKey)
         const metadata = decryptMetadataJson(sodium, remote.metadata ?? {}, fileKey)
         const filename = metadata && typeof metadata.title === 'string' && metadata.title ? metadata.title : `photo-${remote.id}.jpg`
         if (!isStillImage(metadata, filename)) { fileKey.fill(0); continue }
@@ -361,12 +371,15 @@ export const openEnteSession = async (input: string, fetchImpl: typeof fetch = f
     return { title, files, foundTotal }
   }
 
-  const decryptFile = async (fileId: string, preview: boolean, signal?: AbortSignal, range?: string): Promise<Uint8Array> => {
-    const remote = fileHeaders.get(fileId)
+  const decryptFile = async (fileId: string, preview: boolean, signal?: AbortSignal, range?: string, fetcher: typeof fetch = fetchImpl): Promise<Uint8Array> => {
+    // Await the key before reading the header map: a parked request resumes
+    // the moment its file lands mid-diff instead of waiting for the whole
+    // listing to settle.
     const fileKey = await awaitKey(fileId)
+    const remote = fileHeaders.get(fileId)
     const header = (preview ? remote?.thumbnail : remote?.file)?.decryptionHeader ?? remote?.file?.decryptionHeader
     if (!remote || !header) throw new SourceFetchError('That Ente image is unavailable', 404)
-    const ciphertext = new Uint8Array(await ensureOk(await meteredFetch(`${CDN}/${preview ? 'preview' : 'download'}/?fileID=${fileId}`, {
+    const ciphertext = new Uint8Array(await ensureOk(await fetcher(`${CDN}/${preview ? 'preview' : 'download'}/?fileID=${fileId}`, {
       headers: { ...requestHeaders(credentials), ...(range ? { Range: range } : {}) },
       signal,
     }), preview ? 'preview' : 'download').arrayBuffer())
@@ -382,7 +395,7 @@ export const openEnteSession = async (input: string, fetchImpl: typeof fetch = f
         // The first secretstream chunk authenticates on its own — a ranged
         // fetch of it yields enough plaintext for a dimension read without
         // downloading the whole original.
-        const head = await decryptFile(fileId, false, undefined, `bytes=0-${STREAM_CHUNK + STREAM_ABYTES - 1}`)
+        const head = await decryptFile(fileId, false, undefined, `bytes=0-${STREAM_CHUNK + STREAM_ABYTES - 1}`, meteredFetch)
         const dims = probeImageDimensions(head)
         head.fill(0)
         return dims
@@ -461,9 +474,6 @@ export const openEnteSession = async (input: string, fetchImpl: typeof fetch = f
     }
   }
   const listing = listAndSettle()
-  // A rejection is reported through scan; without this catch it would
-  // also surface as an unhandled rejection on the listing promise.
-  const quietListing = listing.catch(() => null)
   const scan = (async () => {
     const listed = await listing
     return scanImages(listed)
@@ -479,10 +489,6 @@ export const openEnteSession = async (input: string, fetchImpl: typeof fetch = f
       }
     })(),
     materialize: async (fileId, preview, signal) => {
-      // The decryption header arrives with the same diff entry as the
-      // key; awaiting the listing (not the probe pass) is the earliest
-      // point both can be known absent.
-      if (!fileHeaders.has(fileId)) await quietListing
       const bytes = await decryptFile(fileId, preview, signal)
       return { bytes, mimeType: sniffContentType(bytes) }
     },
