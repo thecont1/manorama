@@ -1,8 +1,21 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
 const base = 'http://localhost:5173'
 const owner = 'thecontrarian'
 const ownerId = 'dbid:AAATESTowner1'
+
+// The keyed-open case needs a real share; playwright does not auto-load
+// .env.local, so read it as a fallback and skip when no share is configured.
+const devMegaSource = (): string | undefined => {
+  if (process.env.MANORAMA_DEV_SOURCE_MEGA) return process.env.MANORAMA_DEV_SOURCE_MEGA
+  try {
+    const line = readFileSync('.env.local', 'utf8').split('\n').find((row) => row.startsWith('MANORAMA_DEV_SOURCE_MEGA='))
+    return line?.slice('MANORAMA_DEV_SOURCE_MEGA='.length).trim().replace(/^["']|["']$/g, '') || undefined
+  } catch {
+    return undefined
+  }
+}
 
 const spawn = async (request: APIRequestContext, slug: string) => {
   const response = await request.post(`${base}/.dev-seed/spawn`, {
@@ -73,14 +86,42 @@ for (const viewport of [
       // in fragment custody and never reaches the query string or server.
       // The curtain is dismissed for the locked state: the panel it would
       // cover is the only content this gallery can offer a keyless visitor.
+      // The pasted folder must match the gallery's source — a mismatch would
+      // fail the identity check instead of proving the rewrite.
       await expect(page.locator('.curtain')).toBeHidden()
-      await page.locator('#encrypted-unlock-url').fill('https://mega.nz/folder/DevSeedFolder#NotARealKey0123')
+      await page.locator('#encrypted-unlock-url').fill(`https://mega.nz/folder/DevSeed-${slug}#NotARealKey0123`)
       await page.locator('.encrypted-locked button[type="submit"]').click()
       await page.waitForFunction(() => window.location.hash.startsWith('#source='))
       expect(page.url()).toContain('#source=')
-      expect(page.url()).toContain(encodeURIComponent('DevSeedFolder'))
+      expect(page.url()).toContain(encodeURIComponent(`DevSeed-${slug}`))
 
       await context.close()
     })
   })
 }
+
+// The seeded live share proves the other half: a keyed open lists, fetches,
+// and decrypts on the device — blob: sources, zero /api/mega/* calls, and
+// the fragment stays put for the duration.
+test('a keyed open decrypts on the device', async ({ browser }) => {
+  const keyed = devMegaSource()
+  test.skip(!keyed, 'MANORAMA_DEV_SOURCE_MEGA not configured — no live share to decrypt')
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  const page = await context.newPage()
+  const megaCalls: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/api/mega/')) megaCalls.push(request.url())
+  })
+  await expect(async () => {
+    await context.request.post(`${base}/.dev-seed/reset`)
+    await page.goto(`${base}/${owner}/dev-mega#source=${encodeURIComponent(keyed!)}`, { waitUntil: 'domcontentloaded' })
+    // The curtain is up until entry; the island decrypts behind it — first
+    // blob frame on a ~70-item share lands well inside a minute.
+    await expect(page.locator('img[src^="blob:"]').first()).toBeVisible({ timeout: 60_000 })
+  }).toPass({ timeout: 90_000 })
+  await page.locator('.curtain').click()
+  expect(megaCalls).toHaveLength(0)
+  expect(page.url()).toContain('#source=')
+  await expect(page.locator('.encrypted-locked')).toHaveCount(0)
+  await context.close()
+})

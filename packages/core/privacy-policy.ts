@@ -123,8 +123,10 @@ export const PRIVACY_POLICY: PrivacyDocument = {
         },
         {
           parts: [
+            t('MEGA galleries work differently. The decryption key travels in the part of the link after the '),
+            code('#'),
             t(
-              'MEGA galleries work differently. The decryption key travels in the part of the link after the `#` — the fragment — which browsers never send to a server. Listing the folder, fetching the encrypted files, and decrypting them all happen on the viewer’s device; Manorama’s server never receives the key and never caches decrypted photographs or thumbnails. Anyone holding the complete link can also open the folder at MEGA directly, because the fragment is the folder’s own capability. And because no key reaches the server, every encrypted-source gallery shares one static social preview image rather than a per-gallery card.',
+              ' — the fragment — which browsers never send to a server. Listing the folder, fetching the encrypted files, and decrypting them all happen on the viewer’s device; Manorama’s server never receives the key and never caches decrypted photographs or thumbnails. Anyone holding the complete link can also open the folder at MEGA directly, because the fragment is the folder’s own capability. And because no key reaches the server, every encrypted-source gallery shares one static social preview image rather than a per-gallery card.',
             ),
           ],
         },

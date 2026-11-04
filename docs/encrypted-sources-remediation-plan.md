@@ -365,3 +365,22 @@ config.
   against a real insert, not the in-memory repository.
 - Every phase touches files the review already read. Rebase before starting and re-run the
   canary after each rebase, or a silent revert of a landed fix will read as a new failure.
+
+## Dispositions
+
+Executed on `feat/encrypted-sources-media-fidelity` (PR #168), one concern per commit:
+
+| Phase | Commit | Outcome |
+|---|---|---|
+| 0 | `851e2ce` | Canary suite landed as declared gate (AGENTS.md §4, VERIFICATION.md) |
+| 1 | `4d889b2` | Dev seed scans MEGA client-side; encrypted spawn fixture; live 69-item scan verified |
+| 2 | `9672347` | Truncated manifest refused — `PARTIAL_SCAN` 422 |
+| 3 | `503cadc` | Native deep-link source-identity compare; key preserved on web handoff |
+| 4 | `f635761` | Single Worker decryptor (`mega-public.ts` deleted) + import-graph guard |
+| 5 | `5a4db92`, `cabda7b`, `4be2d93` | Shipped policy + docs parity; retirement paths stated accurately |
+| 6 | `a109939` | Staging retired (M7 canary); 8 MiB bodies; `MANIFEST_TOO_LARGE` 422 |
+| — | `5ac6f92` | Operator cohort script → reviewable SQL (key-bearing guard documented, `out/` git-ignored) |
+| 7 | `5c31c82` | Resolver cache eviction; key-write failure survives create |
+| 8 | `ae904f5` | Locked-path spec ×3 viewports; curtain dead-end fixed; current-state refreshed |
+
+Post-audit review rounds: `88ad5fc` (15 findings), `ac5a77b` (9 findings), `5be860b` (flaky delete-account purge), `f56e457` (custody + CAS). Independent audit of `f56e457`: all eight findings verified closed. Auditor follow-ups: N1 (statement ceiling → conditional guard + documented trade), N2 (literal backtick → `code('#')`), N3 (CAS unit test), N4/N5 (keyed-open spec, matching-folder paste), N6 (import extension), N7 → issue #173.

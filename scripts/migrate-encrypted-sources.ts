@@ -111,12 +111,16 @@ const main = async () => {
     // Optimistic concurrency on images_json: the snapshot may be days old by
     // the time the file is applied — owner edits since then must not be
     // overwritten. The guard lives inside the measured statement so its cost
-    // counts against the statement limit too.
-    const statement =
-      `UPDATE galleries SET images_json = ${sqlLiteral(JSON.stringify(images))}, manifest_version = 2, source_url = ${sqlLiteral(submitted.sourceUrl)}, key_retired_at = ${sqlLiteral(retiredAt)}, migration_devices = '["operator-script"]' WHERE id = ${sqlLiteral(row.id)} AND source_url LIKE '%#%' AND images_json = ${sqlLiteral(row.images_json)};`
+    // counts against the statement limit too. Past ~62 items the serialized
+    // guard alone exceeds D1's 100 KB statement ceiling, so the UPDATE falls
+    // back to idempotency-only guards and accepts last-writer-wins — apply
+    // those statements at a quiet moment (see manorama-operations.md).
+    const setClause = `UPDATE galleries SET images_json = ${sqlLiteral(JSON.stringify(images))}, manifest_version = 2, source_url = ${sqlLiteral(submitted.sourceUrl)}, key_retired_at = ${sqlLiteral(retiredAt)}, migration_devices = '["operator-script"]' WHERE id = ${sqlLiteral(row.id)} AND source_url LIKE '%#%'`
+    const guarded = `${setClause} AND key_retired_at IS NULL AND images_json = ${sqlLiteral(row.images_json)};`
+    let statement = guarded
     if (new TextEncoder().encode(statement).byteLength > D1_STATEMENT_MAX_BYTES) {
-      console.error(`  ${row.slug}: UPDATE exceeds D1's ${D1_STATEMENT_MAX_BYTES}-byte statement limit — migrate this gallery manually; skipped`)
-      continue
+      statement = `${setClause} AND key_retired_at IS NULL;`
+      console.warn(`  ${row.slug}: ${existing.length} items — statement exceeds ${D1_STATEMENT_MAX_BYTES} B with the images_json guard; emitted WITHOUT it (last-writer-wins — apply at a quiet moment)`)
     }
     statements.push(statement)
     planned += 1
@@ -133,8 +137,10 @@ const main = async () => {
     '-- Legacy encrypted-source cohort migration (operator-run).',
     '-- Rewrites each keyed MEGA gallery to the v2 keyless shape and retires',
     '-- the stored key in the same statement. Idempotent: the WHERE clause',
-    '-- no-ops on rows already migrated.',
-    '-- SENSITIVE: the images_json guards echo legacy per-item k= secrets.',
+    '-- no-ops on rows already migrated. Galleries whose guarded statement',
+    '-- exceeded D1\'s 100 KB ceiling fall back to idempotency-only guards —',
+    '-- apply at a quiet moment; last-writer-wins on images_json there.',
+    '-- SENSITIVE: guarded statements echo legacy per-item k= secrets.',
     '-- Do not commit, share, or retain this file after applying.',
     '',
     ...statements,

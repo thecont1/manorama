@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import type { D1Database } from '@cloudflare/workers-types'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 import { applyDevMigrations } from './app/lib/dev-d1.ts'
-import { isEncryptedSourceUrl } from './packages/core/encrypted-source'
+import { isEncryptedSourceUrl } from './packages/core/encrypted-source.ts'
 
 /** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
 const DEV_SPAWN_IMAGE = {

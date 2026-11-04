@@ -109,3 +109,33 @@ describe('setGalleryPinned', () => {
     expect(toSummary(found!).id).toBe(found!.id)
   })
 })
+
+describe('updateGalleryRecord migration_devices guard', () => {
+  test('a stale expected snapshot returns null and leaves the row untouched; a matching one writes', async () => {
+    const { createGallery, getGallery, resetGalleryStore, updateGalleryRecord } = await import('./gallery-repository')
+    const { resetUserStore, upsertUser } = await import('./user-repository')
+    resetUserStore()
+    resetGalleryStore()
+    const user = await upsertUser({ accountId: 'dbid:test-cas', displayName: 'CAS QA' })
+    await createGallery(user.accountId, { slug: 'castest', title: 'CAS', caption: '', date: '', images: [still('c')] })
+    const gallery = (await getGallery(user.accountId, 'castest'))!
+    // Simulate a lost update: the row now holds devA while the caller built
+    // its union on the earlier [] snapshot.
+    const withDevice = await updateGalleryRecord(user.accountId, { ...gallery, migrationDevices: ['devA'] })
+    expect(withDevice?.migrationDevices).toEqual(['devA'])
+    const stale = await updateGalleryRecord(user.accountId,
+      { ...gallery, migrationDevices: ['devB'] },
+      undefined,
+      { migrationDevices: [] },
+    )
+    expect(stale).toBeNull()
+    expect((await getGallery(user.accountId, 'castest'))?.migrationDevices).toEqual(['devA'])
+    const fresh = (await getGallery(user.accountId, 'castest'))!
+    const retried = await updateGalleryRecord(user.accountId,
+      { ...fresh, migrationDevices: ['devA', 'devB'] },
+      undefined,
+      { migrationDevices: fresh.migrationDevices ?? [] },
+    )
+    expect(retried?.migrationDevices).toEqual(['devA', 'devB'])
+  })
+})
