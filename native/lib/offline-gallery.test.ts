@@ -301,6 +301,56 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(ready.find((item) => item.id === 'stable-two')?.mimeType).toBe('image/png')
   })
 
+  test('an unchanged repeat fill never reads an image entry', async () => {
+    const { requested, store, vault } = makeHarness()
+    await store.cache(selection, gallery)
+    requested.length = 0
+
+    const galleryId = await offlineGalleryId(selection)
+    const originalRead = vault.read.bind(vault)
+    const entryReads: string[] = []
+    vault.read = ((id: string, entryId: string, options?: { touch?: boolean }) => {
+      if (entryId !== __private__.METADATA_ENTRY_ID) entryReads.push(entryId)
+      return originalRead(id, entryId, options)
+    }) as typeof vault.read
+
+    const ready: string[] = []
+    const second = await store.cache(selection, gallery, undefined, undefined, (item) => ready.push(item.id))
+    expect(second).toMatchObject({ status: 'complete' })
+    // The whole-fill fast path: nothing is fetched and no entry is decrypted
+    // to existence-check — the touch is index-level.
+    expect(requested).toEqual([])
+    expect(entryReads).toEqual([])
+    expect(ready).toEqual(['stable-one', 'stable-two'])
+    vault.read = originalRead
+  })
+
+  test('a reordered manifest re-commits the new order', async () => {
+    const { requested, store } = makeHarness()
+    await store.cache(selection, gallery)
+    requested.length = 0
+
+    const reordered: NativeGalleryResponse = {
+      ...gallery,
+      manifest: { ...manifest, images: [manifest.images[1], manifest.images[0]] },
+    }
+    expect(await store.cache(selection, reordered)).toMatchObject({ status: 'complete' })
+    // Byte reuse still dedupes the downloads; the record carries the new order.
+    expect(requested).toEqual([])
+    const opened = await store.open(selection)
+    expect(opened?.manifest.images.map((item) => item.id)).toEqual(['stable-two', 'stable-one'])
+  })
+
+  test('an incomplete cache re-fills only the missing image', async () => {
+    const { requested, store, vault } = makeHarness()
+    await store.cache(selection, gallery)
+    requested.length = 0
+
+    await vault.remove(await offlineGalleryId(selection), thumbnailEntryId('stable-two'))
+    expect(await store.cache(selection, gallery)).toMatchObject({ status: 'complete' })
+    expect(requested).toEqual(['https://provider.test/original-two.png'])
+  })
+
   test('detects complete caches and refuses a missing image entry', async () => {
     const { store, vault } = makeHarness()
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
