@@ -2,7 +2,7 @@ import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
-import { megaIdentityFromUrl } from '../../packages/core/encrypted-source'
+import { enteIdentityFromUrl, megaIdentityFromUrl } from '../../packages/core/encrypted-source'
 import type { GalleryMediaItem } from './imagesource'
 
 /**
@@ -19,7 +19,7 @@ import type { GalleryMediaItem } from './imagesource'
  * the link fragment). There are no per-user source tokens.
  */
 
-export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'local'
+export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'ente' | 'local'
 
 export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number; partial?: boolean }
 
@@ -30,7 +30,7 @@ export type SourceEnv = {
 }
 
 export const UNRECOGNIZED_LINK_MESSAGE =
-  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection link'
+  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, MEGA folder/collection, or Ente album link'
 
 export const detectSource = (input: string): SourceProvider | null => {
   // Dev-only local folders: absolute paths and file:// URLs. The flag is
@@ -50,6 +50,7 @@ export const detectSource = (input: string): SourceProvider | null => {
   if (host === 'share.icloud.com' && url.pathname.startsWith('/photos/')) return 'icloud'
   if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) return 'icloud'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
+  if (host === 'albums.ente.io' || host === 'albums.ente.com') return 'ente'
   return null
 }
 
@@ -89,6 +90,10 @@ const isShareResource = (url: URL, provider: SourceProvider): boolean => {
       // A percent-escape can survive an undecodable path, so allow it.
       if (/^\/(?:folder|collection)\/[0-9A-Za-z_%-]+(?:\/|$)/.test(url.pathname)) return true
       return /^#(?:F|C)!/i.test(url.hash)
+    case 'ente':
+      // Same fragment-custody rule as MEGA: the album key never reaches
+      // the server, so only the access-token shape is checked here.
+      return Boolean(url.searchParams.get('t') || /^\/[0-9A-Za-z_-]+(?:\/|$)/.test(url.pathname))
     case 'local':
       // Local folders are claimed by the dev route's filesystem check, not
       // by URL shape — an embedded file path is never a share resource.
@@ -192,6 +197,13 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
       // (owner_id, source_url) uniqueness conflict after a fresh scan.
       return Boolean(stored && candidate && stored.kind === candidate.kind && stored.id === candidate.id)
     }
+    case 'ente': {
+      const stored = enteIdentityFromUrl(storedSourceUrl)
+      const candidate = enteIdentityFromUrl(candidateUrl)
+      // The album key is separate from the access token, same as MEGA:
+      // a rotated or keyless link still names the same public album.
+      return Boolean(stored && candidate && stored.id === candidate.id)
+    }
     case 'gdrive': {
       try {
         const stored = extractDriveFolderId(storedSourceUrl)
@@ -284,6 +296,8 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
       case 'mega':
         if (/\/file\//i.test(new URL(input).pathname)) throw new Error('Use a public MEGA folder or collection link')
         throw new Error('MEGA sources are scanned on your device, never by the server')
+      case 'ente':
+        throw new Error('Ente sources are scanned on your device, never by the server')
       case 'local':
         return scanLocalFolder(input)
     }

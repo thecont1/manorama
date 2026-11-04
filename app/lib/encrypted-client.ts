@@ -23,8 +23,23 @@ export const openEncryptedSource = async (sourceUrl: string): Promise<EncryptedC
       dispose: () => mega.dispose(),
     }
   }
-  // Ente album parsing stays — the deferred adapter lands here — but no
-  // Ente network path exists yet, so the link is refused before one opens.
-  if (provider === 'ente') throw new Error('Ente public albums are not supported yet. Use a complete MEGA link.')
-  throw new Error('Use a complete MEGA public album link')
+  if (provider === 'ente') {
+    const { openEnteSession } = await import('./ente-client')
+    const ente = await openEnteSession(sourceUrl)
+    return {
+      provider: 'ente',
+      sourceUrl: ente.sourceUrl,
+      listing: ente.scan.then((scan) => ({
+        title: scan.title,
+        images: scan.images,
+        ...(scan.truncated ? { truncated: scan.truncated } : {}),
+      })),
+      materialize: (reference, preview, signal) => {
+        if (reference.kind !== 'encrypted' || reference.provider !== 'ente') throw new Error('Ente media reference is invalid')
+        return ente.materialize(reference.nodeId, preview, signal)
+      },
+      dispose: () => ente.dispose(),
+    }
+  }
+  throw new Error('Use a complete MEGA or Ente public album link')
 }

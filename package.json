@@ -45,7 +45,8 @@
     "hono": "^4.13.13",
     "honox": "^0.1.61",
     "jimp": "^1.6.1",
-    "jose": "^6.2.10"
+    "jose": "^6.2.10",
+    "libsodium-wrappers-sumo": "^0.8.4"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",

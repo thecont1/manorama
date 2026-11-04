@@ -18,6 +18,10 @@ export const friendlySourceError = (error: unknown) => {
   if (/iCloud Drive links cannot be read/i.test(message)) return 'That is an iCloud Drive link, which Apple keeps behind sign-in. In Photos, share a Shared Album instead and paste its public link.'
   if (/Use a public MEGA|usable key|MEGA link was not found|could not read that MEGA|MEGA folder was not found/i.test(message)) return 'Paste a public MEGA folder or collection link (mega.nz/folder/… or mega.nz/collection/…) with its #key fragment.'
   if (/MEGA is rate limiting|bandwidth limit/i.test(message)) return 'MEGA is rate limiting requests — wait a few minutes and try again.'
+  if (/password-protected/i.test(message)) return 'That Ente album is password-protected — password-protected albums are not supported yet.'
+  if (/Ente album key is malformed|complete public Ente album link/i.test(message)) return 'Paste a public Ente album link (albums.ente.io/…) with its #key fragment.'
+  if (/expired or was revoked/i.test(message)) return 'That Ente album link has expired or was revoked. Ask the owner for a fresh link.'
+  if (/Ente sources are scanned on your device/i.test(message)) return message
   if (/No photos or videos were found/i.test(message)) return 'No photos or videos were found at that link. Add images or videos to the shared album and try again.'
   if (/No (image files|photos) were found/i.test(message)) return 'No supported image files were found at that link. Add JPG, WebP, AVIF, HEIC, or HEIF images and try again.'
   // Count-cap refusals already carry owner-facing text — the number and

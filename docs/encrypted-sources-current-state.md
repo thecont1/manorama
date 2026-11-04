@@ -45,6 +45,55 @@ Baseline inspected: `916f0f9`; branch later synced cleanly to `origin/main` @ `5
 - Native scans and decrypts on-device through the same client modules the web uses: full-link opens adopt the keyed source into the Keychain/Keystore gallery key store by immutable gallery id, and the vault fill materializes version-2 media references through the client session rather than the HTTP fetcher. Only a legacy manifest (encrypted source, server-mediated refs) or a locked gallery with no key and no vault copy delegates to `Browser.open`, where the web's unlock flow can help. A gallery vaulted before migration still renders offline from stored bytes.
 - A reviewable SQL migration path exists for the small production cohort: `scripts/migrate-encrypted-sources.ts` scans keyed MEGA sources locally with the client scanner and emits SQL that preserves order/hidden flags by matching stored and scanned items on `ref`/`filename`, rewrites items to keyless encrypted media refs, sets `manifest_version = 2`, and strips the fragment from `source_url` only under the chosen retirement policy. The operator applies it through the approved deployment process — the script never writes production directly. Requires migrations `0013`/`0014` applied first.
 
+## Ente public albums — spike record and adapter status
+
+Spike findings for §G of the fidelity plan, recorded 2026-11-04. Upstream
+reference: `ente-io/ente` @ `main` (`web/packages/base/crypto/libsodium.ts`,
+`web/packages/base/http.ts`, `web/apps/embed/src/services/public-collection.ts`,
+`web/packages/media/{collection,file,file-type,file-metadata}.ts`). Upstream is
+**AGPL-3.0** — `app/lib/ente-client.ts` is a clean-room implementation against
+the documented wire format; no upstream code is copied or vendored.
+
+- **Link formats.** `albums.ente.io/{accessToken}#{albumKey}` (current) and
+  `albums.ente.io/?t={accessToken}#{albumKey}` (legacy); `albums.ente.com` is
+  the same host family. The fragment is a base58-encoded 32-byte album key
+  (hex on some older links) — client-side only, never sent upstream. Custom
+  domains exist (`?t=` only) but are out of scope per §G (hosted only).
+- **API.** `api.ente.io`: `GET /public-collection/info` (collection record,
+  publicURL flags, KDF params; reachable pre-password-unlock), `GET
+  /public-collection/diff?sinceTime=` (paginated file records, `hasMore`),
+  `POST /public-collection/verify-password` (`{passHash}` → `{jwtToken}`).
+  Auth header is `X-Auth-Access-Token`; password links add
+  `X-Auth-Access-Token-JWT`; device-limited links issue `X-Link-Device-Token`
+  on info/diff responses which the client echoes back as
+  `X-Auth-Link-Device-Token`.
+- **Media.** `public-albums.ente.com/download/?fileID=` (originals) and
+  `/preview/?fileID=` (thumbnails), ciphertext, CORS `*` for GET. Verified
+  2026-11-04: `api.ente.io` answers a preflighted GET from
+  `https://manorama.xyz` including the auth/device headers and `Range`;
+  `public-albums.ente.com` allows any origin for GET.
+- **Crypto (libsodium).** File keys and the album name are
+  `crypto_secretbox` (XSalsa20-Poly1305) under the album key; metadata and
+  public magic metadata are single-chunk secretstream blobs; file and
+  thumbnail bytes are `crypto_secretstream_xchacha20poly1305` in 4 MiB
+  chunks (+17B per-chunk overhead). Password links derive a 32-byte
+  verifier with `crypto_pwhash` (Argon2id, server-supplied ops/mem limits).
+- **Sharing controls.** `validTill`/disabled tokens 410 server-side;
+  `passwordEnabled` advertises `nonce`/`opsLimit`/`memLimit` for the local
+  KDF; `deviceLimit` drives the device-token handshake; `enableDownload:
+  false` is a UI affordance in ente's own app — bytes still flow for
+  display, and manorama exposes no download control to disable.
+
+Adapter status: `openEnteSession` mirrors the MEGA session contract — the
+session returns before the diff resolves, file keys land per diff entry
+through a notifying map, `materialize` decrypts previews and originals via
+secretstream, and `dispose` zeroes album and file keys. Dimensions come from
+`pubMagicMetadata` `w`/`h` with a ranged first-chunk probe fallback. Video
+and Live Photos are filtered out at listing. Password-protected links fail
+visibly with `EntePasswordRequired` carrying the KDF parameters, and
+`verifyEntePassword` implements the verifier exchange — the prompt UI is a
+deliberate follow-up since there is no password seam in quick-add yet.
+
 ## Transition exceptions
 
 Legacy server-held MEGA keys remain the sole named exception until reversible migration and native readiness complete. The module-level decrypted-preview cache named in earlier audits no longer exists — nothing decrypted is persisted, but "streams through" overstates it: whole-file handling buffers the fetched ciphertext and its decrypted plaintext in memory (bounded by `MAX_FILE_BYTES`) while the response is constructed, and ranged reads buffer their aligned window the same way. With the kill switch and routes removed, server-held keys persist only as the two cohort rows' stored `source_url` fragments — the storage-side exception the cohort close retires, not a decrypt path the server can still run.

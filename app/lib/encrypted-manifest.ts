@@ -2,6 +2,7 @@ import {
   contentVersionIsValid,
   encryptedProviderForUrl,
   keylessSourceUrl,
+  enteIdentityFromUrl,
   mediaReferenceIsValid,
   megaIdentityFromUrl,
   validatePublishedDimensions,
@@ -71,8 +72,8 @@ export const validateEncryptedManifest = (input: unknown): EncryptedManifestInpu
   if (!text(input.sourceUrl, 2048, false) || input.sourceUrl.includes('#')) throw new Error('Encrypted source URL must be keyless')
   if (encryptedProviderForUrl(input.sourceUrl) !== input.provider) throw new Error('Encrypted source provider does not match its URL')
   if (keylessSourceUrl(input.sourceUrl) !== input.sourceUrl) throw new Error('Encrypted source URL is not canonical')
-  const identity = input.provider === 'mega' ? megaIdentityFromUrl(input.sourceUrl) : null
-  const handle = input.provider === 'mega' ? identity?.id : new URL(input.sourceUrl).searchParams.get('t')
+  const identity = input.provider === 'mega' ? megaIdentityFromUrl(input.sourceUrl) : enteIdentityFromUrl(input.sourceUrl)
+  const handle = identity?.id
   if (!handle || !HANDLE.test(handle)) throw new Error('Encrypted source handle is invalid')
   if (!text(input.title, 120) || !Array.isArray(input.images) || input.images.length < 1 || input.images.length > MAX_GALLERY_ITEMS) {
     throw new Error(`Encrypted manifest must contain 1–${MAX_GALLERY_ITEMS} items`)

@@ -45,7 +45,8 @@ export const enteIdentityFromUrl = (input: string): { kind: 'album'; id: string 
   try {
     const url = new URL(input.trim())
     if (url.protocol !== 'https:' || !['albums.ente.com', 'albums.ente.io'].includes(url.hostname)) return null
-    const token = url.searchParams.get('t')?.trim()
+    // Current links put the access token in the path; legacy ones use ?t=.
+    const token = url.searchParams.get('t')?.trim() || url.pathname.replace(/^\/+|\/+$/g, '').trim()
     return token && HANDLE.test(token) ? { kind: 'album', id: token } : null
   } catch {
     return null
@@ -67,6 +68,10 @@ export const keylessSourceUrl = (input: string): string => {
   // handle entirely. Canonicalize through the parsed identity instead.
   const mega = megaIdentityFromUrl(input)
   if (mega) return `https://mega.nz/${mega.kind}/${mega.id}`
+  // Both ente spellings (?t= and path token) canonicalize to the path
+  // form on whichever host the link used, so one album has one identity.
+  const ente = enteIdentityFromUrl(input)
+  if (ente) return `https://${new URL(input.trim()).hostname}/${ente.id}`
   const url = new URL(input.trim())
   url.hash = ''
   return url.toString()
