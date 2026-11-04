@@ -105,11 +105,39 @@ describe('server never sees a v2 key', () => {
     expect(body).toContain(CANARY)
   })
 
-  test('public manifest endpoint strips the fragment', async () => {
-    await seed({ sourceUrl: KEYED_URL })
-    const payload = await (await API.request('/api/gallery/test-owner/enc', {}, env)).json() as { manifest: { sourceUrl: string } }
+  test('public manifest endpoint strips the fragment and legacy delivery capabilities', async () => {
+    await seed({
+      sourceUrl: KEYED_URL,
+      images: [
+        image({
+          media: undefined,
+          src: `/api/mega/file?node=NODEHANDLE01&k=${CANARY}`,
+          variants: [{ src: `/api/mega/preview?h=FAHANDLE01&k=${CANARY}`, format: 'jpeg', width: 400 }],
+        }),
+        {
+          type: 'video', id: 'mega-video000000000', ref: 'NODEHANDLE02', filename: 'clip.mp4',
+          src: `/api/mega/file?node=NODEHANDLE02&k=${CANARY}`, mimeType: 'video/mp4' as const,
+          width: 1920, height: 1080, alt: 'clip', c2pa: false as const, placeholder: 'data:image/svg+xml,svg',
+          poster: { src: `/api/mega/preview?h=FAHANDLE02&k=${CANARY}`, width: 400, height: 225 },
+          variants: [{ src: `/api/mega/preview?h=FAHANDLE02&k=${CANARY}`, format: 'jpeg', width: 400 }],
+          sources: [{ src: `/api/mega/file?node=NODEHANDLE02&k=${CANARY}`, mimeType: 'video/mp4' }],
+          captions: [{ src: `/api/mega/file?node=CC&k=${CANARY}`, srclang: 'en', label: 'English' }],
+        },
+      ] as never,
+    })
+    const payload = await (await API.request('/api/gallery/test-owner/enc', {}, env)).json() as { manifest: { sourceUrl: string; images: unknown[] } }
     expect(payload.manifest.sourceUrl).toBe(KEYLESS_URL)
-    expect(JSON.stringify(payload)).not.toContain(CANARY)
+    const serialized = JSON.stringify(payload.manifest.images)
+    expect(serialized).not.toContain(CANARY)
+    expect(serialized).not.toContain('k=')
+    // Identity and the keyless media reference survive; only the keyed
+    // delivery URLs are stripped.
+    expect(payload.manifest.images[0]).toMatchObject({ id: 'mega-abcdefghij012345', ref: 'NODEHANDLE01' })
+
+    // Control: the named owner exception still returns keyed props to the
+    // owner's session until the key retires.
+    const ownerPayload = await (await API.request('/api/gallery/test-owner/enc', await enc(), env)).json() as { manifest: { images: unknown[] } }
+    expect(JSON.stringify(ownerPayload.manifest.images)).toContain(CANARY)
   })
 
   test('OG route short-circuits before any media fetch', async () => {

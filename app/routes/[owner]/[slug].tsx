@@ -16,6 +16,7 @@ import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
 import { encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../../../packages/core/encrypted-source'
+import { stripLegacyDeliveryCapabilities } from '../../lib/encrypted-public'
 import { encryptedGalleryDescription } from '../../lib/og-metadata'
 import type { GalleryMediaItem } from '../../lib/imagesource'
 
@@ -110,10 +111,7 @@ export default createRoute(async (c) => {
   // legacy item srcs still carry `k=` keys and sourceUrl can hold the
   // fragment. Only the owner receives keyed props, for the migration call.
   const gatedImages = (items: readonly GalleryMediaItem[]): GalleryMediaItem[] =>
-    legacySourceUrl ? [...items] : items.map((item) =>
-      item.type === 'video'
-        ? { ...item, src: '', variants: [], sources: [], captions: [], poster: { ...item.poster, src: '' } }
-        : { ...item, src: '', variants: [] })
+    legacySourceUrl ? [...items] : items.map(stripLegacyDeliveryCapabilities)
 
   return c.render(
     <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>

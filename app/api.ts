@@ -22,7 +22,8 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
-import { ENCRYPTED_MANIFEST_VERSION, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { ENCRYPTED_MANIFEST_VERSION, encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { stripLegacyDeliveryCapabilities } from './lib/encrypted-public'
 import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
 import { mergeMigratedImages } from './lib/encrypted-migration'
 
@@ -357,9 +358,22 @@ export const createManoramaApi = () => {
     const images = includeHidden ? gallery.images : gallery.images.filter((image) => !image.hidden)
     // Encrypted sources publish the keyless form only: the stored row may
     // still hold a legacy fragment the native client must never receive.
+    // Legacy rows can also carry per-item `k=` delivery URLs — stripped for
+    // every viewer except the owner holding the named migration exception.
+    const encrypted = Boolean(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))
+    let manifestImages = images
+    if (encrypted) {
+      const session = await resolveManoramaSession(c.req.raw, envOf(c)).catch(() => null)
+      const gate = encryptedGalleryGate({
+        sourceUrl: gallery.sourceUrl!, viewerOwner: session?.accountId === user.accountId,
+        keyRetiredAt: gallery.keyRetiredAt, manifestVersion: gallery.manifestVersion,
+        legacyServerDecrypt: envOf(c)?.LEGACY_ENCRYPTED_DECRYPT === 'enabled',
+      })
+      manifestImages = gate.legacySourceUrl ? images : images.map(stripLegacyDeliveryCapabilities)
+    }
     const manifest = {
-      slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images,
-      ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl) ? { sourceUrl: keylessSourceUrl(gallery.sourceUrl) } : {}),
+      slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images: manifestImages,
+      ...(encrypted ? { sourceUrl: keylessSourceUrl(gallery.sourceUrl!) } : {}),
     }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
   })
