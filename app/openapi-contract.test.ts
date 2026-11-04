@@ -34,11 +34,11 @@ describe('OpenAPI contract: static spec', () => {
     expect(spec.openapi).toBe('3.1.0')
   })
 
-  test('contains exactly the eleven Manorama operations', () => {
+  test('contains exactly the twelve Manorama operations', () => {
     expect(operationIds().sort()).toEqual([
       'create_gallery', 'delete_gallery', 'get_drive_file', 'get_drive_thumbnail',
       'get_dropbox_file', 'get_dropbox_thumbnail', 'get_icloud_image',
-      'list_galleries', 'refresh_gallery', 'scan_gallery_source', 'update_gallery',
+      'list_galleries', 'migrate_gallery', 'refresh_gallery', 'scan_gallery_source', 'update_gallery',
     ])
   })
 
@@ -60,10 +60,68 @@ describe('OpenAPI contract: static spec', () => {
     expect(gallery.properties.expiresAt.format).toBe('date-time')
   })
 
-  test('the Error schema carries the policy codes and dashboardUrl', () => {
+  test('the Error schema carries the refusal codes and dashboardUrl', () => {
     const error = spec.components.schemas.Error as { properties: Record<string, Record<string, unknown>> }
-    expect(error.properties.code.enum).toEqual(['GALLERY_LIMIT', 'GALLERY_READ_ONLY'])
+    expect(error.properties.code.enum).toEqual([
+      'CLIENT_SCAN_REQUIRED', 'GALLERY_LIMIT', 'GALLERY_READ_ONLY',
+      'MANIFEST_TOO_LARGE', 'PARTIAL_SCAN', 'SERVER_DECRYPT_RETIRED',
+    ])
     expect(error.properties.dashboardUrl.type).toBe('string')
+  })
+
+  test('create accepts either an unencrypted url or an encrypted manifest, never both required', () => {
+    const create = spec.components.schemas.CreateRequest as {
+      anyOf: { required: string[] }[]
+      properties: Record<string, unknown>
+      additionalProperties: boolean
+    }
+    expect(create.anyOf).toEqual([{ required: ['url'] }, { required: ['manifest'] }])
+    expect(create.additionalProperties).toBe(false)
+    // The url form no longer advertises server-side MEGA scanning.
+    const url = create.properties.url as { description: string }
+    expect(url.description).not.toContain('MEGA folder/collection')
+    expect(url.description).toContain('client-scanned manifest')
+  })
+
+  test('the encrypted manifest schema mirrors the runtime validator', () => {
+    const manifest = spec.components.schemas.EncryptedManifest as {
+      required: string[]
+      additionalProperties: boolean
+      properties: Record<string, Record<string, unknown>>
+    }
+    expect(manifest.required).toEqual(['provider', 'sourceUrl', 'title', 'images'])
+    expect(manifest.additionalProperties).toBe(false)
+    expect(manifest.properties.provider.enum).toEqual(['ente', 'mega'])
+    const image = spec.components.schemas.EncryptedManifestImage as {
+      required: string[]
+      properties: Record<string, Record<string, unknown>>
+    }
+    expect(image.properties.src.const).toBe('')
+    expect(image.properties.contentVersion.pattern).toBe('^[0-9a-f]{64}$')
+    expect(image.required).toContain('media')
+    expect(image.required).toContain('contentVersion')
+    const media = spec.components.schemas.EncryptedMediaReference as { required: string[] }
+    expect(media.required).toEqual(['kind', 'provider', 'sourceKind', 'sourceId', 'nodeId'])
+  })
+
+  test('migrate_gallery is pinned to its path, request shape, and conflict response', () => {
+    const migrate = spec.paths['/api/galleries/{slug}/migrate'].post as {
+      operationId: string
+      requestBody: { required: boolean }
+      responses: Record<string, { $ref?: string }>
+    }
+    expect(migrate.operationId).toBe('migrate_gallery')
+    expect(migrate.requestBody.required).toBe(true)
+    expect(migrate.responses['409']?.$ref).toBe('#/components/responses/Conflict')
+    const request = spec.components.schemas.MigrateRequest as { required: string[] }
+    expect(request.required).toEqual(['manifest', 'deviceId'])
+  })
+
+  test('refresh documents the manifest body for encrypted galleries', () => {
+    const refresh = spec.paths['/api/galleries/{slug}/refresh'].post as {
+      requestBody?: { content: Record<string, { schema: { $ref?: string } }> }
+    }
+    expect(refresh.requestBody?.content['application/json'].schema.$ref).toBe('#/components/schemas/RefreshRequest')
   })
 
   test('mutation operations document the 403 policy refusal', () => {
@@ -152,7 +210,7 @@ describe('OpenAPI contract: runtime behavior', () => {
     expect(specPaths).toEqual([
       '/api/drive/file', '/api/drive/thumbnail', '/api/dropbox/file', '/api/dropbox/thumbnail',
       '/api/galleries', '/api/galleries/scan', '/api/galleries/{slug}',
-      '/api/galleries/{slug}/refresh', '/api/icloud/image',
+      '/api/galleries/{slug}/migrate', '/api/galleries/{slug}/refresh', '/api/icloud/image',
     ])
   })
 })
