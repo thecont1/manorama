@@ -619,6 +619,85 @@ describe('openMegaSession', () => {
     session.dispose()
     await expect(session.materialize(FILE_HANDLE)).rejects.toThrow('closed')
   })
+
+  test('materializes a known item while the share listing is still in flight', async () => {
+    const PLAIN = jpegHead()
+    const CIPHER = ctrCrypt(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN)
+    const fileKey = fileKeyFor(metaMac(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN))
+    const file = fileNode('IMG_0001.jpg', {
+      a: encryptAttributes(fileKey, { n: 'IMG_0001.jpg' }),
+      k: `${FOLDER_HANDLE}:${b64uEncode(ecbEncrypt(SHARE_KEY, fileKey))}`,
+      s: PLAIN.length,
+    })
+    let releaseListing!: () => void
+    const listingGate = new Promise<void>((resolve) => { releaseListing = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') { await listingGate; return jsonResponse([{ f: [folderNode, file] }]) }
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: PLAIN.length })
+        return jsonResponse({})
+      }
+      const [, start, end] = url.match(/\/(\d+)-(\d+)$/) ?? []
+      return new Response(CIPHER.subarray(Number(start), Number(end) + 1).slice(), { status: 200 })
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    let settled = false
+    const materialized = session.materialize(FILE_HANDLE).then((result) => { settled = true; return result })
+    await Promise.resolve()
+    // The listing fetch is still gated — materialize is parked on the key.
+    expect(settled).toBe(false)
+    releaseListing()
+    expect((await materialized).bytes).toEqual(PLAIN)
+    session.dispose()
+  })
+
+  test('a materialize for an absent node rejects when the listing settles', async () => {
+    let releaseListing!: () => void
+    const listingGate = new Promise<void>((resolve) => { releaseListing = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') { await listingGate; return jsonResponse([{ f: [folderNode, fileNode('IMG_0001.jpg')] }]) }
+        return jsonResponse({})
+      }
+      return jsonResponse({}, 404)
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    let rejected = false
+    const absent = session.materialize('NoSuchHdl').then(
+      () => { throw new Error('resolved unexpectedly') },
+      (error: unknown) => { rejected = true; throw error },
+    )
+    await Promise.resolve()
+    expect(rejected).toBe(false) // parked, not refused — the listing has not landed
+    releaseListing()
+    await expect(absent).rejects.toThrow('not present')
+    session.dispose()
+  })
+
+  test('dispose rejects a materialize parked on the listing', async () => {
+    let releaseListing!: () => void
+    const listingGate = new Promise<void>((resolve) => { releaseListing = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') { await listingGate; return jsonResponse([{ f: [folderNode, fileNode('IMG_0001.jpg')] }]) }
+        return jsonResponse({})
+      }
+      return jsonResponse({}, 404)
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    const parked = session.materialize(FILE_HANDLE)
+    await Promise.resolve()
+    session.dispose()
+    await expect(parked).rejects.toThrow('closed')
+    releaseListing()
+    await expect(session.scan).rejects.toThrow('closed')
+  })
 })
 
 describe('CDN host allowlist', () => {
