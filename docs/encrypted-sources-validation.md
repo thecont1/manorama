@@ -66,6 +66,26 @@ Observations:
   key skips custody checks, but the folder is still re-listed every open;
   remaining latency is the listing + first materialize.
 
+## Client-scan request profile (#171)
+
+Measured 2026-11-04 by wrapping `openMegaSession`'s `fetchImpl` with a
+per-command counter against the live 69-item collection share:
+
+- 1 listing call (`a:aft` for collections; `a:f` for folders)
+- 2 requests per probed item — `a:ufa` + CDN POST when the node carries an
+  `fa` attribute (all 69 did); the `fa`-less fallback is `a:g` + ranged
+  head GET, also 2 per item
+- Total: 139 requests for 69 items → extrapolated ~601 for 300 items,
+  ~2,001 at the `MAX_GALLERY_ITEMS` cap of 1,000
+
+Consequence: the shared 950-subrequest budget — sized for Workers-era
+server scans, still correct for Dropbox — would truncate a MEGA scan at
+~475 items even though the gallery cap is 1,000. The MEGA probe pass now
+runs under `MEGA_SCAN_REQUEST_BUDGET` (3× the item cap) as a fan-out
+backstop, and a share over 1,000 items is refused at listing with the
+count and the limit named — owners see the reason instead of a partial
+scan or a generic offline error.
+
 ## Not runnable in this checkout
 
 - **Native/vault measurements** — require a physical iOS device with the app

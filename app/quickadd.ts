@@ -12,6 +12,7 @@
  */
 
 import { galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { SourceFetchError } from '../packages/core/imagesource'
 import { webGalleryKeyStore } from './lib/key-store'
 
 const PENDING_KEY = 'manorama:pending-source'
@@ -164,9 +165,13 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
     stopWaiting()
     try { sessionStorage.removeItem(LOOP_GUARD_KEY) } catch { /* best effort */ }
     setStatus(
-      error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
-        ? 'That album is taking a very long time to read — it may be too large. Try again, or split it into smaller folders.'
-        : 'Manorama could not reach the server. Check your connection and reload.',
+      // Provider refusals carry owner-facing text — show the reason instead
+      // of the generic offline message.
+      error instanceof SourceFetchError
+        ? error.message
+        : error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+          ? 'That album is taking a very long time to read — it may be too large. Try again, or split it into smaller folders.'
+          : 'Manorama could not reach the server. Check your connection and reload.',
     )
     return
   }
