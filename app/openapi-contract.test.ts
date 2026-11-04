@@ -104,6 +104,17 @@ describe('OpenAPI contract: static spec', () => {
     expect(media.required).toEqual(['kind', 'provider', 'sourceKind', 'sourceId', 'nodeId'])
   })
 
+  test('every required field is declared — required ⊆ properties on closed schemas', () => {
+    // A required name missing from properties under additionalProperties:false
+    // makes the schema unsatisfiable: every runtime-valid manifest violates it.
+    const schemas = spec.components.schemas as Record<string, { required?: string[]; properties?: Record<string, unknown>; additionalProperties?: boolean }>
+    for (const [name, schema] of Object.entries(schemas)) {
+      if (schema.additionalProperties !== false || !schema.required || !schema.properties) continue
+      const missing = schema.required.filter((field) => !(field in (schema.properties ?? {})))
+      expect({ schema: name, missing }).toEqual({ schema: name, missing: [] })
+    }
+  })
+
   test('migrate_gallery is pinned to its path, request shape, and conflict response', () => {
     const migrate = spec.paths['/api/galleries/{slug}/migrate'].post as {
       operationId: string

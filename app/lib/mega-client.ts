@@ -495,7 +495,7 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
     const alignedStart = wanted.start - (wanted.start % 16)
     const bytes = await fetchRange(info.g, alignedStart, wanted.end, fetchImpl)
     const plain = (await decryptContent(bytes, nodeKey, alignedStart, signal)).subarray(wanted.start - alignedStart)
-    return new Response(plain.slice().buffer as ArrayBuffer, {
+    return new Response(plain as unknown as BodyInit, {
       status: 206,
       headers: {
         'Content-Range': `bytes ${wanted.start}-${wanted.end}/${size}`,
@@ -509,7 +509,7 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
   // served; a ranged read skips it — chunk MACs chain across the file.
   const { plain, mac } = await ctrDecryptMetaMacClient(foldKey(nodeKey), nodeKey.subarray(16, 24), bytes, signal)
   if (!metaMacMatches(mac, nodeKey)) throw new SourceFetchError('That MEGA file failed its integrity check', 502)
-  return new Response(plain.slice().buffer as ArrayBuffer, { status: 200, headers: { 'Accept-Ranges': 'bytes', 'Content-Length': String(plain.length) } })
+  return new Response(plain as unknown as BodyInit, { status: 200, headers: { 'Accept-Ranges': 'bytes', 'Content-Length': String(plain.length) } })
 }
 
 /** Serves a decrypted JPEG preview/thumbnail for files whose originals
@@ -521,7 +521,7 @@ export const fetchMegaPreview = async (folder: string | undefined, set: string |
   if (nodeKey.length !== 16 && nodeKey.length !== 32) throw new SourceFetchError('That MEGA image reference is invalid', 400)
   const preview = await fetchFileAttribute(megaAuthFromParams(folder, set), fah, nodeKey, fetchImpl, signal)
   if (!preview) throw new SourceFetchError('That MEGA image preview is unavailable', 404)
-  return new Response(preview.slice(), { status: 200, headers: { 'Content-Type': sniffContentType(preview) } })
+  return new Response(preview as unknown as BodyInit, { status: 200, headers: { 'Content-Type': sniffContentType(preview) } })
 }
 
 export type MegaClientSession = {

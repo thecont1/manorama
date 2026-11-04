@@ -173,8 +173,8 @@ export const cbcDecryptZeroIv = (key: Uint8Array, data: Uint8Array) => {
 }
 
 /** MEGA key folding: a 32-byte file key is key[0:16] XOR key[16:32] for
- *  AES, with nonce at key[16:24] and a meta-MAC at key[24:32] (ignored —
- *  we proxy, we don't attest). 16-byte keys fold to themselves. */
+ *  AES, with nonce at key[16:24] and the expected meta-MAC at key[24:32] —
+ *  verified on whole-file retrieval. 16-byte keys fold to themselves. */
 export const foldKey = (key: Uint8Array) => {
   const folded = key.slice(0, 16)
   for (let i = 0; i < 16 && i + 16 < key.length; i++) folded[i] = key[i]! ^ key[i + 16]!
@@ -192,15 +192,18 @@ const cbcMacStep = (w: Uint8Array, state: Uint8Array, block: Uint8Array) => {
 /** MEGA chunk MAC: CBC chain under the file key, IV = the 8-byte file
  *  nonce duplicated. Every block except the trailing 16-byte window only
  *  advances the chain; the window (zero-padded if partial) is the MAC
- *  input. A chunk of 16 bytes or fewer contributes no data blocks at
- *  all — its MAC is E(IV). Both quirks match the reference clients, so
- *  metamacs computed by them verify here. */
-const chunkMac = (w: Uint8Array, iv: Uint8Array, data: Uint8Array) => {
+ *  input. In a larger file a chunk of 16 bytes or fewer contributes no
+ *  data blocks — the reference's loop index overshoots, so its MAC is
+ *  E(IV). A whole file of 16 bytes or fewer is different: its MAC is
+ *  over the zero-padded bytes themselves. Both quirks match the
+ *  reference clients, so metamacs computed by them verify here. */
+const chunkMac = (w: Uint8Array, iv: Uint8Array, data: Uint8Array, fileSize: number) => {
   const state = iv.slice()
   const driven = data.length > 16 ? Math.ceil((data.length - 16) / 16) : 0
   for (let i = 0; i < driven; i++) cbcMacStep(w, state, data.subarray(i * 16, i * 16 + 16))
   const last = new Uint8Array(16)
   if (data.length > 16) last.set(data.subarray(driven * 16))
+  else if (fileSize <= 16) last.set(data)
   cbcMacStep(w, state, last)
   return state
 }
@@ -219,14 +222,16 @@ export const metaMac = (key: Uint8Array, nonce: Uint8Array, plain: Uint8Array) =
   const outer = new Uint8Array(16)
   let p = 0
   for (let i = 1; i <= 8 && p < plain.length - i * 0x20000; i++) {
-    cbcMacStep(w, outer, chunkMac(w, iv, plain.subarray(p, p + i * 0x20000)))
+    cbcMacStep(w, outer, chunkMac(w, iv, plain.subarray(p, p + i * 0x20000), plain.length))
     p += i * 0x20000
   }
-  while (p < plain.length) {
+  // get_chunks yields once even for an empty file — the zero-length
+  // chunk still MACs an empty block, so this is a do-while.
+  do {
     const n = Math.min(0x100000, plain.length - p)
-    cbcMacStep(w, outer, chunkMac(w, iv, plain.subarray(p, p + n)))
+    cbcMacStep(w, outer, chunkMac(w, iv, plain.subarray(p, p + n), plain.length))
     p += n
-  }
+  } while (p < plain.length)
   const meta = new Uint8Array(8)
   for (let j = 0; j < 4; j++) {
     meta[j] = outer[j]! ^ outer[j + 4]!

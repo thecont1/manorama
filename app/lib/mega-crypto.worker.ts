@@ -5,6 +5,12 @@ type DecryptRequest =
   | { id: number; kind: 'ctrmac'; key: Uint8Array; nonce: Uint8Array; bytes: Uint8Array }
   | { id: number; kind: 'cbc'; key: Uint8Array; bytes: Uint8Array }
 
+/** Post the real buffers, not copies: anything else pays a slice copy on
+ *  top of the structured-clone copy for every whole-file decrypt. A view
+ *  onto a larger buffer cannot be transferred alone, so it is cloned. */
+const transferables = (...arrays: Uint8Array[]): ArrayBuffer[] =>
+  arrays.flatMap((a) => (a.byteOffset === 0 && a.byteLength === a.buffer.byteLength ? [a.buffer as ArrayBuffer] : []))
+
 self.onmessage = (event: MessageEvent<DecryptRequest>) => {
   const request = event.data
   try {
@@ -13,15 +19,13 @@ self.onmessage = (event: MessageEvent<DecryptRequest>) => {
       // splitting them would drag the AES loop back onto the main thread.
       const plain = ctrCrypt(request.key, request.nonce, request.bytes, 0)
       const mac = metaMac(request.key, request.nonce, plain)
-      const transferable: ArrayBuffer[] = [plain.slice().buffer as ArrayBuffer, mac.slice().buffer as ArrayBuffer]
-      ;(self as unknown as Worker).postMessage({ id: request.id, plain, mac }, transferable)
+      ;(self as unknown as Worker).postMessage({ id: request.id, plain, mac }, transferables(plain, mac))
       return
     }
     const plain = request.kind === 'ctr'
       ? ctrCrypt(request.key, request.nonce, request.bytes, request.offset)
       : cbcDecryptZeroIv(request.key, request.bytes)
-    const transferable: ArrayBuffer = plain.slice().buffer as ArrayBuffer
-    ;(self as unknown as Worker).postMessage({ id: request.id, plain }, [transferable])
+    ;(self as unknown as Worker).postMessage({ id: request.id, plain }, transferables(plain))
   } catch (error) {
     self.postMessage({ id: request.id, error: error instanceof Error ? error.message : 'Decrypt failed' })
   }

@@ -73,6 +73,23 @@ describe('mega-crypto', () => {
     expect([...metaMac(MAC_KEY, MAC_NONCE, big)].map((b) => b.toString(16).padStart(2, '0')).join('')).toBe('6a6250e0f5c5365b')
   })
 
+  // Boundary vectors pinned the same way: an empty file still MACs one
+  // zero-length chunk; a ≤16-byte file MACs its own zero-padded bytes
+  // (a ≤16-byte chunk inside a larger file MACs an empty block instead —
+  // the reference's loop index overshoots); 17 bytes is the first
+  // two-block shape; 393217 crosses into progressive chunk 4; 5,000,000
+  // exhausts the progressive schedule and ends inside the 1MB tail.
+  test('metaMac matches the pinned boundary vectors', () => {
+    const file = (n: number) => new Uint8Array(n).map((_, i) => (i * 31 + 17) & 0xff)
+    const mac = (n: number) => [...metaMac(MAC_KEY, MAC_NONCE, file(n))].map((b) => b.toString(16).padStart(2, '0')).join('')
+    expect(mac(0)).toBe('02c9e9f5ade6a5f5')
+    expect(mac(10)).toBe('cd6038c659f1591e')
+    expect(mac(16)).toBe('8717d40fa41c2189')
+    expect(mac(17)).toBe('4afe649b2de8ea7e')
+    expect(mac(393217)).toBe('e16314227417d03a')
+    expect(mac(5000000)).toBe('fa90c17cf132621a')
+  })
+
   test('verifyMegaMac accepts the matching key tail and rejects a wrong one', () => {
     const plain = new Uint8Array(5000).map((_, i) => (i * 29 + 11) & 0xff)
     const goodKey = fileKeyFor(metaMac(MAC_KEY, MAC_NONCE, plain))

@@ -28,7 +28,7 @@ Free-tier owners keep at most 3 `retained` galleries; creates beyond that insert
 
 - iCloud support rides Apple's undocumented shared-album web endpoints and can break without notice; treat iCloud galleries as best-effort.
 
-- MEGA links must carry the `#key` fragment — it is the share's decryption key. Manorama decrypts node keys, attributes, and image content client-side (AES-128 ECB/CBC/CTR; Set metadata additionally uses AES-GCM/CCM TLV containers). The decrypted per-file node key travels in the image proxy URL (`?k=`), equivalent in exposure to the public link itself. MEGA serves decrypted originals (`c2pa` preserved); formats browsers cannot render (HEIC, HEIF) are served through MEGA's own generated JPEG/WebP preview via `/api/mega/preview`, and images with no generated preview are excluded. Free-tier MEGA bandwidth limits (HTTP 509) can interrupt image delivery — these surface as 503s; retry later.
+- MEGA links must carry the `#key` fragment — it is the share's decryption key. Keys stay on the client: the fragment is never POSTed, manifests carry keyless media references, and scanning plus decryption (AES-128 ECB/CBC/CTR; Set metadata additionally uses AES-GCM/CCM TLV containers) happen on the device in a crypto worker. Whole-file retrieval verifies the uploader's meta-MAC before bytes are served; ranged reads cannot verify and are never presented as integrity-checked. The legacy `/api/mega/file` and `/api/mega/preview` proxy endpoints — which once carried the node key as `?k=` — answer `410 SERVER_DECRYPT_RETIRED` by default; they exist only for the documented `LEGACY_ENCRYPTED_DECRYPT` cohort window. MEGA serves decrypted originals (`c2pa` preserved); formats browsers cannot render (HEIC, HEIF) use MEGA's generated JPEG/WebP previews decrypted on-device, and images with no generated preview are excluded. Free-tier MEGA bandwidth limits (HTTP 509) can interrupt image delivery — these surface as 503s; retry later.
 
 - Accepted image formats: JPEG, WebP, AVIF, HEIC, and HEIF. PNG, GIF, TIFF, and all non-image files are consciously ignored at scan time. Video is ignored too, except in iCloud shared albums — see the Video section below.
 
@@ -63,7 +63,7 @@ sets.
 
 ## Content Credentials preservation
 
-- Originals are proxied byte-for-byte through the same-origin routes (`/api/dropbox/file`, `/api/drive/file`, `/api/mega/file`). They are never recompressed, cropped, or converted, so embedded C2PA manifests survive intact. MEGA originals arrive encrypted and are decrypted at proxy time — the bytes served are the file as uploaded, credentials included.
+- Originals are proxied byte-for-byte through the same-origin routes (`/api/dropbox/file`, `/api/drive/file`); MEGA originals are fetched from the CDN and decrypted on-device instead. They are never recompressed, cropped, or converted, so embedded C2PA manifests survive intact. MEGA bytes are the file as uploaded — AES-128-CTR restores them and the uploader's meta-MAC verifies them, credentials included.
 
 - The `c2pa` flag is true for Dropbox, Drive, and MEGA images and false for iCloud images, which exist only as web derivatives — there is no original to verify.
 

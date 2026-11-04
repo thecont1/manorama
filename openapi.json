@@ -267,6 +267,12 @@
             "description": "Optional when set to image; absent also means image",
             "type": "string"
           },
+          "width": {
+            "description": "Declared pixel dimensions; aspect ratio must fall within 10:1 either way",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          },
           "variants": {
             "description": "Up to four encrypted preview references",
             "items": {
