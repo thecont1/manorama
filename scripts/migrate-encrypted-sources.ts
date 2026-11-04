@@ -9,9 +9,12 @@
  * curation (order + hidden flags), and writes a reviewable SQL file that
  * rewrites each row to the v2 shape while retiring the stored key in the
  * same statement. The keyed source URL lives only in this process's memory —
- * it is never logged and never lands in the SQL file, which is the same
- * custody the browser migration gives it, minus the two-device ceremony the
- * operator's authority replaces.
+ * it is never logged — but the file IS still key-bearing: each UPDATE's
+ * optimistic-concurrency guard embeds the stored images_json, which carries
+ * legacy per-item k= secrets. Review it in place, apply it promptly, and
+ * delete it afterwards — never commit it or attach it to a ticket. The
+ * galleries table has no key-free concurrency token (no updated_at, digest,
+ * or revision column), so the guard compares the snapshot verbatim.
  *
  * Reads use `bunx wrangler d1 execute`, so the only credential needed is the
  * operator's normal wrangler login. Applying is a separate, reviewed step:
@@ -131,6 +134,8 @@ const main = async () => {
     '-- Rewrites each keyed MEGA gallery to the v2 keyless shape and retires',
     '-- the stored key in the same statement. Idempotent: the WHERE clause',
     '-- no-ops on rows already migrated.',
+    '-- SENSITIVE: the images_json guards echo legacy per-item k= secrets.',
+    '-- Do not commit, share, or retain this file after applying.',
     '',
     ...statements,
     '',

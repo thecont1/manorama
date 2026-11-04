@@ -81,15 +81,16 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         return
       }
       if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That key belongs to a different source album')
-      // Best-effort custody: quota or private-mode failures must not block
-      // opening with a key this session already has.
-      await webGalleryKeyStore().put(galleryId, source).catch(() => undefined)
       const { openEncryptedSource } = await import('../lib/encrypted-client')
       const session = await openEncryptedSource(source)
       if (session.sourceUrl !== keylessSourceUrl(sourceUrl)) {
         session.dispose()
         throw new Error('The decrypted listing belongs to a different source album')
       }
+      // Custody follows verification: a key that opened the wrong listing
+      // must never reach the store. Best-effort — quota or private-mode
+      // failures must not block opening with a key this session already has.
+      await webGalleryKeyStore().put(galleryId, source).catch(() => undefined)
       if (!live) { session.dispose(); return }
       owned = new EncryptedMediaResolver(session)
       setResolver(owned)

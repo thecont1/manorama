@@ -88,6 +88,13 @@ export class EncryptedMediaResolver {
       }
       entry.promise = (preview ? this.thumbnails : this.originals)(async () => {
         const materialized = await this.session.materialize(reference, preview, controller.signal)
+        if (this.entries.get(key) !== entry) {
+          // A fresh entry took this key after our abort — this materialize
+          // is stale: wipe it without touching byte accounting or creating
+          // an object URL nobody would revoke.
+          materialized.bytes.fill(0)
+          throw new DOMException('Aborted', 'AbortError')
+        }
         if (this.disposed) {
           materialized.bytes.fill(0)
           throw new Error('Media resolver is closed')

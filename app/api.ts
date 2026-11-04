@@ -866,21 +866,32 @@ export const createManoramaApi = () => {
       if (submitted.truncated !== undefined) {
         return c.json({ code: 'PARTIAL_SCAN', error: 'That folder could not be read completely — try again before removing the server key' }, 422)
       }
-      const verifiedDevices = [...new Set([...(gallery.migrationDevices ?? []), payload.deviceId])]
-      if (gallery.keyRetiredAt) {
-        return c.json({ gallery: toSummary(gallery), verifiedDevices: verifiedDevices.length, keyRetired: true })
+      // The migration_devices write is compare-and-swap: a concurrent
+      // device migrating the same gallery lands between our read and write.
+      // On a miss, re-read, rebuild the union, and retry — never report a
+      // stale write as verified.
+      let updated: Awaited<ReturnType<typeof updateGalleryRecord>> = null
+      let verifiedDevices: string[] = []
+      let keyRetired = false
+      for (let attempt = 0; attempt < 3 && !updated; attempt += 1) {
+        const current = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+        if (!current) return c.json({ error: 'That gallery was not found' }, 404)
+        verifiedDevices = [...new Set([...(current.migrationDevices ?? []), payload.deviceId])]
+        if (current.keyRetiredAt) {
+          return c.json({ gallery: toSummary(current), verifiedDevices: verifiedDevices.length, keyRetired: true })
+        }
+        keyRetired = payload.optOut === true || verifiedDevices.length >= 2
+        const images = mergeMigratedImages(current.images, submitted.images)
+        updated = await updateGalleryRecord(session.accountId, {
+          ...current,
+          images,
+          manifestVersion: 2,
+          sourceUrl: keyRetired ? submitted.sourceUrl : current.sourceUrl,
+          migrationDevices: verifiedDevices,
+          keyRetiredAt: keyRetired ? new Date().toISOString() : null,
+        }, dbEnv(c), { migrationDevices: current.migrationDevices ?? [] })
       }
-      const keyRetired = payload.optOut === true || verifiedDevices.length >= 2
-      const images = mergeMigratedImages(gallery.images, submitted.images)
-      const updated = await updateGalleryRecord(session.accountId, {
-        ...gallery,
-        images,
-        manifestVersion: 2,
-        sourceUrl: keyRetired ? submitted.sourceUrl : gallery.sourceUrl,
-        migrationDevices: verifiedDevices,
-        keyRetiredAt: keyRetired ? new Date().toISOString() : null,
-      }, dbEnv(c))
-      if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
+      if (!updated) return c.json({ error: 'Another device updated this gallery first — try again' }, 409)
       return c.json({
         gallery: toSummary(updated),
         verifiedDevices: verifiedDevices.length,

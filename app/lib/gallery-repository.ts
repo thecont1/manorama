@@ -289,9 +289,14 @@ export const createGallery = async (ownerId: string, gallery: GalleryRecord, env
 }
 
 /** Updates an existing gallery row in place via an atomic D1 UPDATE (no
- *  create-then-delete). Returns null when no row matches and throws a typed
- *  read-only error for pipeline galleries. */
-export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv): Promise<GalleryRecord | null> => {
+ *  create-then-delete). When `expected.migrationDevices` is supplied the
+ *  write is conditional on migration_devices still holding that snapshot —
+ *  the state the caller's verified-device union was built from — so two
+ *  devices migrating concurrently cannot silently drop each other. A
+ *  conditional miss returns null like a missing row; callers that need the
+ *  distinction re-read before retrying. Returns null when no row matches
+ *  and throws a typed read-only error for pipeline galleries. */
+export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv, expected?: { migrationDevices?: string[] }): Promise<GalleryRecord | null> => {
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, gallery.slug, env)
     if (!current) return null
@@ -304,8 +309,8 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
     })
     const result = await env.DB.prepare(
       `UPDATE galleries SET manifest_version = ?, title = ?, caption = ?, date = ?, source_url = ?, images_json = ?, key_retired_at = ?, migration_devices = ?
-       WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
-    ).bind(row.manifest_version, row.title, row.caption, row.date, row.source_url, row.images_json, row.key_retired_at, row.migration_devices, ownerId, gallery.slug).run()
+       WHERE owner_id = ? AND slug = ? AND retention = 'retained'${expected ? ' AND migration_devices = ?' : ''}`,
+    ).bind(row.manifest_version, row.title, row.caption, row.date, row.source_url, row.images_json, row.key_retired_at, row.migration_devices, ownerId, gallery.slug, ...(expected ? [JSON.stringify(expected.migrationDevices ?? [])] : [])).run()
     if ((result.meta.changes ?? 0) === 0) return null
     return getStoredGallery(ownerId, gallery.slug, env)
   }
@@ -313,6 +318,7 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
   const current = store.get(gallery.slug)
   if (!current) return null
   assertGalleryEditable(current)
+  if (expected && JSON.stringify(current.migrationDevices ?? []) !== JSON.stringify(expected.migrationDevices ?? [])) return null
   const updated: GalleryRecord = {
     ...gallery,
     id: current.id,

@@ -104,8 +104,8 @@ Staging binds the same `manorama` D1 database as production (see `wrangler.toml`
 Legacy MEGA galleries whose stored `source_url` still carries a `#`-fragment key are migrated by the operator, not by each owner through the two-device web flow (the cohort is small enough that a reviewed one-shot is safer):
 
 1. Apply migrations 0013+0014: `bunx wrangler d1 migrations apply manorama --remote`.
-2. Emit the rewrite: `bun scripts/migrate-encrypted-sources.ts` — reads keyed rows, scans each source locally with the client scanner, and writes `out/encrypted-migration.sql`. Review the file; it contains only keyless URLs and scanned media refs.
-3. Apply it: `bunx wrangler d1 execute manorama --remote --file out/encrypted-migration.sql` — the trailing SELECT should report `keyed = 0` for every row.
+2. Emit the rewrite: `bun scripts/migrate-encrypted-sources.ts` — reads keyed rows, scans each source locally with the client scanner, and writes `out/encrypted-migration.sql`. The SET clause contains only keyless URLs and scanned media refs, **but the file is still key-bearing**: each UPDATE's concurrency guard embeds the stored `images_json`, which carries legacy per-item `k=` secrets. Review it in place, never commit or attach it (`out/` is git-ignored), and delete it after applying.
+3. Apply it: `bunx wrangler d1 execute manorama --remote --file out/encrypted-migration.sql` — the trailing SELECT should report `keyed = 0` for every row. An UPDATE that matches no row means the gallery changed since the snapshot — re-run step 2 rather than forcing it.
 
 The script refuses a schema that lacks the custody columns and skips any gallery whose scan truncates, matching the `PARTIAL_SCAN` rule on the `/migrate` endpoint. Owner devices pick up keys the usual way: opening the gallery's full link once per device.
 
