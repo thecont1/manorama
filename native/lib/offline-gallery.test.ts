@@ -301,6 +301,26 @@ describe('EncryptedOfflineGalleryStore', () => {
     expect(ready.find((item) => item.id === 'stable-two')?.mimeType).toBe('image/png')
   })
 
+  test('open decrypts entries concurrently instead of one at a time', async () => {
+    const { store, storage } = makeHarness()
+    await store.cache(selection, gallery)
+
+    let inFlight = 0
+    let maxInFlight = 0
+    const originalRead = storage.read.bind(storage)
+    storage.read = async (path: string) => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight -= 1
+      return originalRead(path)
+    }
+
+    const opened = await store.open(selection)
+    expect(opened).toBeDefined()
+    expect(maxInFlight).toBeGreaterThan(1)
+  })
+
   test('detects complete caches and refuses a missing image entry', async () => {
     const { store, vault } = makeHarness()
     expect(await store.inspect(selection)).toEqual({ status: 'missing', images: 0 })
@@ -368,8 +388,10 @@ describe('EncryptedOfflineGalleryStore', () => {
     await vault.remove(await offlineGalleryId(selection), thumbnailEntryId('stable-two'))
 
     expect(await store.open(selection)).toBeUndefined()
-    expect(urls.revoked).toEqual(['blob:offline-1'])
-    expect(urls.inputs.every((bytes) => bytes.every((byte) => byte === 0))).toBe(true)
+    // Entries are decrypted and verified before any URL is minted, so an
+    // incomplete cache never creates a partial URL to revoke.
+    expect(urls.revoked).toEqual([])
+    expect(urls.inputs).toEqual([])
 
     const complete = makeHarness()
     await complete.store.cache(selection, gallery)

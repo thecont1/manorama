@@ -1691,6 +1691,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         {linkConflict ? <p class="native-account-note" role="alert">{linkConflict}</p> : null}
         {quickAddBusy ? <p class="native-account-note" role="status">Reading the cloud folder and building your gallery…</p> : null}
         {error && !galleryOpen && !addOpen ? <p class="native-account-note" role="alert">{error}</p> : null}
+        {/* A vaulted open decrypts every entry before the first frame — the
+            gap reads as a hang unless the surface says it is working. */}
+        {status === 'loading' && !manifest ? <p class="native-account-note" role="status">{galleryStatusMessage('loading')}</p> : null}
         {/* The sponsored panel sits between the Library heading and the
             cards — 24px below the status block, 40px before the first
             gallery — never inside a card and never among the photographs. */}

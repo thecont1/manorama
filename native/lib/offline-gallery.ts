@@ -104,7 +104,7 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'readMany' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds'>
 type CachedImage = { id: string; entryId: string; mimeType: string }
 type OfflineMetadata = {
   version: typeof METADATA_VERSION
@@ -520,12 +520,16 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     const urls: string[] = []
     const localById = new Map<string, string>()
     try {
-      for (const image of metadata.value.images) {
-        const bytes = await this.vault.read(galleryId, image.entryId)
-        if (!bytes) {
-          await this.vault.remove(galleryId, METADATA_ENTRY_ID)
-          throw new Error('Offline gallery cache is incomplete')
-        }
+      // One serialized slot, batched decrypts: a whole gallery's ciphertext
+      // comes back in parallel windows instead of one entry at a time.
+      const results = await this.vault.readMany(galleryId, metadata.value.images.map((image) => image.entryId))
+      if (results.some((bytes) => !bytes)) {
+        for (const bytes of results) bytes?.fill(0)
+        await this.vault.remove(galleryId, METADATA_ENTRY_ID)
+        throw new Error('Offline gallery cache is incomplete')
+      }
+      for (const [index, image] of metadata.value.images.entries()) {
+        const bytes = results[index]!
         try {
           const url = this.objectUrls.create(bytes, image.mimeType)
           urls.push(url)
