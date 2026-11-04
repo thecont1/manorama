@@ -36,31 +36,35 @@ review asked for, and states plainly what could not be run in this checkout.
 Script: `scripts/measure-encrypted-gallery.mjs` (committed). Fixture: the live
 seeded share, 69 items. No deterministic local encrypted fixture exists, so
 these numbers carry live-network variance and are informational, not a budget
-gate. Chromium (Playwright), 5 cold + 3 warm opens per viewport. A cold run
+gate. Chromium (Playwright), 3 cold + 2 warm opens per viewport. A cold run
 navigates to the keyed `#source=` link; a warm run navigates to the bare
 gallery URL in the same browser context, so opening depends on the stored
 session key — not a reload of the keyed link.
 
-Time to first `blob:` image (ms):
+Time to first `blob:` image (ms), post-#173 (media materializes off the
+folder listing; the probe pass no longer gates first paint):
 
 | Viewport | Cold median | Cold p95 | Warm median | Warm p95 |
 |---|---|---|---|---|
-| 375×812 | 16,400 | 17,091 | 11,360 | 19,460 |
-| 1440×900 | 14,908 | 15,408 | 11,841 | 12,855 |
-| 2560×1440 | 15,413 | 18,904 | 11,846 | 20,426 |
+| 375×812 | 4,853 | 5,407 | 2,822 | 3,339 |
+| 1440×900 | 4,871 | 4,884 | 2,875 | 3,499 |
+| 2560×1440 | 4,367 | 4,377 | 3,323 | 10,397 |
+
+Pre-#173 baselines for comparison (5 cold + 3 warm, same fixture): cold
+medians 14,908–16,400 ms, warm medians 11,355–11,858 ms — the probe pass
+(serialized dimension discovery) gated the resolver entirely.
 
 Observations:
 
-- `workers: 79` constructions per open — decryption runs in the crypto Worker,
-  never the main thread.
+- `workers: 22–28` constructions per open (was 79) — the first frame lands
+  before most of the probe pass has even spun a Worker.
 - One `blob:` image at first-frame settle — the resolver's bounded object-URL
   set holds; full-strip materialization proceeds in the background after the
-  first frame (issue #173 tracks thumbnail-first loading).
-- JS heap ~11–17 MB at settle.
-- Warm opens (stored session key, fragment-less URL) save ~3–4 s — the stored
-  key skips custody checks, but the folder is re-listed every open. The
-  remaining latency is the MEGA listing + per-item probe, matching the #173
-  follow-up.
+  first frame.
+- JS heap ~16–17 MB at settle.
+- Warm opens (stored session key, fragment-less URL) save ~2 s — the stored
+  key skips custody checks, but the folder is still re-listed every open;
+  remaining latency is the listing + first materialize.
 
 ## Not runnable in this checkout
 
