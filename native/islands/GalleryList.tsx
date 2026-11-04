@@ -1410,10 +1410,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setGalleryActionNote(reason instanceof Error ? reason.message : 'That gallery could not be updated.')
     } finally { setGalleryActionBusy(null) }
   }
-  const cachedOnlyGalleries = ownerSlug
-    ? cachedLibraryGalleries.filter((cached) =>
-        cached.owner === ownerSlug && !visibleAccountGalleries.some((gallery) => gallery.slug === cached.slug))
-    : []
+  // Saved copies are a device fact, not an account fact: show them even when
+  // the owner slug or the account list is unavailable — only a gallery the
+  // account list actually returned drops out of this section.
+  const cachedOnlyGalleries = cachedLibraryGalleries.filter((cached) =>
+    !(cached.owner === ownerSlug && visibleAccountGalleries.some((gallery) => gallery.slug === cached.slug)))
   const purgeCachedLibraryGallery = async (gallery: OfflineGridGallery) => {
     if (galleryActionBusy) return
     setGalleryActionBusy(gallery.galleryId)
@@ -1513,7 +1514,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <button type="button" class="lib-card-title" onClick={() => openSelectionAt(gallery.owner, gallery.slug, 0)}>{gallery.title}</button>
         <button type="button" class="lib-card-menu" aria-label={`${gallery.title} saved-copy actions`} aria-haspopup="dialog" onClick={() => setCachedMenuGallery(gallery)}>···</button>
       </div>
-      <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Offline copy complete · Saved on this device{accountGalleries && !accountListFailed ? ' · not in the online account list' : ' · account list pending'}</p>
+      <p class="lib-card-sub">{formatMediaCount({ stills: gallery.frames.length - gallery.frames.filter((frame) => frame.video).length, videos: gallery.frames.filter((frame) => frame.video).length })} · Offline copy complete · Saved on this device{accountListFailed ? ' · account list unavailable' : accountGalleries ? ' · not in the online account list' : ' · account list pending'}</p>
     </article>
   )
   // Render gate: an unresolved entitlement drops the slot in the same paint
