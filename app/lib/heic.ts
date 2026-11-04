@@ -20,6 +20,9 @@ const heicInflight = new Map<string, Promise<string | null>>()
 export const clearHeicUrlCache = () => { heicUrlCache.clear() }
 
 const heicObjectUrlUncached = async (src: string, maxDim?: number): Promise<string | null> => {
+  // An empty src would fetch the document itself — encrypted entries carry
+  // one until their media materializes.
+  if (!src) return null
   const response = await fetch(src)
   if (!response.ok) return null
   const blob = await response.blob()
