@@ -427,6 +427,43 @@ export class EncryptedVault {
     })
   }
   async remove(galleryId: string, entryId: string): Promise<void> { return this.serial(async () => { const index = await this.loadIndex(); const entry = index.entries[entryKey(galleryId, entryId)]; if (entry) await this.removeEntry(index, entry); await this.saveIndex(index) }) }
+  /** Reads several entries in one serialized slot: the index and the vault key
+   *  load once, storage reads and decrypts run in bounded batches, and
+   *  `lastAccess` lands in a single index write. Serialized callers still
+   *  cannot interleave with a mutation — they just stop queueing per entry. */
+  async readMany(galleryId: string, entryIds: string[], options: { touch?: boolean } = {}): Promise<(Uint8Array | undefined)[]> {
+    const touch = options.touch ?? true
+    return this.serial(async () => {
+      const index = await this.loadIndex()
+      const key = await this.loadKey(galleryId, false)
+      const found = entryIds.map((entryId) => index.entries[entryKey(galleryId, entryId)])
+      const results: (Uint8Array | undefined)[] = new Array(entryIds.length)
+      const removed: Entry[] = []
+      const CONCURRENCY = 8
+      for (let start = 0; start < entryIds.length; start += CONCURRENCY) {
+        await Promise.all(entryIds.slice(start, start + CONCURRENCY).map(async (entryId, offset) => {
+          const position = start + offset
+          const entry = found[position]
+          if (!entry || !key) { if (entry) removed.push(entry); results[position] = undefined; return }
+          const record = await this.storage.read(entry.path)
+          if (!record) { removed.push(entry); results[position] = undefined; return }
+          try {
+            results[position] = await unpack(record, key.key, galleryId, entryId, this.crypto)
+          } catch {
+            removed.push(entry)
+            results[position] = undefined
+          }
+        }))
+      }
+      for (const entry of removed) await this.removeEntry(index, entry)
+      if (touch || removed.length > 0) {
+        const now = this.now()
+        found.forEach((entry, position) => { if (entry && results[position]) entry.lastAccess = now })
+        await this.saveIndex(index)
+      }
+      return results
+    })
+  }
   /** Bumps `lastAccess` for the listed entries without reading their bytes,
    *  and reports the entryIds that are not present — absent from the index,
    *  or gone from storage when a listing can say so. One file walk answers

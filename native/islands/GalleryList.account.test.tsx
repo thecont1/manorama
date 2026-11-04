@@ -957,6 +957,34 @@ describe('signed-in account area', () => {
     expect(container.querySelector('[data-cached-gallery="saved-album"]')?.textContent).toContain('not in the online account list')
   })
 
+  test('a vaulted open shows an opening state while the vault decrypts', async () => {
+    installLocalStorage()
+    signInStorage()
+    stubFetch({
+      galleries: json({ galleries: [accountSummary()] }),
+      fallback: (url) => url.includes('/api/gallery/')
+        ? Promise.reject(new TypeError('offline')) as unknown as Response
+        : new Response('{}', { status: 404 }),
+    })
+    let releaseOpen!: () => void
+    const store = {
+      open: () => new Promise<never>((_, reject) => { releaseOpen = () => reject(new Error('aborted')) }),
+      listGalleries: async () => [],
+      listGridGalleries: async () => [],
+      readThumbnail: async () => undefined,
+    } as unknown as OfflineGalleryStore
+    const { container } = mountAccount({ store })
+    await settle()
+
+    const title = container.querySelector('.lib-card-title') as HTMLButtonElement
+    expect(title).not.toBeNull()
+    title.click()
+    await settle()
+    expect(container.textContent).toContain('Opening gallery…')
+    releaseOpen()
+    await settle()
+  })
+
   test('cached galleries survive a rejected account list', async () => {
     installLocalStorage()
     signInStorage()
