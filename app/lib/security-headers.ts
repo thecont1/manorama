@@ -21,7 +21,9 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     // Dev adds ws:/wss: for Vite HMR.
     // MEGA's public API/CDN permit direct ciphertext access. Only their
     // exact API hosts and rotating storage suffix join the gallery allowlist.
-    `connect-src 'self' https://g.api.mega.co.nz https://eu.api.mega.co.nz https://*.userstorage.mega.co.nz${opts.dev ? ' ws: wss:' : ''}`,
+    // blob: covers fetches of resolver-minted object URLs — the HEIC decode
+    // path reads encrypted media bytes back through the blob it just minted.
+    `connect-src 'self' blob: https://g.api.mega.co.nz https://eu.api.mega.co.nz https://*.userstorage.mega.co.nz${opts.dev ? ' ws: wss:' : ''}`,
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
