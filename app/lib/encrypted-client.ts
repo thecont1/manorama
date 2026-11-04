@@ -21,5 +21,8 @@ export const openEncryptedSource = async (sourceUrl: string): Promise<EncryptedC
       dispose: () => mega.dispose(),
     }
   }
-  throw new Error('Use a complete MEGA or Ente public album link')
+  // Ente album parsing stays — the deferred adapter lands here — but no
+  // Ente network path exists yet, so the link is refused before one opens.
+  if (provider === 'ente') throw new Error('Ente public albums are not supported yet. Use a complete MEGA link.')
+  throw new Error('Use a complete MEGA public album link')
 }

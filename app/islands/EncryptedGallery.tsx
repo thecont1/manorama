@@ -77,7 +77,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       // A storage read failure degrades to null, not a lockout.
       const source = stored ?? legacySourceUrl
       if (!source) {
-        if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original MEGA/Ente link.')
+        if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original MEGA link.')
         return
       }
       if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That key belongs to a different source album')
@@ -143,7 +143,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         <p>{problem}</p>
         <p>Manorama cannot recover the key or decrypt this gallery on the server.</p>
         <form onSubmit={unlock}>
-          <label for="encrypted-unlock-url">Full Manorama, MEGA, or Ente link</label>
+          <label for="encrypted-unlock-url">Full Manorama or MEGA link</label>
           <input id="encrypted-unlock-url" type="url" required value={unlockValue} onInput={(event) => setUnlockValue((event.currentTarget as HTMLInputElement).value)} placeholder="https://…#…" />
           <button class="m-btn m-btn--primary" type="submit">Unlock gallery</button>
         </form>
