@@ -44,13 +44,14 @@ export const clearAllEncryptedSources = async (): Promise<void> => {
   await keyStore().purgeAll()
 }
 
-const manifestOf = (session: EncryptedClientSession): KeylessManifest => ({
-  provider: session.provider,
-  sourceUrl: session.sourceUrl,
-  title: session.title,
-  images: session.images,
-  ...(session.truncated !== undefined ? { truncated: session.truncated } : {}),
-})
+const manifestOf = async (session: EncryptedClientSession): Promise<KeylessManifest> => {
+  const listing = await session.listing
+  return {
+    provider: session.provider,
+    sourceUrl: session.sourceUrl,
+    ...listing,
+  }
+}
 
 /** Client scan + keyless create. The key is persisted only after the server
  * returns the gallery address, under that gallery's immutable offline id. */
@@ -62,7 +63,7 @@ export const createEncryptedGallery = async (
   const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
   const session = await openEncryptedSource(sourceUrl)
   try {
-    const next = await createGalleryFromManifest(apiBase, manifestOf(session), options)
+    const next = await createGalleryFromManifest(apiBase, await manifestOf(session), options)
     await persistEncryptedSourceForSelection(next.galleryId, sourceUrl)
     return next
   } finally {
@@ -79,7 +80,7 @@ export const refreshEncryptedGallery = async (apiBase: string, slug: string, gal
   const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
   const session = await openEncryptedSource(sourceUrl)
   try {
-    await refreshGalleryWithManifest(apiBase, slug, manifestOf(session))
+    await refreshGalleryWithManifest(apiBase, slug, await manifestOf(session))
   } finally {
     session.dispose()
   }

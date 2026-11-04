@@ -140,17 +140,19 @@ export const createGallery = async (sourceUrl: string, root: HTMLElement) => {
       encryptedSource = sourceUrl
       const { openEncryptedSource } = await import('./lib/encrypted-client')
       const session = await openEncryptedSource(sourceUrl)
-      body = {
-        manifest: {
-          provider: session.provider,
-          sourceUrl: session.sourceUrl,
-          title: session.title,
-          images: session.images,
-          ...(session.truncated ? { truncated: session.truncated } : {}),
-        },
-        quick: true,
+      try {
+        const listing = await session.listing
+        body = {
+          manifest: {
+            provider: session.provider,
+            sourceUrl: session.sourceUrl,
+            ...listing,
+          },
+          quick: true,
+        }
+      } finally {
+        session.dispose()
       }
-      session.dispose()
     }
     response = await fetch('/api/galleries', {
       method: 'POST',

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey, metaMac, verifyMegaMac } from './mega-crypto'
-import { extractMegaFolder, extractMegaLink, fetchMegaFile, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-client'
+import { extractMegaFolder, extractMegaLink, fetchMegaFile, fetchMegaPreview, openMegaSession, scanMegaCollection, scanMegaFolder } from './mega-client'
 
 const hex = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
@@ -572,6 +572,131 @@ describe('fetchMegaFile', () => {
     expect(response.status).toBe(206)
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(PLAIN.subarray(17, 41))
     expect(response.headers.get('Content-Range')).toBe(`bytes 17-40/${PLAIN.length}`)
+  })
+})
+
+describe('openMegaSession', () => {
+  const link = `https://mega.nz/folder/${FOLDER_HANDLE}#${SHARE_KEY_B64}`
+
+  test('materializes off the listing while the probe pass is still running', async () => {
+    // One ciphertext serves both the materialize path and the head probe:
+    // foldKey(fileKey) is the shared CTR key, so the head's JPEG SOF dims
+    // parse for the probe while the whole file verifies its meta-MAC.
+    const PLAIN = jpegHead()
+    const CIPHER = ctrCrypt(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN)
+    const fileKey = fileKeyFor(metaMac(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN))
+    const file = fileNode('IMG_0001.jpg', {
+      a: encryptAttributes(fileKey, { n: 'IMG_0001.jpg' }),
+      k: `${FOLDER_HANDLE}:${b64uEncode(ecbEncrypt(SHARE_KEY, fileKey))}`,
+      fa: `1*${b64uEncode(new Uint8Array(8).fill(9))}`,
+      s: PLAIN.length,
+    })
+    let releaseProbe!: () => void
+    const probeGate = new Promise<void>((resolve) => { releaseProbe = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'ufa') { await probeGate; return jsonResponse({}) }
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: PLAIN.length })
+        return jsonResponse([{ f: [folderNode, file] }])
+      }
+      const [, start, end] = url.match(/\/(\d+)-(\d+)$/) ?? []
+      return new Response(CIPHER.subarray(Number(start), Number(end) + 1).slice(), { status: 200 })
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    let scanSettled = false
+    const scanPromise = session.scan.then((scan) => { scanSettled = true; return scan })
+    const materialized = await session.materialize(FILE_HANDLE)
+    // The probe is still gated — materialize worked off the listed keys alone.
+    expect(scanSettled).toBe(false)
+    expect(materialized.mimeType).toBe('image/jpeg')
+    expect(materialized.bytes).toEqual(PLAIN)
+    releaseProbe()
+    const scan = await scanPromise
+    expect(scan.images).toHaveLength(1)
+    expect(scan.images[0]!.width).toBe(6000)
+    session.dispose()
+    await expect(session.materialize(FILE_HANDLE)).rejects.toThrow('closed')
+  })
+
+  test('materializes a known item while the share listing is still in flight', async () => {
+    const PLAIN = jpegHead()
+    const CIPHER = ctrCrypt(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN)
+    const fileKey = fileKeyFor(metaMac(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN))
+    const file = fileNode('IMG_0001.jpg', {
+      a: encryptAttributes(fileKey, { n: 'IMG_0001.jpg' }),
+      k: `${FOLDER_HANDLE}:${b64uEncode(ecbEncrypt(SHARE_KEY, fileKey))}`,
+      s: PLAIN.length,
+    })
+    let releaseListing!: () => void
+    const listingGate = new Promise<void>((resolve) => { releaseListing = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') { await listingGate; return jsonResponse([{ f: [folderNode, file] }]) }
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: PLAIN.length })
+        return jsonResponse({})
+      }
+      const [, start, end] = url.match(/\/(\d+)-(\d+)$/) ?? []
+      return new Response(CIPHER.subarray(Number(start), Number(end) + 1).slice(), { status: 200 })
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    let settled = false
+    const materialized = session.materialize(FILE_HANDLE).then((result) => { settled = true; return result })
+    await Promise.resolve()
+    // The listing fetch is still gated — materialize is parked on the key.
+    expect(settled).toBe(false)
+    releaseListing()
+    expect((await materialized).bytes).toEqual(PLAIN)
+    session.dispose()
+  })
+
+  test('a materialize for an absent node rejects when the listing settles', async () => {
+    let releaseListing!: () => void
+    const listingGate = new Promise<void>((resolve) => { releaseListing = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') { await listingGate; return jsonResponse([{ f: [folderNode, fileNode('IMG_0001.jpg')] }]) }
+        return jsonResponse({})
+      }
+      return jsonResponse({}, 404)
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    let rejected = false
+    const absent = session.materialize('NoSuchHdl').then(
+      () => { throw new Error('resolved unexpectedly') },
+      (error: unknown) => { rejected = true; throw error },
+    )
+    await Promise.resolve()
+    expect(rejected).toBe(false) // parked, not refused — the listing has not landed
+    releaseListing()
+    await expect(absent).rejects.toThrow('not present')
+    session.dispose()
+  })
+
+  test('dispose rejects a materialize parked on the listing', async () => {
+    let releaseListing!: () => void
+    const listingGate = new Promise<void>((resolve) => { releaseListing = resolve })
+    const impl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?')) {
+        if (body[0]?.a === 'f') { await listingGate; return jsonResponse([{ f: [folderNode, fileNode('IMG_0001.jpg')] }]) }
+        return jsonResponse({})
+      }
+      return jsonResponse({}, 404)
+    }
+    const session = await openMegaSession(link, impl as typeof fetch)
+    const parked = session.materialize(FILE_HANDLE)
+    await Promise.resolve()
+    session.dispose()
+    await expect(parked).rejects.toThrow('closed')
+    releaseListing()
+    await expect(session.scan).rejects.toThrow('closed')
   })
 })
 

@@ -763,7 +763,8 @@ describe('encrypted-source offline materialization', () => {
     return { manifest, settings: defaultGallerySettings(manifest) }
   }
   const sessionFor = (images: GalleryImage[], bytes: Uint8Array, disposed: { value: boolean }, materialize: { count: number }) => ({
-    provider: 'mega' as const, sourceUrl: 'https://mega.nz/folder/AbCdEf12', title: 'Encrypted', images,
+    provider: 'mega' as const, sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+    listing: Promise.resolve({ title: 'Encrypted', images }),
     materialize: async () => {
       materialize.count += 1
       return { bytes: bytes.slice(), mimeType: 'image/jpeg' }

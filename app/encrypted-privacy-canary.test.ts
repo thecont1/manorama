@@ -402,7 +402,7 @@ describe('F4: the native deep link trusts the fragment over the gallery it names
     mock.module(new URL('./lib/encrypted-client.ts', import.meta.url).pathname, () => ({
       openEncryptedSource: async (url: string) => {
         opened.push(url)
-        return { provider: 'mega', sourceUrl: 'https://mega.nz/folder/OTHERALBUM', title: 'Other', images: [], materialize: async () => { throw new Error('x') }, dispose: () => {} }
+        return { provider: 'mega', sourceUrl: 'https://mega.nz/folder/OTHERALBUM', listing: Promise.resolve({ title: 'Other', images: [] }), materialize: async () => { throw new Error('x') }, dispose: () => {} }
       },
     }))
     const { openGalleryNetworkFirst } = await import('../native/lib/offline-gallery')
@@ -426,7 +426,7 @@ describe('F4: the native deep link trusts the fragment over the gallery it names
     mock.module(new URL('./lib/encrypted-client.ts', import.meta.url).pathname, () => ({
       openEncryptedSource: async (url: string) => {
         opened.push(url)
-        return { provider: 'mega', sourceUrl: 'https://mega.nz/folder/REALALBUM', title: 'Real', images: [], materialize: async () => { throw new Error('x') }, dispose: () => {} }
+        return { provider: 'mega', sourceUrl: 'https://mega.nz/folder/REALALBUM', listing: Promise.resolve({ title: 'Real', images: [] }), materialize: async () => { throw new Error('x') }, dispose: () => {} }
       },
     }))
     const { openGalleryNetworkFirst } = await import('../native/lib/offline-gallery')

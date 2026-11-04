@@ -11,8 +11,8 @@ describe('encrypted quick-add', () => {
     const source = 'https://mega.nz/folder/AbCdEf12#secret'
     let disposed = false
     const session = {
-      provider: 'mega', sourceUrl: 'https://mega.nz/folder/AbCdEf12', title: 'Encrypted',
-      images: [{ id: 'mega-node1' }],
+      provider: 'mega', sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+      listing: Promise.resolve({ title: 'Encrypted', images: [{ id: 'mega-node1' }] }),
       materialize: async () => { throw new Error('unused') },
       dispose: () => { disposed = true },
     }
@@ -57,8 +57,8 @@ describe('encrypted quick-add', () => {
   test('a failing key store does not swallow a successful create', async () => {
     const source = 'https://mega.nz/folder/AbCdEf12#secret'
     const session = {
-      provider: 'mega', sourceUrl: 'https://mega.nz/folder/AbCdEf12', title: 'Encrypted',
-      images: [{ id: 'mega-node1' }],
+      provider: 'mega', sourceUrl: 'https://mega.nz/folder/AbCdEf12',
+      listing: Promise.resolve({ title: 'Encrypted', images: [{ id: 'mega-node1' }] }),
       materialize: async () => { throw new Error('unused') },
       dispose: () => {},
     }
