@@ -2,12 +2,14 @@ import type { MediaReference } from '../../packages/core/encrypted-source'
 import type { GalleryImage } from './imagesource'
 
 export type MaterializedMedia = { bytes: Uint8Array; mimeType: string }
+export type EncryptedListing = { title: string; images: GalleryImage[]; truncated?: number }
 export type EncryptedClientSession = {
   provider: 'mega' | 'ente'
   sourceUrl: string
-  title: string
-  images: GalleryImage[]
-  truncated?: number
+  /** The scan's probe pass, still running when open returns. Manifest
+   *  submitters await it; a viewer must not block first paint on it —
+   *  `materialize` works off the listed keys from the start. */
+  listing: Promise<EncryptedListing>
   materialize(reference: MediaReference, preview: boolean, signal?: AbortSignal): Promise<MaterializedMedia>
   dispose(): void
 }

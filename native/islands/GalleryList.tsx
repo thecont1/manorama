@@ -1288,7 +1288,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         if (!isEncryptedSourceUrl(url)) return scanSourceUrl(base, url)
         const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
         const session = await openEncryptedSource(url)
-        try { return { title: session.title } } finally { session.dispose() }
+        try { return { title: (await session.listing).title } } finally { session.dispose() }
       })()
       if (seq !== addVerifySeq.current) return
       setError(null)

@@ -544,12 +544,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       if (isEncryptedSourceUrl(url)) {
         const { openEncryptedSource } = await import('../lib/encrypted-client')
         const session = await openEncryptedSource(url)
+        const { title } = await session.listing
         if (seq !== addVerifySeq.current) { session.dispose(); return }
         addEncryptedSession.current?.dispose()
         addEncryptedSession.current = session
         setAddError(null)
-        setAddVerifiedTitle(session.title)
-        setAddName((current) => current.trim() ? current : session.title)
+        setAddVerifiedTitle(title)
+        setAddName((current) => current.trim() ? current : title)
         return
       }
       const response = await fetch('/api/galleries/scan', {
@@ -606,13 +607,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       if (isEncryptedSourceUrl(url)) {
         const session = addEncryptedSession.current ?? await (await import('../lib/encrypted-client')).openEncryptedSource(url)
         addEncryptedSession.current = session
+        const listing = await session.listing
         body = {
           manifest: {
             provider: session.provider,
             sourceUrl: session.sourceUrl,
-            title: session.title,
-            images: session.images,
-            ...(session.truncated ? { truncated: session.truncated } : {}),
+            ...listing,
           },
           ...(input.name ? { title: input.name } : {}),
           ...(input.caption ? { caption: input.caption } : {}),
@@ -691,6 +691,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     const { openEncryptedSource } = await import('../lib/encrypted-client')
     const session = await openEncryptedSource(source)
     try {
+      const listing = await session.listing
       if (gallery.id) await webGalleryKeyStore().put(gallery.id, source)
       return {
         method: 'POST',
@@ -698,9 +699,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         body: JSON.stringify({ manifest: {
           provider: session.provider,
           sourceUrl: session.sourceUrl,
-          title: session.title,
-          images: session.images,
-          ...(session.truncated ? { truncated: session.truncated } : {}),
+          ...listing,
         } }),
       }
     } finally {

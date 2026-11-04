@@ -10,10 +10,12 @@ export const openEncryptedSource = async (sourceUrl: string): Promise<EncryptedC
     const mega = await openMegaSession(sourceUrl)
     return {
       provider: 'mega',
-      sourceUrl: mega.scan.sourceUrl,
-      title: mega.scan.title,
-      images: mega.scan.images,
-      ...(mega.scan.truncated ? { truncated: mega.scan.truncated } : {}),
+      sourceUrl: mega.sourceUrl,
+      listing: mega.scan.then((scan) => ({
+        title: scan.title,
+        images: scan.images,
+        ...(scan.truncated ? { truncated: scan.truncated } : {}),
+      })),
       materialize: (reference, preview, signal) => {
         if (reference.kind !== 'encrypted' || reference.provider !== 'mega') throw new Error('MEGA media reference is invalid')
         return mega.materialize(reference.nodeId, preview ? reference.previewId : undefined, signal)

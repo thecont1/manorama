@@ -2,7 +2,7 @@ import { useEffect, useState } from 'hono/jsx'
 import Viewer from '../islands/Viewer'
 import { encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import { webGalleryKeyStore } from '../lib/key-store'
-import { EncryptedMediaResolver, type EncryptedClientSession } from '../lib/encrypted-resolver'
+import { EncryptedMediaResolver, type EncryptedClientSession, type EncryptedListing } from '../lib/encrypted-resolver'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 
 type Props = Parameters<typeof Viewer>[0] & {
@@ -12,7 +12,7 @@ type Props = Parameters<typeof Viewer>[0] & {
   legacySourceUrl?: string
 }
 type MigrationState = { verifiedDevices: number; keyRetired: boolean; note: string }
-type ClientManifest = Pick<EncryptedClientSession, 'provider' | 'sourceUrl' | 'title' | 'images' | 'truncated'>
+type ClientManifest = Pick<EncryptedClientSession, 'provider' | 'sourceUrl'> & EncryptedListing
 
 const sourceFromUnlockInput = (value: string): string | null => {
   try {
@@ -92,15 +92,23 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       // failures must not block opening with a key this session already has.
       await webGalleryKeyStore().put(galleryId, source).catch(() => undefined)
       if (!live) { session.dispose(); return }
+      // The resolver goes up off the folder listing alone — first media
+      // materializes while the probe pass is still walking items.
       owned = new EncryptedMediaResolver(session)
       setResolver(owned)
-      const manifest: ClientManifest = { provider: session.provider, sourceUrl: session.sourceUrl, title: session.title, images: session.images, ...(session.truncated ? { truncated: session.truncated } : {}) }
-      setScan(manifest)
-      if (legacySourceUrl) {
-        void submitMigration(manifest, false).catch((error) => {
-          if (live) setMigration({ verifiedDevices: 0, keyRetired: false, note: error instanceof Error ? error.message : 'This device could not be verified' })
-        })
-      }
+      void session.listing.then((listing) => {
+        if (!live) return
+        const manifest: ClientManifest = { provider: session.provider, sourceUrl: session.sourceUrl, ...listing }
+        setScan(manifest)
+        if (legacySourceUrl) {
+          void submitMigration(manifest, false).catch((error) => {
+            if (live) setMigration({ verifiedDevices: 0, keyRetired: false, note: error instanceof Error ? error.message : 'This device could not be verified' })
+          })
+        }
+      }).catch(() => {
+        // A probe-pass failure must not lock a gallery that already
+        // decrypts — materialize needs the listed keys, never the scan.
+      })
     }).catch((error) => {
       if (live) setProblem(error instanceof Error ? error.message : 'The encrypted album could not be opened')
     })

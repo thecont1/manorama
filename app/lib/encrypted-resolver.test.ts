@@ -4,7 +4,9 @@ import type { MediaReference } from '../../packages/core/encrypted-source'
 
 const ref: MediaReference = { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'source', nodeId: 'node' }
 const session = (materialize: EncryptedClientSession['materialize']): EncryptedClientSession => ({
-  provider: 'mega', sourceUrl: 'https://mega.nz/folder/source#key', title: 'x', images: [], materialize, dispose: () => {},
+  provider: 'mega', sourceUrl: 'https://mega.nz/folder/source#key',
+  listing: Promise.resolve({ title: 'x', images: [] }),
+  materialize, dispose: () => {},
 })
 const realCreate = URL.createObjectURL
 const realRevoke = URL.revokeObjectURL
@@ -96,7 +98,8 @@ describe('encrypted media resolver', () => {
     let disposed = false
     const bytes = new Uint8Array([1, 2, 3])
     const resolver = new EncryptedMediaResolver({
-      provider: 'mega', sourceUrl: 'https://mega.nz/folder/source#key', title: 'x', images: [],
+      provider: 'mega', sourceUrl: 'https://mega.nz/folder/source#key',
+      listing: Promise.resolve({ title: 'x', images: [] }),
       materialize: async () => ({ bytes, mimeType: 'image/jpeg' }),
       dispose: () => { disposed = true },
     })

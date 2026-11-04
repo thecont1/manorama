@@ -324,10 +324,11 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
  *  budget-exhausted probe drops the file; the un-probed tail is reported
  *  via `truncated` rather than given an invented 4:3 geometry. */
 const PROBE_BATCH = 6
-const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetch, build: (file: F, index: number) => { node: { h: string; fa?: string; s?: number; ts?: number }; nodeKey: Uint8Array; name: string }) => {
+const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetch, build: (file: F, index: number) => { node: { h: string; fa?: string; s?: number; ts?: number }; nodeKey: Uint8Array; name: string }, closed?: () => boolean) => {
   const images: GalleryImage[] = []
   let exhausted = false
   for (let i = 0; i < files.length && !exhausted; i += PROBE_BATCH) {
+    if (closed?.()) throw new Error('This MEGA session is closed')
     const batch = await Promise.all(files.slice(i, i + PROBE_BATCH).map(async (file, j) => {
       const { node, nodeKey, name } = build(file, i + j)
       try {
@@ -383,7 +384,14 @@ const makeImage = async (auth: MegaAuth, index: number, node: { h: string; fa?: 
   }
 }
 
-export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> => {
+type MegaFolderFile = { node: MegaNode; nodeKey: Uint8Array; name: string }
+type MegaListed = { auth: MegaAuth; sourceUrl: string; title: string; foundTotal: number }
+
+/** Folder phase one: link parse, `f` listing, per-node key unwrap and
+ *  attribute decrypt. Everything a session needs to materialize — the
+ *  keys map is full when this returns; the probe pass exists only to
+ *  build manifest fields (dimensions, filenames, truncation count). */
+const listMegaFolder = async (input: string, fetchImpl: typeof fetch, keys?: Map<string, Uint8Array>) => {
   const link = extractMegaLink(input)
   if (!link || link.kind !== 'folder') throw new Error('Use a public MEGA folder link')
   const auth = linkAuth(link)
@@ -423,18 +431,30 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
         .find(Boolean)
     : '') || 'Untitled gallery'
 
-  const budgetFetch = createScanBudget().fetch(fetchImpl)
-  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
-  if (!images.length) throw new Error('No image files were found in that public MEGA folder')
-  return { sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
+  return { auth, sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)), title, files, foundTotal: found.length }
 }
+
+/** Folder phase two: the per-item probes. `closed` stops the pass between
+ *  batches — a disposed session rejects its scan rather than finishing
+ *  manifest fields nobody can still consume. */
+const probeFolderScan = async (listed: MegaListed & { files: MegaFolderFile[] }, fetchImpl: typeof fetch, closed?: () => boolean): Promise<MegaScan> => {
+  const budgetFetch = createScanBudget().fetch(fetchImpl)
+  const { images, truncatedTail } = await probeImages(listed.auth, listed.files, budgetFetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }), closed)
+  if (!images.length) throw new Error('No image files were found in that public MEGA folder')
+  return { sourceUrl: listed.sourceUrl, title: listed.title, images, ...(listed.foundTotal > listed.files.length || truncatedTail ? { truncated: listed.foundTotal } : {}) }
+}
+
+export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> =>
+  probeFolderScan(await listMegaFolder(input, fetchImpl, keys), fetchImpl)
 
 /** Public collections ("Sets") use a different API surface than
  *  folders: a:'aft' with &s={publicSetHandle} returns the set, its
  *  elements, and node metadata. Element keys are AES-CBC-encrypted
  *  with the share key from the link fragment; node metadata attrs use
  *  the ordinary MEGA{...} format decrypted with the element key. */
-export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> => {
+type MegaCollectionFile = { element: MegaElement; elementKey: Uint8Array; meta: MegaNodeMeta | undefined; name: string }
+
+const listMegaCollection = async (input: string, fetchImpl: typeof fetch, keys?: Map<string, Uint8Array>) => {
   const link = extractMegaLink(input)
   if (!link || link.kind !== 'collection') throw new Error('Use a public MEGA collection link')
   const auth = linkAuth(link)
@@ -475,15 +495,22 @@ export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch 
 
   found.sort((a, b) => (a.element.o ?? 0) - (b.element.o ?? 0))
   const files = found.slice(0, MAX_GALLERY_ITEMS)
+  return { auth, sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)), title, files, foundTotal: found.length }
+}
+
+const probeCollectionScan = async (listed: MegaListed & { files: MegaCollectionFile[] }, fetchImpl: typeof fetch, closed?: () => boolean): Promise<MegaScan> => {
   const budgetFetch = createScanBudget().fetch(fetchImpl)
-  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, ({ element, elementKey, meta, name }) => ({
+  const { images, truncatedTail } = await probeImages(listed.auth, listed.files, budgetFetch, ({ element, elementKey, meta, name }) => ({
     node: { h: element.h!, fa: meta?.fa, s: meta?.s, ts: meta?.ts ?? element.ts },
     nodeKey: elementKey,
     name,
-  }))
+  }), closed)
   if (!images.length) throw new Error('No image files were found in that public MEGA collection')
-  return { sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
+  return { sourceUrl: listed.sourceUrl, title: listed.title, images, ...(listed.foundTotal > listed.files.length || truncatedTail ? { truncated: listed.foundTotal } : {}) }
 }
+
+export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> =>
+  probeCollectionScan(await listMegaCollection(input, fetchImpl, keys), fetchImpl)
 
 export const scanMegaSource = (input: string, fetchImpl: typeof fetch = fetch) => {
   const link = extractMegaLink(input)
@@ -566,24 +593,43 @@ export const fetchMegaPreview = async (folder: string | undefined, set: string |
 }
 
 export type MegaClientSession = {
-  scan: MegaScan
+  sourceUrl: string
+  /** The probe pass, still running when open returns. A viewer's
+   *  materialize works off the listed keys immediately — only manifest
+   *  submitters wait on `scan`. */
+  scan: Promise<MegaScan>
   materialize(nodeId: string, previewId?: string, signal?: AbortSignal): Promise<{ bytes: Uint8Array; mimeType: string }>
   dispose(): void
 }
 
-/** Re-listing unwraps per-node keys into a closure. Only `scan` is eligible
- * for manifest submission; the key map never appears in JSON or URLs. */
+/** Re-listing unwraps per-node keys into a closure. The listing is the
+ *  only awaited phase: probes that build manifest fields keep running in
+ *  the background as `scan`, so a viewer reaches first media off the
+ *  listing alone. Only `scan` output is eligible for manifest submission;
+ *  the key map never appears in JSON or URLs. */
 export const openMegaSession = async (input: string, fetchImpl: typeof fetch = fetch): Promise<MegaClientSession> => {
   const link = extractMegaLink(input)
   if (!link) throw new Error('Use a complete public MEGA folder or collection link')
   const keys = new Map<string, Uint8Array>()
-  const scan = link.kind === 'collection'
-    ? await scanMegaCollection(input, fetchImpl, keys)
-    : await scanMegaFolder(input, fetchImpl, keys)
+  let disposed = false
+  const closed = () => disposed
+  let listed: MegaListed
+  let scan: Promise<MegaScan>
+  if (link.kind === 'collection') {
+    const collection = await listMegaCollection(input, fetchImpl, keys)
+    listed = collection
+    scan = probeCollectionScan(collection, fetchImpl, closed)
+  } else {
+    const folder = await listMegaFolder(input, fetchImpl, keys)
+    listed = folder
+    scan = probeFolderScan(folder, fetchImpl, closed)
+  }
   const auth = linkAuth(link)
   return {
+    sourceUrl: listed.sourceUrl,
     scan,
     async materialize(nodeId, previewId, signal) {
+      if (disposed) throw new Error('This MEGA session is closed')
       const nodeKey = keys.get(nodeId)
       if (!nodeKey) throw new Error('This media reference is not present in the opened MEGA share')
       const signalFetch = ((url: RequestInfo | URL, init?: RequestInit) => fetchImpl(url, { ...init, signal })) as typeof fetch
@@ -594,6 +640,7 @@ export const openMegaSession = async (input: string, fetchImpl: typeof fetch = f
       return { bytes, mimeType: response.headers.get('Content-Type')?.split(';', 1)[0] || sniffContentType(bytes) }
     },
     dispose() {
+      disposed = true
       for (const key of keys.values()) key.fill(0)
       keys.clear()
     },
