@@ -111,6 +111,12 @@ Legacy MEGA galleries whose stored `source_url` still carries a `#`-fragment key
 
 The script refuses a schema that lacks the custody columns and skips any gallery whose scan truncates, matching the `PARTIAL_SCAN` rule on the `/migrate` endpoint. Owner devices pick up keys the usual way: opening the gallery's full link once per device.
 
+## MEGA CDN allowlist
+
+Client-side MEGA fetches only ever talk to two fixed endpoints plus the download-host family `*.userstorage.mega.co.nz` (https only), enforced by `assertMegaCdnUrl` in `app/lib/mega-client.ts`. The `g` download URL and the `p` file-attribute URL in API responses are checked against the allowlist before any fetch, and redirects are followed manually: each hop must stay inside the family or the request is refused (browsers hide redirect targets entirely and fail closed). Nothing else in the path trusts a server-chosen URL.
+
+The family is not frozen upstream — MEGA has renumbered CDN hosts before and could add a domain. Review cadence: when a viewer reports encrypted galleries suddenly refusing media with `not an allowed download host`, or on any MEGA client-upstream change, capture the failing `g`/`p` value from the network panel (it is in the API response, never persisted) and check the hostname. If it is a new MEGA-owned download domain, extend `MEGA_CDN_HOST` handling in `mega-client.ts` and update the `CDN host allowlist` tests; if it is not MEGA-owned, treat it as a possible response-integrity incident, not a config gap.
+
 ## Video slides
 
 - **Playback model:** ambient muted loop, and only that. A video starts playing, muted, when it becomes the active slide; leaving the slide pauses it and rewinds to zero, so returning shows the poster again. There is no seek bar, no per-item playback mode, and no speed or fullscreen control in v1.

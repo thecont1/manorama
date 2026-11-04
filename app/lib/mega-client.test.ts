@@ -210,16 +210,16 @@ describe('scanMegaFolder', () => {
       }
       if (url.includes('g.mega')) return jsonResponse({}, 404)
       // a=g download-info + ranged head fetch for the JPEG dims probe
-      if (url.startsWith('https://cdntest/')) {
+      if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
         const enc = ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), jpegHead())
         return new Response(enc, { status: 200 })
       }
-      return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
     }
     // Route a=g calls (cs with n= query and 'g' command) vs folder fetch.
     const routed = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
-      if (String(input).includes('cs?') && body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+      if (String(input).includes('cs?') && body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
       return fetchImpl(input)
     }
     const scan = await scanMegaFolder(link, routed as typeof fetch)
@@ -264,11 +264,11 @@ describe('scanMegaFolder', () => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown>[] : []
       if (url.includes('cs?')) {
         if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, heicNode] }])
-        if (body[0]?.a === 'ufa') return jsonResponse([{ p: 'https://fa.test/post' }])
-        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+        if (body[0]?.a === 'ufa') return jsonResponse([{ p: 'https://gfs262n002.userstorage.mega.co.nz/post' }])
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
       }
-      if (url === 'https://fa.test/post') return new Response(record, { status: 200 })
-      if (url.startsWith('https://cdntest/')) {
+      if (url === 'https://gfs262n002.userstorage.mega.co.nz/post') return new Response(record, { status: 200 })
+      if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
         return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), heicHead()), { status: 200 })
       }
       return jsonResponse({}, 404)
@@ -292,9 +292,9 @@ describe('scanMegaFolder', () => {
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
       if (url.includes('cs?')) {
         if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, fileNode('IMG_9.heic')] }])
-        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
       }
-      if (url.startsWith('https://cdntest/')) {
+      if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
         return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), heicHead()), { status: 200 })
       }
       return jsonResponse({}, 404)
@@ -321,9 +321,9 @@ describe('scanMegaFolder', () => {
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
       if (url.includes('cs?')) {
         if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, node] }])
-        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
       }
-      if (url.startsWith('https://cdntest/')) {
+      if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
         return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), jpegHead()), { status: 200 })
       }
       return jsonResponse({}, 404)
@@ -345,9 +345,9 @@ describe('scanMegaFolder', () => {
           { h: 'Sub1', p: 'ParentHandle', t: 1, a: encryptAttributes(SHARE_KEY, { n: 'nested' }), k: `${FOLDER_HANDLE}:${b64uEncode(ecbEncrypt(SHARE_KEY, SHARE_KEY))}` },
           fileNode('deep.jpg', { p: 'Sub1' }),
         ] }])
-        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
       }
-      if (url.startsWith('https://cdntest/')) {
+      if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
         return new Response(ctrCrypt(foldKey(NODE_KEY), NODE_KEY.subarray(16, 24), jpegHead()), { status: 200 })
       }
       return jsonResponse({}, 404)
@@ -362,8 +362,8 @@ describe('scanMegaFolder', () => {
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
       if (String(input).includes('cs?')) {
         if (body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, node] }])
-        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
-        if (body[0]?.a === 'ufa') return jsonResponse({ p: 'https://cdntest/attr' })
+        if (body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
+        if (body[0]?.a === 'ufa') return jsonResponse({ p: 'https://gfs262n001.userstorage.mega.co.nz/attr' })
       }
       return jsonResponse({}, 404)
     }
@@ -439,8 +439,8 @@ describe('scanMegaCollection', () => {
           ],
         }])
       }
-      if (url.includes('cs?') && body[0]?.a === 'g') return jsonResponse({ g: 'https://cdntest/file', s: DIMS_HEAD_LEN })
-      if (url.startsWith('https://cdntest/')) {
+      if (url.includes('cs?') && body[0]?.a === 'g') return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: DIMS_HEAD_LEN })
+      if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
         return new Response(ctrCrypt(foldKey(ELEMENT_KEY), ELEMENT_KEY.subarray(16, 24), jpegHead()), { status: 200 })
       }
       return jsonResponse({}, 404)
@@ -475,9 +475,9 @@ describe('fetchMegaPreview', () => {
       if (url.includes('cs?') && typeof body === 'string' && JSON.parse(body)[0]?.a === 'ufa') {
         const arg = JSON.parse(body)[0]
         expect(b64uDecode(String(arg.fah)).length).toBe(8)
-        return jsonResponse([{ p: 'https://fa.test/post' }])
+        return jsonResponse([{ p: 'https://gfs262n002.userstorage.mega.co.nz/post' }])
       }
-      if (url === 'https://fa.test/post') {
+      if (url === 'https://gfs262n002.userstorage.mega.co.nz/post') {
         expect(init?.method).toBe('POST')
         expect(new Uint8Array(body as ArrayBuffer)).toEqual(b64uDecode(FA_HANDLE))
         return new Response(record, { status: 200 })
@@ -539,8 +539,8 @@ describe('fetchMegaFile', () => {
 
   const fetchImpl = (size = PLAIN.length, bytes = CIPHER) => async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = String(input)
-    if (url.includes('cs?')) return jsonResponse({ g: 'https://cdntest/file', s: size })
-    if (url.startsWith('https://cdntest/')) {
+    if (url.includes('cs?')) return jsonResponse({ g: 'https://gfs262n001.userstorage.mega.co.nz/file', s: size })
+    if (url.startsWith('https://gfs262n001.userstorage.mega.co.nz/')) {
       const [, start, end] = url.match(/\/(\d+)-(\d+)$/) ?? []
       return new Response(bytes.subarray(Number(start), Number(end) + 1).slice(), { status: 200 })
     }
@@ -572,5 +572,83 @@ describe('fetchMegaFile', () => {
     expect(response.status).toBe(206)
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(PLAIN.subarray(17, 41))
     expect(response.headers.get('Content-Range')).toBe(`bytes 17-40/${PLAIN.length}`)
+  })
+})
+
+describe('CDN host allowlist', () => {
+  const PLAIN = new Uint8Array(1024).map((_, i) => (i * 7 + 3) & 0xff)
+  const CIPHER = ctrCrypt(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN)
+  const key = fileKeyFor(metaMac(MAC_FILE_KEY, MAC_FILE_NONCE, PLAIN))
+  const b64Key = b64uEncode(key)
+
+  // cdn calls are counted separately from the API call so a refused host
+  // is provably never fetched.
+  const fetchImpl = (g: string, cdnCalls: string[], cdn?: (url: string) => Response) => async (input: Parameters<typeof fetch>[0]) => {
+    const url = String(input)
+    if (url.includes('cs?')) return jsonResponse({ g, s: PLAIN.length })
+    cdnCalls.push(url)
+    return cdn?.(url) ?? jsonResponse({}, 404)
+  }
+  const cdnBytes = (url: string) => {
+    const [, start, end] = url.match(/\/(\d+)-(\d+)$/) ?? []
+    return new Response(CIPHER.subarray(Number(start), Number(end) + 1).slice(), { status: 200 })
+  }
+
+  test('refuses a download URL on a non-allowlisted host before fetching it', async () => {
+    const cdnCalls: string[] = []
+    await expect(fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64Key,
+      fetchImpl('https://evil.example/file', cdnCalls, cdnBytes) as typeof fetch)).rejects.toThrow('allowed download host')
+    expect(cdnCalls).toHaveLength(0)
+  })
+
+  test('refuses a download URL that is not https', async () => {
+    const cdnCalls: string[] = []
+    await expect(fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64Key,
+      fetchImpl('http://gfs1.userstorage.mega.co.nz/file', cdnCalls, cdnBytes) as typeof fetch)).rejects.toThrow('allowed download host')
+    expect(cdnCalls).toHaveLength(0)
+  })
+
+  test('refuses a redirect to a non-allowlisted host', async () => {
+    const cdnCalls: string[] = []
+    const hop = (url: string) => url.includes('userstorage')
+      ? new Response(null, { status: 302, headers: { location: 'https://evil.example/stolen' } })
+      : cdnBytes(url)
+    await expect(fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64Key,
+      fetchImpl('https://gfs262n001.userstorage.mega.co.nz/file', cdnCalls, hop) as typeof fetch)).rejects.toThrow('redirected off its host')
+  })
+
+  test('refuses a redirect with no readable target — the browser opaqueredirect case', async () => {
+    const cdnCalls: string[] = []
+    const hop = () => new Response(null, { status: 302 })
+    await expect(fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64Key,
+      fetchImpl('https://gfs262n001.userstorage.mega.co.nz/file', cdnCalls, hop) as typeof fetch)).rejects.toThrow('redirected off its host')
+  })
+
+  test('follows a redirect that stays inside the allowlist', async () => {
+    const cdnCalls: string[] = []
+    // A real CDN host-move keeps the request path — the signed suffix is
+    // part of the URL MEGA issued.
+    const hop = (url: string) => url.startsWith('https://gfs262n001')
+      ? new Response(null, { status: 302, headers: { location: url.replace('gfs262n001', 'gfs999n042') } })
+      : cdnBytes(url)
+    const response = await fetchMegaFile(FOLDER_HANDLE, undefined, FILE_HANDLE, b64Key,
+      fetchImpl('https://gfs262n001.userstorage.mega.co.nz/file', cdnCalls, hop) as typeof fetch)
+    expect(response.status).toBe(200)
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PLAIN)
+    expect(cdnCalls).toHaveLength(2)
+    expect(cdnCalls[1]).toContain('gfs999n042')
+  })
+
+  test('fetchMegaPreview refuses a non-allowlisted attribute host', async () => {
+    const cdnCalls: string[] = []
+    const impl = async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('cs?')) return jsonResponse({ p: 'https://evil.example/post' })
+      cdnCalls.push(url)
+      return jsonResponse({}, 404)
+    }
+    const fah = b64uEncode(new Uint8Array(8).fill(7))
+    await expect(fetchMegaPreview(FOLDER_HANDLE, undefined, fah, b64Key, impl as typeof fetch)).rejects.toThrow('allowed download host')
+    expect(cdnCalls).toHaveLength(0)
   })
 })
