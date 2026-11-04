@@ -57,6 +57,17 @@ describe('encrypted gallery API', () => {
     const wrong = await post(`/api/galleries/${gallery.slug}/refresh`, {})
     expect(wrong.status).toBe(400)
   })
+  test('refresh rejects a manifest that admits truncation', async () => {
+    const created = await post('/api/galleries', { manifest: manifest() })
+    const { gallery } = await created.json() as any
+    // The client scanned a 5-item folder but is sending only one image —
+    // applying it would delete the four the scan never reached.
+    const partial = await post(`/api/galleries/${gallery.slug}/refresh`, { manifest: { ...manifest(), truncated: 5 } })
+    expect(partial.status).toBe(422)
+    expect((await partial.json() as any).code).toBe('PARTIAL_SCAN')
+    const stored = await getGallery(TEST_OWNER.accountId, gallery.slug)
+    expect(stored?.images).toHaveLength(1)
+  })
   test('legacy #F! source spelling refreshes by canonical identity', async () => {
     await createGallery(TEST_OWNER.accountId, {
       slug: 'legacy-mega', title: 'Legacy', caption: '', date: '',

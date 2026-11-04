@@ -173,8 +173,8 @@ export const cbcDecryptZeroIv = (key: Uint8Array, data: Uint8Array) => {
 }
 
 /** MEGA key folding: a 32-byte file key is key[0:16] XOR key[16:32] for
- *  AES, with nonce at key[16:24] and a meta-MAC at key[24:32] (ignored —
- *  we proxy, we don't attest). 16-byte keys fold to themselves. */
+ *  AES, with nonce at key[16:24] and the expected meta-MAC at key[24:32] —
+ *  verified on whole-file retrieval. 16-byte keys fold to themselves. */
 export const foldKey = (key: Uint8Array) => {
   const folded = key.slice(0, 16)
   for (let i = 0; i < 16 && i + 16 < key.length; i++) folded[i] = key[i]! ^ key[i + 16]!
@@ -182,6 +182,78 @@ export const foldKey = (key: Uint8Array) => {
 }
 
 export const b64Encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
+
+/** One CBC-MAC step: state = E(state ⊕ block). */
+const cbcMacStep = (w: Uint8Array, state: Uint8Array, block: Uint8Array) => {
+  for (let j = 0; j < 16; j++) state[j]! ^= block[j]!
+  state.set(aesEncryptBlock(w, state))
+}
+
+/** MEGA chunk MAC: CBC chain under the file key, IV = the 8-byte file
+ *  nonce duplicated. Every block except the trailing 16-byte window only
+ *  advances the chain; the window (zero-padded if partial) is the MAC
+ *  input. In a larger file a chunk of 16 bytes or fewer contributes no
+ *  data blocks — the reference's loop index overshoots, so its MAC is
+ *  E(IV). A whole file of 16 bytes or fewer is different: its MAC is
+ *  over the zero-padded bytes themselves. Both quirks match the
+ *  reference clients, so metamacs computed by them verify here. */
+const chunkMac = (w: Uint8Array, iv: Uint8Array, data: Uint8Array, fileSize: number) => {
+  const state = iv.slice()
+  const driven = data.length > 16 ? Math.ceil((data.length - 16) / 16) : 0
+  for (let i = 0; i < driven; i++) cbcMacStep(w, state, data.subarray(i * 16, i * 16 + 16))
+  const last = new Uint8Array(16)
+  if (data.length > 16) last.set(data.subarray(driven * 16))
+  else if (fileSize <= 16) last.set(data)
+  cbcMacStep(w, state, last)
+  return state
+}
+
+/** Computes the expected 8-byte meta-MAC for a decrypted file: a CBC-MAC
+ *  over each upload chunk (128KB, 256KB, …, 1MB for the first eight,
+ *  then 1MB chunks to end-of-file), the per-chunk MACs chained through a
+ *  second zero-IV CBC-MAC, and the 16-byte result condensed by XORing
+ *  adjacent words. Verification is only possible once the whole file
+ *  has been retrieved. */
+export const metaMac = (key: Uint8Array, nonce: Uint8Array, plain: Uint8Array) => {
+  const w = expandKey(key)
+  const iv = new Uint8Array(16)
+  iv.set(nonce.subarray(0, 8), 0)
+  iv.set(nonce.subarray(0, 8), 8)
+  const outer = new Uint8Array(16)
+  let p = 0
+  for (let i = 1; i <= 8 && p < plain.length - i * 0x20000; i++) {
+    cbcMacStep(w, outer, chunkMac(w, iv, plain.subarray(p, p + i * 0x20000), plain.length))
+    p += i * 0x20000
+  }
+  // get_chunks yields once even for an empty file — the zero-length
+  // chunk still MACs an empty block, so this is a do-while.
+  do {
+    const n = Math.min(0x100000, plain.length - p)
+    cbcMacStep(w, outer, chunkMac(w, iv, plain.subarray(p, p + n), plain.length))
+    p += n
+  } while (p < plain.length)
+  const meta = new Uint8Array(8)
+  for (let j = 0; j < 4; j++) {
+    meta[j] = outer[j]! ^ outer[j + 4]!
+    meta[j + 4] = outer[j + 8]! ^ outer[j + 12]!
+  }
+  return meta
+}
+
+/** Compares a computed meta-MAC with the expected value stored in the
+ *  file key's last 8 bytes. Constant-time over the 8-byte comparison. */
+export const metaMacMatches = (computed: Uint8Array, nodeKey: Uint8Array) => {
+  if (nodeKey.length !== 32 || computed.length !== 8) return false
+  const expected = nodeKey.subarray(24, 32)
+  let diff = 0
+  for (let j = 0; j < 8; j++) diff |= computed[j]! ^ expected[j]!
+  return diff === 0
+}
+
+/** Full-pipeline check for callers that have plaintext but no worker
+ *  result — computes the meta-MAC and compares it with the key tail. */
+export const verifyMegaMac = (plain: Uint8Array, nodeKey: Uint8Array) =>
+  metaMacMatches(metaMac(foldKey(nodeKey), nodeKey.subarray(16, 24), plain), nodeKey)
 
 /** AES-CCM payload decrypt (tag verification skipped — we proxy, we
  *  don't attest). Counter blocks: [L-1][nonce][BE counter], L = 15 -

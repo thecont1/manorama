@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { fetchICloudImage } from './icloud-shared'
 import { fetchMegaFile, fetchMegaPreview } from './mega-client'
+import { b64uEncode, ctrCrypt, metaMac } from './mega-crypto'
 
 /**
  * The scan path validates provider references; the proxy routes do not.
@@ -103,9 +104,24 @@ describe('MEGA proxy references', () => {
     await expect(fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', 'AAAA', megaFetch())).rejects.toThrow()
   })
 
-  test('a 32-byte key is accepted', async () => {
-    // 'A'.repeat(43) is a 32-byte key in base64url — the file-key layout.
-    const response = await fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', 'A'.repeat(43), megaFetch())
+  test('a 32-byte key is accepted when the meta-MAC verifies', async () => {
+    // Whole-file fetches check the uploader's meta-MAC — build a key
+    // whose tail carries the expected value for the served plaintext.
+    const plain = new Uint8Array(4096).map((_, i) => (i * 7 + 1) & 0xff)
+    const fileKey = new Uint8Array(16)
+    const nonce = new Uint8Array(8)
+    const tail = new Uint8Array(16)
+    tail.set(nonce, 0)
+    tail.set(metaMac(fileKey, nonce, plain), 8)
+    const nodeKey = new Uint8Array(32)
+    nodeKey.set(fileKey.map((b, i) => b ^ tail[i]!), 0)
+    nodeKey.set(tail, 16)
+    const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      if (url.includes('g.api.mega.co.nz')) return json({ g: 'https://gfs.example/synthetic', s: plain.length })
+      return new Response(ctrCrypt(fileKey, nonce, plain).slice(), { status: 200 })
+    }) as typeof fetch
+    const response = await fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', b64uEncode(nodeKey), fetchImpl)
     expect(response.status).toBe(200)
   })
 

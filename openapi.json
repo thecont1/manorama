@@ -70,12 +70,42 @@
           }
         },
         "description": "The image exceeds the proxy's size ceiling"
+      },
+      "Conflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "A concurrent write won the race — re-read and retry"
       }
     },
     "schemas": {
       "CreateRequest": {
         "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "url"
+            ]
+          },
+          {
+            "required": [
+              "manifest"
+            ]
+          }
+        ],
         "properties": {
+          "caption": {
+            "description": "Optional gallery caption",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/EncryptedManifest"
+          },
           "order": {
             "description": "Optional image refs (filenames for Dropbox) in the desired display order; unlisted images keep scan order after them",
             "items": {
@@ -84,8 +114,12 @@
             "maxItems": 1000,
             "type": "array"
           },
+          "quick": {
+            "description": "Quick-add create: a random three-word title replaces any submitted title",
+            "type": "boolean"
+          },
           "url": {
-            "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL to create the gallery from",
+            "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL to create the gallery from. MEGA and other encrypted sources are created from a client-scanned manifest instead — the server never scans them",
             "type": "string"
           },
           "title": {
@@ -94,9 +128,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "url"
-        ],
         "type": "object"
       },
       "DeleteResponse": {
@@ -111,14 +142,297 @@
         ],
         "type": "object"
       },
+      "Fidelity": {
+        "description": "Evidence label for the media path actually served; not a MAC or C2PA assertion",
+        "enum": [
+          "display-derivative",
+          "full-resolution-render",
+          "original",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "EncryptedManifest": {
+        "additionalProperties": false,
+        "description": "A keyless manifest produced by a client-side encrypted-source scan (manifest record version 2). The server validates and stores it but never scans the provider itself; every item carries an encrypted media reference rather than a fetchable URL, and keyed source URLs are rejected.",
+        "properties": {
+          "images": {
+            "description": "Item ids and refs are unique within the manifest",
+            "items": {
+              "$ref": "#/components/schemas/EncryptedManifestImage"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "type": "array"
+          },
+          "provider": {
+            "enum": [
+              "ente",
+              "mega"
+            ],
+            "type": "string"
+          },
+          "sourceUrl": {
+            "description": "Canonical keyless source URL — no #fragment, must match the declared provider",
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "truncated": {
+            "description": "Set when the client scan stopped early under its budget; operations that would silently drop unlisted items refuse truncated manifests",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "sourceUrl",
+          "title",
+          "images"
+        ],
+        "type": "object"
+      },
+      "EncryptedManifestImage": {
+        "additionalProperties": false,
+        "properties": {
+          "alt": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "c2pa": {
+            "type": "boolean"
+          },
+          "caption": {
+            "maxLength": 10000,
+            "type": "string"
+          },
+          "contentVersion": {
+            "description": "Opaque provider-change detector",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "exif": {
+            "description": "Optional EXIF summary, at most 16KB serialized",
+            "type": "object"
+          },
+          "fidelity": {
+            "$ref": "#/components/schemas/Fidelity"
+          },
+          "filename": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "height": {
+            "description": "Declared pixel dimensions; aspect ratio must fall within 10:1 either way",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Provider-prefixed stable item id (mega-* or ente-*)",
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "media": {
+            "$ref": "#/components/schemas/EncryptedMediaReference"
+          },
+          "placeholder": {
+            "description": "data:image/svg+xml placeholder, no markup characters",
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "ref": {
+            "description": "Provider node handle; must equal media.nodeId",
+            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "type": "string"
+          },
+          "src": {
+            "const": "",
+            "description": "Always empty — the public record never carries a fetchable URL",
+            "type": "string"
+          },
+          "thumbnailFidelity": {
+            "$ref": "#/components/schemas/Fidelity"
+          },
+          "type": {
+            "const": "image",
+            "description": "Optional when set to image; absent also means image",
+            "type": "string"
+          },
+          "width": {
+            "description": "Declared pixel dimensions; aspect ratio must fall within 10:1 either way",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "variants": {
+            "description": "Up to four encrypted preview references",
+            "items": {
+              "$ref": "#/components/schemas/EncryptedManifestVariant"
+            },
+            "maxItems": 4,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "ref",
+          "filename",
+          "src",
+          "media",
+          "contentVersion",
+          "width",
+          "height",
+          "alt",
+          "c2pa",
+          "placeholder"
+        ],
+        "type": "object"
+      },
+      "EncryptedManifestVariant": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "description": "jpeg, webp, or avif (bare or image/* mime form)",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "media": {
+            "$ref": "#/components/schemas/EncryptedMediaReference"
+          },
+          "src": {
+            "const": "",
+            "type": "string"
+          },
+          "width": {
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "src",
+          "format",
+          "media"
+        ],
+        "type": "object"
+      },
+      "EncryptedMediaReference": {
+        "additionalProperties": false,
+        "description": "Keyless provider coordinates a client uses to fetch and decrypt the item; the server never resolves it",
+        "properties": {
+          "kind": {
+            "const": "encrypted",
+            "type": "string"
+          },
+          "nodeId": {
+            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "type": "string"
+          },
+          "previewId": {
+            "description": "Required on variant references (the file-attribute handle)",
+            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "ente",
+              "mega"
+            ],
+            "type": "string"
+          },
+          "sourceId": {
+            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "type": "string"
+          },
+          "sourceKind": {
+            "enum": [
+              "album",
+              "collection",
+              "folder"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "provider",
+          "sourceKind",
+          "sourceId",
+          "nodeId"
+        ],
+        "type": "object"
+      },
+      "MigrateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deviceId": {
+            "description": "Non-secret install identifier; the stored server key retires only after two distinct device ids have verified the gallery (or optOut is set)",
+            "pattern": "^[0-9A-Za-z-]{8,128}$",
+            "type": "string"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/EncryptedManifest"
+          },
+          "optOut": {
+            "description": "Retire the server key in this request instead of waiting for a second device",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "manifest",
+          "deviceId"
+        ],
+        "type": "object"
+      },
+      "MigrateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "gallery": {
+            "$ref": "#/components/schemas/Gallery"
+          },
+          "keyRetired": {
+            "description": "Whether the stored server key was retired by this request or an earlier one",
+            "type": "boolean"
+          },
+          "verifiedDevices": {
+            "description": "Distinct device ids that have verified this gallery",
+            "type": "integer"
+          },
+          "warning": {
+            "description": "Present when the key retired — the server can no longer recover access",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gallery",
+          "verifiedDevices",
+          "keyRetired"
+        ],
+        "type": "object"
+      },
       "Error": {
         "additionalProperties": false,
         "properties": {
           "code": {
-            "description": "Machine-readable policy refusal code, when the failure is a retention decision",
+            "description": "Machine-readable refusal code, when the failure carries one",
             "enum": [
+              "CLIENT_SCAN_REQUIRED",
               "GALLERY_LIMIT",
-              "GALLERY_READ_ONLY"
+              "GALLERY_READ_ONLY",
+              "MANIFEST_TOO_LARGE",
+              "PARTIAL_SCAN",
+              "PIN_LIMIT",
+              "SERVER_DECRYPT_RETIRED"
             ],
             "type": "string"
           },
@@ -328,11 +642,21 @@
         ],
         "type": "object"
       },
+      "RefreshRequest": {
+        "additionalProperties": false,
+        "description": "Empty body refreshes ordinary galleries server-side. Encrypted galleries cannot be scanned by the server and must resubmit a client-scanned manifest — an encrypted refresh without one answers 400 CLIENT_SCAN_REQUIRED.",
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/EncryptedManifest"
+          }
+        },
+        "type": "object"
+      },
       "ScanRequest": {
         "additionalProperties": false,
         "properties": {
           "url": {
-            "description": "A public, download-enabled Dropbox folder, Google Drive folder, iCloud shared album, or MEGA folder/collection URL",
+            "description": "A public, download-enabled Dropbox folder, Google Drive folder, or iCloud shared album URL. MEGA and other encrypted links answer 422 CLIENT_SCAN_REQUIRED — they are scanned on the client",
             "type": "string"
           }
         },
@@ -770,7 +1094,7 @@
     },
     "/api/galleries/scan": {
       "post": {
-        "description": "Scan a public Dropbox, Google Drive, or iCloud shared album link to discover images for a new gallery. Returns the source title and image metadata.",
+        "description": "Scan a public Dropbox, Google Drive, or iCloud shared album link to discover images for a new gallery. Returns the source title and image metadata. Encrypted sources (MEGA, Ente) are refused — scanning happens on the client and results arrive as a manifest on create.",
         "operationId": "scan_gallery_source",
         "requestBody": {
           "content": {
@@ -924,8 +1248,18 @@
         }
       ],
       "post": {
-        "description": "Re-scan a gallery's source link and update its images with any new or changed files.",
+        "description": "Re-scan a gallery's source link and update its images with any new or changed files. Encrypted galleries require a client-scanned manifest in the request body; ordinary galleries accept an empty body.",
         "operationId": "refresh_gallery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -959,6 +1293,75 @@
           }
         ],
         "summary": "Refresh a gallery from its source",
+        "tags": [
+          "galleries"
+        ]
+      }
+    },
+    "/api/galleries/{slug}/migrate": {
+      "parameters": [
+        {
+          "description": "Gallery URL slug to migrate",
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "description": "Submit a client-scanned manifest for an encrypted-source gallery, migrating it to the keyless manifest record. The stored server key retires when a second distinct device verifies or optOut is set; a truncated manifest is refused before any state changes.",
+        "operationId": "migrate_gallery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrateResponse"
+                }
+              }
+            },
+            "description": "The migrated gallery and verification state"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Migrate an encrypted gallery to the keyless manifest",
         "tags": [
           "galleries"
         ]

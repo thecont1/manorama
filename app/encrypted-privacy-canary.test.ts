@@ -105,11 +105,39 @@ describe('server never sees a v2 key', () => {
     expect(body).toContain(CANARY)
   })
 
-  test('public manifest endpoint strips the fragment', async () => {
-    await seed({ sourceUrl: KEYED_URL })
-    const payload = await (await API.request('/api/gallery/test-owner/enc', {}, env)).json() as { manifest: { sourceUrl: string } }
+  test('public manifest endpoint strips the fragment and legacy delivery capabilities', async () => {
+    await seed({
+      sourceUrl: KEYED_URL,
+      images: [
+        image({
+          media: undefined,
+          src: `/api/mega/file?node=NODEHANDLE01&k=${CANARY}`,
+          variants: [{ src: `/api/mega/preview?h=FAHANDLE01&k=${CANARY}`, format: 'jpeg', width: 400 }],
+        }),
+        {
+          type: 'video', id: 'mega-video000000000', ref: 'NODEHANDLE02', filename: 'clip.mp4',
+          src: `/api/mega/file?node=NODEHANDLE02&k=${CANARY}`, mimeType: 'video/mp4' as const,
+          width: 1920, height: 1080, alt: 'clip', c2pa: false as const, placeholder: 'data:image/svg+xml,svg',
+          poster: { src: `/api/mega/preview?h=FAHANDLE02&k=${CANARY}`, width: 400, height: 225 },
+          variants: [{ src: `/api/mega/preview?h=FAHANDLE02&k=${CANARY}`, format: 'jpeg', width: 400 }],
+          sources: [{ src: `/api/mega/file?node=NODEHANDLE02&k=${CANARY}`, mimeType: 'video/mp4' }],
+          captions: [{ src: `/api/mega/file?node=CC&k=${CANARY}`, srclang: 'en', label: 'English' }],
+        },
+      ] as never,
+    })
+    const payload = await (await API.request('/api/gallery/test-owner/enc', {}, env)).json() as { manifest: { sourceUrl: string; images: unknown[] } }
     expect(payload.manifest.sourceUrl).toBe(KEYLESS_URL)
-    expect(JSON.stringify(payload)).not.toContain(CANARY)
+    const serialized = JSON.stringify(payload.manifest.images)
+    expect(serialized).not.toContain(CANARY)
+    expect(serialized).not.toContain('k=')
+    // Identity and the keyless media reference survive; only the keyed
+    // delivery URLs are stripped.
+    expect(payload.manifest.images[0]).toMatchObject({ id: 'mega-abcdefghij012345', ref: 'NODEHANDLE01' })
+
+    // Control: the named owner exception still returns keyed props to the
+    // owner's session until the key retires.
+    const ownerPayload = await (await API.request('/api/gallery/test-owner/enc', await enc(), env)).json() as { manifest: { images: unknown[] } }
+    expect(JSON.stringify(ownerPayload.manifest.images)).toContain(CANARY)
   })
 
   test('OG route short-circuits before any media fetch', async () => {
@@ -299,6 +327,24 @@ describe('F2/F3 regressions: dev seed and shipped policy wording', () => {
     // vite.config.ts seeds MANORAMA_DEV_SOURCE_MEGA through scanSource(), which
     // now always throws for MEGA — the gallery is skipped with a console warning.
     await expect(scanSource(KEYED_URL, {})).rejects.toThrow(/scanned on your device/)
+  })
+
+  test('the dev seed scans encrypted sources through the client module, never the server path', () => {
+    // Source-level guard: the retired dispatch must not creep back. The
+    // behavioral half is the keyed-open Playwright spec.
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url).pathname, 'utf8')
+    // Encrypted seeds dispatch to the client scanner; the server scanSource
+    // only ever sees unencrypted links.
+    expect(viteConfig).toContain('ssrLoadModule(\'/app/lib/mega-client.ts\')')
+    expect(viteConfig).toContain('scanMegaSource')
+    expect(viteConfig).toMatch(/isEncryptedSourceUrl\(url\)\s*\?\s*await clientScan\(url\)\s*:\s*await sources!?\.scanSource/)
+    // The seed writes scanned manifests directly — it never posts a keyed
+    // url to the retired server scan endpoint.
+    expect(viteConfig).not.toContain('/api/galleries/scan')
+    // Client-scanned seeds must be stamped v2 or the legacy render gate
+    // would route keyless refs through the retired decryptor.
+    expect(viteConfig).toContain('manifestVersion: isEncryptedSourceUrl(url) ? 2 : 1')
   })
 
   test('the shipped policy model describes the fragment, the static card, and the exception', () => {

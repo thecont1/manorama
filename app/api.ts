@@ -22,7 +22,8 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
-import { ENCRYPTED_MANIFEST_VERSION, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { ENCRYPTED_MANIFEST_VERSION, encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { stripLegacyDeliveryCapabilities } from './lib/encrypted-public'
 import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
 import { mergeMigratedImages } from './lib/encrypted-migration'
 
@@ -357,9 +358,22 @@ export const createManoramaApi = () => {
     const images = includeHidden ? gallery.images : gallery.images.filter((image) => !image.hidden)
     // Encrypted sources publish the keyless form only: the stored row may
     // still hold a legacy fragment the native client must never receive.
+    // Legacy rows can also carry per-item `k=` delivery URLs — stripped for
+    // every viewer except the owner holding the named migration exception.
+    const encrypted = Boolean(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))
+    let manifestImages = images
+    if (encrypted) {
+      const session = await resolveManoramaSession(c.req.raw, envOf(c)).catch(() => null)
+      const gate = encryptedGalleryGate({
+        sourceUrl: gallery.sourceUrl!, viewerOwner: session?.accountId === user.accountId,
+        keyRetiredAt: gallery.keyRetiredAt, manifestVersion: gallery.manifestVersion,
+        legacyServerDecrypt: envOf(c)?.LEGACY_ENCRYPTED_DECRYPT === 'enabled',
+      })
+      manifestImages = gate.legacySourceUrl ? images : images.map(stripLegacyDeliveryCapabilities)
+    }
     const manifest = {
-      slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images,
-      ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl) ? { sourceUrl: keylessSourceUrl(gallery.sourceUrl) } : {}),
+      slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images: manifestImages,
+      ...(encrypted ? { sourceUrl: keylessSourceUrl(gallery.sourceUrl!) } : {}),
     }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
   })
@@ -825,8 +839,13 @@ export const createManoramaApi = () => {
       const scan: EncryptedManifestInput | Awaited<ReturnType<typeof scanSource>> = submitted ?? await scanSource(gallery.sourceUrl, envOf(c))
       // A budget-cut scan returns a partial listing — persisting it would
       // drop source items the scan never reached, so the refresh is
-      // rejected and the gallery keeps its existing images.
+      // rejected and the gallery keeps its existing images. A submitted
+      // manifest carries the same admission as `truncated`; the migrate
+      // endpoint uses the identical refusal.
       if ('partial' in scan && scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
+      if (submitted?.truncated !== undefined) {
+        return c.json({ code: 'PARTIAL_SCAN', error: 'That folder could not be read completely — try again before refreshing' }, 422)
+      }
       // Retained images keep the owner's ordering but pick up fresh
       // scanner metadata and source references; images removed from the
       // source drop out, newly discovered ones append at the end.

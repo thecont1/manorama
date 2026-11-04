@@ -16,6 +16,7 @@ import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
 import { encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../../../packages/core/encrypted-source'
+import { stripLegacyDeliveryCapabilities } from '../../lib/encrypted-public'
 import { encryptedGalleryDescription } from '../../lib/og-metadata'
 import type { GalleryMediaItem } from '../../lib/imagesource'
 
@@ -109,17 +110,18 @@ export default createRoute(async (c) => {
   // A visitor-facing client gate must not inherit the stored capability:
   // legacy item srcs still carry `k=` keys and sourceUrl can hold the
   // fragment. Only the owner receives keyed props, for the migration call.
+  // The strip follows gate.client rather than which island renders — a v2
+  // manifest missing its gallery id falls back to Viewer with sanitized
+  // props, while the legacy-flag rollback keeps keyed srcs on purpose.
   const gatedImages = (items: readonly GalleryMediaItem[]): GalleryMediaItem[] =>
-    legacySourceUrl ? [...items] : items.map((item) =>
-      item.type === 'video'
-        ? { ...item, src: '', variants: [], sources: [], captions: [], poster: { ...item.poster, src: '' } }
-        : { ...item, src: '', variants: [] })
+    legacySourceUrl ? [...items] : items.map(stripLegacyDeliveryCapabilities)
+  const ssrProps = encrypted && gate.client ? { ...viewerProps, images: gatedImages(viewerProps.images) } : viewerProps
 
   return c.render(
     <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>
       {clientGate && gallery.id
-        ? <EncryptedGallery {...viewerProps} images={gatedImages(viewerProps.images)} galleryId={gallery.id} sourceUrl={keylessSourceUrl(gallery.sourceUrl!)} legacySourceUrl={legacySourceUrl} />
-        : <Viewer {...viewerProps} />}
+        ? <EncryptedGallery {...ssrProps} galleryId={gallery.id} sourceUrl={keylessSourceUrl(gallery.sourceUrl!)} legacySourceUrl={legacySourceUrl} />
+        : <Viewer {...ssrProps} />}
     </GalleryShell>,
     {
       title: `${gallery.title} — manorama`,
