@@ -94,12 +94,11 @@ localization**, or it will not return in sandbox even with the agreement active
 > 1. **The house fallback plate (#22) is no longer optional.** Without it, an App Store
 >    reviewer opening a gallery sees an empty frame where an ad should be — which looks like
 >    a bug, and invites a rejection you cannot afford on Sep 27.
-> 2. **The IAP is the Shipaton eligibility mechanism, not the ads.** Shipaton accepts either
->    an in-app purchase *or* RevenueCat Ads. Since ads demonstrably cannot serve before
->    publication, #18 and #19's purchase path is what makes the entry valid. Ads are the
->    Catvertising story that matures in the days after launch, not the eligibility proof.
+> 2. **The IAP is the launch monetization path, not the ads.** Since ads
+>    demonstrably cannot serve before publication, #18 and #19's purchase path
+>    carries revenue at launch. Ads mature in the days after launch.
 
-**After the app is live** (Sep 30 onward, for the Catvertising submission):
+**After the app is live** (post-launch):
 
 - [ ] AdMob → App settings → App store details → **search by store URL, not bundle id**. AdMob
       has not indexed a freshly published app, so a package-name search finds nothing

@@ -1,11 +1,12 @@
-# manorama native — launch plan (Shipaton, ship by Sep 26 2026)
+# manorama native — launch plan
 
-Status: plan. Owner: Mahesh. Written 2026-09-22.
+Status: closed — the launch window this plan targeted (Sep 22–30 2026) has passed.
+Owner: Mahesh. Written 2026-09-22. Kept as the record of why the native architecture
+is shaped this way; the schedule below is historical.
 
-This document is the working brief for coding agents. It is deliberately split into
-**Track SHIP** (must be in the binary that goes to review) and **Track GROW** (lands after
-submission, drives the post-release growth story). Agents must not pull GROW work into
-SHIP scope without an explicit instruction.
+This document was the working brief for the launch sprint. It is split into
+**Track SHIP** (what had to be in the binary that went to review) and **Track GROW**
+(post-release work, which remains the live backlog).
 
 ---
 
@@ -21,15 +22,12 @@ SHIP scope without an explicit instruction.
 | Sep 27–29 | Review buffer; fix any rejection and resubmit |
 | **Wed Sep 30** | **Hard deadline — app must be RELEASED, 11:45 PM PDT** |
 
-Shipaton requires the app to be a brand-new release to the App Store, Google Play, or the
-Samsung Galaxy Store between Aug 1 and Sep 30 2026, and to use the RevenueCat SDK to power
-at least one in-app purchase **or** serve ads through RevenueCat Ads
-([RevenueCat](https://www.revenuecat.com/blog/company/announcing-shipaton-2026)).
-Submission closes Sep 30 at 11:45 PM PDT, with judging Oct 1–13
-([The App Launchpad](https://theapplaunchpad.com/blog/revenuecat-shipaton-2026/)).
+The launch event required the app to be a brand-new store release using the
+RevenueCat SDK for at least one in-app purchase **or** RevenueCat Ads — which is why
+the B3 purchase path and `native/lib/billing` exist.
 
-Set the App Store release to **manual** so release date is under our control, then release
-the moment approval lands — do not let an automatic release slip past Sep 30.
+The App Store release was set to **manual** so the release date stayed under our
+control.
 
 Owner-only setup — Apple, RevenueCat, AdMob, the Mac — is sequenced in
 [`docs/owner-setup-runbook.md`](./owner-setup-runbook.md).
@@ -41,20 +39,20 @@ Owner-only setup — Apple, RevenueCat, AdMob, the Mac — is sequenced in
    but developers in 2026 have reported multi-week waits with no communication
    ([Apple Developer Forums](https://developer.apple.com/forums/thread/822540)). If the account
    is not already active, iOS cannot be the primary target this week.
-2. **Google Play is out.** A new personal Play account faces the 12-tester / 14-day closed
-   testing gate. It cannot complete by Sep 30. Do not spend an hour on it.
+2. **Google Play was out.** A new personal Play account faced the 12-tester / 14-day
+   closed testing gate. It could not complete in the window.
 
-**Therefore: iOS is the target. Android exists only as break-glass.**
+**Therefore: iOS was the launch target. Android existed only as break-glass.**
 
 - **Primary — Apple App Store, iOS and iPadOS.** Fast review, and the platform manorama is
-  aesthetically for. All ship-week effort goes here.
+  aesthetically for. All ship-week effort went here.
 - **Break-glass — Samsung Galaxy Store.** One caveat worth stating plainly: Galaxy Store is
-  only "an easier route" if an Android binary already exists. So `npx cap add android` stays in
-  scope (task A4) and the Android project must remain buildable — but it gets no polish, no
-  store metadata, and no attention unless Apple membership stalls. Generating it is an hour of
-  insurance against being locked out of Shipaton entirely; if the Apple account clears, Android
+  only "an easier route" if an Android binary already exists. So `npx cap add android` stayed in
+  scope (task A4) and the Android project must remain buildable — but it got no polish, no
+  store metadata, and no attention since Apple membership cleared. Generating it was an hour of
+  insurance against being locked out of the launch entirely; Android
   goes back in the drawer until Nearby Discovery is ready.
-- **Android as a real platform** is deliberately post-Shipaton, shipped together with Nearby
+- **Android as a real platform** is deliberately post-launch, shipped together with Nearby
   Discovery, where time is not a constraint.
 
 ---
@@ -101,11 +99,11 @@ Capacitor plugin set — all first-party or actively maintained:
 
 ### B. Monetisation — RevenueCat, and two ad placements
 
-This is the Shipaton eligibility gate *and* a run at the new Catvertising Award.
+This was the launch monetization gate.
 
 **The north star, stated for the record.** The ambition is the WIRED magazine era, when a
 full-page ad was as good to look at as the editorial was to read, and was art-directed in
-house. A manorama ad server that delivers that is a project for after Shipaton. For now we
+house. A manorama ad server that delivers that is a project for after launch. For now we
 **rent the inventory and own the frame** — the creative is somebody else's, but the mount,
 the typography, the pacing and the surrounding canvas are ours.
 
@@ -282,10 +280,10 @@ and testable on the desktop today, so they can land regardless.
 
 ---
 
-## 3. Track GROW (starts Sep 27, drives the Build & Grow story)
+## 3. Track GROW (the live backlog — post-launch work)
 
-Judging runs Oct 1–13 and the Grand Prize rewards post-release traction, so shipping on Sep 26
-leaves two weeks of legitimate growth work that is itself part of the entry.
+Track GROW was sequenced for the two weeks after launch; it is now simply the native
+backlog, ordered by value rather than deadline.
 
 ### G. Presence — nearby discovery and synchronised viewing
 
@@ -368,6 +366,6 @@ the 4.2 defence), D1 (one plist line), F1–F3/F5 (submission).
 
 **B7 was promoted out of the cut list on Sep 22.** A new AdMob app stays in limited ad serving
 until it is published and store-linked, so the plate will barely fill before launch. Without a
-house plate a reviewer sees an empty frame, and Shipaton eligibility shifts onto the IAP (B3)
+house plate a reviewer sees an empty frame, and monetization at launch shifts onto the IAP (B3)
 rather than RevenueCat Ads. Owner-side prerequisites are in
 [`docs/owner-setup-runbook.md`](./owner-setup-runbook.md).
