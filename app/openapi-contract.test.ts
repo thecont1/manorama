@@ -69,7 +69,7 @@ describe('OpenAPI contract: static spec', () => {
     const error = spec.components.schemas.Error as { properties: Record<string, Record<string, unknown>> }
     expect(error.properties.code.enum).toEqual([
       'CLIENT_SCAN_REQUIRED', 'GALLERY_LIMIT', 'GALLERY_READ_ONLY',
-      'MANIFEST_TOO_LARGE', 'PARTIAL_SCAN', 'PIN_LIMIT', 'SERVER_DECRYPT_RETIRED',
+      'MANIFEST_TOO_LARGE', 'PARTIAL_SCAN', 'PIN_LIMIT',
     ])
     expect(error.properties.dashboardUrl.type).toBe('string')
   })
@@ -210,16 +210,14 @@ describe('OpenAPI contract: runtime behavior', () => {
     expect(await response.json()).toEqual({ error: 'Missing Dropbox image reference' })
   })
 
-  test('mega file proxy is retired by default', async () => {
+  test('mega file proxy is gone', async () => {
     const response = await request('/api/mega/file?node=abc&k=xyz')
-    expect(response.status).toBe(410)
-    expect((await response.json() as any).code).toBe('SERVER_DECRYPT_RETIRED')
+    expect(response.status).toBe(404)
   })
 
-  test('mega preview proxy is retired by default', async () => {
+  test('mega preview proxy is gone', async () => {
     const response = await request('/api/mega/preview?h=abc&k=xyz')
-    expect(response.status).toBe(410)
-    expect((await response.json() as any).code).toBe('SERVER_DECRYPT_RETIRED')
+    expect(response.status).toBe(404)
   })
 
   test('a create without a Dropbox URL reports 400 with the contract error shape', async () => {

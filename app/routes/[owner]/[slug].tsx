@@ -99,23 +99,20 @@ export default createRoute(async (c) => {
     initialIndex: photoIndex > 0 ? photoIndex : 0,
   }
 
-  const legacyDecryptEnabled = (c.env as { LEGACY_ENCRYPTED_DECRYPT?: string }).LEGACY_ENCRYPTED_DECRYPT === 'enabled'
   const gate = encryptedGalleryGate({
     sourceUrl: gallery.sourceUrl ?? '', viewerOwner: viewerRole === 'owner', keyRetiredAt: gallery.keyRetiredAt,
-    manifestVersion: gallery.manifestVersion, legacyServerDecrypt: legacyDecryptEnabled,
+    manifestVersion: gallery.manifestVersion,
   })
   const clientGate = encrypted && gallery.id && gate.client
   const legacySourceUrl = gate.legacySourceUrl
 
-  // A visitor-facing client gate must not inherit the stored capability:
+  // A visitor-facing render must not inherit the stored capability:
   // legacy item srcs still carry `k=` keys and sourceUrl can hold the
-  // fragment. Only the owner receives keyed props, for the migration call.
-  // The strip follows gate.client rather than which island renders — a v2
-  // manifest missing its gallery id falls back to Viewer with sanitized
-  // props, while the legacy-flag rollback keeps keyed srcs on purpose.
+  // fragment. Only the owner receives keyed props, for the migration call —
+  // so the strip applies to every encrypted render that is not that case.
   const gatedImages = (items: readonly GalleryMediaItem[]): GalleryMediaItem[] =>
     legacySourceUrl ? [...items] : items.map(stripLegacyDeliveryCapabilities)
-  const ssrProps = encrypted && gate.client ? { ...viewerProps, images: gatedImages(viewerProps.images) } : viewerProps
+  const ssrProps = encrypted ? { ...viewerProps, images: gatedImages(viewerProps.images) } : viewerProps
 
   return c.render(
     <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>

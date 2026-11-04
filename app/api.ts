@@ -5,8 +5,6 @@ import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type G
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
-import { fetchMegaFile, fetchMegaPreview } from './lib/mega-client'
-import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
@@ -42,8 +40,6 @@ export type RuntimeEnv = {
   PUBLIC_HOST?: string
   REVENUECAT_WEBHOOK_AUTH?: string
   REVENUECAT_WEBHOOK_SIGNING_SECRET?: string
-  /** Temporary cohort-migration exception. Absence means server decrypt is retired. */
-  LEGACY_ENCRYPTED_DECRYPT?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
@@ -69,14 +65,6 @@ const coalesce = (key: string, run: () => Promise<Response>): Promise<Response> 
 }
 
 /** Decodes a MEGA proxy key; malformed base64url decodes to null. */
-const megaKeyBytes = (key: string | undefined) => {
-  if (!key) return null
-  try {
-    return b64uDecode(key)
-  } catch {
-    return null
-  }
-}
 
 const slugify = (value: string) => value
   .normalize('NFKD')
@@ -367,7 +355,6 @@ export const createManoramaApi = () => {
       const gate = encryptedGalleryGate({
         sourceUrl: gallery.sourceUrl!, viewerOwner: session?.accountId === user.accountId,
         keyRetiredAt: gallery.keyRetiredAt, manifestVersion: gallery.manifestVersion,
-        legacyServerDecrypt: envOf(c)?.LEGACY_ENCRYPTED_DECRYPT === 'enabled',
       })
       manifestImages = gate.legacySourceUrl ? images : images.map(stripLegacyDeliveryCapabilities)
     }
@@ -1050,39 +1037,6 @@ export const createManoramaApi = () => {
       return streamMediaResponse(await fetchDriveFile(id, envOf(c), fetch, resourceKey, c.req.header('Range')), 'private, no-store')
     } catch (error) {
       return proxyFailure(c, 'Google Drive image', id, error)
-    }
-  })
-
-  api.get('/api/mega/file', async (c) => {
-    if (envOf(c)?.LEGACY_ENCRYPTED_DECRYPT !== 'enabled') return c.json({ code: 'SERVER_DECRYPT_RETIRED', error: 'MEGA media is decrypted on your device' }, 410)
-    const folder = c.req.query('folder')
-    const set = c.req.query('set')
-    const node = c.req.query('node')
-    const key = c.req.query('k')
-    // A file key is 16 key ∥ 8 nonce ∥ 8 mac bytes — fetchMegaFile refuses
-    // anything else; refusing here too saves the provider round-trip.
-    if ((!folder && !set) || !node || megaKeyBytes(key)?.length !== 32) return c.json({ error: 'Missing MEGA image reference' }, 400)
-    try {
-      return streamMediaResponse(await fetchMegaFile(folder, set, node, key!, fetch, c.req.header('Range')), 'private, max-age=300')
-    } catch (error) {
-      return proxyFailure(c, 'MEGA image', `${node} in ${folder ?? set}`, error)
-    }
-  })
-
-  api.get('/api/mega/preview', async (c) => {
-    if (envOf(c)?.LEGACY_ENCRYPTED_DECRYPT !== 'enabled') return c.json({ code: 'SERVER_DECRYPT_RETIRED', error: 'MEGA previews are decrypted on your device' }, 410)
-    const folder = c.req.query('folder')
-    const set = c.req.query('set')
-    const fah = c.req.query('h')
-    const key = c.req.query('k')
-    const keyBytes = megaKeyBytes(key)
-    if ((!folder && !set) || !fah || (keyBytes?.length !== 16 && keyBytes?.length !== 32)) {
-      return c.json({ error: 'Missing MEGA image reference' }, 400)
-    }
-    try {
-      return await coalesce(c.req.url, async () => streamMediaResponse(await fetchMegaPreview(folder, set, fah, key!), 'private, max-age=300'))
-    } catch (error) {
-      return proxyFailure(c, 'MEGA preview', `${fah} in ${folder ?? set}`, error)
     }
   })
 

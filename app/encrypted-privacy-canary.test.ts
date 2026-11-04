@@ -153,8 +153,9 @@ describe('server never sees a v2 key', () => {
     } finally { globalThis.fetch = real }
   })
 
-  test('retired media endpoints answer 410 and the scan endpoint demands a client scan', async () => {
-    expect((await API.request(`/api/mega/file?folder=F&node=N&k=${CANARY}`, {}, env)).status).toBe(410)
+  test('the retired media endpoints are gone and the scan endpoint demands a client scan', async () => {
+    expect((await API.request(`/api/mega/file?folder=F&node=N&k=${CANARY}`, {}, env)).status).toBe(404)
+    expect((await API.request(`/api/mega/preview?folder=F&h=H&k=${CANARY}`, {}, env)).status).toBe(404)
     const scan = await API.request('/api/galleries/scan', {
       method: 'POST', ...(await enc({ headers: { 'Content-Type': 'application/json' } })),
       body: JSON.stringify({ url: KEYED_URL }),
@@ -224,7 +225,7 @@ describe('create / refresh / migrate persist only keyless records', () => {
 
   test('the owner alone receives the legacy capability until retirement', () => {
     const gate = (viewerOwner: boolean, keyRetiredAt: string | null) => encryptedGalleryGate({
-      sourceUrl: KEYED_URL, viewerOwner, keyRetiredAt, manifestVersion: 2, legacyServerDecrypt: false,
+      sourceUrl: KEYED_URL, viewerOwner, keyRetiredAt, manifestVersion: 2,
     })
     // Documented trade: the owner gets `legacySourceUrl` for the migration call,
     // so the key rides the owner's island props (and the hydration payload)

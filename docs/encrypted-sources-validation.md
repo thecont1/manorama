@@ -15,8 +15,10 @@ review asked for, and states plainly what could not be run in this checkout.
   deployment state, not an enumerated var list. Checked 2026-11-04.
 - **Staging**: declares no flag in `wrangler.toml`; the workers.dev hostname did
   not resolve for probing, so staging posture is configuration-evidenced only.
-- **Repository default**: retired. The flag exists only as a deploy-time cohort
-  switch documented in `wrangler.toml` and `.env.example`.
+- **Repository**: the flag and both retired routes are removed (#172) — the
+  endpoints answer 404 from the tree, and no environment variable can restore
+  a server decrypt path. The 410 measurement above predates removal and is
+  kept as the production record for that date.
 
 ## Live transport evidence
 
