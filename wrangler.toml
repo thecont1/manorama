@@ -53,10 +53,6 @@ database_name = "manorama"
 database_id = "23a75dd6-1d27-4f61-afc0-79b83c30cee7"
 migrations_dir = "migrations"
 
-# Staging mirrors production's retired-decrypt posture on purpose — it is the
-# canary for M7 (final key retirement), so LEGACY_ENCRYPTED_DECRYPT is
-# deliberately absent here. The production cohort migration enables it in
-# production only, for the window, then removes it again.
 [env.staging]
 workers_dev = true
 

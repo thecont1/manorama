@@ -94,11 +94,10 @@ describe('encrypted gallery API', () => {
     expect((await response.json() as any).code).toBe('MANIFEST_TOO_LARGE')
   })
 
-  test('legacy server decrypt is retired by default with an explicit migration override', async () => {
-    const retired = await api.request('/api/mega/file?folder=Ab&node=node&k=secret')
-    expect(retired.status).toBe(410)
-    expect((await retired.json() as any).code).toBe('SERVER_DECRYPT_RETIRED')
-    const transitional = await api.request('/api/mega/file?folder=Ab&node=node&k=secret', {}, { LEGACY_ENCRYPTED_DECRYPT: 'enabled' })
-    expect(transitional.status).toBe(400)
+  test('the legacy server-decrypt routes are gone', async () => {
+    const file = await api.request('/api/mega/file?folder=Ab&node=node&k=secret')
+    expect(file.status).toBe(404)
+    const preview = await api.request('/api/mega/preview?folder=Ab&h=fah&k=secret')
+    expect(preview.status).toBe(404)
   })
 })

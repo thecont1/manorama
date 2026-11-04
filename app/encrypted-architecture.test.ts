@@ -16,7 +16,7 @@ const listSources = (dir: string): string[] => {
 
 // The modules that implement client-side decryption. They may import each
 // other and be imported by islands and native; nothing else on the Worker
-// surface may reference them, except the flagged switch in api.ts.
+// surface may reference them at all — the flagged switch is deleted.
 const DECRYPTOR_MODULES = [
   'mega-client', 'mega-crypto', 'mega-decrypt', 'mega-crypto.worker',
   'encrypted-client', 'encrypted-resolver', 'encrypted-display',
@@ -47,13 +47,12 @@ describe('encrypted-source architecture guards', () => {
     expect(offenders).toEqual([])
   })
 
-  test('the flagged switch is the only decryptor consumer and it stays enumerated', () => {
+  test('no Worker file imports a client decryptor — the flagged switch is gone', () => {
     const decryptors = importSpecifiers(source('app/api.ts')).filter(isDecryptorSpecifier)
-    // The switch needs exactly these: the gated fetch/decrypt path and the
-    // MEGA base64url primitive used to validate k= params. Anything else is a
-    // new decryptor copy and must not reappear unnoticed.
-    expect(decryptors).toEqual(['./lib/mega-client', './lib/mega-crypto'])
-    expect(source('app/api.ts')).toContain('SERVER_DECRYPT_RETIRED')
+    // With the routes and LEGACY_ENCRYPTED_DECRYPT removed, api.ts must not
+    // import any decryptor module — a nonempty list means a new decrypt path
+    // reappeared.
+    expect(decryptors).toEqual([])
   })
 
   test('the server dispatcher routes MEGA to the client', () => {

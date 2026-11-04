@@ -81,22 +81,21 @@ describe('published encrypted manifest rules', () => {
   })
 })
 
-describe('transitional encrypted gallery gate', () => {
-  const legacy = { sourceUrl: keyed, manifestVersion: 1, legacyServerDecrypt: true }
+describe('encrypted gallery gate', () => {
+  const legacy = { sourceUrl: keyed, manifestVersion: 1 }
   test('only an owner receives the stored legacy capability', () => {
     expect(encryptedGalleryGate({ ...legacy, viewerOwner: true })).toEqual({ client: true, legacySourceUrl: keyed })
     expect(encryptedGalleryGate({ ...legacy, viewerOwner: false })).toEqual({ client: false })
   })
-  test('retirement or a disabled server path requires the client gate', () => {
+  test('retirement requires the client gate', () => {
     expect(encryptedGalleryGate({ ...legacy, viewerOwner: false, keyRetiredAt: '2026-01-01' }).client).toBe(true)
-    expect(encryptedGalleryGate({ ...legacy, viewerOwner: false, legacyServerDecrypt: false }).client).toBe(true)
     expect(encryptedGalleryGate({ ...legacy, viewerOwner: false, keyRetiredAt: '2026-01-01' }).legacySourceUrl).toBeUndefined()
   })
   test('a version-2 manifest always takes the client gate, even mid-migration', () => {
     // Converted on one device: keyless media refs with the source key still
     // stored. The server could not render those refs even for a visitor.
-    expect(encryptedGalleryGate({ sourceUrl: keyed, manifestVersion: 2, viewerOwner: false, legacyServerDecrypt: true }).client).toBe(true)
-    expect(encryptedGalleryGate({ sourceUrl: keyed, manifestVersion: 2, viewerOwner: true, legacyServerDecrypt: true }).legacySourceUrl).toBe(keyed)
+    expect(encryptedGalleryGate({ sourceUrl: keyed, manifestVersion: 2, viewerOwner: false }).client).toBe(true)
+    expect(encryptedGalleryGate({ sourceUrl: keyed, manifestVersion: 2, viewerOwner: true }).legacySourceUrl).toBe(keyed)
   })
   test('a manifest reports encrypted through its source or any media reference', () => {
     expect(manifestIsEncryptedSource({ sourceUrl: keyed })).toBe(true)
