@@ -104,7 +104,7 @@ export interface OfflineObjectUrlProvider {
   revoke(url: string): void
 }
 
-type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds'>
+type OfflineVault = Pick<EncryptedVault, 'read' | 'write' | 'remove' | 'clearGallery' | 'clear' | 'epoch' | 'listGalleryIds' | 'touch'>
 type CachedImage = { id: string; entryId: string; mimeType: string }
 type OfflineMetadata = {
   version: typeof METADATA_VERSION
@@ -391,6 +391,48 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
     if (stillImages.length === 0) throw new Error('An empty gallery cannot be cached offline')
     if (new Set(stillImages.map((image) => image.id)).size !== stillImages.length) {
       throw new Error('Offline caching requires unique stable image IDs')
+    }
+
+    // An unchanged re-open is the common case: every image id and source
+    // matches the committed record positionally, so the whole fill is one
+    // index touch plus a fresh commit record — never a decrypt per entry
+    // just to learn the bytes are already there. Any drift (a new, removed,
+    // reordered or re-uploaded photo) falls through to the per-image pass.
+    const priorImages = prior.status === 'ready' ? prior.value.images : []
+    const unchanged = priorImages.length === stillImages.length && stillImages.every((image, index) => {
+      const cached = priorImages[index]
+      if (!cached || cached.id !== image.id) return false
+      const priorManifestImage = prior.status === 'ready' ? prior.value.manifest.images[index] : undefined
+      return image.media?.kind === 'encrypted'
+        ? typeof image.contentVersion === 'string' && image.contentVersion === (priorManifestImage && 'contentVersion' in priorManifestImage ? priorManifestImage.contentVersion : undefined)
+        : priorManifestImage?.src === image.src
+    })
+    if (unchanged) {
+      const missing = await this.vault.touch(galleryId, priorImages.map((image) => image.entryId))
+      if (missing.length === 0) {
+        for (const [index, image] of priorImages.entries()) {
+          const item: OfflineCacheItemReady = { id: image.id, entryId: image.entryId, mimeType: image.mimeType, index }
+          cacheFillRegistry.publish({ galleryId, item })
+          onItemReady?.(item)
+        }
+        onProgress?.({ completed: stillImages.length, total: stillImages.length })
+        const metadataBytes = encoder.encode(JSON.stringify({
+          version: METADATA_VERSION,
+          owner: selection.owner,
+          slug: selection.slug,
+          manifest: gallery.manifest,
+          settings: gallery.settings,
+          images: priorImages,
+        } satisfies OfflineMetadata))
+        try {
+          // The commit record still refreshes: title or settings edits land
+          // even though no byte moved.
+          await this.vault.write(galleryId, METADATA_ENTRY_ID, metadataBytes, guard)
+        } finally {
+          metadataBytes.fill(0)
+        }
+        return { status: 'complete', images: stillImages.length }
+      }
     }
 
     const cachedImages: CachedImage[] = []
