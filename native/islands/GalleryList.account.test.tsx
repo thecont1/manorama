@@ -1240,7 +1240,10 @@ describe('signed-in account area', () => {
       expect(input.type).toBe('url')
       expect(input.required).toBe(true)
       expect(input.getAttribute('autocapitalize')).toBe('none')
-      input.value = ' https://mega.nz/folder/example#keep-the-key '
+      // A non-encrypted source exercises the url: POST shape; encrypted
+      // sources deliberately POST a keyless manifest instead (never the
+      // keyed URL) and are covered by the encrypted-gallery tests.
+      input.value = ' https://www.dropbox.com/scl/fo/lf77cf8mbwls8nwbcvq/example?rlkey=dvtkshg5wmht49rmyvgklri26&dl=0 '
       input.dispatchEvent(new dom.Event('input', { bubbles: true }) as unknown as Event)
       // Name and Caption only render after the link verifies — a change
       // commit runs the check without the typing debounce.
@@ -1256,7 +1259,7 @@ describe('signed-in account area', () => {
       await settle()
       const imports = calls.filter((call) => call.init?.method === 'POST' && call.url.endsWith('/api/galleries'))
       expect(imports).toHaveLength(1)
-      expect(JSON.parse(String(imports[0].init?.body))).toEqual({ url: 'https://mega.nz/folder/example#keep-the-key', title: 'Named Album' })
+      expect(JSON.parse(String(imports[0].init?.body))).toEqual({ url: 'https://www.dropbox.com/scl/fo/lf77cf8mbwls8nwbcvq/example?rlkey=dvtkshg5wmht49rmyvgklri26&dl=0', title: 'Named Album' })
       expect((imports[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer session-token-1')
       expect(galleryCalls().some((call) => call.url.endsWith('/quiet-owner/imported'))).toBe(true)
     })

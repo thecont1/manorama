@@ -124,3 +124,16 @@ partway.
 
 If you see those `EADDRINUSE` / `EPERM` failures, you are looking at the sandbox, not at a
 regression. Do not "fix" the tests.
+
+## Privacy canaries (encrypted sources)
+
+`app/encrypted-privacy-canary.test.ts` is the §L canary gate for the encrypted-source
+privacy boundary. A failure there is a privacy regression, not a flake — never weaken or
+delete an assertion to get green.
+
+```sh
+bun run test:unit -- app/encrypted-privacy-canary.test.ts
+```
+
+Expected-red entries are documented in the remediation plan
+(`docs/encrypted-sources-remediation-plan.md`) with the task that closes each.

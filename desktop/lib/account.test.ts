@@ -13,7 +13,7 @@ const captureFetch = (handler: (url: string) => Response) => {
 }
 
 const summary = (slug: string, images: GallerySummary['images'] = []): GallerySummary =>
-  ({ slug, title: slug, caption: '', date: '', imageCount: images.length, mediaCount: { stills: images.length, videos: 0, hidden: 0 }, sourceUrl: 'https://www.dropbox.com/scl/fo/x', createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, pinnedAt: null, images })
+  ({ id: `id-${slug}`, manifestVersion: 1, keyRetiredAt: null, slug, title: slug, caption: '', date: '', imageCount: images.length, mediaCount: { stills: images.length, videos: 0, hidden: 0 }, sourceUrl: 'https://www.dropbox.com/scl/fo/x', createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, pinnedAt: null, images })
 
 const device = (id: string, deviceId: string, extras: Partial<DeviceGallery> = {}): DeviceGallery => ({
   id,

@@ -7,11 +7,13 @@ type Props = {
   payload: GallerySharePayload
   onClose: () => void
   onCopy: (url: string) => Promise<boolean>
+  shareDisabled?: boolean
+  shareWarning?: string
 }
 
 /** Explicit fallback when neither native nor Web Share accepts the handoff.
  * Only presentation metadata and the public URL cross this boundary. */
-export function GalleryShareSheet({ payload, onClose, onCopy }: Props) {
+export function GalleryShareSheet({ payload, onClose, onCopy, shareDisabled = false, shareWarning }: Props) {
   const [note, setNote] = useState<string | null>(null)
   const text = `${payload.title} ${payload.url}`
   const body = payload.caption.trim() ? `${payload.caption.trim()}\n\n${payload.url}` : payload.url
@@ -23,7 +25,8 @@ export function GalleryShareSheet({ payload, onClose, onCopy }: Props) {
     <Sheet open onClose={onClose} title={`Share ${payload.title}`}>
       <div class="m-share">
         <p class="m-share-address">{payload.url}</p>
-        <div class="m-share-actions">
+        {shareDisabled ? <p class="m-note" role="alert">{shareWarning}</p> : null}
+        {!shareDisabled ? <div class="m-share-actions">
           <Button variant="primary" block onClick={() => void copy()}>Copy link</Button>
           <a class="m-btn m-btn--secondary m-btn--block" href={`https://wa.me/?text=${encodeURIComponent(text)}`} target="_blank" rel="noopener">WhatsApp</a>
           <a class="m-btn m-btn--secondary m-btn--block" href={`sms:?&body=${encodeURIComponent(text)}`}>Messages</a>
@@ -33,7 +36,7 @@ export function GalleryShareSheet({ payload, onClose, onCopy }: Props) {
           >
             Email
           </a>
-        </div>
+        </div> : null}
         {note ? <p class="m-note" role="status">{note}</p> : null}
       </div>
     </Sheet>

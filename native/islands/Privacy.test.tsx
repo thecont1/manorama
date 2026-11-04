@@ -66,9 +66,9 @@ describe('Privacy native view', () => {
     expect(html).toContain('class="privacy-scroll"')
     expect(html).toContain('aria-label="Back"')
     expect(html).toContain('Privacy Policy')
-    expect(html).toContain('Last updated: 1 October 2026')
+    expect(html).toContain('Last updated: 4 November 2026')
     expect(plainText(html)).toContain('Manorama is a place to share and look at photographs.')
-    expect(paragraphCount(html)).toBe(20)
+    expect(paragraphCount(html)).toBe(22)
     expect(html).toContain('href="https://thecontrarian.in/#contact"')
   })
 

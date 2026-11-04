@@ -97,6 +97,20 @@ sets.
 
 - Refreshes and reorders are non-destructive to the source but overwrite the stored manifest — see the ordering caveat above.
 
+## Encrypted-source cohort migration
+
+Staging binds the same `manorama` D1 database as production (see `wrangler.toml`) — every migration command below targets the database name, never an `--env`, and there is no staging-only migration path.
+
+Legacy MEGA galleries whose stored `source_url` still carries a `#`-fragment key are migrated by the operator, not by each owner through the two-device web flow (the cohort is small enough that a reviewed one-shot is safer):
+
+1. Apply migrations 0013+0014: `bunx wrangler d1 migrations apply manorama --remote`.
+2. Emit the rewrite: `bun scripts/migrate-encrypted-sources.ts` — reads keyed rows, scans each source locally with the client scanner, and writes `out/encrypted-migration.sql`. The SET clause contains only keyless URLs and scanned media refs, **but the file is still key-bearing**: each UPDATE's concurrency guard embeds the stored `images_json`, which carries legacy per-item `k=` secrets. Review it in place, never commit or attach it (`out/` is git-ignored), and delete it after applying.
+3. Apply it: `bunx wrangler d1 execute manorama --remote --file out/encrypted-migration.sql` — the trailing SELECT should report `keyed = 0` for every row. An UPDATE that matches no row means the gallery changed since the snapshot — re-run step 2 rather than forcing it.
+
+**Concurrency ceiling.** The `images_json` snapshot guard doubles a statement's size, and D1 rejects statements over 100,000 bytes — galleries past roughly 62 items exceed it. For those, the script emits the UPDATE with only `id` + `source_url LIKE '%#%'` + `key_retired_at IS NULL` guards (idempotency is preserved; owner edits between snapshot and apply are last-writer-wins) and prints a warning per gallery. Manifests large enough that the SET clause alone exceeds the limit are skipped with an error — migrate that row through the owner's own two-device flow instead. Apply the file at a quiet moment — owners are not editing galleries mid-migration in this cohort — and if a gallery's stored manifest changes in the window regardless, re-run step 2 to regenerate, or migrate that row through the owner's own two-device flow instead.
+
+The script refuses a schema that lacks the custody columns and skips any gallery whose scan truncates, matching the `PARTIAL_SCAN` rule on the `/migrate` endpoint. Owner devices pick up keys the usual way: opening the gallery's full link once per device.
+
 ## Video slides
 
 - **Playback model:** ambient muted loop, and only that. A video starts playing, muted, when it becomes the active slide; leaving the slide pauses it and rewinds to zero, so returning shows the poster again. There is no seek bar, no per-item playback mode, and no speed or fullscreen control in v1.

@@ -1,5 +1,6 @@
 import { createRoute } from 'honox/factory'
 import Viewer from '../../islands/Viewer'
+import EncryptedGallery from '../../islands/EncryptedGallery'
 import GalleryShell from '../../components/GalleryShell'
 import { BundledSource, mediaCountOf } from '../../lib/imagesource'
 import { defaultGallerySettings } from '../../lib/gallery-settings'
@@ -14,6 +15,9 @@ import { getUserByOwnerSlug } from '../../lib/user-repository'
 import { accessEnvOf, resolveManoramaSession } from '../../lib/session'
 import { webAdFrameForRequest } from '../../lib/ads-visibility'
 import { ogItemKey } from '../../lib/og-card'
+import { encryptedGalleryGate, isEncryptedSourceUrl, keylessSourceUrl } from '../../../packages/core/encrypted-source'
+import { encryptedGalleryDescription } from '../../lib/og-metadata'
+import type { GalleryMediaItem } from '../../lib/imagesource'
 
 export default createRoute(async (c) => {
   const owner = c.req.param('owner') ?? ''
@@ -65,42 +69,63 @@ export default createRoute(async (c) => {
   // Per-gallery social card: the first frame with the wordmark over it.
   // `?i=` is the first item's stable key, so reordering the gallery
   // changes the URL and busts the edge cache without a purge.
-  const firstKey = ogItemKey(visible[0])
-  const ogImage = `/api/og/${encodeURIComponent(owner)}/${encodeURIComponent(
+  const encrypted = Boolean(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))
+  const firstKey = encrypted ? '' : ogItemKey(visible[0])
+  const ogImage = encrypted ? '/og-image.png' : `/api/og/${encodeURIComponent(owner)}/${encodeURIComponent(
     gallery.slug,
   )}${firstKey ? `?i=${encodeURIComponent(firstKey)}` : ''}`
   c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
   c.header('Cache-Control', 'private, no-store')
 
+  const viewerProps = {
+    slug: gallery.slug,
+    galleryTitle: gallery.title,
+    images: source.list(),
+    settings,
+    plate,
+    viewerRole,
+    galleryOwner: owner,
+    libraryHref,
+    ownerGallery: viewerRole === 'owner' ? {
+      title: gallery.title,
+      caption: gallery.caption,
+      sourceLabel: sourceLabelFor(gallery.sourceUrl),
+      temporary: retentionOf(gallery) === 'pipeline',
+      expiresAt: gallery.expiresAt,
+      mediaCount: { ...media, hidden: gallery.images.length - visible.length },
+    } : undefined,
+    initialEdit: ownerEdit,
+    initialIndex: photoIndex > 0 ? photoIndex : 0,
+  }
+
+  const legacyDecryptEnabled = (c.env as { LEGACY_ENCRYPTED_DECRYPT?: string }).LEGACY_ENCRYPTED_DECRYPT === 'enabled'
+  const gate = encryptedGalleryGate({
+    sourceUrl: gallery.sourceUrl ?? '', viewerOwner: viewerRole === 'owner', keyRetiredAt: gallery.keyRetiredAt,
+    manifestVersion: gallery.manifestVersion, legacyServerDecrypt: legacyDecryptEnabled,
+  })
+  const clientGate = encrypted && gallery.id && gate.client
+  const legacySourceUrl = gate.legacySourceUrl
+
+  // A visitor-facing client gate must not inherit the stored capability:
+  // legacy item srcs still carry `k=` keys and sourceUrl can hold the
+  // fragment. Only the owner receives keyed props, for the migration call.
+  const gatedImages = (items: readonly GalleryMediaItem[]): GalleryMediaItem[] =>
+    legacySourceUrl ? [...items] : items.map((item) =>
+      item.type === 'video'
+        ? { ...item, src: '', variants: [], sources: [], captions: [], poster: { ...item.poster, src: '' } }
+        : { ...item, src: '', variants: [] })
+
   return c.render(
     <GalleryShell settings={settings} viewerRole={viewerRole} libraryHref={libraryHref} mediaCount={media} entered={photoIndex >= 0 || ownerEdit}>
-      <Viewer
-        slug={gallery.slug}
-        galleryTitle={gallery.title}
-        images={source.list()}
-        settings={settings}
-        plate={plate}
-        viewerRole={viewerRole}
-        galleryOwner={owner}
-        libraryHref={libraryHref}
-        ownerGallery={viewerRole === 'owner' ? {
-          title: gallery.title,
-          caption: gallery.caption,
-          sourceLabel: sourceLabelFor(gallery.sourceUrl),
-          temporary: retentionOf(gallery) === 'pipeline',
-          expiresAt: gallery.expiresAt,
-          // Hidden items never leave this route — the owner panel gets
-          // their count only, matching what the library cards say.
-          mediaCount: { ...media, hidden: gallery.images.length - visible.length },
-        } : undefined}
-        initialEdit={ownerEdit}
-        initialIndex={photoIndex > 0 ? photoIndex : 0}
-      />
+      {clientGate && gallery.id
+        ? <EncryptedGallery {...viewerProps} images={gatedImages(viewerProps.images)} galleryId={gallery.id} sourceUrl={keylessSourceUrl(gallery.sourceUrl!)} legacySourceUrl={legacySourceUrl} />
+        : <Viewer {...viewerProps} />}
     </GalleryShell>,
     {
       title: `${gallery.title} — manorama`,
-      description:
-        gallery.caption || `${gallery.title} — a photo gallery on manorama`,
+      description: encrypted
+        ? encryptedGalleryDescription({ count: source.list().length, provider: sourceLabelFor(gallery.sourceUrl), date: gallery.date })
+        : gallery.caption || `${gallery.title} — a photo gallery on manorama`,
       ogImage,
     },
   )

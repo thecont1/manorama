@@ -9,6 +9,10 @@ playwright-report/
 !.env.example
 .dev.vars
 
+# Generated migration SQL echoes legacy k= item refs in its guard clauses —
+# key-bearing, never committable.
+out/
+
 # Playwright MCP ephemeral artifacts
 .playwright-mcp/
 .devin/

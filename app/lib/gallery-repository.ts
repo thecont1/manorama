@@ -6,6 +6,7 @@ import { clearDeviceGalleryLink } from './device-gallery-repository'
 import {
   assertGalleryEditable,
   FREE_RETAINED_LIMIT,
+  GalleryPolicyError,
   isGalleryExpired,
   PAID_RETAINED_LIMIT,
   paidGalleryLimitError,
@@ -25,14 +26,22 @@ import type { AccountTier } from '../../packages/core/account'
  */
 
 export type GalleryRecord = GalleryManifest & {
+  /** Random immutable identity for client-held keys; optional only while
+   *  reading pre-0013 records and constructing legacy test fixtures. */
+  id?: string
+  manifestVersion?: number
   sourceUrl?: string
   createdAt?: string
   retention?: GalleryRetention
   expiresAt?: string | null
   pinnedAt?: string | null
+  keyRetiredAt?: string | null
+  migrationDevices?: string[]
 }
 
 type GalleryRow = {
+  id: string | null
+  manifest_version: number | null
   slug: string
   title: string
   caption: string | null
@@ -43,6 +52,8 @@ type GalleryRow = {
   retention: string | null
   expires_at: string | null
   pinned_at: string | null
+  key_retired_at: string | null
+  migration_devices: string | null
 }
 
 export type GalleryEnv = { DB?: D1Database }
@@ -69,11 +80,15 @@ const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
   retention: retentionOf(gallery),
   expiresAt: gallery.expiresAt ?? null,
   pinnedAt: gallery.pinnedAt ?? null,
+  keyRetiredAt: gallery.keyRetiredAt ?? null,
+  migrationDevices: gallery.migrationDevices ?? [],
 })
 
 const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   if (!row || !row.slug) return null
   const gallery: GalleryRecord = {
+    id: row.id ?? undefined,
+    manifestVersion: row.manifest_version ?? 1,
     slug: row.slug,
     title: row.title || row.slug,
     caption: row.caption ?? '',
@@ -83,6 +98,8 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
     retention: row.retention === 'pipeline' ? 'pipeline' : 'retained',
     expiresAt: row.expires_at ?? null,
     pinnedAt: row.pinned_at ?? null,
+    keyRetiredAt: row.key_retired_at ?? null,
+    migrationDevices: JSON.parse(row.migration_devices || '[]') as string[],
     images: [],
   }
   if (row.images_json) {
@@ -96,9 +113,11 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, key_retired_at, migration_devices'
 
 type GalleryInsertRow = {
+  id: string
+  manifest_version: number
   slug: string
   title: string
   caption: string
@@ -106,16 +125,36 @@ type GalleryInsertRow = {
   source_url: string | null
   images_json: string
   created_at: string
+  key_retired_at: string | null
+  migration_devices: string
+}
+
+/** D1's row ceiling is the real constraint — the 1,000-item cap alone
+ *  allows ~33 MB of worst-case exif/placeholder. 1.8 MB leaves headroom
+ *  under the ~2 MB row limit for the row's other columns. */
+export const MANIFEST_IMAGES_MAX_BYTES = 1_800_000
+const manifestImagesJson = (images: readonly GalleryMediaItem[]): string => {
+  const json = JSON.stringify(images)
+  // D1's row limit is in UTF-8 bytes — json.length undercounts multibyte
+  // metadata and would let an oversized row through.
+  if (new TextEncoder().encode(json).byteLength > MANIFEST_IMAGES_MAX_BYTES) {
+    throw new GalleryPolicyError('MANIFEST_TOO_LARGE', 'That manifest is too large to store — reduce the number of items or their metadata')
+  }
+  return json
 }
 
 const recordToRow = (gallery: GalleryRecord): GalleryInsertRow => ({
+  id: gallery.id ?? crypto.randomUUID(),
+  manifest_version: gallery.manifestVersion ?? 1,
   slug: gallery.slug,
   title: gallery.title,
   caption: gallery.caption ?? '',
   date: gallery.date ?? '',
   source_url: gallery.sourceUrl ?? null,
-  images_json: JSON.stringify(gallery.images),
+  images_json: manifestImagesJson(gallery.images),
   created_at: new Date(gallery.createdAt || Date.now()).toISOString(),
+  key_retired_at: gallery.keyRetiredAt ?? null,
+  migration_devices: JSON.stringify(gallery.migrationDevices ?? []),
 })
 
 const sortRecent = (galleries: GalleryRecord[]) => galleries.sort((a, b) => {
@@ -194,8 +233,8 @@ export const createGalleryWithinLimit = async (
   if (d1Configured(env)) {
     try {
       const stored = await env.DB.prepare(
-        `INSERT INTO galleries (slug, owner_id, title, caption, date, source_url, images_json, created_at, retention, expires_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+        `INSERT INTO galleries (id, manifest_version, slug, owner_id, title, caption, date, source_url, images_json, created_at, retention, expires_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN 'retained' ELSE 'pipeline' END,
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN NULL ELSE ? END
          FROM (
@@ -203,8 +242,8 @@ export const createGalleryWithinLimit = async (
           (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'retained') AS retained_count
          )
          WHERE tier != 'pro' OR retained_count < 99
-         RETURNING slug, title, caption, date, source_url, images_json, created_at, retention, expires_at`,
-      ).bind(row.slug, ownerId, row.title, row.caption, row.date, row.source_url, row.images_json, row.created_at, pipelineExpiresAt, ownerId, ownerId).first<GalleryRow>()
+         RETURNING ${GALLERY_COLUMNS}`,
+      ).bind(row.id, row.manifest_version, row.slug, ownerId, row.title, row.caption, row.date, row.source_url, row.images_json, row.created_at, pipelineExpiresAt, ownerId, ownerId).first<GalleryRow>()
       if (!stored) return { ok: false, reason: 'limit' }
       return { ok: true, gallery: rowToRecord(stored)! }
     } catch (error) {
@@ -227,6 +266,8 @@ export const createGalleryWithinLimit = async (
   const retention: GalleryRetention = tier === 'pro' || retainedCount < FREE_RETAINED_LIMIT ? 'retained' : 'pipeline'
   const stored: GalleryRecord = {
     ...gallery,
+    id: row.id,
+    manifestVersion: row.manifest_version,
     slug: row.slug,
     sourceUrl: row.source_url ?? undefined,
     createdAt: row.created_at,
@@ -248,27 +289,42 @@ export const createGallery = async (ownerId: string, gallery: GalleryRecord, env
 }
 
 /** Updates an existing gallery row in place via an atomic D1 UPDATE (no
- *  create-then-delete). Returns null when no row matches and throws a typed
- *  read-only error for pipeline galleries. */
-export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv): Promise<GalleryRecord | null> => {
+ *  create-then-delete). When `expected.migrationDevices` is supplied the
+ *  write is conditional on migration_devices still holding that snapshot —
+ *  the state the caller's verified-device union was built from — so two
+ *  devices migrating concurrently cannot silently drop each other. A
+ *  conditional miss returns null like a missing row; callers that need the
+ *  distinction re-read before retrying. Returns null when no row matches
+ *  and throws a typed read-only error for pipeline galleries. */
+export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv, expected?: { migrationDevices?: string[] }): Promise<GalleryRecord | null> => {
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, gallery.slug, env)
     if (!current) return null
     assertGalleryEditable(current)
-    const row = recordToRow(gallery)
+    const row = recordToRow({
+      ...gallery,
+      manifestVersion: gallery.manifestVersion ?? current.manifestVersion,
+      keyRetiredAt: gallery.keyRetiredAt ?? current.keyRetiredAt,
+      migrationDevices: gallery.migrationDevices ?? current.migrationDevices,
+    })
     const result = await env.DB.prepare(
-      `UPDATE galleries SET title = ?, caption = ?, date = ?, source_url = ?, images_json = ?
-       WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
-    ).bind(row.title, row.caption, row.date, row.source_url, row.images_json, ownerId, gallery.slug).run()
+      `UPDATE galleries SET manifest_version = ?, title = ?, caption = ?, date = ?, source_url = ?, images_json = ?, key_retired_at = ?, migration_devices = ?
+       WHERE owner_id = ? AND slug = ? AND retention = 'retained'${expected ? ' AND migration_devices = ?' : ''}`,
+    ).bind(row.manifest_version, row.title, row.caption, row.date, row.source_url, row.images_json, row.key_retired_at, row.migration_devices, ownerId, gallery.slug, ...(expected ? [JSON.stringify(expected.migrationDevices ?? [])] : [])).run()
     if ((result.meta.changes ?? 0) === 0) return null
-    return { ...gallery, createdAt: current.createdAt, retention: current.retention, expiresAt: current.expiresAt }
+    return getStoredGallery(ownerId, gallery.slug, env)
   }
   const store = ownerStore(ownerId)
   const current = store.get(gallery.slug)
   if (!current) return null
   assertGalleryEditable(current)
+  if (expected && JSON.stringify(current.migrationDevices ?? []) !== JSON.stringify(expected.migrationDevices ?? [])) return null
   const updated: GalleryRecord = {
     ...gallery,
+    id: current.id,
+    manifestVersion: gallery.manifestVersion ?? current.manifestVersion,
+    keyRetiredAt: gallery.keyRetiredAt ?? current.keyRetiredAt ?? null,
+    migrationDevices: gallery.migrationDevices ?? current.migrationDevices ?? [],
     createdAt: current.createdAt,
     retention: retentionOf(current),
     expiresAt: current.expiresAt ?? null,
@@ -280,16 +336,20 @@ export const updateGalleryRecord = async (ownerId: string, gallery: GalleryRecor
 /** Updates only the images_json column of an existing gallery, leaving
  *  metadata (title, caption, date) untouched. Used by the refresh flow so
  *  a concurrent metadata change is not overwritten with stale read data.
+ *  manifestVersion is written only when a caller supplies it — a refresh
+ *  that persisted a client-scanned manifest promotes the gallery to it.
  *  Throws a typed read-only error for pipeline galleries. */
-export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv): Promise<GalleryRecord | null> => {
-  const imagesJson = JSON.stringify(images)
+export const updateGalleryImages = async (ownerId: string, slug: string, images: readonly GalleryMediaItem[], env?: GalleryEnv, manifestVersion?: number): Promise<GalleryRecord | null> => {
+  const imagesJson = manifestImagesJson(images)
   if (d1Configured(env)) {
     const current = await getStoredGallery(ownerId, slug, env)
     if (!current) return null
     assertGalleryEditable(current)
+    const sets = manifestVersion === undefined ? 'images_json = ?' : 'images_json = ?, manifest_version = ?'
+    const binds = manifestVersion === undefined ? [imagesJson] : [imagesJson, manifestVersion]
     const result = await env.DB.prepare(
-      `UPDATE galleries SET images_json = ? WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
-    ).bind(imagesJson, ownerId, slug).run()
+      `UPDATE galleries SET ${sets} WHERE owner_id = ? AND slug = ? AND retention = 'retained'`,
+    ).bind(...binds, ownerId, slug).run()
     if ((result.meta.changes ?? 0) === 0) return null
     return getGallery(ownerId, slug, env)
   }
@@ -297,7 +357,7 @@ export const updateGalleryImages = async (ownerId: string, slug: string, images:
   const current = store.get(slug)
   if (!current) return null
   assertGalleryEditable(current)
-  const updated = { ...normalizeRecord(current), images: [...images] }
+  const updated = { ...normalizeRecord(current), images: [...images], ...(manifestVersion === undefined ? {} : { manifestVersion }) }
   store.set(slug, updated)
   return updated
 }
@@ -487,7 +547,13 @@ export const updateGalleryHidden = async (ownerId: string, slug: string, hiddenK
  *  key is invented for them. */
 const previewImages = (images: readonly GalleryMediaItem[]) => images.map((image) => {
   const { id, ref, filename, src, width, height, alt, placeholder, variants } = image
-  const base = { id, ref, filename, src, width, height, alt, placeholder, variants }
+  const base = {
+    id, ref, filename, src, width, height, alt, placeholder, variants,
+    ...('media' in image && image.media ? { media: image.media } : {}),
+    ...('contentVersion' in image && image.contentVersion ? { contentVersion: image.contentVersion } : {}),
+    ...('fidelity' in image && image.fidelity ? { fidelity: image.fidelity } : {}),
+    ...('thumbnailFidelity' in image && image.thumbnailFidelity ? { thumbnailFidelity: image.thumbnailFidelity } : {}),
+  }
   // `hidden` stays optional like the stored flag — the conditional spread
   // keeps it absent on visible items, so summary shapes are unchanged.
   const flagged = { ...base, ...(image.hidden ? { hidden: true as const } : {}) }
@@ -609,7 +675,7 @@ export const toSummary = (gallery: GalleryRecord) => {
   // vault's "Saving n of imageCount" progress reads it.
   const visible = gallery.images.filter((image) => !image.hidden)
   const { stills, videos } = mediaCountOf(visible)
-  return { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, images: previewImages(gallery.images) }
+  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, images: previewImages(gallery.images) }
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 

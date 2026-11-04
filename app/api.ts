@@ -5,11 +5,11 @@ import { SourceFetchError, isVideoItem, stillSourceOf, MAX_GALLERY_ITEMS, type G
 import { fetchDropboxFile, fetchDropboxThumbnail } from './lib/dropbox-public'
 import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
-import { fetchMegaFile, fetchMegaPreview } from './lib/mega-public'
+import { fetchMegaFile, fetchMegaPreview } from './lib/mega-client'
 import { b64uDecode } from './lib/mega-crypto'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -22,8 +22,11 @@ import { createDeviceGalleryApi } from './device-gallery-api'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
+import { ENCRYPTED_MANIFEST_VERSION, isEncryptedSourceUrl, keylessSourceUrl } from '../packages/core/encrypted-source'
+import { validateEncryptedManifest, type EncryptedManifestInput } from './lib/encrypted-manifest'
+import { mergeMigratedImages } from './lib/encrypted-migration'
 
-type RequestBody = { url?: string; order?: string[]; quick?: boolean; title?: string; caption?: string }
+type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
 export type RuntimeEnv = {
   AIRTABLE_PAT?: string
@@ -38,6 +41,8 @@ export type RuntimeEnv = {
   PUBLIC_HOST?: string
   REVENUECAT_WEBHOOK_AUTH?: string
   REVENUECAT_WEBHOOK_SIGNING_SECRET?: string
+  /** Temporary cohort-migration exception. Absence means server decrypt is retired. */
+  LEGACY_ENCRYPTED_DECRYPT?: string
 }
 
 const envOf = (c: { env: unknown }) => c.env as RuntimeEnv
@@ -350,7 +355,12 @@ export const createManoramaApi = () => {
       }
     }
     const images = includeHidden ? gallery.images : gallery.images.filter((image) => !image.hidden)
-    const manifest = { slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images }
+    // Encrypted sources publish the keyless form only: the stored row may
+    // still hold a legacy fragment the native client must never receive.
+    const manifest = {
+      slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, images,
+      ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl) ? { sourceUrl: keylessSourceUrl(gallery.sourceUrl) } : {}),
+    }
     return c.json({ manifest, settings: defaultGallerySettings(gallery) })
   })
   // Public: the native shell asks before composing plates. Geo-IP comes from
@@ -535,6 +545,7 @@ export const createManoramaApi = () => {
   api.post('/api/galleries/scan', async (c) => {
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
+    if (isEncryptedSourceUrl(payload.url)) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted sources are scanned on your device, never by the server' }, 422)
     try {
       const scan = await scanSource(payload.url, envOf(c))
       return c.json({ scan })
@@ -543,11 +554,14 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries', async (c) => {
+  api.post('/api/galleries', bodyLimit({ maxSize: 8 * 1024 * 1024 }), async (c) => {
     const session = c.get('manoramaSession')
     const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
-    if (!payload.url?.trim()) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
     try {
+      const submitted = payload.manifest === undefined ? null : validateEncryptedManifest(payload.manifest)
+      const sourceInput = submitted?.sourceUrl ?? payload.url?.trim()
+      if (!sourceInput) return c.json({ error: UNRECOGNIZED_LINK_MESSAGE }, 400)
+      if (!submitted && isEncryptedSourceUrl(sourceInput)) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted sources are scanned on your device, never by the server' }, 422)
       // Quick-add revisit fast path: when the pasted link canonicalizes to
       // a gallery this owner already has, reopen it WITHOUT re-scanning
       // the provider. Without this a revisit pays a full album scan just
@@ -555,7 +569,7 @@ export const createManoramaApi = () => {
       // link into a 422 instead of a redirect.
       const galleries = await listGalleries(session.accountId, dbEnv(c))
       const existingBefore = galleries
-        .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, payload.url!))
+        .find((item) => item.sourceUrl && canonicalSourceMatches(item.sourceUrl, sourceInput))
       if (existingBefore) return c.json({
         error: 'A gallery from that link already exists',
         gallery: toSummary(existingBefore),
@@ -571,7 +585,7 @@ export const createManoramaApi = () => {
         const error = paidGalleryLimitError()
         return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
       }
-      const scan = await scanSource(payload.url, envOf(c))
+      const scan: EncryptedManifestInput | Awaited<ReturnType<typeof scanSource>> = submitted ?? await scanSource(sourceInput, envOf(c))
       const sourceUrlMatch = galleries.find((item) => item.sourceUrl === scan.sourceUrl)
       // A revisit to /<share-url> must reopen the gallery that link already
       // produced, so the 409 carries the existing gallery and its address.
@@ -620,6 +634,7 @@ export const createManoramaApi = () => {
           caption,
           date: '',
           sourceUrl: scan.sourceUrl,
+          manifestVersion: submitted ? 2 : 1,
           createdAt: new Date().toISOString(),
           images: orderedImages,
         }, dbEnv(c))
@@ -650,7 +665,7 @@ export const createManoramaApi = () => {
         suffix += 1
       }
     } catch (error) {
-      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be added' }, 422)
     }
   })
@@ -796,17 +811,22 @@ export const createManoramaApi = () => {
     }
   })
 
-  api.post('/api/galleries/:slug/refresh', requireEditableGallery(), async (c) => {
+  api.post('/api/galleries/:slug/refresh', bodyLimit({ maxSize: 8 * 1024 * 1024 }), requireEditableGallery(), async (c) => {
     const session = c.get('manoramaSession')
+    const payload = await c.req.json<RequestBody>().catch((): RequestBody => ({}))
     try {
       const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
       if (!gallery.sourceUrl) return c.json({ error: 'Only link-sourced galleries can be refreshed' }, 400)
-      const scan = await scanSource(gallery.sourceUrl, envOf(c))
+      const encrypted = gallery.manifestVersion === 2 || isEncryptedSourceUrl(gallery.sourceUrl)
+      if (encrypted && payload.manifest === undefined) return c.json({ code: 'CLIENT_SCAN_REQUIRED', error: 'Encrypted refresh requires a manifest scanned on your device' }, 400)
+      const submitted = payload.manifest === undefined ? null : validateEncryptedManifest(payload.manifest)
+      if (submitted && !canonicalSourceMatches(gallery.sourceUrl, submitted.sourceUrl)) return c.json({ error: 'Refresh source identity does not match this gallery' }, 400)
+      const scan: EncryptedManifestInput | Awaited<ReturnType<typeof scanSource>> = submitted ?? await scanSource(gallery.sourceUrl, envOf(c))
       // A budget-cut scan returns a partial listing — persisting it would
       // drop source items the scan never reached, so the refresh is
       // rejected and the gallery keeps its existing images.
-      if (scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
+      if ('partial' in scan && scan.partial) return c.json({ error: 'That album could not be read completely — try again' }, 422)
       // Retained images keep the owner's ordering but pick up fresh
       // scanner metadata and source references; images removed from the
       // source drop out, newly discovered ones append at the end.
@@ -821,12 +841,66 @@ export const createManoramaApi = () => {
       const refreshed = retained.concat(scan.images.filter((image) => !keptKeys.has(image.ref ?? image.filename)))
       // Persist only the refreshed images, not the stale gallery metadata
       // read before the scan — a concurrent metadata change is preserved.
-      const updated = await updateGalleryImages(session.accountId, gallery.slug, refreshed, dbEnv(c))
+      // A client-scanned manifest also promotes the stored version: its
+      // keyless media refs can never render through the legacy path again.
+      const updated = await updateGalleryImages(session.accountId, gallery.slug, refreshed, dbEnv(c), submitted ? ENCRYPTED_MANIFEST_VERSION : undefined)
       if (!updated) return c.json({ error: 'That gallery was not found' }, 404)
       return c.json({ gallery: toSummary(updated) })
     } catch (error) {
-      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be refreshed' }, 422)
+    }
+  })
+
+  api.post('/api/galleries/:slug/migrate', bodyLimit({ maxSize: 8 * 1024 * 1024 }), requireEditableGallery(), async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ manifest?: unknown; deviceId?: string; optOut?: boolean }>().catch((): { manifest?: unknown; deviceId?: string; optOut?: boolean } => ({}))
+    try {
+      const gallery = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!gallery?.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) return c.json({ error: 'Only encrypted source galleries can migrate' }, 400)
+      if (typeof payload.deviceId !== 'string' || !/^[0-9A-Za-z-]{8,128}$/.test(payload.deviceId)) return c.json({ error: 'Provide a valid non-secret device id' }, 400)
+      const submitted = validateEncryptedManifest(payload.manifest)
+      if (!canonicalSourceMatches(gallery.sourceUrl, submitted.sourceUrl)) return c.json({ error: 'Migration source identity does not match this gallery' }, 400)
+      // A truncated listing would silently delete the items the scan never
+      // reached, and the key retires in the same request — no second chance.
+      if (submitted.truncated !== undefined) {
+        return c.json({ code: 'PARTIAL_SCAN', error: 'That folder could not be read completely — try again before removing the server key' }, 422)
+      }
+      // The migration_devices write is compare-and-swap: a concurrent
+      // device migrating the same gallery lands between our read and write.
+      // On a miss, re-read, rebuild the union, and retry — never report a
+      // stale write as verified.
+      let updated: Awaited<ReturnType<typeof updateGalleryRecord>> = null
+      let verifiedDevices: string[] = []
+      let keyRetired = false
+      for (let attempt = 0; attempt < 3 && !updated; attempt += 1) {
+        const current = await getGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+        if (!current) return c.json({ error: 'That gallery was not found' }, 404)
+        verifiedDevices = [...new Set([...(current.migrationDevices ?? []), payload.deviceId])]
+        if (current.keyRetiredAt) {
+          return c.json({ gallery: toSummary(current), verifiedDevices: verifiedDevices.length, keyRetired: true })
+        }
+        keyRetired = payload.optOut === true || verifiedDevices.length >= 2
+        const images = mergeMigratedImages(current.images, submitted.images)
+        updated = await updateGalleryRecord(session.accountId, {
+          ...current,
+          images,
+          manifestVersion: 2,
+          sourceUrl: keyRetired ? submitted.sourceUrl : current.sourceUrl,
+          migrationDevices: verifiedDevices,
+          keyRetiredAt: keyRetired ? new Date().toISOString() : null,
+        }, dbEnv(c), { migrationDevices: current.migrationDevices ?? [] })
+      }
+      if (!updated) return c.json({ error: 'Another device updated this gallery first — try again' }, 409)
+      return c.json({
+        gallery: toSummary(updated),
+        verifiedDevices: verifiedDevices.length,
+        keyRetired,
+        ...(keyRetired ? { warning: 'The server key was removed. Manorama cannot recover it; keep the full gallery link.' } : {}),
+      })
+    } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'MANIFEST_TOO_LARGE' ? 422 : 403)
+      return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be migrated' }, 400)
     }
   })
 
@@ -961,6 +1035,7 @@ export const createManoramaApi = () => {
   })
 
   api.get('/api/mega/file', async (c) => {
+    if (envOf(c)?.LEGACY_ENCRYPTED_DECRYPT !== 'enabled') return c.json({ code: 'SERVER_DECRYPT_RETIRED', error: 'MEGA media is decrypted on your device' }, 410)
     const folder = c.req.query('folder')
     const set = c.req.query('set')
     const node = c.req.query('node')
@@ -976,6 +1051,7 @@ export const createManoramaApi = () => {
   })
 
   api.get('/api/mega/preview', async (c) => {
+    if (envOf(c)?.LEGACY_ENCRYPTED_DECRYPT !== 'enabled') return c.json({ code: 'SERVER_DECRYPT_RETIRED', error: 'MEGA previews are decrypted on your device' }, 410)
     const folder = c.req.query('folder')
     const set = c.req.query('set')
     const fah = c.req.query('h')
@@ -1071,6 +1147,9 @@ export const createManoramaApi = () => {
       const user = await getUserByOwnerSlug(c.req.param('owner'), dbEnv(c))
       if (!user) return noStore(fallback())
       const gallery = await getGallery(user.accountId, c.req.param('slug'), dbEnv(c))
+      // Static encrypted-source cards never enter source selection. This also
+      // covers legacy MEGA rows and stale `?i=` bookmarks from before M7.
+      if (gallery?.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)) return fallback()
       const first = gallery?.images?.find((image) => !image.hidden) as GalleryMediaItem | undefined
       const pipeline = gallery?.retention === 'pipeline'
       if (!first) return noStore(fallback())

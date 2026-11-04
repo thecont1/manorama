@@ -19,6 +19,7 @@ import { Sheet } from '../../app/components/ui/Sheet'
 import { BundledSource } from '../../app/lib/imagesource'
 import type { AdFrame } from '../../app/lib/adframe'
 import { adoptGallery, createGalleryFromQuickAdd, createGalleryFromSource, deleteAccount, fetchAccountGalleries, fetchAccountIdentities, fetchAccountOwnerSlug, fetchDeviceGalleries, fetchGallery, normalizeApiBase, renameOwnerSlug, scanSourceUrl, unlinkAccountIdentity, type AccountIdentity } from '../lib/api'
+import { isEncryptedSourceUrl, manifestIsEncryptedSource, galleryHashForSource } from '../../packages/core/encrypted-source'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { BillingState, RevenueCatBilling } from '../lib/billing'
@@ -43,6 +44,7 @@ import { TopBar } from '../../app/components/ui/TopBar'
 import { productionVault } from '../lib/vault'
 import { adFrameFor, fetchAdVisibility, HOUSE_AD_FRAME, type AdPolicyInput, type AdVisibility } from '../lib/ads'
 import { createAccountAdAdapter } from '../lib/admob-account-adapter'
+import { createEncryptedGallery, clearAllEncryptedSources, refreshEncryptedGallery, removeEncryptedSourceForSelection, resolveEncryptedSourceForSelection, EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../lib/encrypted-gallery'
 import { loadGlobalViewEnabled, saveGlobalViewEnabled } from '../lib/global-view'
 import { beginProviderSignIn, clearPendingQuickAdd, clearSessionToken, getOwnerSlug, getPendingQuickAdd, getSessionToken, setOwnerSlug as persistOwnerSlug, type AuthProvider, type NativeGallerySelection } from '../lib/session'
 import { requestReorderClose } from '../lib/reorder-close-guard'
@@ -172,7 +174,7 @@ const openExternal = (url: string) => {
   void Browser.open({ url, toolbarColor: '#0a0a0a', presentationStyle: 'fullscreen' })
 }
 
-type Selection = { owner: string; slug: string }
+type Selection = { owner: string; slug: string; galleryId?: string; sourceUrl?: string }
 type GalleryStatus = 'idle' | 'loading' | 'online' | 'offline' | 'error'
 
 const selectionFromLocation = (): Selection => {
@@ -331,7 +333,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   navRef.current = nav
   const selectionRef = useRef(selection)
   selectionRef.current = selection
-  const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose'> | null>(null)
+  const leaseRef = useRef<Pick<NetworkFirstGallery, 'dispose' | 'encryptedResolver'> | null>(null)
   const base = useMemo(() => normalizeApiBase(apiBase), [apiBase])
 
   useEffect(() => {
@@ -358,6 +360,10 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       setPendingQuickAdd(deepLinkSelection.sourceUrl)
       return
     }
+    // An encrypted deep link carries the provider key in its fragment.
+    // Custody adoption happens inside openNativeEncryptedSession after the
+    // fragment's source identity compares equal to the published manifest —
+    // never here, where a mismatched link could poison the key store.
     setFrameKick({ index: 0, nonce: 0 })
     enterGallery(deepLinkSelection)
   }, [deepLinkSelection])
@@ -376,7 +382,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     quickAddInFlight.current = sourceUrl
     setQuickAddBusy(true)
     setError(null)
-    void createGalleryFromQuickAdd(base, sourceUrl)
+    void (isEncryptedSourceUrl(sourceUrl) ? createEncryptedGallery(base, sourceUrl, { quick: true }) : createGalleryFromQuickAdd(base, sourceUrl))
       .then((next) => {
         if (quickAddInFlight.current !== sourceUrl) return
         setPendingQuickAdd(null)
@@ -411,7 +417,30 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       leaseRef.current?.dispose?.()
       leaseRef.current = null
     }
+    // The web handoff carries the key fragment when this device holds it —
+    // the browser sheet can then unlock without asking for the full link.
+    const externalGalleryUrl = async () => {
+      const stored = selection.galleryId
+        ? await resolveEncryptedSourceForSelection(selection.galleryId).catch(() => null)
+        : null
+      const hash = stored && selection.galleryId ? galleryHashForSource(stored, selection.galleryId) : ''
+      return `${normalizeApiBase(base)}/${encodeURIComponent(selection.owner)}/${encodeURIComponent(selection.slug)}${hash}`
+    }
+    const openExternally = () => { void externalGalleryUrl().then(openExternal) }
     const applyGallery = (gallery: NetworkFirstGallery) => {
+      // Version-2 manifests decrypt on-device through the lease's resolver.
+      // What native still cannot render is a *legacy* manifest — an encrypted
+      // source whose items carry only server-mediated refs — so that one
+      // shape delegates to the web's client path in the browser sheet.
+      const legacyEncrypted = manifestIsEncryptedSource(gallery.manifest) &&
+        !gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
+      if (gallery.source === 'online' && legacyEncrypted) {
+        disposeLease()
+        gallery.dispose?.()
+        openExternally()
+        returnToGalleries()
+        return
+      }
       disposeLease()
       leaseRef.current = gallery
       currentManifest = gallery.manifest
@@ -480,6 +509,15 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         .catch((reason: unknown) => {
           if (!active || controller.signal.aborted) return
           if (currentManifest && currentStatus === 'offline') return
+          // A keyless encrypted gallery cannot be unlocked in-app; the web
+          // sheet shows its locked panel and accepts a pasted full link. A
+          // mismatched link lands the same way — the page renders the real
+          // gallery's locked state rather than trusting the wrong fragment.
+          if (reason instanceof EncryptedSourceLockedError || reason instanceof EncryptedSourceMismatchError) {
+            openExternally()
+            returnToGalleries()
+            return
+          }
           currentManifest = null
           currentStatus = 'error'
           setManifest(null)
@@ -506,7 +544,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       window.removeEventListener('online', upgradeWhenOnline)
       disposeLease()
     }
-  }, [base, offlineStore, loadPolicy, selection.owner, selection.slug, galleryPolicies === null, streamOnly])
+  }, [base, offlineStore, loadPolicy, selection.owner, selection.slug, selection.galleryId, selection.sourceUrl, galleryPolicies === null, streamOnly])
 
   // Visibility resolves once per base — it is a day/region answer, not a
   // per-gallery one.
@@ -678,8 +716,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const enterGallery = (next: Selection) => {
     positionRef.current = null
-    setSelection(next)
-    dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: next.owner, slug: next.slug } })
+    // A bare owner/slug selection still needs custody context for encrypted
+    // galleries: resolve the published gallery id from the account list so
+    // the key store can find this device's key. Explicit metadata wins, and
+    // only the owner's own list can answer — a foreign slug may collide.
+    let resolved = next
+    if (!resolved.galleryId && !resolved.sourceUrl && resolved.owner === ownerSlug) {
+      const summary = accountGalleries?.find((gallery) => gallery.slug === resolved.slug && gallery.manifestVersion === 2 && gallery.id)
+      if (summary?.id) resolved = { ...next, galleryId: summary.id }
+    }
+    setSelection(resolved)
+    dispatchNav({ type: 'open-gallery', gallery: { kind: 'published', owner: resolved.owner, slug: resolved.slug } })
   }
 
   // "Add to Library" on someone else's gallery: the server copies it into
@@ -826,10 +873,19 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
 
   const shareGallery = async (gallery: GallerySummary) => {
     if (!ownerSlug) return
+    let hash = ''
+    if (gallery.manifestVersion === 2 && gallery.id) {
+      const source = await resolveEncryptedSourceForSelection(gallery.id)
+      if (!source) {
+        setGalleryActionNote('This device does not hold the key. Open the full gallery link before sharing it.')
+        return
+      }
+      hash = galleryHashForSource(source, gallery.id)
+    }
     const payload: GallerySharePayload = {
       title: galleryName(gallery),
       caption: gallery.caption ?? '',
-      url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}`,
+      url: `https://manorama.xyz/${ownerSlug}/${gallery.slug}${hash}`,
     }
     const result = await shareGalleryNative(payload)
     if (result === 'fallback') setSharePayload(payload)
@@ -993,6 +1049,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             slug={manifest.slug}
             galleryTitle={manifest.title}
             images={source.list()}
+            encryptedResolver={leaseRef.current?.encryptedResolver ?? null}
             settings={settings}
             plate={plate}
             onReturnToGalleries={returnToGalleries}
@@ -1073,6 +1130,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     libraryLoader.release()
     cacheFillRegistry.reset()
     dispatchNav({ type: 'signed-out' })
+    try {
+      await clearAllEncryptedSources()
+    } catch {
+      // A failed verified purge must not trap sign-out — surviving keys
+      // stay in the registry and are retried by the next purge.
+    }
     await clearSessionToken()
     try {
       await billing?.signOut()
@@ -1157,6 +1220,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const deleteAccountForever = async () => {
     setDeleteError(null)
     setDeleting(true)
+    // The account row may already be gone from an earlier attempt — the
+    // error below must not report "could not be deleted" in that state.
+    let deletedNow = accountDeleted
     try {
       // The API gates on the typed URL name; the app sends the slug it
       // already holds instead of making the owner retype it.
@@ -1166,9 +1232,17 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         setDeleting(false)
         return
       }
-      if (!accountDeleted) {
+      if (!deletedNow) {
         await deleteAccount(base, slug)
         setAccountDeleted(true)
+        deletedNow = true
+      }
+      try {
+        await clearAllEncryptedSources()
+      } catch {
+        // Same rule as sign-out: a failed verified purge must not trap the
+        // session teardown — surviving keys stay in the registry for the
+        // next purge.
       }
       await clearSessionToken()
       try {
@@ -1184,9 +1258,11 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
       if (typeof window !== 'undefined') window.location.reload()
     } catch (reason) {
       setDeleteError(
-        reason instanceof Error && reason.message.trim()
-          ? reason.message
-          : 'Your account could not be deleted right now',
+        deletedNow
+          ? 'Your account is deleted, but removing its data from this device did not finish — try again.'
+          : reason instanceof Error && reason.message.trim()
+            ? reason.message
+            : 'Your account could not be deleted right now',
       )
       setDeleting(false)
     }
@@ -1208,7 +1284,12 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     const seq = ++addVerifySeq.current
     setAddChecking(true)
     try {
-      const scan = await scanSourceUrl(base, url)
+      const scan = await (async () => {
+        if (!isEncryptedSourceUrl(url)) return scanSourceUrl(base, url)
+        const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+        const session = await openEncryptedSource(url)
+        try { return { title: session.title } } finally { session.dispose() }
+      })()
       if (seq !== addVerifySeq.current) return
       setError(null)
       setAddVerifiedTitle(scan.title)
@@ -1252,7 +1333,9 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     setQuickAddBusy(true)
     setError(null)
     try {
-      const next = await createGalleryFromSource(base, url, { title: input.name, caption: input.caption })
+      const next = await (isEncryptedSourceUrl(url)
+        ? createEncryptedGallery(base, url, { title: input.name, caption: input.caption })
+        : createGalleryFromSource(base, url, { title: input.name, caption: input.caption }))
       if (quickAddInFlight.current !== flight) return
       setSourceUrl('')
       setSourceName('')
@@ -1291,17 +1374,38 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
     try {
       const token = await getSessionToken()
       if (!token) throw new Error('Sign in to manage this gallery.')
-      const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}${action === 'refresh' ? '/refresh' : ''}`, {
-        method: action === 'refresh' ? 'POST' : 'DELETE', headers: { Authorization: `Bearer ${token}` },
-      })
-      const payload = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(payload.error || 'That gallery could not be updated.')
+      if (action === 'refresh' && gallery.manifestVersion === 2 && gallery.id) {
+        await refreshEncryptedGallery(base, gallery.slug, gallery.id)
+      } else {
+        const response = await fetch(`${base}/api/galleries/${encodeURIComponent(gallery.slug)}${action === 'refresh' ? '/refresh' : ''}`, {
+          method: action === 'refresh' ? 'POST' : 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        })
+        const payload = await response.json().catch(() => ({})) as { error?: string }
+        if (!response.ok) throw new Error(payload.error || 'That gallery could not be updated.')
+      }
+      // The server row is already gone at this point — a key-removal
+      // failure must not skip the list updates below or masquerade as a
+      // failed delete. Its outcome only changes the closing note.
+      let keyRemoved = true
+      if (action === 'delete' && gallery.id) {
+        try {
+          await removeEncryptedSourceForSelection(gallery.id)
+        } catch {
+          keyRemoved = false
+        }
+      }
       const galleryId = galleryIds[gallery.slug]
       if (galleryId) libraryLoader.invalidate(galleryId)
       if (action === 'delete') setAccountGalleries((previous) => previous?.filter((item) => item.slug !== gallery.slug) ?? null)
       setRemoveGallerySlug(null)
       setAccountRevision((revision) => revision + 1)
-      setGalleryActionNote(action === 'refresh' ? 'Gallery refreshed' : 'Gallery removed. Your cloud files were not changed.')
+      setGalleryActionNote(
+        action === 'refresh'
+          ? 'Gallery refreshed'
+          : keyRemoved
+            ? 'Gallery removed. Your cloud files were not changed.'
+            : 'Gallery removed, but its key could not be removed from this device — sign out to clear remaining keys.',
+      )
     } catch (reason) {
       setGalleryActionNote(reason instanceof Error ? reason.message : 'That gallery could not be updated.')
     } finally { setGalleryActionBusy(null) }

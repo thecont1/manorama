@@ -1,12 +1,14 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
+import { keylessSourceUrl } from '../../packages/core/encrypted-source'
 import { parseJpegDimensions, parseWebpDimensions, probeImageDimensions } from './image-dims'
-import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
+import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, decryptTlvRecords, ecbDecrypt, foldKey } from './mega-crypto'
 import { createScanBudget, ScanBudgetExhausted } from './scan-budget'
+import { cbcDecryptClient, ctrDecryptClient } from './mega-decrypt'
 
 /**
- * MEGA public shared-folder scanning. No credentials at all — the share
- * key lives in the link fragment — but everything is end-to-end
- * encrypted, so this adapter does the client-side crypto itself:
+ * Browser/native MEGA client. Share and per-node keys stay in this module's
+ * in-memory session; published manifests contain only keyless references.
+ * Upstream API and CDN requests carry ciphertext and public handles only.
  *
  *  - Folder listing: POST g.api.mega.co.nz/cs [{a:'f',c:1,ca:1,r:1}]
  *    with ?n={folder}. Returns encrypted node records.
@@ -161,13 +163,6 @@ const decryptAttributes = (a: string | undefined, nodeKey: Uint8Array) => {
 
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 
-const ctxParams = (auth: MegaAuth) =>
-  auth.n ? `folder=${encodeURIComponent(auth.n)}` : `set=${encodeURIComponent(auth.s ?? '')}`
-const fileProxy = (auth: MegaAuth, node: string, nodeKey: Uint8Array) =>
-  `/api/mega/file?${ctxParams(auth)}&node=${encodeURIComponent(node)}&k=${b64uEncode(nodeKey)}`
-const previewProxy = (auth: MegaAuth, fah: string, nodeKey: Uint8Array) =>
-  `/api/mega/preview?${ctxParams(auth)}&h=${encodeURIComponent(fah)}&k=${b64uEncode(nodeKey)}`
-
 // Accepted formats browsers render natively; HEIC/HEIF decode client-side
 // (libheif) from the same original bytes the file proxy already serves.
 const BROWSER_RENDERABLE = /\.(?:jpe?g|webp|avif)$/i
@@ -194,8 +189,8 @@ const fetchRange = async (g: string, start: number, end: number, fetchImpl: type
   return new Uint8Array(await response.arrayBuffer())
 }
 
-const decryptContent = (bytes: Uint8Array, nodeKey: Uint8Array, offset = 0) =>
-  ctrCrypt(foldKey(nodeKey), nodeKey.subarray(16, 24), bytes, offset)
+const decryptContent = (bytes: Uint8Array, nodeKey: Uint8Array, offset = 0, signal?: AbortSignal) =>
+  ctrDecryptClient(foldKey(nodeKey), nodeKey.subarray(16, 24), bytes, offset, signal)
 
 /** WebP RIFF dims: VP8X (1+LE24 fields), lossy VP8 (14-bit LE after
  *  the 9d 012a start code), VP8L (packed 14-bit fields). */
@@ -207,38 +202,10 @@ const sniffContentType = (bytes: Uint8Array) =>
       : bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png'
         : 'application/octet-stream'
 
-/** Decrypted file-attribute bytes keyed `fah|nodeKey`. The dims probe
- *  already pays the ufa resolve + CBC decrypt for every preview at scan
- *  time; keeping the bytes turns the admin rail's preview requests into
- *  memory reads instead of ~70 serial multi-second decryptions (which
- *  starve the dev server's event loop badly enough to stall page loads).
- *  Bounded twice: MAX_PREVIEW_BYTES per entry and PREVIEW_CACHE_MAX_BYTES
- *  across the map — the count cap alone lets 200 attacker-sized 4 MB
- *  previews pin ~800 MB in a long-lived isolate. 64 MB holds the typical
- *  ~300 KB working set. */
-const PREVIEW_CACHE_MAX = 200
-const PREVIEW_CACHE_MAX_BYTES = 64 * 1024 * 1024
-const previewCache = new Map<string, Uint8Array>()
-let previewCacheBytes = 0
-const previewCacheKey = (fah: string, nodeKey: Uint8Array) => `${fah}|${b64uEncode(nodeKey)}`
-const cachePreview = (fah: string, nodeKey: Uint8Array, bytes: Uint8Array) => {
-  const key = previewCacheKey(fah, nodeKey)
-  const replaced = previewCache.get(key)
-  if (replaced) previewCacheBytes -= replaced.byteLength
-  previewCache.delete(key)
-  previewCache.set(key, bytes)
-  previewCacheBytes += bytes.byteLength
-  while (previewCache.size > PREVIEW_CACHE_MAX || previewCacheBytes > PREVIEW_CACHE_MAX_BYTES) {
-    const oldest = previewCache.keys().next().value!
-    previewCacheBytes -= previewCache.get(oldest)!.byteLength
-    previewCache.delete(oldest)
-  }
-}
-
 /** Fetches + decrypts one file attribute (thumbnail/preview): ufa
  *  resolves the attribute URL, a POST of the raw 8-byte handle returns
  *  {handle:8}{len:4}{CBC-encrypted data} records. */
-const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Array, fetchImpl: typeof fetch) => {
+const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Array, fetchImpl: typeof fetch, signal?: AbortSignal) => {
   const handleBytes = b64uDecode(fah)
   if (handleBytes.length !== 8) return null
   const resolved = await megaRequest<{ p?: string }>([{ a: 'ufa', fah: b64Encode(handleBytes), ssl: 2, r: 1, v: 3 }], auth, fetchImpl)
@@ -259,7 +226,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
     if (offset + length > buf.length) return null
     if (b64uEncode(record) === fah) {
       if (length % 16) return null
-      return cbcDecryptZeroIv(foldKey(nodeKey), buf.subarray(offset, offset + length))
+      return cbcDecryptClient(foldKey(nodeKey), buf.subarray(offset, offset + length), signal)
     }
     offset += length
   }
@@ -271,7 +238,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
  *  head fetch of the original; anything else gets a 4:3 placeholder.
  *  Reported dims are the rendition's — aspect is what matters for
  *  layout, matching the Dropbox thumbnail-dims precedent. */
-const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch, cachePreviews: boolean): Promise<{ width: number; height: number; previewFormat?: string }> => {
+const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, fetchImpl: typeof fetch): Promise<{ width: number; height: number; previewFormat?: string }> => {
   // MEGA throttles bursty ufa/range traffic; one retry after a beat
   // recovers most probes, anything still failing falls back to 4:3.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -287,8 +254,6 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
       if (fah) {
         const preview = await fetchFileAttribute(auth, fah, nodeKey, fetchImpl)
         if (preview) {
-          // Same fah makeImage emits as the variant — the route reuses it.
-          if (cachePreviews) cachePreview(fah, nodeKey, preview)
           previewDims = parsePreviewDimensions(preview) ?? null
           previewFormat = sniffContentType(preview)
           if (renderable && previewDims) return { ...previewDims, previewFormat }
@@ -297,7 +262,7 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
       const info = await downloadInfo(auth, node.h, fetchImpl)
       if (info.g) {
         const head = await fetchRange(info.g, 0, DIMS_PROBE_BYTES - 1, fetchImpl)
-        const dimensions = probeImageDimensions(decryptContent(head, nodeKey))
+        const dimensions = probeImageDimensions(await decryptContent(head, nodeKey))
         if (dimensions) return { ...dimensions, previewFormat }
       }
       if (previewDims) return { ...previewDims, previewFormat }
@@ -317,14 +282,14 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
  *  budget-exhausted probe drops the file; the un-probed tail is reported
  *  via `truncated` rather than given an invented 4:3 geometry. */
 const PROBE_BATCH = 6
-const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetch, cachePreviews: boolean, build: (file: F, index: number) => { node: { h: string; fa?: string }; nodeKey: Uint8Array; name: string }) => {
+const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetch, build: (file: F, index: number) => { node: { h: string; fa?: string; s?: number; ts?: number }; nodeKey: Uint8Array; name: string }) => {
   const images: GalleryImage[] = []
   let exhausted = false
   for (let i = 0; i < files.length && !exhausted; i += PROBE_BATCH) {
     const batch = await Promise.all(files.slice(i, i + PROBE_BATCH).map(async (file, j) => {
       const { node, nodeKey, name } = build(file, i + j)
       try {
-        const dims = await probeDimensions(auth, node, nodeKey, name, fetchImpl, cachePreviews)
+        const dims = await probeDimensions(auth, node, nodeKey, name, fetchImpl)
         return makeImage(auth, i + j, node, nodeKey, name, dims.width, dims.height, dims.previewFormat)
       } catch (error) {
         if (error instanceof ScanBudgetExhausted) {
@@ -340,23 +305,32 @@ const probeImages = async <F>(auth: MegaAuth, files: F[], fetchImpl: typeof fetc
   return { images, truncatedTail: exhausted }
 }
 
-const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string }, nodeKey: Uint8Array, name: string, width: number, height: number, previewFormat?: string): GalleryImage => {
+const makeImage = async (auth: MegaAuth, index: number, node: { h: string; fa?: string; s?: number; ts?: number }, nodeKey: Uint8Array, name: string, width: number, height: number, previewFormat?: string): Promise<GalleryImage> => {
   const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
   // Every item serves the original through the file proxy — the viewer
   // decodes HEIC/HEIF client-side, so a capped rendition is never the src.
   // The preview stays as the rail thumbnail when MEGA generated one;
   // without it the rail falls back to the (heavier) original.
+  const identity = auth.n ? { sourceKind: 'folder' as const, sourceId: auth.n } : { sourceKind: 'collection' as const, sourceId: auth.s! }
+  const versionInput = new TextEncoder().encode(JSON.stringify({ h: node.h, s: node.s ?? null, ts: node.ts ?? null, fa: node.fa ?? null }))
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', versionInput))
+  const contentVersion = [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  versionInput.fill(0)
   return {
     id: `mega-${node.h.replace(/[^a-zA-Z0-9]+/g, '').slice(-18) || index + 1}`,
     ref: node.h,
     filename: name,
-    src: fileProxy(auth, node.h, nodeKey),
+    src: '',
+    media: { kind: 'encrypted', provider: 'mega', ...identity, nodeId: node.h, previewId: undefined },
+    contentVersion,
+    fidelity: 'original',
+    thumbnailFidelity: 'display-derivative',
     // The JPEG/WebP preview doubles as the rail thumbnail: without a
     // variant, admin's `variants?.[0]?.src ?? src` falls back to the
     // multi-MB decrypted original per image. Declared width is the
     // rendition's and format is sniffed when the dims probe read this
     // preview (the common case), else best-effort.
-    ...(fah ? { variants: [{ width, src: previewProxy(auth, fah, nodeKey), format: previewFormat === 'image/webp' ? 'webp' : 'jpeg' }] } : {}),
+    ...(fah ? { variants: [{ width, src: '', media: { kind: 'encrypted' as const, provider: 'mega' as const, ...identity, nodeId: node.h, previewId: fah }, format: previewFormat === 'image/webp' ? 'webp' : 'jpeg' }] } : {}),
     width,
     height,
     alt: filenameLabel(name),
@@ -367,7 +341,7 @@ const makeImage = (auth: MegaAuth, index: number, node: { h: string; fa?: string
   }
 }
 
-export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fetch): Promise<MegaScan> => {
+export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> => {
   const link = extractMegaLink(input)
   if (!link || link.kind !== 'folder') throw new Error('Use a public MEGA folder link')
   const auth = linkAuth(link)
@@ -387,7 +361,10 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
       for (const nodeKey of decryptNodeKeys(node.k, shareKey)) {
         const attributes = decryptAttributes(node.a, nodeKey)
         const name = attributes?.n?.trim()
-        if (name && IMAGE_EXTENSIONS.test(name)) return [{ node, nodeKey, name }]
+        if (name && IMAGE_EXTENSIONS.test(name)) {
+          if (keys) keys.set(node.h, nodeKey)
+          return [{ node, nodeKey, name }]
+        }
       }
       return []
     })
@@ -405,9 +382,9 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
     : '') || 'Untitled gallery'
 
   const budgetFetch = createScanBudget().fetch(fetchImpl)
-  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, fetchImpl === fetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
+  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, ({ node, nodeKey, name }) => ({ node, nodeKey, name }))
   if (!images.length) throw new Error('No image files were found in that public MEGA folder')
-  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
+  return { sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
 }
 
 /** Public collections ("Sets") use a different API surface than
@@ -415,7 +392,7 @@ export const scanMegaFolder = async (input: string, fetchImpl: typeof fetch = fe
  *  elements, and node metadata. Element keys are AES-CBC-encrypted
  *  with the share key from the link fragment; node metadata attrs use
  *  the ordinary MEGA{...} format decrypted with the element key. */
-export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch = fetch): Promise<MegaScan> => {
+export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch = fetch, keys?: Map<string, Uint8Array>): Promise<MegaScan> => {
   const link = extractMegaLink(input)
   if (!link || link.kind !== 'collection') throw new Error('Use a public MEGA collection link')
   const auth = linkAuth(link)
@@ -449,6 +426,7 @@ export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch 
     const meta = nodeMeta.get(element.h)
     const name = meta ? decryptAttributes(meta.at, elementKey)?.n?.trim() : null
     if (!name || !IMAGE_EXTENSIONS.test(name)) return []
+    if (keys && element.h) keys.set(element.h, elementKey)
     return [{ element, elementKey, meta, name }]
   })
   if (!found.length) throw new Error('No image files were found in that public MEGA collection')
@@ -456,13 +434,13 @@ export const scanMegaCollection = async (input: string, fetchImpl: typeof fetch 
   found.sort((a, b) => (a.element.o ?? 0) - (b.element.o ?? 0))
   const files = found.slice(0, MAX_GALLERY_ITEMS)
   const budgetFetch = createScanBudget().fetch(fetchImpl)
-  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, fetchImpl === fetch, ({ element, elementKey, meta, name }) => ({
-    node: { h: element.h!, fa: meta?.fa },
+  const { images, truncatedTail } = await probeImages(auth, files, budgetFetch, ({ element, elementKey, meta, name }) => ({
+    node: { h: element.h!, fa: meta?.fa, s: meta?.s, ts: meta?.ts ?? element.ts },
     nodeKey: elementKey,
     name,
   }))
   if (!images.length) throw new Error('No image files were found in that public MEGA collection')
-  return { sourceUrl: canonicalMegaUrl(link), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
+  return { sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)), title, images, ...(found.length > files.length || truncatedTail ? { truncated: found.length } : {}) }
 }
 
 export const scanMegaSource = (input: string, fetchImpl: typeof fetch = fetch) => {
@@ -497,7 +475,7 @@ const parseByteRange = (header: string | null | undefined, size: number): { star
   return { start, end }
 }
 
-export const fetchMegaFile = async (folder: string | undefined, set: string | undefined, node: string, keyB64: string, fetchImpl: typeof fetch = fetch, range?: string | null) => {
+export const fetchMegaFile = async (folder: string | undefined, set: string | undefined, node: string, keyB64: string, fetchImpl: typeof fetch = fetch, range?: string | null, signal?: AbortSignal) => {
   const nodeKey = b64uDecode(keyB64)
   // A file key is 16 key ∥ 8 nonce ∥ 8 mac bytes; a shorter key decrypts
   // with an empty nonce and answers 200 with garbage instead of a 400.
@@ -515,8 +493,8 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
     // the caller did not ask for are sliced off.
     const alignedStart = wanted.start - (wanted.start % 16)
     const bytes = await fetchRange(info.g, alignedStart, wanted.end, fetchImpl)
-    const plain = decryptContent(bytes, nodeKey, alignedStart).subarray(wanted.start - alignedStart)
-    return new Response(plain, {
+    const plain = (await decryptContent(bytes, nodeKey, alignedStart, signal)).subarray(wanted.start - alignedStart)
+    return new Response(plain.slice().buffer as ArrayBuffer, {
       status: 206,
       headers: {
         'Content-Range': `bytes ${wanted.start}-${wanted.end}/${size}`,
@@ -526,22 +504,53 @@ export const fetchMegaFile = async (folder: string | undefined, set: string | un
     })
   }
   const bytes = await fetchRange(info.g, 0, size - 1, fetchImpl)
-  const plain = decryptContent(bytes, nodeKey)
-  return new Response(plain, { status: 200, headers: { 'Accept-Ranges': 'bytes', 'Content-Length': String(plain.length) } })
+  const plain = await decryptContent(bytes, nodeKey, 0, signal)
+  return new Response(plain.slice().buffer as ArrayBuffer, { status: 200, headers: { 'Accept-Ranges': 'bytes', 'Content-Length': String(plain.length) } })
 }
 
 /** Serves a decrypted JPEG preview/thumbnail for files whose originals
  *  browsers can't render (HEIC, HEIF). */
-export const fetchMegaPreview = async (folder: string | undefined, set: string | undefined, fah: string, keyB64: string, fetchImpl: typeof fetch = fetch) => {
+export const fetchMegaPreview = async (folder: string | undefined, set: string | undefined, fah: string, keyB64: string, fetchImpl: typeof fetch = fetch, signal?: AbortSignal) => {
   const nodeKey = b64uDecode(keyB64)
   // Previews are CBC attribute records keyed by foldKey alone, so both the
   // 16-byte element key and the 32-byte file key are legitimate.
   if (nodeKey.length !== 16 && nodeKey.length !== 32) throw new SourceFetchError('That MEGA image reference is invalid', 400)
-  // Cache reads are gated on the real fetch so specs that inject a mocked
-  // fetchImpl still exercise the network path end to end.
-  const cached = fetchImpl === fetch ? previewCache.get(previewCacheKey(fah, nodeKey)) : undefined
-  const preview = cached ?? await fetchFileAttribute(megaAuthFromParams(folder, set), fah, nodeKey, fetchImpl)
+  const preview = await fetchFileAttribute(megaAuthFromParams(folder, set), fah, nodeKey, fetchImpl, signal)
   if (!preview) throw new SourceFetchError('That MEGA image preview is unavailable', 404)
-  if (!cached && fetchImpl === fetch) cachePreview(fah, nodeKey, preview)
   return new Response(preview.slice(), { status: 200, headers: { 'Content-Type': sniffContentType(preview) } })
+}
+
+export type MegaClientSession = {
+  scan: MegaScan
+  materialize(nodeId: string, previewId?: string, signal?: AbortSignal): Promise<{ bytes: Uint8Array; mimeType: string }>
+  dispose(): void
+}
+
+/** Re-listing unwraps per-node keys into a closure. Only `scan` is eligible
+ * for manifest submission; the key map never appears in JSON or URLs. */
+export const openMegaSession = async (input: string, fetchImpl: typeof fetch = fetch): Promise<MegaClientSession> => {
+  const link = extractMegaLink(input)
+  if (!link) throw new Error('Use a complete public MEGA folder or collection link')
+  const keys = new Map<string, Uint8Array>()
+  const scan = link.kind === 'collection'
+    ? await scanMegaCollection(input, fetchImpl, keys)
+    : await scanMegaFolder(input, fetchImpl, keys)
+  const auth = linkAuth(link)
+  return {
+    scan,
+    async materialize(nodeId, previewId, signal) {
+      const nodeKey = keys.get(nodeId)
+      if (!nodeKey) throw new Error('This media reference is not present in the opened MEGA share')
+      const signalFetch = ((url: RequestInfo | URL, init?: RequestInit) => fetchImpl(url, { ...init, signal })) as typeof fetch
+      const response = previewId
+        ? await fetchMegaPreview(auth.n, auth.s, previewId, b64uEncode(nodeKey), signalFetch, signal)
+        : await fetchMegaFile(auth.n, auth.s, nodeId, b64uEncode(nodeKey), signalFetch, null, signal)
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      return { bytes, mimeType: response.headers.get('Content-Type')?.split(';', 1)[0] || sniffContentType(bytes) }
+    },
+    dispose() {
+      for (const key of keys.values()) key.fill(0)
+      keys.clear()
+    },
+  }
 }

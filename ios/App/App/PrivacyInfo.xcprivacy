@@ -60,8 +60,9 @@
 		</dict>
 		<!-- Gallery titles, captions, and share links are owner-authored
 		     content. Originals are proxied transiently and never stored;
-		     MEGA preview photos are the exception — a bounded in-memory
-		     cache keeps them on the server between requests. -->
+		     MEGA media decrypts on the viewer's device — the key travels
+		     in the link fragment, so the server never holds it or any
+		     decrypted photograph. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
@@ -74,9 +75,10 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
-		<!-- MEGA preview photos: decrypted on the server and held in its
-		     bounded preview cache so the admin rail does not re-decrypt
-		     on every request. -->
+		<!-- Photos and videos rendered in the app, including MEGA originals
+		     decrypted on-device from a key that never reaches the server.
+		     A bounded legacy exception remains until those galleries
+		     migrate: the server may decrypt their media once, transiently. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>

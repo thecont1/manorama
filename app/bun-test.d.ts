@@ -15,6 +15,10 @@ declare module 'bun:test' {
   const afterAll: (fn: TestFn) => void
   const afterEach: (fn: TestFn) => void
   const expect: <T>(actual: T) => Matchers<T>
+  const mock: {
+    module: (specifier: string, factory: () => unknown) => void
+    restore: () => void
+  }
   interface Matchers<T> {
     toEqual(expected: unknown): void
     toBe(expected: unknown): void

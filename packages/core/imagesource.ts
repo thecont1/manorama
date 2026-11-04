@@ -10,6 +10,8 @@
  */
 export const MAX_GALLERY_ITEMS = 1000
 
+import type { MediaReference } from './encrypted-source'
+
 export type ExifData = {
   dateOriginal?: string
   camera?: string
@@ -23,7 +25,9 @@ export type ExifData = {
 
 export type ImageVariant = {
   width: number
+  /** Empty only for an encrypted reference; legacy HTTP variants keep URLs. */
   src: string
+  media?: MediaReference
   format: string
 }
 
@@ -40,6 +44,14 @@ export type GalleryImage = {
   ref?: string
   filename: string
   src: string
+  /** New encrypted manifests use a keyless discriminated reference. Absence
+   *  is the legacy HTTP branch and keeps old manifests byte-identical. */
+  media?: MediaReference
+  /** Opaque provider-change detector, never raw size/timestamp metadata. */
+  contentVersion?: string
+  /** Evidence label for original-media fidelity; not a MAC/C2PA assertion. */
+  fidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
+  thumbnailFidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
   width: number
   height: number
   alt: string
@@ -86,6 +98,8 @@ export type VideoItem = {
   filename: string
   /** Proxy URL for the H.264 MP4 derivative — Range-capable. */
   src: string
+  fidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
+  thumbnailFidelity?: 'original' | 'full-resolution-render' | 'display-derivative' | 'unknown'
   mimeType: 'video/mp4'
   width: number
   height: number
@@ -157,6 +171,9 @@ export const summaryMediaCount = (summary: {
   : { stills: summary.imageCount, videos: 0, hidden: 0 }
 
 export type GalleryManifest = {
+  id?: string
+  manifestVersion?: number
+  sourceUrl?: string
   slug: string
   title: string
   caption: string

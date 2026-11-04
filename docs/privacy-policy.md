@@ -1,8 +1,8 @@
 # Privacy Policy
 
-Last updated: 1 October 2026
+Last updated: 4 November 2026
 
-Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
+Manorama is a place to share and look at photographs. This policy covers manorama.xyz, the Manorama mobile app, and the Manorama desktop app for macOS, Windows, and Linux. Start with the part that sounds like you; if you both view and publish galleries, both parts apply.
 
 ## Who this is for
 
@@ -24,7 +24,11 @@ For a cloud-source gallery, your photographs and videos stay with the public sou
 
 The desktop app can also scan a folder you choose on that computer. Its local catalogue keeps the folder path and file list on the device; the catalogue metadata may sync to Manorama and contains only a title, source type, item count, device identifier, and device label. Opening, rescanning, launching, or mounting a folder does not upload the original files. If you explicitly choose **Share**, the app uploads supported originals to your connected Dropbox or Google Drive, creates a public provider link, and sends Manorama that link plus the gallery metadata. Local paths, file lists, and image bytes are not sent to the Manorama Worker.
 
-If an image includes Content Credentials — information about where an image came from and how it changed — verification happens on the viewer’s device when requested. We do not upload its provenance record for that check. Link previews may fetch a cover image transiently; they are not a stored photo library. One exception: MEGA galleries can hold originals in a format browsers cannot display, so the server decrypts a small preview photo on request. Those previews are held in a bounded in-memory cache — at most 200 entries, roughly 60MB — which is discarded when the server restarts. They are never written to our database or to durable storage.
+If an image includes Content Credentials — information about where an image came from and how it changed — verification happens on the viewer’s device when requested. We do not upload its provenance record for that check. Link previews may fetch a cover image transiently; they are not a stored photo library.
+
+MEGA galleries work differently. The decryption key travels in the part of the link after the `#` — the fragment — which browsers never send to a server. Listing the folder, fetching the encrypted files, and decrypting them all happen on the viewer’s device; Manorama’s server never receives the key and never caches decrypted photographs or thumbnails. Anyone holding the complete link can also open the folder at MEGA directly, because the fragment is the folder’s own capability. And because no key reaches the server, every encrypted-source gallery shares one static social preview image rather than a per-gallery card.
+
+Galleries created before this change are a temporary exception: until they are migrated, the server may still decrypt their media for viewers who open them without the fragment. The stored server copy of the folder key is deleted when the owner chooses “Remove server key now” in the gallery’s migration note, or after the owner verifies the gallery on a second device; for the remaining legacy cohort, an operator-run migration may retire it without either step or a warning. Once the server copy is gone, only the complete Manorama link — or a device that already holds the key — can open the gallery, so viewers should keep their full link. We recommend rotating the MEGA share link after migration, because earlier logs or backups may retain the old key.
 
 ## On your device
 
@@ -32,9 +36,7 @@ The web app may remember gallery display choices and the editor’s theme in bro
 
 The mobile app can keep photographs and gallery details in a vault — the app’s encrypted, app-private storage on your device — for offline viewing. **Download to encrypted vault** is the default for newly opened still-image galleries; **Stream from cloud when needed** avoids starting a new vault fill, while existing encrypted copies remain available. Galleries that include video are not cached for offline use today. The vault’s keys stay on that device and its files are excluded from cloud backup. Vault copies are readable through Manorama’s vault APIs only: they are not exported as ordinary photographs and should not appear in Files, Photos, Finder, or another image viewer. A cached image is either the source’s own bytes or a smaller version the source provides; nothing from the vault is saved to Manorama’s servers.
 
-The optional **photo picker** switch lives on the signed-in native account page, not inside each gallery. When enabled, it is a device-local contact sheet of photographs already held in the encrypted vault. It decrypts thumbnails only on the device, lazily as needed, and sends neither image bytes nor the contact sheet to Manorama. Native local compute may also persist compact versioned feature records in that same vault for grouping and sequencing suggestions; it does not send image bytes, thumbnails, vectors, or feature records to the Worker.
-
-Offline copies and local records stay until the app evicts them, you remove a gallery from the vault, you choose “Forget everything,” or you uninstall the app. Removing an online gallery or account does not automatically clear copies already on another device; clear the local vault separately.
+The optional **photo picker** switch lives in the native app’s Settings, not inside each gallery. When enabled, it is a device-local contact sheet of photographs already held in the encrypted vault. It decrypts thumbnails only on the device, lazily as needed, and sends neither image bytes nor the contact sheet to Manorama. Native local compute may also persist compact versioned feature records in that same vault for grouping and sequencing suggestions; it does not send image bytes, thumbnails, vectors, or feature records to the Worker. Offline copies and local records stay until the app evicts them, you remove a gallery from the vault, you choose “Forget everything,” or you uninstall the app. Removing an online gallery or account does not automatically clear copies already on another device; clear the local vault separately.
 
 The desktop app keeps its catalogue — the local folders and cards you have opened and your linked galleries — on your device, along with its app-private session and provider connection records. It does not provide the mobile cloud-gallery encrypted-vault guarantee. Desktop local-folder publication is a separate, explicit Share action as described above.
 

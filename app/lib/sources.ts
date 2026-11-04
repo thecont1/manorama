@@ -2,7 +2,7 @@ import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
-import { extractMegaLink, scanMegaSource } from './mega-public'
+import { megaIdentityFromUrl } from '../../packages/core/encrypted-source'
 import type { GalleryMediaItem } from './imagesource'
 
 /**
@@ -172,10 +172,12 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
   if (storedSourceUrl === candidateUrl) return true
 
   // A provider's public identity is not always enough to identify the
-  // authorization context. MEGA reuses the folder/collection handle with a
-  // fragment key; Drive resource keys and Dropbox rlkeys similarly affect
-  // access. Reopen only when both identity AND access key match. A false
-  // negative merely causes the normal scanner/canonicalizer to run.
+  // authorization context — but how much more is needed differs per
+  // provider. MEGA identity is (kind, handle); the access secret is
+  // separate and is not compared, so a keyless stored URL and a keyed
+  // candidate still match. iCloud tokens, Drive resource keys and Dropbox
+  // rlkeys genuinely gate access and must match. A false negative merely
+  // causes the normal scanner/canonicalizer to run.
   switch (storedProvider) {
     case 'icloud': {
       const storedToken = extractAlbumToken(storedSourceUrl)
@@ -183,13 +185,12 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
       return Boolean(storedToken && candidateToken && storedToken === candidateToken)
     }
     case 'mega': {
-      try {
-        const stored = extractMegaLink(storedSourceUrl)
-        const candidate = extractMegaLink(candidateUrl)
-        return Boolean(stored && candidate && stored.kind === candidate.kind && stored.id === candidate.id && stored.key === candidate.key)
-      } catch {
-        return false
-      }
+      const stored = megaIdentityFromUrl(storedSourceUrl)
+      const candidate = megaIdentityFromUrl(candidateUrl)
+      // Identity and access secret are separate: key rotation and keyless
+      // stored URLs must reopen the same gallery instead of hitting the
+      // (owner_id, source_url) uniqueness conflict after a fresh scan.
+      return Boolean(stored && candidate && stored.kind === candidate.kind && stored.id === candidate.id)
     }
     case 'gdrive': {
       try {
@@ -281,7 +282,8 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
       case 'icloud':
         return scanICloudAlbum(input, fetchImpl)
       case 'mega':
-        return scanMegaSource(input, fetchImpl)
+        if (/\/file\//i.test(new URL(input).pathname)) throw new Error('Use a public MEGA folder or collection link')
+        throw new Error('MEGA sources are scanned on your device, never by the server')
       case 'local':
         return scanLocalFolder(input)
     }

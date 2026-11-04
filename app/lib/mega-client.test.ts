@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey } from './mega-crypto'
-import { extractMegaFolder, extractMegaLink, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-public'
+import { extractMegaFolder, extractMegaLink, fetchMegaPreview, scanMegaCollection, scanMegaFolder } from './mega-client'
 
 const hex = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
@@ -182,13 +182,15 @@ describe('scanMegaFolder', () => {
       return fetchImpl(input)
     }
     const scan = await scanMegaFolder(link, routed as typeof fetch)
-    expect(scan.sourceUrl).toBe(`https://mega.nz/folder/${FOLDER_HANDLE}#${SHARE_KEY_B64}`)
+    expect(scan.sourceUrl).toBe(`https://mega.nz/folder/${FOLDER_HANDLE}`)
     expect(scan.title).toBe('Monsoon')
     expect(scan.images).toHaveLength(1)
     const image = scan.images[0]!
     expect(image.ref).toBe(FILE_HANDLE)
     expect(image.filename).toBe('IMG_0001.jpg')
-    expect(image.src).toContain(`/api/mega/file?folder=${FOLDER_HANDLE}&node=${FILE_HANDLE}&k=`)
+    expect(image.src).toBe('')
+    expect(image.media).toEqual({ kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: FOLDER_HANDLE, nodeId: FILE_HANDLE, previewId: undefined })
+    expect(image.contentVersion).toMatch(/^[0-9a-f]{64}$/)
     expect(image.c2pa).toBe(true)
     expect(image.width).toBe(6000)
     expect(image.height).toBe(4000)
@@ -233,8 +235,11 @@ describe('scanMegaFolder', () => {
     const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
     expect(scan.images).toHaveLength(1)
     const image = scan.images[0]!
-    expect(image.src).toContain(`/api/mega/file?folder=${FOLDER_HANDLE}&node=${FILE_HANDLE}&k=`)
-    expect(image.variants?.[0]?.src).toContain(`/api/mega/preview?folder=${FOLDER_HANDLE}&h=${FA_HANDLE}&k=`)
+    expect(image.src).toBe('')
+    expect(image.media).toEqual({ kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: FOLDER_HANDLE, nodeId: FILE_HANDLE, previewId: undefined })
+    expect(image.contentVersion).toMatch(/^[0-9a-f]{64}$/)
+    expect(image.variants?.[0]?.src).toBe('')
+    expect(image.variants?.[0]?.media).toMatchObject({ kind: 'encrypted', provider: 'mega', previewId: FA_HANDLE })
     // Declared dims are the original's ispe box, not the rendition's.
     expect(image.width).toBe(12110)
     expect(image.height).toBe(3772)
@@ -256,7 +261,9 @@ describe('scanMegaFolder', () => {
     const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
     expect(scan.images).toHaveLength(1)
     const image = scan.images[0]!
-    expect(image.src).toContain(`/api/mega/file?folder=${FOLDER_HANDLE}&node=${FILE_HANDLE}&k=`)
+    expect(image.src).toBe('')
+    expect(image.media).toEqual({ kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: FOLDER_HANDLE, nodeId: FILE_HANDLE, previewId: undefined })
+    expect(image.contentVersion).toMatch(/^[0-9a-f]{64}$/)
     expect(image.variants).toBeUndefined()
     expect(image.width).toBe(12110)
     expect(image.height).toBe(3772)
@@ -282,9 +289,10 @@ describe('scanMegaFolder', () => {
     }
     const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
     expect(scan.images.map((image) => image.filename)).toEqual(['multi.jpg'])
-    // The *valid* key made it into the proxy URL — CTR decryption at serve
-    // time needs it, not the wrong first alternative.
-    expect(scan.images[0]!.src).toContain(b64uEncode(NODE_KEY).slice(0, 16))
+    // The valid key remains client-side in the session; the published ref
+    // carries only a keyless handle and an opaque change detector.
+    expect(scan.images[0]!.contentVersion).toMatch(/^[0-9a-f]{64}$/)
+    expect(scan.images[0]!.src).not.toContain(b64uEncode(NODE_KEY).slice(0, 16))
   })
 
   test('finds images nested inside a subfolder of the share', async () => {
@@ -320,8 +328,9 @@ describe('scanMegaFolder', () => {
     }
     const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
     const image = scan.images[0]!
-    expect(image.src).toContain('/api/mega/file?')
-    expect(image.variants?.[0]?.src).toContain(`/api/mega/preview?folder=${FOLDER_HANDLE}&h=${FA_HANDLE}&k=`)
+    expect(image.src).toBe('')
+    expect(image.variants?.[0]?.src).toBe('')
+    expect(image.variants?.[0]?.media).toMatchObject({ kind: 'encrypted', provider: 'mega', previewId: FA_HANDLE })
   })
 
   test('accepts AVIF and consciously ignores PNG, GIF, and TIFF', async () => {
@@ -335,7 +344,7 @@ describe('scanMegaFolder', () => {
     ] }])
     const scan = await scanMegaFolder(link, fetchImpl as typeof fetch)
     expect(scan.images.map((image) => image.filename)).toEqual(['a.avif'])
-    expect(scan.images[0]!.src).toContain('/api/mega/file?')
+    expect(scan.images[0]!.src).toBe('')
   })
 })
 
@@ -397,9 +406,9 @@ describe('scanMegaCollection', () => {
     }
     const scan = await scanMegaCollection(link, fetchImpl as typeof fetch)
     expect(scan.title).toBe('Bangkok Plates')
-    expect(scan.sourceUrl).toBe(link)
+    expect(scan.sourceUrl).toBe(`https://mega.nz/collection/${COLLECTION_HANDLE}`)
     expect(scan.images.map((image) => image.filename)).toEqual(['a.jpg', 'b.jpg'])
-    expect(scan.images[0]!.src).toContain(`/api/mega/file?set=${COLLECTION_HANDLE}&node=nodeA&k=`)
+    expect(scan.images[0]!.media).toMatchObject({ kind: 'encrypted', provider: 'mega', sourceKind: 'collection', sourceId: COLLECTION_HANDLE, nodeId: 'nodeA' })
   })
 
   test('fails friendly when the collection is not found', async () => {

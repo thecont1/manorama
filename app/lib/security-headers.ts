@@ -19,7 +19,9 @@ export const pageSecurityHeaders = (opts: { dev: boolean }): Record<string, stri
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
     // Dev adds ws:/wss: for Vite HMR.
-    `connect-src 'self'${opts.dev ? ' ws: wss:' : ''}`,
+    // MEGA's public API/CDN permit direct ciphertext access. Only their
+    // exact API hosts and rotating storage suffix join the gallery allowlist.
+    `connect-src 'self' https://g.api.mega.co.nz https://eu.api.mega.co.nz https://*.userstorage.mega.co.nz${opts.dev ? ' ws: wss:' : ''}`,
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
