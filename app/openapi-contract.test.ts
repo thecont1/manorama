@@ -34,11 +34,11 @@ describe('OpenAPI contract: static spec', () => {
     expect(spec.openapi).toBe('3.1.0')
   })
 
-  test('contains exactly the twelve Manorama operations', () => {
+  test('contains exactly the thirteen Manorama operations', () => {
     expect(operationIds().sort()).toEqual([
       'create_gallery', 'delete_gallery', 'get_drive_file', 'get_drive_thumbnail',
       'get_dropbox_file', 'get_dropbox_thumbnail', 'get_icloud_image',
-      'list_galleries', 'migrate_gallery', 'refresh_gallery', 'scan_gallery_source', 'update_gallery',
+      'list_galleries', 'migrate_gallery', 'pin_gallery', 'refresh_gallery', 'scan_gallery_source', 'update_gallery',
     ])
   })
 
@@ -50,6 +50,11 @@ describe('OpenAPI contract: static spec', () => {
       : schema
     expect(Object.keys((resolved as { properties: Record<string, unknown> }).properties)).not.toContain('slug')
     expect(Object.keys((resolved as { properties: Record<string, unknown> }).properties)).toContain('newSlug')
+    // The runtime PATCH also accepts hidden (image keys) and pinned — both
+    // were undocumented until issue #175; keep them declared.
+    const fields = Object.keys((resolved as { properties: Record<string, unknown> }).properties)
+    expect(fields).toContain('hidden')
+    expect(fields).toContain('pinned')
   })
 
   test('the Gallery schema requires retention and expiresAt', () => {
@@ -128,6 +133,20 @@ describe('OpenAPI contract: static spec', () => {
     expect(request.required).toEqual(['manifest', 'deviceId'])
   })
 
+  test('pin_gallery documents the required pin body and the PIN_LIMIT conflict', () => {
+    const pin = spec.paths['/api/galleries/{slug}/pin'].patch as {
+      operationId: string
+      requestBody: { required: boolean; content: Record<string, { schema: { $ref?: string } }> }
+      responses: Record<string, { $ref?: string }>
+    }
+    expect(pin.operationId).toBe('pin_gallery')
+    expect(pin.requestBody.required).toBe(true)
+    expect(pin.requestBody.content['application/json'].schema.$ref).toBe('#/components/schemas/PinRequest')
+    expect(pin.responses['409']?.$ref).toBe('#/components/responses/Conflict')
+    const request = spec.components.schemas.PinRequest as { required: string[] }
+    expect(request.required).toEqual(['pinned'])
+  })
+
   test('refresh documents the manifest body for encrypted galleries', () => {
     const refresh = spec.paths['/api/galleries/{slug}/refresh'].post as {
       requestBody?: { content: Record<string, { schema: { $ref?: string } }> }
@@ -139,6 +158,7 @@ describe('OpenAPI contract: static spec', () => {
     for (const op of [
       spec.paths['/api/galleries'].post,
       spec.paths['/api/galleries/{slug}'].patch,
+      spec.paths['/api/galleries/{slug}/pin'].patch,
       spec.paths['/api/galleries/{slug}/refresh'].post,
     ]) {
       const responses = (op as { responses: Record<string, { $ref?: string }> }).responses
@@ -221,7 +241,7 @@ describe('OpenAPI contract: runtime behavior', () => {
     expect(specPaths).toEqual([
       '/api/drive/file', '/api/drive/thumbnail', '/api/dropbox/file', '/api/dropbox/thumbnail',
       '/api/galleries', '/api/galleries/scan', '/api/galleries/{slug}',
-      '/api/galleries/{slug}/migrate', '/api/galleries/{slug}/refresh', '/api/icloud/image',
+      '/api/galleries/{slug}/migrate', '/api/galleries/{slug}/pin', '/api/galleries/{slug}/refresh', '/api/icloud/image',
     ])
   })
 })

@@ -642,6 +642,18 @@
         ],
         "type": "object"
       },
+      "PinRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "pinned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pinned"
+        ],
+        "type": "object"
+      },
       "RefreshRequest": {
         "additionalProperties": false,
         "description": "Empty body refreshes ordinary galleries server-side. Encrypted galleries cannot be scanned by the server and must resubmit a client-scanned manifest — an encrypted refresh without one answers 400 CLIENT_SCAN_REQUIRED.",
@@ -686,6 +698,14 @@
             "maxLength": 500,
             "type": "string"
           },
+          "hidden": {
+            "description": "Image keys (refs, or filenames for Dropbox) to mark hidden; every key not listed is unhidden. The flag survives source refreshes — a hidden item is not rediscovered and re-appended.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
           "newSlug": {
             "description": "New URL slug for the gallery; changing it changes public URLs and bookmarks",
             "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
@@ -698,6 +718,10 @@
             },
             "maxItems": 1000,
             "type": "array"
+          },
+          "pinned": {
+            "description": "Pin state applied through the same policy as PATCH /api/galleries/{slug}/pin — a Free pin spends a pin slot, a Free unpin returns the gallery to the pipeline.",
+            "type": "boolean"
           },
           "title": {
             "description": "New gallery title; cannot be empty when present",
@@ -1185,7 +1209,7 @@
         }
       ],
       "patch": {
-        "description": "Update a gallery's title, caption, image order, or URL slug (rename via newSlug).",
+        "description": "Update a gallery's title, caption, image order, hidden set, pin state, or URL slug (rename via newSlug). Pinning a pipeline gallery also spends a pin slot — see PATCH /api/galleries/{slug}/pin.",
         "operationId": "update_gallery",
         "requestBody": {
           "content": {
@@ -1362,6 +1386,72 @@
           }
         ],
         "summary": "Migrate an encrypted gallery to the keyless manifest",
+        "tags": [
+          "galleries"
+        ]
+      }
+    },
+    "/api/galleries/{slug}/pin": {
+      "parameters": [
+        {
+          "description": "Gallery URL slug to pin or unpin",
+          "in": "path",
+          "name": "slug",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "patch": {
+        "description": "Set a gallery's pin state. Unlike the edit PATCH this route is not restricted to retained galleries — pinning a pipeline gallery is how a Free owner makes it permanent. A Free pin spends one of the owner's pin slots and fails with PIN_LIMIT when none remain; a Free unpin returns the gallery to the pipeline with a fresh window.",
+        "operationId": "pin_gallery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryResponse"
+                }
+              }
+            },
+            "description": "The updated gallery"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          }
+        },
+        "security": [
+          {
+            "cloudflareAccess": []
+          }
+        ],
+        "summary": "Pin or unpin a gallery",
         "tags": [
           "galleries"
         ]
