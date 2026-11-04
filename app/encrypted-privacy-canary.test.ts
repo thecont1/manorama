@@ -329,6 +329,24 @@ describe('F2/F3 regressions: dev seed and shipped policy wording', () => {
     await expect(scanSource(KEYED_URL, {})).rejects.toThrow(/scanned on your device/)
   })
 
+  test('the dev seed scans encrypted sources through the client module, never the server path', () => {
+    // Source-level guard: the retired dispatch must not creep back. The
+    // behavioral half is the keyed-open Playwright spec.
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url).pathname, 'utf8')
+    // Encrypted seeds dispatch to the client scanner; the server scanSource
+    // only ever sees unencrypted links.
+    expect(viteConfig).toContain('ssrLoadModule(\'/app/lib/mega-client.ts\')')
+    expect(viteConfig).toContain('scanMegaSource')
+    expect(viteConfig).toMatch(/isEncryptedSourceUrl\(url\)\s*\?\s*await clientScan\(url\)\s*:\s*await sources!?\.scanSource/)
+    // The seed writes scanned manifests directly — it never posts a keyed
+    // url to the retired server scan endpoint.
+    expect(viteConfig).not.toContain('/api/galleries/scan')
+    // Client-scanned seeds must be stamped v2 or the legacy render gate
+    // would route keyless refs through the retired decryptor.
+    expect(viteConfig).toContain('manifestVersion: isEncryptedSourceUrl(url) ? 2 : 1')
+  })
+
   test('the shipped policy model describes the fragment, the static card, and the exception', () => {
     const text = JSON.stringify(PRIVACY_POLICY)
     expect(text).toContain('fragment')
