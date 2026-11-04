@@ -571,8 +571,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       // The scanned name pre-fills only an untouched field — a name the
       // owner typed while the scan was in flight is never clobbered.
       setAddName((current) => current.trim() ? current : title)
-    } catch {
-      if (seq === addVerifySeq.current) setAddError('That link could not be checked — try again')
+    } catch (error) {
+      if (seq === addVerifySeq.current) setAddError(friendlySourceError(error))
     } finally {
       if (seq === addVerifySeq.current) setAddChecking(false)
     }

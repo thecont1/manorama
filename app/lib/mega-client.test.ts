@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { MAX_GALLERY_ITEMS } from './imagesource'
 import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey, metaMac, verifyMegaMac } from './mega-crypto'
 import { extractMegaFolder, extractMegaLink, fetchMegaFile, fetchMegaPreview, openMegaSession, scanMegaCollection, scanMegaFolder } from './mega-client'
 
@@ -242,6 +243,33 @@ describe('scanMegaFolder', () => {
     await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('not found')
   })
 
+  test('refuses a folder over the item limit before spending a single probe', async () => {
+    const files = Array.from({ length: MAX_GALLERY_ITEMS + 1 }, (_, i) => fileNode(`IMG_${i}.jpg`, { h: `H${i}` }))
+    let calls = 0
+    const fetchImpl = async () => {
+      calls += 1
+      return jsonResponse([{ f: [folderNode, ...files] }])
+    }
+    await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('limited to 1,000 items')
+    expect(calls).toBe(1)
+  })
+
+  test('does not refuse a folder at the item limit', async () => {
+    // A full 1000-item probe pass is inherently slow; the boundary pin is
+    // that the count check does not fire at MAX — so the scan must die by
+    // the session closing mid-probe, never by the item-limit message.
+    const files = Array.from({ length: MAX_GALLERY_ITEMS }, (_, i) => fileNode(`IMG_${i}.jpg`, { h: `H${i}` }))
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input)
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      if (url.includes('cs?') && body[0]?.a === 'f') return jsonResponse([{ f: [folderNode, ...files] }])
+      return jsonResponse({}, 500)
+    }
+    const session = await openMegaSession(link, fetchImpl as typeof fetch)
+    session.dispose()
+    await expect(session.scan).rejects.toThrow('session is closed')
+  })
+
   test('fails friendly when no decryptable images exist', async () => {
     const fetchImpl = async () => jsonResponse([{ f: [folderNode, fileNode('notes.txt')] }])
     await expect(scanMegaFolder(link, fetchImpl as typeof fetch)).rejects.toThrow('No image files')
@@ -455,6 +483,21 @@ describe('scanMegaCollection', () => {
   test('fails friendly when the collection is not found', async () => {
     const fetchImpl = async () => jsonResponse([-9])
     await expect(scanMegaCollection(link, fetchImpl as typeof fetch)).rejects.toThrow('not found')
+  })
+
+  test('refuses a collection over the item limit before spending a single probe', async () => {
+    const setAttrs = await encryptTlv(SHARE_KEY, { n: 'Too many' })
+    const elements = Array.from({ length: MAX_GALLERY_ITEMS + 1 }, (_, i) => setElement(`node${i}`, i))
+    const meta = elements.map((element) => ({ h: element.h, s: 10, at: encryptAttributes(ELEMENT_KEY, { n: `${element.h}.jpg` }) }))
+    let calls = 0
+    const fetchImpl = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      calls += 1
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown>[] : []
+      expect(body[0]?.a).toBe('aft')
+      return jsonResponse([{ s: [{ id: SET_HANDLE, at: setAttrs }], e: elements, n: meta }])
+    }
+    await expect(scanMegaCollection(link, fetchImpl as typeof fetch)).rejects.toThrow('limited to 1,000 items')
+    expect(calls).toBe(1)
   })
 
   test('rejects a folder link', async () => {
