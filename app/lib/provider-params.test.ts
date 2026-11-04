@@ -95,7 +95,7 @@ describe('iCloud proxy references', () => {
 describe('MEGA proxy references', () => {
   const megaFetch = (size = 4096) => (async (input: Parameters<typeof fetch>[0]) => {
     const url = String(input)
-    if (url.includes('g.api.mega.co.nz')) return json({ g: 'https://gfs.example/synthetic', s: size })
+    if (url.includes('g.api.mega.co.nz')) return json({ g: 'https://gfs262n001.userstorage.mega.co.nz/synthetic', s: size })
     return new Response(new Uint8Array(size), { status: 200 })
   }) as typeof fetch
 
@@ -118,7 +118,7 @@ describe('MEGA proxy references', () => {
     nodeKey.set(tail, 16)
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
-      if (url.includes('g.api.mega.co.nz')) return json({ g: 'https://gfs.example/synthetic', s: plain.length })
+      if (url.includes('g.api.mega.co.nz')) return json({ g: 'https://gfs262n001.userstorage.mega.co.nz/synthetic', s: plain.length })
       return new Response(ctrCrypt(fileKey, nonce, plain).slice(), { status: 200 })
     }) as typeof fetch
     const response = await fetchMegaFile('SYNTH', undefined, 'SYNTHNODE', b64uEncode(nodeKey), fetchImpl)

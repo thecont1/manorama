@@ -47,7 +47,7 @@ const dropboxStub = (url: string) =>
 
 const megaStub = (url: string) =>
   url.includes('g.api.mega.co.nz')
-    ? new Response(JSON.stringify({ g: 'https://gfs.example/synthetic', s: 4096 }), { status: 200 })
+    ? new Response(JSON.stringify({ g: 'https://gfs262n001.userstorage.mega.co.nz/synthetic', s: 4096 }), { status: 200 })
     : new Response(new Uint8Array(4096), { status: 200 })
 
 describe('range forwarding', () => {

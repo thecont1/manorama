@@ -198,7 +198,7 @@ describe('mega preview cap', () => {
     const encoded = btoa(String.fromCharCode(...handle)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
-      if (url.includes('g.api.mega.co.nz')) return json({ p: 'https://ufa.example/x' })
+      if (url.includes('g.api.mega.co.nz')) return json({ p: 'https://gfs262n002.userstorage.mega.co.nz/x' })
       const record = new Uint8Array(12 + size)
       record.set(handle)
       new DataView(record.buffer).setUint32(8, size, true)
@@ -215,7 +215,7 @@ describe('mega preview cap', () => {
     const encoded = btoa(String.fromCharCode(...handle)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
     const fetchImpl = (async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input)
-      if (url.includes('g.api.mega.co.nz')) return json({ p: 'https://ufa.example/x' })
+      if (url.includes('g.api.mega.co.nz')) return json({ p: 'https://gfs262n002.userstorage.mega.co.nz/x' })
       const record = new Uint8Array(12 + size)
       record.set(handle)
       new DataView(record.buffer).setUint32(8, size, true)

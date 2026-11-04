@@ -183,8 +183,49 @@ const faHandle = (fa: string | undefined, type: number) => {
 const downloadInfo = async (auth: MegaAuth, node: string, fetchImpl: typeof fetch) =>
   megaRequest<{ g?: string; s?: number }>([{ a: 'g', g: 1, ssl: 2, n: node }], auth, fetchImpl)
 
+/** Media bytes only ever come from MEGA's download hosts. The `g`/`p`
+ *  addresses in API responses are server-chosen strings — nothing else
+ *  checks them before the client GETs/POSTs there, so a poisoned or
+ *  compromised response must not be able to aim media fetches at an
+ *  arbitrary origin. The family is reviewed in
+ *  docs/manorama-operations.md (MEGA CDN allowlist). */
+const MEGA_CDN_HOST = 'userstorage.mega.co.nz'
+const assertMegaCdnUrl = (raw: string) => {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new SourceFetchError('That MEGA media address is invalid', 502)
+  }
+  const allowed = url.protocol === 'https:'
+    && (url.hostname === MEGA_CDN_HOST || url.hostname.endsWith(`.${MEGA_CDN_HOST}`))
+  if (!allowed) throw new SourceFetchError('That MEGA media address is not an allowed download host', 502)
+  return url
+}
+
+/** Fetches a CDN URL with redirects under control: every hop — not just
+ *  the first — must be an allowlisted host. `redirect: 'manual'` hides
+ *  the target entirely in browsers (opaqueredirect), which fails closed;
+ *  a Worker or test fetch can read Location and re-validate the hop. */
+const CDN_REDIRECT_HOPS = 3
+const fetchMegaCdn = async (raw: string, fetchImpl: typeof fetch, init?: RequestInit) => {
+  let target = assertMegaCdnUrl(raw).toString()
+  for (let hop = 0; ; hop++) {
+    const response = await fetchImpl(target, { ...init, redirect: 'manual' })
+    const redirected = response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)
+    if (!redirected) return response
+    const location = response.headers.get('location')
+    if (!location || hop + 1 >= CDN_REDIRECT_HOPS) throw new SourceFetchError('That MEGA download redirected off its host', 502)
+    try {
+      target = assertMegaCdnUrl(new URL(location, target).toString()).toString()
+    } catch {
+      throw new SourceFetchError('That MEGA download redirected off its host', 502)
+    }
+  }
+}
+
 const fetchRange = async (g: string, start: number, end: number, fetchImpl: typeof fetch) => {
-  const response = await fetchImpl(`${g}/${start}-${end}`)
+  const response = await fetchMegaCdn(`${g}/${start}-${end}`, fetchImpl)
   if (response.status === 509) throw new SourceFetchError('MEGA bandwidth limit reached — try again later', 503)
   if (!response.ok) throw new SourceFetchError(`MEGA download failed (${response.status})`, response.status)
   return new Uint8Array(await response.arrayBuffer())
@@ -211,7 +252,7 @@ const fetchFileAttribute = async (auth: MegaAuth, fah: string, nodeKey: Uint8Arr
   if (handleBytes.length !== 8) return null
   const resolved = await megaRequest<{ p?: string }>([{ a: 'ufa', fah: b64Encode(handleBytes), ssl: 2, r: 1, v: 3 }], auth, fetchImpl)
   if (!resolved.p) return null
-  const response = await fetchImpl(resolved.p, { method: 'POST', body: handleBytes })
+  const response = await fetchMegaCdn(resolved.p, fetchImpl, { method: 'POST', body: handleBytes })
   if (!response.ok) throw new SourceFetchError(`MEGA preview failed (${response.status})`, response.status)
   const declared = Number(response.headers.get('Content-Length'))
   if (Number.isFinite(declared) && declared > MAX_PREVIEW_BYTES + 12) {
