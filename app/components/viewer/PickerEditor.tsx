@@ -367,7 +367,8 @@ export default function PickerEditor({
         {/* The terminal slot is always 72px: a Save while the draft is
             dirty, otherwise a Cancel that exits like browse's Close —
             an untouched draft must not trap the owner in Reorder. It sits
-            outside actions so the narrow layout pairs it with the title. */}
+            outside actions so the narrow layout pairs it with the mode
+            switch on row two. */}
         {dirty
           ? <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           : <button type="button" class="viewer-picker-end" onClick={onDone}>Cancel</button>}

@@ -2997,8 +2997,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                 <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
               ) : null}
             </div>
-            {/* Outside actions so the narrow layout can pair it with the
-                title on row one — an orphaned third row read as broken. */}
+            {/* Outside actions so the narrow layout can put it beside the
+                mode switch on row two — an orphaned third row read as
+                broken. */}
             <button type="button" class="viewer-picker-end" onClick={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>

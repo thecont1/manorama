@@ -1178,8 +1178,9 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-picker-mode { font-family: var(--m-font); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: #f4f1ea; }
 .viewer-picker-desc { margin: 0; font-size: 13px; color: rgba(244, 240, 232, .62); }
 /* A third child of the bar now (the terminal button left the group so
-   narrow screens can pair it with the title) — the auto margin keeps it
-   clustered right against `space-between` instead of drifting centre. */
+   narrow screens can seat it beside the mode switch on the second row) —
+   the auto margin keeps it clustered right against `space-between`
+   instead of drifting centre. */
 .viewer-picker-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 /* The switch's two labels differ in length — pin the slot so the row
    never shifts between modes. */
@@ -1338,16 +1339,17 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-filmstrip .viewer-picker-header { background: rgb(10, 12, 12); }
 @media (max-width: 720px) {
   /* Portrait phones get their own two-row composition, not a collapsed
-     desktop row: the title shares row one with the terminal button (the
-     app-bar pairing) and the mode switch holds row two alone, right under
-     it. The sizer stays off phones — the default cell height suffices and
-     a squeezed slider was decoration — but remains mounted so its value
-     survives a rotate. When the row's only tenant was the sizer (a
-     non-owner pick) there is nothing to spread, so it goes entirely. */
+     desktop row: the title takes the whole first row and the two
+     controls share the row beneath at opposite ends — mode switch left,
+     terminal button right. The sizer stays off phones — the default cell
+     height suffices and a squeezed slider was decoration — but remains
+     mounted so its value survives a rotate. When row two's only tenant
+     was the sizer (a non-owner pick) it disappears and the terminal
+     button keeps the row to itself. */
   .viewer-picker-top { flex-wrap: wrap; }
-  .viewer-picker-title { order: 1; flex: 1 1 auto; }
-  .viewer-picker-top > .viewer-picker-end { order: 2; }
-  .viewer-picker-actions { order: 3; flex-basis: 100%; margin-left: 0; justify-content: flex-end; }
+  .viewer-picker-title { order: 1; flex: 1 1 100%; }
+  .viewer-picker-actions { order: 2; margin-left: 0; }
+  .viewer-picker-top > .viewer-picker-end { order: 3; }
   .viewer-picker-actions:not(:has(.viewer-picker-switch, .viewer-picker-lock)) { display: none; }
   .viewer-edit-sizer { display: none; }
   .viewer-picker-top .viewer-picker-switch { min-width: 9rem; }
