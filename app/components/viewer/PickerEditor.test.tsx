@@ -88,6 +88,12 @@ const cancelButton = (root: HTMLElement) => [...root.querySelectorAll('button')]
 const settle = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); flushSync(() => {}) }
 
 describe('the picker Edit mode', () => {
+  test('a HEIC cell carries the format badge', () => {
+    const root = mounted({ items: [item('heic-one', { filename: 'heic-one.heic', label: 'heic-one.heic' }), item('jpeg-one')] })
+    const badges = [...root.querySelectorAll('.viewer-filmstrip-badge')].map((b) => b.textContent)
+    expect(badges).toEqual(['HEIC'])
+  })
+
   test('renders every item including hidden ones, dimmed and marked', () => {
     const root = mounted()
     expect(cells(root)).toHaveLength(4)

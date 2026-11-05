@@ -3,6 +3,7 @@ import { announce } from '../../lib/announce'
 import { PIPELINE_LOCK_MESSAGE } from '../../lib/gallery-policy'
 import { formatDuration } from '../../islands/VideoSlide'
 import { isVideoItem, type GalleryMediaItem } from '../../lib/imagesource'
+import { isHeicFilename } from '../../lib/heic'
 import type { GallerySummary } from '../../lib/gallery-repository'
 import {
   createReorderSession,
@@ -401,6 +402,7 @@ export default function PickerEditor({
                 >
                   <HeicImg src={item.src} preview={item.preview} media={item.media} previewMedia={item.previewMedia} galleryId={galleryId} filename={item.filename} alt="" draggable={false} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                   {item.video ? <span class="viewer-filmstrip-badge">▶{item.durationSeconds ? ` ${formatDuration(item.durationSeconds)}` : ''}</span> : null}
+                  {!item.video && isHeicFilename(item.filename) ? <span class="viewer-filmstrip-badge">HEIC</span> : null}
                 </button>
                 {/* A button cannot nest inside the cell's own button, so the
                     mark is an absolutely placed sibling. It surfaces on
