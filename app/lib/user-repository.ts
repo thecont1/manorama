@@ -495,6 +495,8 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
       env.DB.prepare('DELETE FROM auth_flows WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM galleries WHERE owner_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM gallery_keys WHERE owner_id = ?').bind(accountId),
+      env.DB.prepare('DELETE FROM owner_key_vault WHERE owner_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM master_accounts WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM users WHERE account_id = ?').bind(accountId),
     ])
@@ -506,6 +508,8 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
   ownerSlugIndex.delete(user.ownerSlug)
   const { dropOwnerGalleries } = await import('./gallery-repository')
   dropOwnerGalleries(accountId)
+  const { dropOwnerKeyVault } = await import('./key-vault-repository')
+  await dropOwnerKeyVault(accountId)
   return true
 }
 

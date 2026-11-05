@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'hono/jsx'
+import { useEffect, useRef, useState } from 'hono/jsx'
 import Viewer from '../islands/Viewer'
 import { encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import { webGalleryKeyStore } from '../lib/key-store'
 import { EncryptedMediaResolver, type EncryptedClientSession, type EncryptedListing } from '../lib/encrypted-resolver'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
+import {
+  cachedVaultKey, cacheVaultKey, ensureVaultKey, fetchGalleryKey, fetchVaultRecord,
+  openVault, putGalleryKey, unwrapSourceForVault, wrapSourceForVault, type WrappedGalleryKey,
+} from '../lib/key-vault'
 
 type Props = Parameters<typeof Viewer>[0] & {
   galleryId: string
@@ -49,6 +53,15 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
   const [problem, setProblem] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [unlockValue, setUnlockValue] = useState('')
+  /** A synced wrapped key waiting on the owner's passphrase — the alternative
+   *  to pasting a link on a device that has never held this key. */
+  const [pendingWrapped, setPendingWrapped] = useState<WrappedGalleryKey | null>(null)
+  /** 'setup' offers first-time escrow; 'sync' unlocks an existing vault so
+   *  this device can escrow the key it holds. */
+  const [keySync, setKeySync] = useState<'setup' | 'sync' | null>(null)
+  const [passphrase, setPassphrase] = useState('')
+  const [keySyncNote, setKeySyncNote] = useState<string | null>(null)
+  const heldSourceRef = useRef<string | null>(null)
 
   const submitMigration = async (manifest: ClientManifest, optOut: boolean) => {
     const response = await fetch(`/api/galleries/${encodeURIComponent(viewerProps.slug)}/migrate`, {
@@ -64,18 +77,91 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     })
   }
 
+  /** Best-effort escrow once a tab holds the key: a session-cached vault key
+   *  syncs silently; otherwise the owner gets the passphrase card. Ciphertext
+   *  only — the source never reaches the server. */
+  const syncHeldKey = async (source: string) => {
+    if (viewerProps.viewerRole !== 'owner') return
+    try {
+      const vaultKey = await cachedVaultKey()
+      if (vaultKey) {
+        await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source))
+        return
+      }
+      setKeySync(await fetchVaultRecord() ? 'sync' : 'setup')
+    } catch {
+      // Escrow is an upgrade, not a gate — a failed sync never blocks viewing.
+    }
+  }
+
+  const submitKeySync = async (event: Event) => {
+    event.preventDefault()
+    const source = heldSourceRef.current
+    if (!source || !passphrase) return
+    setKeySyncNote(null)
+    try {
+      const vaultKey = await ensureVaultKey(passphrase)
+      await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source))
+      setKeySync(null)
+      setPassphrase('')
+    } catch {
+      setKeySyncNote(keySync === 'setup' ? 'The key vault could not be saved.' : 'That passphrase did not unlock the vault.')
+    }
+  }
+
+  const submitVaultUnlock = async (event: Event) => {
+    event.preventDefault()
+    const wrapped = pendingWrapped
+    if (!wrapped || !passphrase) return
+    try {
+      const record = await fetchVaultRecord()
+      if (!record) { setPendingWrapped(null); setProblem('No synced key vault exists on this account. Paste the full link instead.'); return }
+      const vaultKey = await openVault(passphrase, record)
+      await cacheVaultKey(vaultKey)
+      const source = await unwrapSourceForVault(vaultKey, wrapped)
+      // Wrong-album ciphertext still unwraps to *something* — bind the result
+      // to this gallery's identity before it enters custody.
+      if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That synced key belongs to a different source album')
+      await webGalleryKeyStore().put(galleryId, source)
+      setPendingWrapped(null)
+      setPassphrase('')
+      setProblem(null)
+      setAttempt((value) => value + 1)
+    } catch {
+      setProblem('That passphrase did not unlock the vault.')
+    }
+  }
+
   useEffect(() => {
     let live = true
     let owned: EncryptedMediaResolver | null = null
     setProblem(null)
     setMigration(null)
+    setPendingWrapped(null)
     const fragment = encryptedSourceFromGalleryHash(window.location.hash)
     void Promise.resolve(fragment ?? webGalleryKeyStore().get(galleryId).catch(() => null)).then(async (stored) => {
       // The keystore read must settle before the legacy fallback applies —
       // a pending promise is truthy, so chaining `?? legacySourceUrl` would
       // never reach it and the owner's migration path would show "locked".
-      // A storage read failure degrades to null, not a lockout.
-      const source = stored ?? legacySourceUrl
+      let source: string | null | undefined = stored ?? legacySourceUrl
+      if (!source && viewerProps.viewerRole === 'owner') {
+        // Escrowed unlock: the server holds ciphertext written by another of
+        // the owner's devices. A session-cached vault key opens it without
+        // prompting; otherwise the passphrase form replaces the paste form.
+        const wrapped = await fetchGalleryKey(viewerProps.slug).catch(() => null)
+        if (wrapped) {
+          const vaultKey = await cachedVaultKey()
+          if (vaultKey) source = await unwrapSourceForVault(vaultKey, wrapped).catch(() => null)
+          // A cached VK that cannot unwrap the blob is no better than none —
+          // the vault may have been re-created elsewhere, so the passphrase
+          // path (which re-derives from the current record) still applies.
+          if (!source && live) {
+            setPendingWrapped(wrapped)
+            setProblem('This gallery is synced to your account. Enter your Manorama sync passphrase to unlock it on this device.')
+            return
+          }
+        }
+      }
       if (!source) {
         if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original MEGA link.')
         return
@@ -91,11 +177,13 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       // must never reach the store. Best-effort — quota or private-mode
       // failures must not block opening with a key this session already has.
       await webGalleryKeyStore().put(galleryId, source).catch(() => undefined)
+      heldSourceRef.current = source
       if (!live) { session.dispose(); return }
       // The resolver goes up off the folder listing alone — first media
       // materializes while the probe pass is still walking items.
       owned = new EncryptedMediaResolver(session)
       setResolver(owned)
+      void syncHeldKey(source)
       void session.listing.then((listing) => {
         if (!live) return
         const manifest: ClientManifest = { provider: session.provider, sourceUrl: session.sourceUrl, ...listing }
@@ -150,11 +238,19 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         <h1 id="encrypted-lock-title">This gallery is locked on this device</h1>
         <p>{problem}</p>
         <p>Manorama cannot recover the key or decrypt this gallery on the server.</p>
-        <form onSubmit={unlock}>
-          <label for="encrypted-unlock-url">Full Manorama or MEGA link</label>
-          <input id="encrypted-unlock-url" type="url" required value={unlockValue} onInput={(event) => setUnlockValue((event.currentTarget as HTMLInputElement).value)} placeholder="https://…#…" />
-          <button class="m-btn m-btn--primary" type="submit">Unlock gallery</button>
-        </form>
+        {pendingWrapped ? (
+          <form onSubmit={submitVaultUnlock}>
+            <label for="encrypted-unlock-passphrase">Manorama sync passphrase</label>
+            <input id="encrypted-unlock-passphrase" type="password" required autocomplete="current-password" value={passphrase} onInput={(event) => setPassphrase((event.currentTarget as HTMLInputElement).value)} />
+            <button class="m-btn m-btn--primary" type="submit">Unlock with passphrase</button>
+          </form>
+        ) : (
+          <form onSubmit={unlock}>
+            <label for="encrypted-unlock-url">Full Manorama or MEGA link</label>
+            <input id="encrypted-unlock-url" type="url" required value={unlockValue} onInput={(event) => setUnlockValue((event.currentTarget as HTMLInputElement).value)} placeholder="https://…#…" />
+            <button class="m-btn m-btn--primary" type="submit">Unlock gallery</button>
+          </form>
+        )}
       </section>
     )
   }
@@ -170,18 +266,34 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     })
     : viewerProps.images
   const viewer = <Viewer {...viewerProps} images={images} encryptedResolver={resolver} galleryId={galleryId} />
-  if (!legacySourceUrl || !migration) return viewer
+  if (!legacySourceUrl && !keySync) return viewer
   return (
     <>
       {viewer}
-      <aside class="encrypted-migration" role="status">
-        <p>{migration.note}</p>
-        {!migration.keyRetired && scan ? (
-          <button class="m-btn m-btn--secondary" type="button" onClick={() => { void submitMigration(scan, true).catch((error) => setMigration({ ...migration, note: error instanceof Error ? error.message : 'The server key could not be removed' })) }}>
-            Remove server key now
-          </button>
-        ) : null}
-      </aside>
+      {legacySourceUrl && migration ? (
+        <aside class="encrypted-migration" role="status">
+          <p>{migration.note}</p>
+          {!migration.keyRetired && scan ? (
+            <button class="m-btn m-btn--secondary" type="button" onClick={() => { void submitMigration(scan, true).catch((error) => setMigration({ ...migration, note: error instanceof Error ? error.message : 'The server key could not be removed' })) }}>
+              Remove server key now
+            </button>
+          ) : null}
+        </aside>
+      ) : null}
+      {keySync ? (
+        <aside class="encrypted-migration" role="status">
+          <p>{keySync === 'setup'
+            ? 'Set a sync passphrase to unlock this gallery on your other devices. Manorama stores only an encrypted copy — forget the passphrase and synced keys cannot be recovered.'
+            : 'Enter your Manorama sync passphrase to make this gallery available on your other devices.'}</p>
+          <form onSubmit={submitKeySync}>
+            <label class="sr-only" for="key-sync-passphrase">{keySync === 'setup' ? 'Choose a sync passphrase' : 'Manorama sync passphrase'}</label>
+            <input id="key-sync-passphrase" type="password" required autocomplete={keySync === 'setup' ? 'new-password' : 'current-password'} value={passphrase} onInput={(event) => setPassphrase((event.currentTarget as HTMLInputElement).value)} placeholder={keySync === 'setup' ? 'Choose a sync passphrase' : 'Sync passphrase'} />
+            <button class="m-btn m-btn--primary" type="submit">{keySync === 'setup' ? 'Enable key sync' : 'Sync to my devices'}</button>
+            <button class="m-btn m-btn--secondary" type="button" onClick={() => setKeySync(null)}>Not now</button>
+          </form>
+          {keySyncNote ? <p role="alert">{keySyncNote}</p> : null}
+        </aside>
+      ) : null}
     </>
   )
 }

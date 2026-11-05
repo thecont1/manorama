@@ -3,6 +3,7 @@ import { libraryLayout } from '../../packages/core/library-layout'
 import { isVideoItem, mediaCountOf, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 import { getUserByAccountId } from './user-repository'
 import { clearDeviceGalleryLink } from './device-gallery-repository'
+import { deleteGalleryKey } from './key-vault-repository'
 import {
   assertGalleryEditable,
   FREE_RETAINED_LIMIT,
@@ -626,6 +627,7 @@ const previewImages = (images: readonly GalleryMediaItem[]) => images.map((image
 })
 
 export const deleteGallery = async (ownerId: string, slug: string, env?: GalleryEnv, options?: { force?: boolean }): Promise<boolean> => {
+  const galleryId = (await getStoredGallery(ownerId, slug, env))?.id
   if (d1Configured(env)) {
     const result = await env.DB
       .prepare('DELETE FROM galleries WHERE owner_id = ? AND slug = ?')
@@ -634,9 +636,14 @@ export const deleteGallery = async (ownerId: string, slug: string, env?: Gallery
     // The device link bound to this gallery — a different gallery that
     // later takes the slug must not inherit it.
     if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, ownerId, slug)
+    // Its escrowed key is ciphertext nobody can open for a row that no
+    // longer exists — best-effort: a failed sweep must not fail the delete.
+    if ((result.meta.changes ?? 0) > 0 && galleryId) await deleteGalleryKey(ownerId, galleryId, env).catch(() => undefined)
     return (result.meta.changes ?? 0) > 0
   }
-  return ownerStore(ownerId).delete(slug)
+  const removed = ownerStore(ownerId).delete(slug)
+  if (removed && galleryId) await deleteGalleryKey(ownerId, galleryId, env).catch(() => undefined)
+  return removed
 }
 
 /** Counts retained galleries only; pipeline galleries do not consume the cap. */
@@ -719,16 +726,26 @@ export const listExpiredPipelineGalleries = async (
  *  with the same deadline and is expired at `now`. Returns whether it deleted. */
 export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: string, env?: GalleryEnv): Promise<boolean> => {
   if (d1Configured(env)) {
+    // The id is resolved under the same guard terms the DELETE uses, so a
+    // slug recreated mid-sweep cannot have its escrowed key swept instead.
+    const row = await env.DB.prepare(
+      `SELECT id FROM galleries WHERE owner_id = ? AND slug = ? AND retention = 'pipeline' AND expires_at = ?`,
+    ).bind(key.ownerId, key.slug, key.expiresAt).first<{ id: string | null }>()
     const result = await env.DB.prepare(
       `DELETE FROM galleries WHERE owner_id = ? AND slug = ? AND retention = 'pipeline' AND expires_at <= ? AND expires_at = ?`,
     ).bind(key.ownerId, key.slug, now, key.expiresAt).run()
-    if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, key.ownerId, key.slug)
+    if ((result.meta.changes ?? 0) > 0) {
+      await clearDeviceGalleryLink(env.DB, key.ownerId, key.slug)
+      if (row?.id) await deleteGalleryKey(key.ownerId, row.id, env).catch(() => undefined)
+    }
     return (result.meta.changes ?? 0) > 0
   }
   const current = ownerStore(key.ownerId).get(key.slug)
   if (!current || retentionOf(current) !== 'pipeline') return false
   if (!current.expiresAt || current.expiresAt !== key.expiresAt || current.expiresAt > now) return false
-  return ownerStore(key.ownerId).delete(key.slug)
+  const removed = ownerStore(key.ownerId).delete(key.slug)
+  if (removed && current.id) await deleteGalleryKey(key.ownerId, current.id, env).catch(() => undefined)
+  return removed
 }
 
 export const toSummary = (gallery: GalleryRecord) => {

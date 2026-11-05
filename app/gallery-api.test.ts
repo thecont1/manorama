@@ -917,3 +917,52 @@ describe('pinning and the lean library', () => {
     expect(payload.galleries?.find((summary) => summary.slug === 'full-list')?.images).toHaveLength(20)
   })
 })
+
+describe('the key vault routes', () => {
+  const vaultBody = { version: 1, kdfSalt: 'c2FsdA', kdfIterations: 600_000, wrappedVk: 'Y2lwaGVy', vkNonce: 'bm9uY2U' }
+
+  test('PUT then GET /api/account/key-vault round-trips ciphertext only', async () => {
+    const missing = await api.request('/api/account/key-vault', { headers: { Cookie: cookie } }, env)
+    expect(missing.status).toBe(200)
+    expect(((await missing.json()) as { vault: unknown }).vault).toBeNull()
+    const put = await api.request('/api/account/key-vault', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(vaultBody),
+    }, env)
+    expect(put.status).toBe(200)
+    const got = await api.request('/api/account/key-vault', { headers: { Cookie: cookie } }, env)
+    const vault = ((await got.json()) as { vault: Record<string, unknown> }).vault
+    expect(vault).toMatchObject(vaultBody)
+  })
+
+  test('PUT /api/account/key-vault rejects malformed payloads', async () => {
+    for (const body of [{}, { ...vaultBody, kdfIterations: 10 }, { ...vaultBody, version: 2 }, { ...vaultBody, wrappedVk: '' }]) {
+      const response = await api.request('/api/account/key-vault', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(body),
+      }, env)
+      expect(response.status).toBe(400)
+    }
+  })
+
+  test('gallery keys PUT/GET by slug, 404 on unknown gallery, 400 on bad blob', async () => {
+    const { createGallery } = await import('./lib/gallery-repository')
+    await createGallery(TEST_OWNER.accountId, {
+      id: 'vaulted-gallery-id-1', slug: 'vaulted', title: 'Vaulted', caption: '', date: '', images: [],
+    })
+    const put = await api.request('/api/galleries/vaulted/key', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ wrappedSource: 'd3JhcHBlZA', nonce: 'bm9uY2Ux' }),
+    }, env)
+    expect(put.status).toBe(200)
+    const got = await api.request('/api/galleries/vaulted/key', { headers: { Cookie: cookie } }, env)
+    const key = ((await got.json()) as { key: { wrappedSource: string } | null }).key
+    expect(key?.wrappedSource).toBe('d3JhcHBlZA')
+
+    const missing = await api.request('/api/galleries/no-such/key', { headers: { Cookie: cookie } }, env)
+    expect(missing.status).toBe(404)
+    const bad = await api.request('/api/galleries/vaulted/key', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ wrappedSource: '' }),
+    }, env)
+    expect(bad.status).toBe(400)
+  })
+
+})

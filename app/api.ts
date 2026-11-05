@@ -17,6 +17,7 @@ import { randomGalleryName } from './lib/gallery-name'
 import { defaultGallerySettings } from './lib/gallery-settings'
 import { adSuppressionFor, clearAdSuppression, listAdSuppressions, setAdSuppression, type AdSuppressionKind } from './lib/ads-visibility'
 import { createDeviceGalleryApi } from './device-gallery-api'
+import { getGalleryKey, getOwnerVault, putGalleryKey, putOwnerVault } from './lib/key-vault-repository'
 import { verifyDesktopHandoffToken } from './lib/desktop-auth'
 import { LastIdentityError, listIdentities, unlinkIdentity, type AuthProvider } from './lib/identity-repository'
 import { PROXY_RESPONSE_CSP } from './lib/security-headers'
@@ -492,6 +493,66 @@ export const createManoramaApi = () => {
     const secret = envOf(c).HOST_API_JWT_SECRET?.trim()
     if (!secret) return c.json({ error: 'Linking is temporarily unavailable' }, 503)
     return c.json({ linkToken: await createLinkHandoffToken(session.accountId, secret) })
+  })
+
+  /* Key escrow. These routes move ciphertext and KDF parameters only — the
+   * sync passphrase, the vault key, and gallery source links are wrapped and
+   * unwrapped on the client and never appear in a request. */
+
+  api.get('/api/account/key-vault', async (c) => {
+    const session = c.get('manoramaSession')
+    try {
+      return c.json({ vault: await getOwnerVault(session.accountId, dbEnv(c)) })
+    } catch {
+      return c.json({ error: 'The key vault is temporarily unavailable' }, 503)
+    }
+  })
+
+  api.put('/api/account/key-vault', bodyLimit({ maxSize: 4 * 1024 }), async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json().catch(() => null) as Record<string, unknown> | null
+    const kdfSalt = typeof payload?.kdfSalt === 'string' ? payload.kdfSalt : ''
+    const kdfIterations = typeof payload?.kdfIterations === 'number' ? payload.kdfIterations : 0
+    const wrappedVk = typeof payload?.wrappedVk === 'string' ? payload.wrappedVk : ''
+    const vkNonce = typeof payload?.vkNonce === 'string' ? payload.vkNonce : ''
+    if (payload?.version !== 1 || !kdfSalt || kdfSalt.length > 64
+      || kdfIterations < 100_000 || kdfIterations > 10_000_000
+      || !wrappedVk || wrappedVk.length > 256 || !vkNonce || vkNonce.length > 64) {
+      return c.json({ error: 'That key vault payload is not valid' }, 400)
+    }
+    try {
+      return c.json({ vault: await putOwnerVault(session.accountId, { kdfSalt, kdfIterations, wrappedVk, vkNonce, version: 1 }, dbEnv(c)) })
+    } catch {
+      return c.json({ error: 'The key vault could not be saved' }, 503)
+    }
+  })
+
+  api.get('/api/galleries/:slug/key', async (c) => {
+    const session = c.get('manoramaSession')
+    try {
+      const gallery = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!gallery?.id) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ key: await getGalleryKey(session.accountId, gallery.id, dbEnv(c)) })
+    } catch {
+      return c.json({ error: 'That gallery is temporarily unavailable' }, 503)
+    }
+  })
+
+  api.put('/api/galleries/:slug/key', bodyLimit({ maxSize: 4 * 1024 }), async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json().catch(() => null) as Record<string, unknown> | null
+    const wrappedSource = typeof payload?.wrappedSource === 'string' ? payload.wrappedSource : ''
+    const nonce = typeof payload?.nonce === 'string' ? payload.nonce : ''
+    if (!wrappedSource || wrappedSource.length > 2048 || !nonce || nonce.length > 64) {
+      return c.json({ error: 'That gallery key payload is not valid' }, 400)
+    }
+    try {
+      const gallery = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!gallery?.id) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ ok: true, key: await putGalleryKey(session.accountId, gallery.id, { wrappedSource, nonce }, dbEnv(c)) })
+    } catch {
+      return c.json({ error: 'That gallery key could not be saved' }, 503)
+    }
   })
 
   api.get('/api/galleries', async (c) => {
