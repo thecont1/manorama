@@ -150,6 +150,28 @@ describe('the web owner panel', () => {
     expect(replaced).toEqual(['/thecontrarian/renamed?photo=photo-3'])
   })
 
+  test('Read the folder again POSTs bare for an ordinary source', async () => {
+    calls = []
+    const root = mounted()
+    flushSync(() => row(root, 'Read the folder again')?.click())
+    await settle()
+    const refresh = calls.filter((call) => call.url === '/api/galleries/mixed/refresh')
+    expect(refresh.length).toBe(1)
+    expect(refresh[0].init?.method).toBe('POST')
+    expect(refresh[0].init?.body).toBeUndefined()
+  })
+
+  test('an encrypted source without the key explains instead of fetching', async () => {
+    calls = []
+    // No fragment — the manifest URL is keyless, so the key must come from
+    // this device's store, which is empty in the test.
+    const root = mounted({ galleryId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', sourceUrl: 'https://mega.nz/folder/28NkBZqD' })
+    flushSync(() => row(root, 'Read the folder again')?.click())
+    await settle()
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('does not hold the key')
+    expect(calls).toEqual([])
+  })
+
   test('temporary galleries lock the edit rows but keep Share and Remove', () => {
     const root = mounted({ temporary: true, expiresAt: '2026-11-01T00:00:00.000Z' })
     expect(root.textContent).toContain('Temporary gallery · expires 2026-11-01')

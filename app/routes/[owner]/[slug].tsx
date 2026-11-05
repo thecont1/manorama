@@ -91,6 +91,7 @@ export default createRoute(async (c) => {
       title: gallery.title,
       caption: gallery.caption,
       sourceLabel: sourceLabelFor(gallery.sourceUrl),
+      sourceUrl: gallery.sourceUrl,
       temporary: retentionOf(gallery) === 'pipeline',
       expiresAt: gallery.expiresAt,
       mediaCount: { ...media, hidden: gallery.images.length - visible.length },

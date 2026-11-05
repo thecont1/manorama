@@ -21,6 +21,7 @@ import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 import { libraryLayout } from '../../packages/core/library-layout'
 import { galleryHashForSource, isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
 import { webGalleryKeyStore } from '../lib/key-store'
+import { refreshRequestInit } from '../lib/encrypted-refresh'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import type { EncryptedClientSession } from '../lib/encrypted-resolver'
 import { releaseAllEncryptedDisplays, releaseEncryptedGallery } from '../lib/encrypted-display'
@@ -687,29 +688,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
-  const refreshRequest = async (gallery: GallerySummary): Promise<RequestInit> => {
-    if (!gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) return { method: 'POST' }
-    const stored = gallery.id ? await webGalleryKeyStore().get(gallery.id) : null
-    const source = stored ?? (gallery.sourceUrl.includes('#') ? gallery.sourceUrl : null)
-    if (!source) throw new Error('This device does not hold the key. Open the full gallery link before refreshing.')
-    const { openEncryptedSource } = await import('../lib/encrypted-client')
-    const session = await openEncryptedSource(source)
-    try {
-      const listing = await session.listing
-      if (gallery.id) await webGalleryKeyStore().put(gallery.id, source)
-      return {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ manifest: {
-          provider: session.provider,
-          sourceUrl: session.sourceUrl,
-          ...listing,
-        } }),
-      }
-    } finally {
-      session.dispose()
-    }
-  }
+  const refreshRequest = (gallery: GallerySummary): Promise<RequestInit> => refreshRequestInit(gallery)
 
   const refreshGallery = async (gallery: GallerySummary) => {
     if (blockPipelineEdit(gallery)) return
@@ -1181,6 +1160,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               title={galSettingsGallery.title}
               caption={galSettingsGallery.caption}
               sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
+              galleryId={galSettingsGallery.id}
+              sourceUrl={galSettingsGallery.sourceUrl}
               temporary={isLocked(galSettingsGallery)}
               expiresAt={galSettingsGallery.expiresAt}
               mediaCount={summaryMediaCount(galSettingsGallery)}

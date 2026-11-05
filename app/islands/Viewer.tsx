@@ -97,6 +97,7 @@ type Props = {
     title: string
     caption: string
     sourceLabel: string
+    sourceUrl?: string | null
     temporary: boolean
     expiresAt?: string | null
     mediaCount: MediaCount
@@ -894,6 +895,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       title={ownerGallery.title}
       caption={ownerGallery.caption}
       sourceLabel={ownerGallery.sourceLabel}
+      galleryId={galleryId}
+      sourceUrl={ownerGallery.sourceUrl}
       temporary={ownerGallery.temporary}
       expiresAt={ownerGallery.expiresAt}
       mediaCount={ownerGallery.mediaCount}

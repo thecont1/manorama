@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Child } from 'hono/jsx'
 import { PIPELINE_LOCK_MESSAGE } from '../../lib/gallery-policy'
 import { formatMediaCount, type MediaCount } from '../../lib/imagesource'
+import { refreshRequestInit } from '../../lib/encrypted-refresh'
 import { announce } from '../../lib/announce'
 import { ActionGroup, ActionRow } from '../ui/ActionRow'
 import { Button } from '../ui/Button'
@@ -21,6 +22,11 @@ export type OwnerGalleryPanelProps = {
   title: string
   caption: string
   sourceLabel: string
+  /** Encrypted refresh scans on-device — the key store is keyed by id and
+   *  the source URL decides whether the bare POST is enough. Ordinary
+   *  sources need neither. */
+  galleryId?: string | null
+  sourceUrl?: string | null
   temporary: boolean
   expiresAt?: string | null
   mediaCount: MediaCount
@@ -71,6 +77,8 @@ export default function OwnerGalleryPanel({
   title,
   caption,
   sourceLabel,
+  galleryId,
+  sourceUrl,
   temporary,
   headless = false,
   expiresAt,
@@ -206,7 +214,7 @@ export default function OwnerGalleryPanel({
     setReadNote(null)
     void (async () => {
       try {
-        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}/refresh`, { method: 'POST' })
+        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}/refresh`, await refreshRequestInit({ id: galleryId, sourceUrl }))
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That folder could not be read again')
         // The manifest is SSR state — reload into the fresh gallery at the

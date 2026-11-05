@@ -20,6 +20,7 @@ const listSources = (dir: string): string[] => {
 const DECRYPTOR_MODULES = [
   'mega-client', 'mega-crypto', 'mega-decrypt', 'mega-crypto.worker',
   'encrypted-client', 'encrypted-resolver', 'encrypted-display',
+  'encrypted-refresh',
 ]
 const isDecryptorSpecifier = (spec: string) =>
   DECRYPTOR_MODULES.some((name) => spec === name || spec.endsWith(`/${name}`))
