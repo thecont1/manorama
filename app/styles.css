@@ -470,6 +470,12 @@ button { color: inherit; }
 .viewer-frame .frame-ph[src^="data:image/svg+xml"] { visibility: hidden; }
 .viewer-frame .frame-img { opacity: 0; transition: opacity .32s ease; }
 .viewer-frame .frame-img.is-loaded { opacity: 1; }
+/* Encrypted originals take seconds to materialize — an indeterminate pink
+   bar under the frame says "downloading" without pretending to a percentage. */
+.viewer-frame-progress { position: absolute; left: 0; right: 0; bottom: -6px; height: 2px; overflow: hidden; pointer-events: none; }
+.viewer-frame-progress::before { content: ''; position: absolute; top: 0; bottom: 0; width: 34%; background: #ff2d95; animation: viewer-frame-progress 1.3s ease-in-out infinite; }
+@keyframes viewer-frame-progress { 0% { left: -34%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .viewer-frame-progress::before { animation: none; left: 33%; } }
 /* A plate: a photograph whose own pixels cannot fill this stage, shown at its
    honest size inside a frame that keeps the stage's full height. The canvas
    left above and below is the mount, and the mount is marked the way every

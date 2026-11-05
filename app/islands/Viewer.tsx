@@ -2691,7 +2691,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                 <>
                 <img
                   class="frame-ph"
-                  src={isActive && isHeic(image) ? image.variants?.[0]?.src ?? image.placeholder : image.placeholder}
+                  src={image.variants?.[0]?.src || image.placeholder}
                   alt=""
                   aria-hidden="true"
                   width={frameW}
@@ -2699,6 +2699,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
+                {/* Encrypted frames sit on the placeholder while multi-MB
+                    originals materialize — the pink bar says "downloading"
+                    without a dishonest percentage: materialize delivers
+                    whole bytes, so no honest endpoint exists to fill to. */}
+                {!isVideoItem(image) && image.media && !(isHeic(image) ? heicSrc[image.id] : image.src) ? <span class="viewer-frame-progress" aria-hidden="true" /> : null}
                 {mountsMedia && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
                   <img
                     class="frame-img"

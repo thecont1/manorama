@@ -49,7 +49,7 @@ const referenceKey = (reference: MediaReference, preview: boolean): string =>
 export class EncryptedMediaResolver {
   private readonly entries = new Map<string, Entry>()
   private readonly thumbnails = limiter(4)
-  private readonly originals = limiter(2)
+  private readonly originals = limiter(3)
   private bytes = 0
   private disposed = false
 
