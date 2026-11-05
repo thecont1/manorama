@@ -39,3 +39,9 @@ declare namespace JSX {
     'cai-manifest-summary': Record<string, unknown>
   }
 }
+
+declare global {
+  /** Injected by vite.config's `define` — the build commit shown under the
+   *  Library mark. Undefined outside bundled code (unit tests, scripts). */
+  const __MANORAMA_COMMIT__: string | undefined
+}

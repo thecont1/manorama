@@ -237,7 +237,9 @@ test('Account → Settings shows identities/plan/typed-delete; Light persists af
     await expect(plan.getByText(/Editable galleries/)).toBeVisible()
     await expect(plan.locator('.m-actionrow-value').nth(1)).toHaveText(/\d+ of \d+/)
 
-    // Typed-delete: armed only by typing the exact owner slug. Never submit.
+    // Typed-delete: the panel stays behind its destructive row until the
+    // owner asks, and arms only on the exact owner slug. Never submit.
+    await settings.getByRole('button', { name: 'Delete my account', exact: true }).click()
     const deletePanel = settings.locator('.m-settings-delete')
     await expect(deletePanel.getByText(`Type your URL name (${owner}) to confirm`, { exact: true })).toBeVisible()
     const confirm = deletePanel.locator('input')

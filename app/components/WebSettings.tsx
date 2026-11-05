@@ -37,6 +37,11 @@ type Props = {
   onTheme: (theme: Theme) => void
   deleteConfirm: string
   onDeleteConfirmChange: (value: string) => void
+  /** The confirmation panel stays behind a destructive row until the
+   *  owner asks for it — the danger zone is never armed on arrival. */
+  deleteOpen: boolean
+  onRequestDelete: () => void
+  onCancelDelete: () => void
   deleteBusy: boolean
   deleteNote?: string | null
   onDeleteAccount: () => void
@@ -138,6 +143,7 @@ export function WebSettings(props: Props) {
 
         <ActionGroup label="About">
           <ActionRow label="Privacy Policy" href="/privacy" />
+          <ActionRow label="Mahesh Shantaram · thecontrarian.in" href="https://thecontrarian.in" />
         </ActionGroup>
 
         <ActionGroup label="Sign out and delete">
@@ -149,33 +155,40 @@ export function WebSettings(props: Props) {
               </form>
             )}
           />
-          <div class="m-panel m-settings-delete">
-            <p>
-              This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in your
-              Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first — web: your Stripe receipt.
-            </p>
-            <label class="admin-delete-confirm">
-              Type your URL name ({props.ownerSlug}) to confirm
-              <input
-                class="m-input"
-                type="text"
-                value={props.deleteConfirm}
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellcheck={false}
-                disabled={props.deleteBusy}
-                onInput={(event) => props.onDeleteConfirmChange((event.currentTarget as HTMLInputElement).value)}
-              />
-            </label>
-            <Button
-              variant="destructive"
-              disabled={!deleteReady}
-              onClick={props.onDeleteAccount}
-            >
-              {props.deleteBusy ? 'Deleting…' : 'Delete my account'}
-            </Button>
-            {props.deleteNote ? <p class="m-error" role="alert">{props.deleteNote}</p> : null}
-          </div>
+          {props.deleteOpen ? (
+            <div class="m-panel m-settings-delete">
+              <p>
+                This removes your galleries, device catalogue and sign-in methods from manorama. Nothing in your
+                Dropbox, Google Drive, iCloud or MEGA is touched. If you subscribe, cancel first — web: your Stripe receipt.
+              </p>
+              <label class="admin-delete-confirm">
+                Type your URL name ({props.ownerSlug}) to confirm
+                <input
+                  class="m-input"
+                  type="text"
+                  value={props.deleteConfirm}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellcheck={false}
+                  disabled={props.deleteBusy}
+                  onInput={(event) => props.onDeleteConfirmChange((event.currentTarget as HTMLInputElement).value)}
+                />
+              </label>
+              <div>
+                <Button
+                  variant="destructive"
+                  disabled={!deleteReady}
+                  onClick={props.onDeleteAccount}
+                >
+                  {props.deleteBusy ? 'Deleting…' : 'Delete my account'}
+                </Button>
+                <Button variant="secondary" disabled={props.deleteBusy} onClick={props.onCancelDelete}>Cancel</Button>
+              </div>
+              {props.deleteNote ? <p class="m-error" role="alert">{props.deleteNote}</p> : null}
+            </div>
+          ) : (
+            <ActionRow label="Delete my account" tone="destructive" onClick={props.onRequestDelete} />
+          )}
         </ActionGroup>
       </div>
     </main>

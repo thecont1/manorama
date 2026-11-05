@@ -19,6 +19,9 @@ const props = (overrides: Partial<Parameters<typeof WebSettings>[0]> = {}): Para
   onTheme: () => {},
   deleteConfirm: '',
   onDeleteConfirmChange: () => {},
+  deleteOpen: true,
+  onRequestDelete: () => {},
+  onCancelDelete: () => {},
   deleteBusy: false,
   onDeleteAccount: () => {},
   onBack: () => {},
@@ -44,6 +47,15 @@ describe('WebSettings', () => {
     expect(String(WebSettings(props()))).toMatch(/<button[^>]*disabled=""[^>]*>Unlink<\/button>/)
     const html = String(WebSettings(props({ identities: [{ provider: 'dropbox' }, { provider: 'google' }] })))
     expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Unlink<\/button>/)
+  })
+
+  test('keeps the deletion panel behind the destructive row until asked', () => {
+    const closed = String(WebSettings(props({ deleteOpen: false })))
+    expect(closed).toContain('Delete my account')
+    expect(closed).not.toContain('Type your URL name')
+    const open = String(WebSettings(props({ deleteOpen: true })))
+    expect(open).toContain('Type your URL name')
+    expect(open).toContain('>Cancel</button>')
   })
 
   test('gates deletion on the exact URL name and reports address errors', () => {

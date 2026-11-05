@@ -1,11 +1,18 @@
 import build from '@hono/vite-build/cloudflare-workers'
 import adapter from '@hono/vite-dev-server/node'
 import honox from 'honox/vite'
+import { execSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import type { D1Database } from '@cloudflare/workers-types'
 import { defineConfig, type Plugin, type ViteDevServer } from 'vite'
 import { applyDevMigrations } from './app/lib/dev-d1.ts'
 import { isEncryptedSourceUrl } from './packages/core/encrypted-source.ts'
+
+/** The build's own commit, shown in the Library under the mark. A
+ *  non-git build context (a packaged tarball) degrades to 'dev'. */
+const buildCommit = (() => {
+  try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' }
+})()
 
 /** Default manifest item for spawn-seeded galleries: a 1×1 PNG data URI. */
 const DEV_SPAWN_IMAGE = {
@@ -437,6 +444,7 @@ const manoramaDevSeed = (): Plugin => {
 
 export default defineConfig(() => ({
   cacheDir: '.work/vite-web-cache',
+  define: { __MANORAMA_COMMIT__: JSON.stringify(buildCommit) },
   plugins: [
     manoramaDevSeed(),
     honox({

@@ -68,6 +68,10 @@ const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) 
 })
 
 const isLocked = (gallery: GallerySummary) => gallery.retention === 'pipeline'
+
+// The Library prints the build commit under the mark; the guard keeps
+// unit tests and scripts, which never see vite's define, on 'dev'.
+const buildCommit = typeof __MANORAMA_COMMIT__ === 'string' ? __MANORAMA_COMMIT__ : 'dev'
 /** The pin is a display choice — the strip section follows the stamped
  *  timestamp, not the retention flag. Permanence only moves through the
  *  swap or a tier change. */
@@ -149,8 +153,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // The account's sign-in methods — null until the identities answer lands.
   const [identities, setIdentities] = useState<AccountIdentity[] | null>(null)
   const [identityNote, setIdentityNote] = useState('')
-  // Account deletion waits on a typed URL name so a stray tap cannot fire it.
+  // Account deletion waits on a typed URL name so a stray tap cannot fire
+  // it — and the confirmation panel itself stays behind a destructive row
+  // until the owner asks for it.
   const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteNote, setDeleteNote] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
   // Owner slug save errors surface inside Settings, not in a toast that the
@@ -376,6 +383,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const openSettings = () => {
     setSettingsOpen(true)
     setSettingsNote('')
+    setDeleteOpen(false)
+    setDeleteConfirm('')
+    setDeleteNote('')
     const params = new URLSearchParams(window.location.search)
     params.set('settings', '1')
     rewriteGalleryHistory(window, 'push', { surface: 'settings' }, `${window.location.pathname}?${params}`)
@@ -939,6 +949,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           screens stack the rail above the list. */}
       <aside class="admin-rail">
         <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
+        <p class="admin-version">{buildCommit}</p>
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
           <div class="admin-heading-actions">
@@ -978,6 +989,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
+        <p class="admin-copyright">© 2026 Mahesh Shantaram. All platform rights reserved.</p>
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
@@ -1244,6 +1256,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           onTheme={setTheme}
           deleteConfirm={deleteConfirm}
           onDeleteConfirmChange={setDeleteConfirm}
+          deleteOpen={deleteOpen}
+          onRequestDelete={() => { setDeleteOpen(true); setDeleteNote('') }}
+          onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote('') }}
           deleteBusy={deleteBusy}
           deleteNote={deleteNote}
           onDeleteAccount={() => void removeAccount()}
