@@ -40,11 +40,11 @@ test.describe('the lean Library', () => {
     const strips = page.locator('.admin-gallery-strip-frame')
     const cards = page.locator('.lib-compact-card')
     // Nothing spawned is pinned: every lean-* gallery is a compact card
-    // under "More galleries" — "Your galleries" holds only pins (the
+    // under "Your galleries" — "Pinned galleries" holds only pins (the
     // pristine fixtures arrive pinned, so assert by prefix).
     await expect(page.locator('.lib-card[data-gallery-card^="lean-"]')).toHaveCount(0)
     await expect(page.locator('.lib-compact-card[data-gallery-card^="lean-"]')).toHaveCount(11)
-    await expect(page.getByRole('heading', { name: 'More galleries' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Your galleries' })).toBeVisible()
     const pristineStrips = await strips.count()
 
     // Pin the newest compact card — it becomes a permanent strip, and a
@@ -55,7 +55,7 @@ test.describe('the lean Library', () => {
     const secondSlug = (await secondCard.getAttribute('data-gallery-card'))!
     for (const slug of [firstSlug, secondSlug]) {
       await page.locator(`.lib-compact-card[data-gallery-card="${slug}"]`).getByRole('button', { name: /actions$/ }).click()
-      await page.getByRole('button', { name: 'Pin to “Your galleries”' }).click()
+      await page.getByRole('button', { name: 'Pin gallery' }).click()
       await expect(page.locator('.admin-toast')).toContainText('pinned', { timeout: 15_000 })
     }
     await expect(page.locator('.lib-card[data-gallery-card^="lean-"]')).toHaveCount(2)
@@ -63,9 +63,9 @@ test.describe('the lean Library', () => {
     await expect(page.locator(`.lib-card[data-gallery-card="${firstSlug}"]`).getByLabel('Pinned')).toBeVisible()
     await expect(page.locator(`.lib-card[data-gallery-card="${secondSlug}"]`)).toBeVisible()
     await expect(page.locator('.lib-compact-card[data-gallery-card^="lean-"]')).toHaveCount(9)
-    await expect(page.getByRole('heading', { name: 'Your galleries' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Pinned galleries' })).toBeVisible()
 
-    // Unpin returns the card to "More galleries" — still permanent for a
+    // Unpin returns the card to "Your galleries" — still permanent for a
     // paid account, just no longer a strip.
     await page.locator(`.lib-card[data-gallery-card="${firstSlug}"]`).getByRole('button', { name: /actions$/ }).click()
     await page.getByRole('button', { name: 'Unpin gallery' }).click()
@@ -75,12 +75,14 @@ test.describe('the lean Library', () => {
     await context.close()
   })
 
-  test('a free library strips the retained set and the pin cap offers the chooser', async ({ browser }) => {
+  test('a free library strips the pinned set and the stopwatch swaps permanence', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
     const page = await context.newPage()
     await expect(async () => {
       await context.request.post(`${base}/.dev-seed/reset`)
-      await spawn(context.request, make(5, 1, 'freeq'), freeId)
+      // Three retained galleries pinned into strips, two pipeline cards
+      // compact — the fixture mirrors an established Free library.
+      await spawn(context.request, [...make(3, 1, 'freeq', true), ...make(2, 1, 'freeq-temp')], freeId)
       await context.request.get(`${base}/.dev-seed/login?account=${freeId}`, { maxRedirects: 0 })
       await page.goto(`${base}/${freeOwner}`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 20_000 })
@@ -88,25 +90,25 @@ test.describe('the lean Library', () => {
     }).toPass({ timeout: 60_000 })
     await expect(page.locator('.admin-gallery-strip-frame')).toHaveCount(3)
     await expect(page.locator('.lib-compact-card')).toHaveCount(2)
+    await expect(page.getByRole('heading', { name: 'Pinned galleries' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Your galleries' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Temporary galleries' })).toBeVisible()
 
-    // Pinning is how a Free gallery becomes permanent — a temporary card
-    // offers it, but with all three permanent slots taken the chooser
-    // answers instead of a bare refusal.
+    // The stopwatch on a temporary card opens the keep/swap sheet — the
+    // expiry in days, the Visionary path, and one Swap row per permanent
+    // gallery in the quota.
     const tempSlug = (await page.locator('.lib-compact-card').first().getAttribute('data-gallery-card'))!
     const victimSlug = (await page.locator('.lib-card').first().getAttribute('data-gallery-card'))!
-    await page.locator('.lib-compact-card').first().getByRole('button', { name: /actions$/ }).click()
-    await page.getByRole('button', { name: 'Pin to “Your galleries”' }).click()
+    await page.locator('.lib-compact-card').first().locator('.lib-temp-flag').click()
     const chooser = page.getByRole('dialog')
     await expect(chooser).toBeVisible()
-    await expect(chooser).toContainText('Your galleries are full')
-    await expect(chooser).toContainText('Upgrade to Visionary')
-    await expect(chooser.locator('.lib-pin-choice-list li')).toHaveCount(3)
+    await expect(chooser).toContainText('temporary gallery')
+    await expect(chooser).toContainText('expires in')
+    await expect(chooser.getByRole('link', { name: 'Upgrade' })).toBeVisible()
+    await expect(chooser.locator('.lib-pin-choice-list li')).toHaveCount(4)
 
-    // One tap on the gallery to give up: it drops back to the temporary
-    // set and the candidate takes its permanent slot.
-    await chooser.locator('.lib-pin-choice-list li', { hasText: victimSlug }).getByRole('button', { name: 'Unpin' }).click()
+    // One tap swaps permanence, position and expiry — the temp takes
+    // the victim's strip slot, the victim takes the temp's clock.
+    await chooser.locator('.lib-pin-choice-list li', { hasText: victimSlug }).getByRole('button', { name: 'Swap' }).click()
     await expect(page.locator('.admin-toast')).toContainText('permanent', { timeout: 15_000 })
     await expect(page.locator(`.lib-card[data-gallery-card="${tempSlug}"]`)).toBeVisible()
     await expect(page.locator(`.lib-card[data-gallery-card="${tempSlug}"]`).getByLabel('Pinned')).toBeVisible()

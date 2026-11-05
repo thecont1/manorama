@@ -86,6 +86,9 @@ const seedPipelineOwner = async () => {
     await createGallery(TEST_OWNER.accountId, {
       slug: `kept-${index}`, title: `Kept ${index}`, caption: '', date: '', images: [image(`k-${index}`)],
     })
+    // Strips follow the pin now, not retention — pin the set so the
+    // library still has a rail section.
+    await setGalleryPinned(TEST_OWNER.accountId, `kept-${index}`, true)
   }
   await createGallery(TEST_OWNER.accountId, {
     slug: 'locked',
@@ -121,10 +124,10 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-menu-bars')
     expect(html).not.toContain('admin-gallery-editor-label')
     expect(html).not.toContain('Photo Editor')
-    // The pipeline gallery is a compact row now — a cover and the
-    // Temporary label, not a rail of items.
+    // The pipeline gallery is a compact row now — a cover under the
+    // "Your galleries" section, not a rail of items.
     expect(html).toContain('data-gallery-card="locked"')
-    expect(html).toContain('Temporary galleries')
+    expect(html).toContain('Your galleries')
     expect(html).not.toContain('aria-label="Locked photographs"')
     expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
@@ -263,6 +266,8 @@ describe('the dashboard renders retention state', () => {
         slug: 'mixed', title: 'Mixed', caption: '', date: '',
         images: [image('vis-1'), { ...image('hid-1'), hidden: true }, image('vis-2')],
       })
+      // Strips follow the pin — a rail shows only while the card is pinned.
+      await setGalleryPinned(TEST_OWNER.accountId, 'mixed', true)
     })
     const card = cardSection(html, 'mixed')
     expect(card).toContain('admin-gallery-strip-item is-hidden')
@@ -336,9 +341,9 @@ describe('the lean library layout', () => {
     })
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(4)
     expect((html.match(/lib-compact-card/g) ?? []).length).toBe(8)
+    expect(html).toContain('Pinned galleries')
     expect(html).toContain('Your galleries')
-    expect(html).toContain('More galleries')
-    expect(html).not.toContain('Temporary galleries')
+    expect(html).not.toContain('More galleries')
   })
 
   test('a free library renders retained strips then temporary rows', async () => {
@@ -349,6 +354,7 @@ describe('the lean library layout', () => {
           createdAt: new Date(Date.now() - index * 60_000).toISOString(),
           images: [image(`kept-${index}`)],
         })
+        await setGalleryPinned(TEST_OWNER.accountId, `kept-${index}`, true)
       }
       for (let index = 0; index < 2; index += 1) {
         await createGallery(TEST_OWNER.accountId, {
@@ -358,11 +364,11 @@ describe('the lean library layout', () => {
         })
       }
     })
-    // Free: only the retained three strip; both pipelines are compact
-    // cards under the Temporary label.
+    // Free: the three pinned retained galleries strip; both pipelines
+    // are compact cards under "Your galleries".
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
     expect((html.match(/lib-compact-card/g) ?? []).length).toBe(2)
-    expect(html).toContain('Temporary galleries')
+    expect(html).toContain('Your galleries')
     expect(html).toContain('data-retention="pipeline"')
   })
 

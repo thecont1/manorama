@@ -7,9 +7,9 @@ export const FREE_RETENTION_DISCLOSURE = 'Free accounts retain up to 3 editable 
 export class GalleryPolicyError extends Error {
   constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY' | 'PIN_LIMIT' | 'MANIFEST_TOO_LARGE', message: string) { super(message); this.name = 'GalleryPolicyError' }
 }
-/** A Free owner already pins all FREE_RETAINED_LIMIT permanent galleries —
- *  keeping another means choosing which pin to give up, or choosing a plan. */
-export const pinLimitError = () => new GalleryPolicyError('PIN_LIMIT', `All ${FREE_RETAINED_LIMIT} permanent galleries are pinned already — unpin one to make room for another, or upgrade to Visionary for unlimited pins.`)
+/** A Free owner's permanent set is full — keeping another temporary
+ *  gallery means swapping one of the permanent three out, or choosing a plan. */
+export const pinLimitError = () => new GalleryPolicyError('PIN_LIMIT', `All ${FREE_RETAINED_LIMIT} permanent galleries are spoken for — swap one out or upgrade to Visionary for unlimited.`)
 export const paidGalleryLimitError = () => new GalleryPolicyError('GALLERY_LIMIT', 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.')
 /** Throws a typed read-only error when a pipeline gallery is edited. */
 export const assertGalleryEditable = (gallery: { retention?: GalleryRetention }) => {
