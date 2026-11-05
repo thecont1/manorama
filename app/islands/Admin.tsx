@@ -949,7 +949,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           screens stack the rail above the list. */}
       <aside class="admin-rail">
         <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
-        <p class="admin-version">{buildCommit}</p>
+        <p class="admin-version">version {buildCommit}</p>
         <div class="admin-library-heading">
           <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
           <div class="admin-heading-actions">
@@ -989,7 +989,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
           </aside>
         ) : null}
-        <p class="admin-copyright">© 2026 Mahesh Shantaram. All platform rights reserved.</p>
+        <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />All platform rights reserved.</p>
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
