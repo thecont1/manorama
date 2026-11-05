@@ -74,6 +74,14 @@ describe('the key vault', () => {
     expect(putBodies).toHaveLength(0)
   })
 
+  test('ensureVaultKey rejects when the vault cannot be read — no silent re-vault', async () => {
+    globals.fetch = (async () => new Response('{}', { status: 503 })) as unknown as typeof fetch
+    await expect(ensureVaultKey('any passphrase')).rejects.toThrow()
+    // A read failure must not mint a fresh vault — that would orphan every
+    // key wrapped under the unreachable one.
+    expect(putBodies).toHaveLength(0)
+  })
+
   test('the vault key caches in sessionStorage like the gallery keys', async () => {
     const { vaultKey } = await createVault('passphrase')
     expect(await cachedVaultKey()).toBeNull()

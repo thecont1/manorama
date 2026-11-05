@@ -637,12 +637,12 @@ export const deleteGallery = async (ownerId: string, slug: string, env?: Gallery
     // later takes the slug must not inherit it.
     if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, ownerId, slug)
     // Its escrowed key is ciphertext nobody can open for a row that no
-    // longer exists.
-    if ((result.meta.changes ?? 0) > 0 && galleryId) await deleteGalleryKey(ownerId, galleryId, env)
+    // longer exists — best-effort: a failed sweep must not fail the delete.
+    if ((result.meta.changes ?? 0) > 0 && galleryId) await deleteGalleryKey(ownerId, galleryId, env).catch(() => undefined)
     return (result.meta.changes ?? 0) > 0
   }
   const removed = ownerStore(ownerId).delete(slug)
-  if (removed && galleryId) await deleteGalleryKey(ownerId, galleryId, env)
+  if (removed && galleryId) await deleteGalleryKey(ownerId, galleryId, env).catch(() => undefined)
   return removed
 }
 
@@ -726,16 +726,26 @@ export const listExpiredPipelineGalleries = async (
  *  with the same deadline and is expired at `now`. Returns whether it deleted. */
 export const deleteExpiredPipelineGallery = async (key: ExpiredGalleryKey, now: string, env?: GalleryEnv): Promise<boolean> => {
   if (d1Configured(env)) {
+    // The id is resolved under the same guard terms the DELETE uses, so a
+    // slug recreated mid-sweep cannot have its escrowed key swept instead.
+    const row = await env.DB.prepare(
+      `SELECT id FROM galleries WHERE owner_id = ? AND slug = ? AND retention = 'pipeline' AND expires_at = ?`,
+    ).bind(key.ownerId, key.slug, key.expiresAt).first<{ id: string | null }>()
     const result = await env.DB.prepare(
       `DELETE FROM galleries WHERE owner_id = ? AND slug = ? AND retention = 'pipeline' AND expires_at <= ? AND expires_at = ?`,
     ).bind(key.ownerId, key.slug, now, key.expiresAt).run()
-    if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, key.ownerId, key.slug)
+    if ((result.meta.changes ?? 0) > 0) {
+      await clearDeviceGalleryLink(env.DB, key.ownerId, key.slug)
+      if (row?.id) await deleteGalleryKey(key.ownerId, row.id, env).catch(() => undefined)
+    }
     return (result.meta.changes ?? 0) > 0
   }
   const current = ownerStore(key.ownerId).get(key.slug)
   if (!current || retentionOf(current) !== 'pipeline') return false
   if (!current.expiresAt || current.expiresAt !== key.expiresAt || current.expiresAt > now) return false
-  return ownerStore(key.ownerId).delete(key.slug)
+  const removed = ownerStore(key.ownerId).delete(key.slug)
+  if (removed && current.id) await deleteGalleryKey(key.ownerId, current.id, env).catch(() => undefined)
+  return removed
 }
 
 export const toSummary = (gallery: GalleryRecord) => {

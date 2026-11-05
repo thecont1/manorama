@@ -152,7 +152,10 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         if (wrapped) {
           const vaultKey = await cachedVaultKey()
           if (vaultKey) source = await unwrapSourceForVault(vaultKey, wrapped).catch(() => null)
-          else if (live) {
+          // A cached VK that cannot unwrap the blob is no better than none —
+          // the vault may have been re-created elsewhere, so the passphrase
+          // path (which re-derives from the current record) still applies.
+          if (!source && live) {
             setPendingWrapped(wrapped)
             setProblem('This gallery is synced to your account. Enter your Manorama sync passphrase to unlock it on this device.')
             return

@@ -100,6 +100,20 @@ export const putGalleryKey = async (ownerId: string, galleryId: string, key: { w
   return stored
 }
 
+/** Account deletion sweeps the whole vault — every wrapped key and the
+ *  vault record itself. Ciphertext is still data about the owner. */
+export const dropOwnerKeyVault = async (ownerId: string, env?: KeyVaultEnv): Promise<void> => {
+  if (d1Configured(env)) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM gallery_keys WHERE owner_id = ?').bind(ownerId),
+      env.DB.prepare('DELETE FROM owner_key_vault WHERE owner_id = ?').bind(ownerId),
+    ])
+    return
+  }
+  runtimeVaults.delete(ownerId)
+  for (const key of [...runtimeKeys.keys()]) if (key.startsWith(`${ownerId}`)) runtimeKeys.delete(key)
+}
+
 /** A deleted gallery's wrapped key is dead weight — ciphertext nobody can
  *  open for a row that no longer exists. */
 export const deleteGalleryKey = async (ownerId: string, galleryId: string, env?: KeyVaultEnv): Promise<void> => {

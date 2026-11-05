@@ -128,9 +128,19 @@ export const cacheVaultKey = async (vaultKey: CryptoKey): Promise<void> => {
 
 export const fetchVaultRecord = async (): Promise<OwnerVaultRecord | null> => {
   const response = await fetch('/api/account/key-vault')
-  if (!response.ok) return null
+  if (!response.ok) throw new Error('The key vault could not be read')
   const payload = await response.json() as { vault?: OwnerVaultRecord | null }
-  return payload.vault ?? null
+  // An explicit null is "no vault" — anything else malformed is an error,
+  // since ensureVaultKey would treat a misread record as license to create
+  // a fresh vault and orphan every previously synced key.
+  if (payload.vault === null) return null
+  const vault = payload.vault
+  if (!vault || vault.version !== 1
+    || typeof vault.kdfSalt !== 'string' || typeof vault.kdfIterations !== 'number'
+    || typeof vault.wrappedVk !== 'string' || typeof vault.vkNonce !== 'string') {
+    throw new Error('The key vault response was not valid')
+  }
+  return vault
 }
 
 export const putVaultRecord = async (record: OwnerVaultRecord): Promise<void> => {
