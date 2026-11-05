@@ -56,15 +56,24 @@ export function HeicImg({ src, preview, media, previewMedia, galleryId, filename
     if (!needsDecode || !source) return
     let cancelled = false
     let retried = false
+    const settle = () => {
+      // The multi-MB decrypted original is consumed or unreachable — holding
+      // its ref until unmount lets a rail of decode-path cells fill the
+      // resolver's bounded working set, after which acquires throw and the
+      // cells stay blank. The 512px JPEG survives independently in `decoded`.
+      encryptedRelease.current?.()
+      encryptedRelease.current = null
+    }
     const decode = () => {
       void enqueueHeicObjectUrl(source, 512).then((url) => {
         if (cancelled) return
-        if (url) { setDecoded(url); return }
+        if (url) { settle(); setDecoded(url); return }
         // Null means the fetch itself failed — a transient proxy 5xx must
         // not freeze a broken <img> on the undecodable bytes, so retry
         // once before handing the browser the URL (Safari renders HEIC
         // natively; elsewhere the item's own onError retry answers).
         if (!retried) { retried = true; window.setTimeout(decode, 2000); return }
+        settle()
         if (!media) setDecoded(src)
       })
     }
