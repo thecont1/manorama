@@ -96,7 +96,7 @@ describe('OpenAPI contract: static spec', () => {
     }
     expect(manifest.required).toEqual(['provider', 'sourceUrl', 'title', 'images'])
     expect(manifest.additionalProperties).toBe(false)
-    expect(manifest.properties.provider.enum).toEqual(['ente', 'mega'])
+    expect(manifest.properties.provider.enum).toEqual(['ente', 'mega', 'proton'])
     const image = spec.components.schemas.EncryptedManifestImage as {
       required: string[]
       properties: Record<string, Record<string, unknown>>

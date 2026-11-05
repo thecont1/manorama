@@ -33,6 +33,8 @@
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
     "@contentauth/c2pa-web": "^0.14.3",
+    "@protontech/crypto": "2.2.0",
+    "@protontech/drive-sdk": "0.23.0",
     "@revenuecat/purchases-capacitor": "^13.6.0",
     "@revenuecat/purchases-capacitor-ui": "^13.6.0",
     "@tauri-apps/api": "^2.12.0",

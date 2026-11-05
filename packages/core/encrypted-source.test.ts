@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   contentVersionIsValid,
   encryptedGalleryGate,
+  encryptedProviderForUrl,
   encryptedSourceFromGalleryHash,
   galleryHashForSource,
   galleryIdFromGalleryHash,
@@ -10,10 +11,12 @@ import {
   keylessSourceUrl,
   manifestIsEncryptedSource,
   mediaReferenceIsValid,
+  protonIdentityFromUrl,
   validatePublishedDimensions,
 } from './encrypted-source'
 
 const keyed = 'https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA'
+const protonKeyed = 'https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword'
 
 describe('encrypted source URL fragment channel', () => {
   test('round-trips provider, handle, and secret through a gallery fragment', () => {
@@ -48,6 +51,28 @@ describe('encrypted source URL fragment channel', () => {
     expect(isEncryptedSourceUrl('https://dropbox.com/sh/a/b')).toBe(false)
   })
 
+  test('proton identity is the /urls/ path token; the fragment is secret-only', () => {
+    expect(protonIdentityFromUrl(protonKeyed)).toEqual({ kind: 'urls', id: 'AbCdEf12_Gh' })
+    expect(protonIdentityFromUrl('https://drive.proton.me/urls/AbCdEf12_Gh/')).toEqual({ kind: 'urls', id: 'AbCdEf12_Gh' })
+    expect(protonIdentityFromUrl('https://www.drive.proton.me/urls/AbCdEf12_Gh#pw')).toEqual({ kind: 'urls', id: 'AbCdEf12_Gh' })
+    expect(encryptedProviderForUrl(protonKeyed)).toBe('proton')
+    expect(isEncryptedSourceUrl(protonKeyed)).toBe(true)
+    // A keyed proton link still round-trips through the gallery fragment.
+    expect(encryptedSourceFromGalleryHash(galleryHashForSource(protonKeyed))).toBe(protonKeyed)
+    // Not a share: wrong host, wrong path, http.
+    expect(protonIdentityFromUrl('https://drive.proton.me/u/0/folders/x')).toBeNull()
+    expect(protonIdentityFromUrl('https://proton.me/drive/urls/AbCdEf12_Gh')).toBeNull()
+    expect(protonIdentityFromUrl('http://drive.proton.me/urls/AbCdEf12_Gh#pw')).toBeNull()
+    expect(protonIdentityFromUrl('https://drive.proton.me/urls/')).toBeNull()
+  })
+
+  test('keyless proton identity drops the fragment password and any query', () => {
+    expect(keylessSourceUrl(protonKeyed)).toBe('https://drive.proton.me/urls/AbCdEf12_Gh')
+    expect(keylessSourceUrl('https://drive.proton.me/urls/AbCdEf12_Gh/?ignored=1#pw')).toBe('https://drive.proton.me/urls/AbCdEf12_Gh')
+    expect(keylessSourceUrl('https://drive.proton.me/urls/AbCdEf12_Gh')).toBe('https://drive.proton.me/urls/AbCdEf12_Gh')
+    expect(isEncryptedSourceUrl(keylessSourceUrl(protonKeyed))).toBe(true)
+  })
+
   test('history rewrites preserve a source fragment unless one is explicitly supplied', () => {
     expect(galleryUrlWithPreservedHash('/owner/gallery?photo=2', '#source=secret', '/owner/gallery')).toBe('/owner/gallery#source=secret')
     expect(galleryUrlWithPreservedHash('/owner/gallery?photo=2', '#source=secret')).toBe('/owner/gallery?photo=2#source=secret')
@@ -78,6 +103,18 @@ describe('published encrypted manifest rules', () => {
     expect(mediaReferenceIsValid({ kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'abc#secret', nodeId: 'node' })).toBe(false)
     expect(mediaReferenceIsValid({ kind: 'http', url: 'javascript:alert(1)' })).toBe(false)
     expect(mediaReferenceIsValid({ kind: 'http', url: '/api/drive/file?id=abc' })).toBe(true)
+  })
+
+  test('proton references pin sourceKind urls and the nodeUid alphabet', () => {
+    const ref = { kind: 'encrypted', provider: 'proton', sourceKind: 'urls', sourceId: 'AbCdEf12_Gh', nodeId: 'vol-ume_01~NodeId=-XY' }
+    expect(mediaReferenceIsValid(ref)).toBe(true)
+    expect(mediaReferenceIsValid({ ...ref, previewId: 'vol-ume_01~NodeId=-XY' })).toBe(true)
+    // A fragment or path separator must never ride inside a published ref.
+    expect(mediaReferenceIsValid({ ...ref, nodeId: 'vol~node#secret' })).toBe(false)
+    expect(mediaReferenceIsValid({ ...ref, nodeId: 'vol~node/secret' })).toBe(false)
+    expect(mediaReferenceIsValid({ ...ref, sourceKind: 'album' })).toBe(false)
+    expect(mediaReferenceIsValid({ ...ref, previewId: 'other~uid' })).toBe(false)
+    expect(mediaReferenceIsValid({ kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'AbCdEf12', nodeId: 'vol~tilde' })).toBe(false)
   })
 })
 

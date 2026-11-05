@@ -60,3 +60,37 @@ describe('encrypted manifest trust boundary', () => {
     expect(() => validateEncryptedManifest(value)).toThrow('identity')
   })
 })
+
+describe('proton manifests', () => {
+  const protonSource = 'https://drive.proton.me/urls/AbCdEf12_Gh'
+  const protonImage = () => ({
+    id: 'proton-NodeId01', ref: 'vol-ume_01~NodeId01', filename: 'two.jpg', src: '',
+    media: { kind: 'encrypted', provider: 'proton', sourceKind: 'urls', sourceId: 'AbCdEf12_Gh', nodeId: 'vol-ume_01~NodeId01', previewId: 'vol-ume_01~NodeId01' },
+    contentVersion: 'b'.repeat(64), width: 3000, height: 2000,
+    alt: 'Two', c2pa: true, placeholder: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E",
+    variants: [{ width: 800, src: '', format: 'jpeg', media: { kind: 'encrypted', provider: 'proton', sourceKind: 'urls', sourceId: 'AbCdEf12_Gh', nodeId: 'vol-ume_01~NodeId01', previewId: 'vol-ume_01~NodeId01' } }],
+  })
+  const protonManifest = () => ({ provider: 'proton', sourceUrl: protonSource, title: 'Drive', images: [protonImage()] })
+
+  test('accepts a keyless proton manifest', () => {
+    const result = validateEncryptedManifest(protonManifest())
+    expect(result.provider).toBe('proton')
+    expect(result.images).toHaveLength(1)
+  })
+
+  test('rejects a keyed source URL, a wrong provider, and bad node ids', () => {
+    for (const mutate of [
+      (value: any) => { value.sourceUrl += '#secretpassword' },
+      (value: any) => { value.provider = 'mega' },
+      (value: any) => { value.images[0].media.sourceKind = 'folder' },
+      (value: any) => { value.images[0].media.nodeId = 'vol~node#pw' },
+      (value: any) => { value.images[0].ref = 'vol~node#pw' },
+      (value: any) => { value.images[0].media.sourceId = 'OtherToken' },
+      (value: any) => { value.images[0].id = 'mega-NodeId01' },
+    ]) {
+      const value = protonManifest()
+      mutate(value)
+      expect(() => validateEncryptedManifest(value)).toThrow()
+    }
+  })
+})

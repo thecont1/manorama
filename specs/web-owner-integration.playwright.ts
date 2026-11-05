@@ -69,7 +69,7 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
 
     const dialog = page.getByRole('dialog', { name: 'Add a gallery', exact: true })
     await expect(dialog).toBeVisible()
-    const urlInput = dialog.locator('input[aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA"]')
+    const urlInput = dialog.locator('input[aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive"]')
     await expect(urlInput).toBeVisible()
     // Name and Caption stay hidden until the link verifies — an unverified
     // dialog is the URL field alone.

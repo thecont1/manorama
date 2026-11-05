@@ -74,7 +74,7 @@ export function AddGallerySheet({
           <input
             class="m-input"
             type="url"
-            aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA"
+            aria-label="Shared folder or album link — Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive"
             value={url}
             placeholder="https://www.dropbox.com/scl/fo/…"
             autoCapitalize="none"

@@ -25,6 +25,13 @@ describe('detectSource', () => {
     expect(detectSource('https://mega.co.nz/#F!AbCdEf12!a2V5LXNlY3JldA')).toBe('mega')
   })
 
+  test('recognizes Proton Drive public links', () => {
+    expect(detectSource('https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword')).toBe('proton')
+    expect(detectSource('https://drive.proton.me/urls/AbCdEf12_Gh')).toBe('proton')
+    expect(detectSource('https://drive.proton.me/')).toBe('proton')
+    expect(detectSource('https://proton.me/drive')).toBeNull()
+  })
+
   test('recognizes a provider host even for non-folder links, so the scanner can explain why', () => {
     // detectSource routes; it does not validate the resource kind. Each
     // scanner raises the precise "that is a file link, not a folder link"
@@ -53,6 +60,11 @@ describe('scanSource', () => {
 
   test('refuses server-side MEGA scans', async () => {
     await expect(scanSource('https://mega.nz/folder/AbCdEf12#secret', {})).rejects.toThrow('scanned on your device')
+  })
+
+  test('refuses server-side Proton Drive scans', async () => {
+    await expect(scanSource('https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword', {})).rejects.toThrow('scanned on your device')
+    await expect(scanSource('https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword', {})).rejects.toThrow('Proton Drive')
   })
 
   test('rejects iCloud Drive links with the Shared Album guidance', async () => {
@@ -125,6 +137,13 @@ describe('canonicalSourceMatches', () => {
     expect(canonicalSourceMatches('https://mega.nz/folder/ABC123#KEY1', 'https://mega.nz/collection/ABC123#KEY1')).toBe(false)
   })
 
+  test('Proton Drive matches the share token regardless of fragment password', () => {
+    expect(canonicalSourceMatches('https://drive.proton.me/urls/TOKEN_01#pw1', 'https://drive.proton.me/urls/TOKEN_01#pw2')).toBe(true)
+    expect(canonicalSourceMatches('https://drive.proton.me/urls/TOKEN_01', 'https://drive.proton.me/urls/TOKEN_01#pw')).toBe(true)
+    expect(canonicalSourceMatches('https://drive.proton.me/urls/TOKEN_01#pw', 'https://drive.proton.me/urls/OTHER_02#pw')).toBe(false)
+    expect(canonicalSourceMatches('https://drive.proton.me/urls/TOKEN_01#pw', 'https://mega.nz/folder/TOKEN_01#pw')).toBe(false)
+  })
+
   test('Drive ignores tracking params but honours the resource key', () => {
     expect(canonicalSourceMatches('https://drive.google.com/drive/folders/FID', 'https://drive.google.com/drive/folders/FID?usp=sharing')).toBe(true)
     expect(canonicalSourceMatches('https://drive.google.com/drive/folders/FID', 'https://drive.google.com/open?id=FID')).toBe(true)
@@ -172,6 +191,7 @@ describe('embeddedSourceCandidate', () => {
     expect(embeddedSourceCandidate('/https://share.icloud.com/photos/B0z5qAGN1JIFd3y')?.provider).toBe('icloud')
     expect(embeddedSourceCandidate('/https://mega.nz/folder/AbCdEf12')?.provider).toBe('mega')
     expect(embeddedSourceCandidate('/https://drive.google.com/drive/folders/1Ab')?.provider).toBe('gdrive')
+    expect(embeddedSourceCandidate('/https://drive.proton.me/urls/AbCdEf12_Gh')?.provider).toBe('proton')
   })
 
   test('recognizes an iCloud Drive link so the page can explain the difference', () => {
@@ -211,6 +231,8 @@ describe('embeddedSourceCandidate', () => {
     expect(embeddedSourceCandidate('/https://drive.google.com/file/d/1AbCdEf/view')).toBeNull()
     expect(embeddedSourceCandidate('/https://mega.nz/')).toBeNull()
     expect(embeddedSourceCandidate('/https://mega.nz/file/AbCdEf')).toBeNull()
+    expect(embeddedSourceCandidate('/https://drive.proton.me/')).toBeNull()
+    expect(embeddedSourceCandidate('/https://drive.proton.me/u/0/folders/xyz')).toBeNull()
   })
 
   test('accepts every folder spelling the providers actually emit', () => {

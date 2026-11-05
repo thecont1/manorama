@@ -17,5 +17,6 @@ export const sourceLabelFor = (sourceUrl: string | null | undefined): string => 
   if (host === 'icloud.com' || host === 'share.icloud.com') return 'iCloud'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'MEGA'
   if (host === 'albums.ente.io' || host === 'albums.ente.com') return 'Ente'
+  if (host === 'drive.proton.me') return 'Proton Drive'
   return 'gallery'
 }

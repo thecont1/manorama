@@ -168,7 +168,8 @@
           "provider": {
             "enum": [
               "ente",
-              "mega"
+              "mega",
+              "proton"
             ],
             "type": "string"
           },
@@ -236,7 +237,7 @@
             "type": "boolean"
           },
           "id": {
-            "description": "Provider-prefixed stable item id (mega-* or ente-*)",
+            "description": "Provider-prefixed stable item id (mega-*, ente-*, or proton-*)",
             "maxLength": 128,
             "minLength": 1,
             "type": "string"
@@ -251,7 +252,7 @@
           },
           "ref": {
             "description": "Provider node handle; must equal media.nodeId",
-            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "pattern": "^[0-9A-Za-z_~=-]{1,256}$",
             "type": "string"
           },
           "src": {
@@ -335,18 +336,19 @@
             "type": "string"
           },
           "nodeId": {
-            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "pattern": "^[0-9A-Za-z_~=-]{1,256}$",
             "type": "string"
           },
           "previewId": {
             "description": "Required on variant references (the file-attribute handle)",
-            "pattern": "^[0-9A-Za-z_-]{1,256}$",
+            "pattern": "^[0-9A-Za-z_~=-]{1,256}$",
             "type": "string"
           },
           "provider": {
             "enum": [
               "ente",
-              "mega"
+              "mega",
+              "proton"
             ],
             "type": "string"
           },
@@ -358,7 +360,8 @@
             "enum": [
               "album",
               "collection",
-              "folder"
+              "folder",
+              "urls"
             ],
             "type": "string"
           }

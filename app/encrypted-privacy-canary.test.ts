@@ -335,10 +335,10 @@ describe('F2/F3 regressions: dev seed and shipped policy wording', () => {
     // behavioral half is the keyed-open Playwright spec.
     const { readFileSync } = require('node:fs') as typeof import('node:fs')
     const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url).pathname, 'utf8')
-    // Encrypted seeds dispatch to the client scanner; the server scanSource
-    // only ever sees unencrypted links.
-    expect(viteConfig).toContain('ssrLoadModule(\'/app/lib/mega-client.ts\')')
-    expect(viteConfig).toContain('scanMegaSource')
+    // Encrypted seeds dispatch through the client provider dispatcher; the
+    // server scanSource only ever sees unencrypted links.
+    expect(viteConfig).toContain('ssrLoadModule(\'/app/lib/encrypted-client.ts\')')
+    expect(viteConfig).toContain('openEncryptedSource')
     expect(viteConfig).toMatch(/isEncryptedSourceUrl\(url\)\s*\?\s*await clientScan\(url\)\s*:\s*await sources!?\.scanSource/)
     // The seed writes scanned manifests directly — it never posts a keyed
     // url to the retired server scan endpoint.

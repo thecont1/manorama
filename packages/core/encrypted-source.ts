@@ -3,7 +3,7 @@ export const CONTENT_VERSION_PATTERN = /^[0-9a-f]{64}$/
 export const MAX_PUBLISHED_DIMENSION = 100_000
 export const MAX_PUBLISHED_ASPECT = 10
 
-export type EncryptedSourceProvider = 'mega' | 'ente'
+export type EncryptedSourceProvider = 'mega' | 'ente' | 'proton'
 export type MegaMediaReference = {
   kind: 'encrypted'
   provider: 'mega'
@@ -20,11 +20,22 @@ export type EnteMediaReference = {
   nodeId: string
   previewId?: string
 }
+export type ProtonMediaReference = {
+  kind: 'encrypted'
+  provider: 'proton'
+  sourceKind: 'urls'
+  sourceId: string
+  nodeId: string
+  previewId?: string
+}
 export type HttpMediaReference = { kind: 'http'; url: string }
-export type MediaReference = HttpMediaReference | MegaMediaReference | EnteMediaReference
+export type MediaReference = HttpMediaReference | MegaMediaReference | EnteMediaReference | ProtonMediaReference
 
 const HANDLE = /^[0-9A-Za-z_-]{1,256}$/
 const SAFE_NODE = /^[0-9A-Za-z_-]{1,256}$/
+// Proton nodeUids join volume and node ids with '~' plus a url-safe body;
+// still excludes '#', '/', '%' and whitespace, so no secret can ride inside.
+const PROTON_NODE = /^[0-9A-Za-z_~=-]{1,256}$/
 
 export const megaIdentityFromUrl = (input: string): { kind: 'folder' | 'collection'; id: string } | null => {
   try {
@@ -53,9 +64,26 @@ export const enteIdentityFromUrl = (input: string): { kind: 'album'; id: string 
   }
 }
 
+/** drive.proton.me/urls/{token}#{password} — the token is the public
+ *  identity and sits in the path; the fragment password is the secret and
+ *  stays client-side, same custody model as MEGA's #key. */
+export const protonIdentityFromUrl = (input: string): { kind: 'urls'; id: string } | null => {
+  try {
+    const url = new URL(input.trim())
+    if (url.protocol !== 'https:') return null
+    const host = url.hostname.replace(/^www\./, '')
+    if (host !== 'drive.proton.me') return null
+    const token = url.pathname.match(/^\/urls\/([0-9A-Za-z_-]{1,256})\/?$/)?.[1]
+    return token ? { kind: 'urls', id: token } : null
+  } catch {
+    return null
+  }
+}
+
 export const encryptedProviderForUrl = (input: string): EncryptedSourceProvider | null => {
   if (megaIdentityFromUrl(input)) return 'mega'
   if (enteIdentityFromUrl(input)) return 'ente'
+  if (protonIdentityFromUrl(input)) return 'proton'
   return null
 }
 
@@ -72,6 +100,10 @@ export const keylessSourceUrl = (input: string): string => {
   // form on whichever host the link used, so one album has one identity.
   const ente = enteIdentityFromUrl(input)
   if (ente) return `https://${new URL(input.trim()).hostname}/${ente.id}`
+  // Proton identity is the path token — canonicalizing collapses a stray
+  // trailing slash or query into the one form a share can have.
+  const proton = protonIdentityFromUrl(input)
+  if (proton) return `https://drive.proton.me/urls/${proton.id}`
   const url = new URL(input.trim())
   url.hash = ''
   return url.toString()
@@ -147,6 +179,11 @@ export const mediaReferenceIsValid = (value: unknown): value is MediaReference =
   if (candidate.provider === 'ente') {
     return candidate.sourceKind === 'album' && typeof candidate.sourceId === 'string' && HANDLE.test(candidate.sourceId) &&
       typeof candidate.nodeId === 'string' && /^\d{1,20}$/.test(candidate.nodeId) &&
+      (candidate.previewId === undefined || candidate.previewId === candidate.nodeId)
+  }
+  if (candidate.provider === 'proton') {
+    return candidate.sourceKind === 'urls' && typeof candidate.sourceId === 'string' && HANDLE.test(candidate.sourceId) &&
+      typeof candidate.nodeId === 'string' && PROTON_NODE.test(candidate.nodeId) &&
       (candidate.previewId === undefined || candidate.previewId === candidate.nodeId)
   }
   return false

@@ -269,6 +269,15 @@ ones. Note that `@capacitor-community/admob` does **not** support native advance
 without touching the viewer. Do not add a second Google Mobile Ads dependency — the plugin
 already ships the SDK.
 
+`@protontech/drive-sdk` is pinned at **0.23.0** (with `@protontech/crypto` 2.2.0, its raw-TS
+peer). The crypto package is GPL-3.0 and ships inside the Proton island chunk — that licensing
+posture is accepted; keep it confined to that chunk. Proton has announced a breaking
+cryptographic-model migration for end-2026/early-2027: older SDK clients stop interoperating
+until upgraded, so a version bump must come with a regression check against a live public
+link — `docs/proton-drive-integration-plan.md` has the details. The SDK must stay behind the
+dynamic import in `app/lib/proton-client.ts`; it never enters the Worker graph (the
+architecture test enforces it).
+
 **Secrets.** Never commit them. Server-side secrets live in Worker bindings:
 `HOST_API_JWT_SECRET`, `DROPBOX_APP_KEY`/`SECRET`, `GOOGLE_DRIVE_API_KEY`. Native builds
 carry RevenueCat and AdMob public app IDs only.

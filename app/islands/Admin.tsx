@@ -104,6 +104,7 @@ const sourceLabelFor = (url?: string): string => {
     if (host.includes('drive.google.com')) return 'Google Drive'
     if (host.includes('icloud.com')) return 'iCloud'
     if (host.includes('mega.nz')) return 'MEGA'
+    if (host.includes('drive.proton.me')) return 'Proton Drive'
   } catch {
     // Fall through to the generic label.
   }

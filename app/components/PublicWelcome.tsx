@@ -46,7 +46,7 @@ export default function PublicWelcome({
           Your shared folders, shown properly
         </h1>
         <p class="landing-brand-intro">
-          Paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.
+          Paste a shared Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive album link. manorama turns it into a quiet, full-screen gallery at your own address.
         </p>
         <SignInLinks returning={returning} next={next} />
         {failed ? <p class="landing-note">Sign-in didn’t complete. Please try again.</p> : null}
