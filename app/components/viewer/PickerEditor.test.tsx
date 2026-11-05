@@ -243,23 +243,13 @@ describe('loadGalleryItems', () => {
         ? { gallery: { slug: 'mixed', images: [
             { id: 'p1', ref: 'ref-p1', filename: 'p1.jpg', src: '/p1.jpg', width: 4, height: 3, alt: '', placeholder: '', hidden: true },
             { id: 'v1', filename: 'v1.mp4', src: '/v1.mp4', width: 16, height: 9, alt: '', placeholder: '', type: 'video', durationSeconds: 12, poster: { src: '/v1p.jpg', width: 16, height: 9 } },
-            { id: 'm1', ref: 'node-m1', filename: 'm1.jpg', src: '', width: 4, height: 3, alt: '', placeholder: '',
-              media: { kind: 'encrypted', provider: 'mega', sourceKind: 'collection', sourceId: 'MzBkCAJQ', nodeId: 'node-m1' },
-              variants: [{ width: 320, src: '', format: 'image/jpeg', media: { kind: 'encrypted', provider: 'mega', sourceKind: 'collection', sourceId: 'MzBkCAJQ', nodeId: 'node-m1', previewId: 'prev-m1' } }] },
           ] } }
         : { error: 'missing' },
     ), { status: 200 })) as unknown as typeof fetch
     const loaded = await loadGalleryItems('mixed')
-    expect(loaded).toHaveLength(3)
+    expect(loaded).toHaveLength(2)
     expect(loaded[0]).toMatchObject({ id: 'p1', orderKey: 'ref-p1', hidden: true })
     expect(loaded[1]).toMatchObject({ orderKey: 'v1.mp4', video: true, src: '/v1p.jpg', durationSeconds: 12 })
-    // Encrypted items keep their keyless refs — the cell's HeicImg resolves
-    // them through the client's key store; a dropped ref renders blank.
-    expect(loaded[2]).toMatchObject({
-      orderKey: 'node-m1', src: '',
-      media: { kind: 'encrypted', provider: 'mega', nodeId: 'node-m1' },
-      previewMedia: { kind: 'encrypted', provider: 'mega', nodeId: 'node-m1', previewId: 'prev-m1' },
-    })
   })
 })
 

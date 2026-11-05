@@ -12,7 +12,6 @@ import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-
 import ViewerChrome from '../components/viewer/ViewerChrome'
 import SettingsSheet from '../components/viewer/SettingsSheet'
 import PickerEditor, { BROWSE_HINT, loadGalleryItems, PickerEditButton, PickerSizer, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
-import { HeicImg } from '../components/ui/HeicImg'
 import OwnerGalleryPanel, { OwnerGalleryHead } from '../components/viewer/OwnerGalleryPanel'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
@@ -43,9 +42,6 @@ type Props = {
   /** Present only after the client fragment/key store unlocks an encrypted
    *  gallery. Null during SSR keeps keyless refs off the network. */
   encryptedResolver?: EncryptedMediaResolver | null
-  /** The gallery's immutable id — the key store's lookup key when picker
-   *  cells resolve encrypted media refs. Absent on plain-source galleries. */
-  galleryId?: string
   settings: GallerySettings
   plate?: AdFrame | null
   /** Native shells route the existing position pill to their vault-backed
@@ -242,7 +238,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -2941,7 +2937,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           {pickerEdit && editItems ? (
             <PickerEditor
               slug={slug}
-              galleryId={galleryId}
               items={editItems}
               selIndex={gridSel}
               frameRef={filmstripFrameRef}
@@ -2995,9 +2990,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   }}
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
-                  {!video && image.media
-                    ? <HeicImg src={image.src} preview={thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
-                    : <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />}
+                  <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                   {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
                 </button>
               })}

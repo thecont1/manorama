@@ -14,7 +14,6 @@ import {
   type ReorderItem,
   type ReorderState,
 } from '../../../packages/core/reorder-session'
-import type { MediaReference } from '../../../packages/core/encrypted-source'
 import { HeicImg } from '../ui/HeicImg'
 
 /** The picker's owner Edit mode — the retired dashboard overlay's
@@ -34,10 +33,6 @@ export type PickerEditItem = ReorderItem & {
   hidden?: boolean
   video?: boolean
   durationSeconds?: number
-  /** Keyless encrypted refs — MEGA items carry no src; the cell resolves
-   *  them through the client's own key store, never a keyed URL. */
-  media?: MediaReference
-  previewMedia?: MediaReference
 }
 
 /** The dialog-level key router and cancel the viewer hands to its chrome
@@ -70,8 +65,6 @@ export const loadGalleryItems = async (slug: string): Promise<PickerEditItem[]> 
       // The same URL browse mode puts in its <img> — identical bytes mean
       // the browser cache answers the mode switch instead of the network.
       preview: image.variants?.[0]?.src ?? poster?.src ?? image.placeholder,
-      media: image.media,
-      previewMedia: image.variants?.[0]?.media,
       filename: image.filename,
       label: image.filename,
       hidden: image.hidden,
@@ -124,9 +117,6 @@ const sameKeys = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 
 type Props = {
   slug: string
-  /** The gallery's immutable id — the key store's lookup key for any
-   *  encrypted media refs the items carry. */
-  galleryId?: string
   items: PickerEditItem[]
   /** The pink-box index — the viewer's gridSel, shared so the same
    *  keyboard stepping works over the draft cells. */
@@ -161,7 +151,7 @@ type Props = {
 }
 
 export default function PickerEditor({
-  slug, galleryId, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, doneHref,
+  slug, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, doneHref,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -383,7 +373,7 @@ export default function PickerEditor({
                   disabled={saving}
                   onClick={() => cellClick(item)}
                 >
-                  <HeicImg src={item.src} preview={item.preview} media={item.media} previewMedia={item.previewMedia} galleryId={galleryId} filename={item.filename} alt="" draggable={false} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                  <HeicImg src={item.src} preview={item.preview} filename={item.filename} alt="" draggable={false} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                   {item.video ? <span class="viewer-filmstrip-badge">▶{item.durationSeconds ? ` ${formatDuration(item.durationSeconds)}` : ''}</span> : null}
                 </button>
                 {/* A button cannot nest inside the cell's own button, so the
