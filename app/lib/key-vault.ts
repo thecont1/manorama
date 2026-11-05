@@ -175,3 +175,12 @@ export const ensureVaultKey = async (passphrase: string): Promise<CryptoKey> => 
   await cacheVaultKey(created.vaultKey)
   return created.vaultKey
 }
+
+/** Whether the passphrase card should surface for a gallery at all. The
+ *  card exists to escrow a key this device holds — with no vault it asks
+ *  for account setup mid-gallery (too big an ask to interrupt for), with
+ *  the key already wrapped it has nothing to do, and a dismissal is the
+ *  owner saying the deferred convenience is not worth a prompt. In every
+ *  other state it still asks, since the key may never be held here again. */
+export const keySyncShouldPrompt = (input: { vaultExists: boolean; alreadyEscrowed: boolean; dismissed: boolean }): boolean =>
+  input.vaultExists && !input.alreadyEscrowed && !input.dismissed

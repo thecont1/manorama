@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import {
-  cacheVaultKey, cachedVaultKey, createVault, ensureVaultKey, openVault,
-  unwrapSourceForVault, wrapSourceForVault, type OwnerVaultRecord,
+  cacheVaultKey, cachedVaultKey, createVault, ensureVaultKey, keySyncShouldPrompt,
+  openVault, unwrapSourceForVault, wrapSourceForVault, type OwnerVaultRecord,
 } from './key-vault'
 
 const SOURCE = 'https://mega.nz/collection/MzBkCAJQ#trUGvGYJjEXwekPxeAkUHQ'
@@ -90,5 +90,17 @@ describe('the key vault', () => {
     expect(cached).not.toBeNull()
     const wrapped = await wrapSourceForVault(cached!, SOURCE)
     expect(await unwrapSourceForVault(vaultKey, wrapped)).toBe(SOURCE)
+  })
+
+  test('the passphrase card only surfaces when escrow is actually missing', () => {
+    // The one state worth interrupting for: a vault exists, this gallery's
+    // key is not yet inside it, and the owner has not dismissed the card.
+    expect(keySyncShouldPrompt({ vaultExists: true, alreadyEscrowed: false, dismissed: false })).toBe(true)
+    // No vault → prompting would demand account setup mid-gallery.
+    expect(keySyncShouldPrompt({ vaultExists: false, alreadyEscrowed: false, dismissed: false })).toBe(false)
+    // Already escrowed → the passphrase would accomplish nothing.
+    expect(keySyncShouldPrompt({ vaultExists: true, alreadyEscrowed: true, dismissed: false })).toBe(false)
+    // Dismissed → "not now" means not on every open.
+    expect(keySyncShouldPrompt({ vaultExists: true, alreadyEscrowed: false, dismissed: true })).toBe(false)
   })
 })

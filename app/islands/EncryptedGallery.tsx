@@ -6,7 +6,8 @@ import { EncryptedMediaResolver, type EncryptedClientSession, type EncryptedList
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import {
   cachedVaultKey, cacheVaultKey, ensureVaultKey, fetchGalleryKey, fetchVaultRecord,
-  openVault, putGalleryKey, unwrapSourceForVault, wrapSourceForVault, type WrappedGalleryKey,
+  keySyncShouldPrompt, openVault, putGalleryKey, unwrapSourceForVault, wrapSourceForVault,
+  type WrappedGalleryKey,
 } from '../lib/key-vault'
 
 type Props = Parameters<typeof Viewer>[0] & {
@@ -44,6 +45,16 @@ const migrationDeviceId = (): string => {
   }
 }
 
+/** "Not now" is a preference flag, not key material, so it lives in
+ *  localStorage like the migration device id — keyed by immutable gallery
+ *  id and scoped to this device. */
+const keySyncDismissed = (galleryId: string): boolean => {
+  try { return window.localStorage.getItem(`manorama.key-sync-dismissed.v1.${galleryId}`) === '1' } catch { return false }
+}
+const dismissKeySync = (galleryId: string) => {
+  try { window.localStorage.setItem(`manorama.key-sync-dismissed.v1.${galleryId}`, '1') } catch { /* private mode */ }
+}
+
 /** SSR renders the normal dimensioned Viewer shell. Hydration supplies the
  * client resolver, or replaces it with a visible locked/error state. */
 export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl, ...viewerProps }: Props) {
@@ -56,9 +67,9 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
   /** A synced wrapped key waiting on the owner's passphrase — the alternative
    *  to pasting a link on a device that has never held this key. */
   const [pendingWrapped, setPendingWrapped] = useState<WrappedGalleryKey | null>(null)
-  /** 'setup' offers first-time escrow; 'sync' unlocks an existing vault so
-   *  this device can escrow the key it holds. */
-  const [keySync, setKeySync] = useState<'setup' | 'sync' | null>(null)
+  /** The passphrase card — shown only when syncing would do something this
+   *  device cannot do silently (keySyncShouldPrompt decides). */
+  const [keySync, setKeySync] = useState(false)
   const [passphrase, setPassphrase] = useState('')
   const [keySyncNote, setKeySyncNote] = useState<string | null>(null)
   const heldSourceRef = useRef<string | null>(null)
@@ -88,7 +99,10 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source))
         return
       }
-      setKeySync(await fetchVaultRecord() ? 'sync' : 'setup')
+      const [record, wrapped] = await Promise.all([fetchVaultRecord(), fetchGalleryKey(viewerProps.slug)])
+      if (keySyncShouldPrompt({ vaultExists: !!record, alreadyEscrowed: !!wrapped, dismissed: keySyncDismissed(galleryId) })) {
+        setKeySync(true)
+      }
     } catch {
       // Escrow is an upgrade, not a gate — a failed sync never blocks viewing.
     }
@@ -102,10 +116,10 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     try {
       const vaultKey = await ensureVaultKey(passphrase)
       await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source))
-      setKeySync(null)
+      setKeySync(false)
       setPassphrase('')
     } catch {
-      setKeySyncNote(keySync === 'setup' ? 'The key vault could not be saved.' : 'That passphrase did not unlock the vault.')
+      setKeySyncNote('That passphrase did not unlock the vault.')
     }
   }
 
@@ -282,14 +296,12 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       ) : null}
       {keySync ? (
         <aside class="encrypted-migration" role="status">
-          <p>{keySync === 'setup'
-            ? 'Set a sync passphrase to unlock this gallery on your other devices. Manorama stores only an encrypted copy — forget the passphrase and synced keys cannot be recovered.'
-            : 'Enter your Manorama sync passphrase to make this gallery available on your other devices.'}</p>
+          <p>Enter your Manorama sync passphrase to make this gallery available on your other devices.</p>
           <form onSubmit={submitKeySync}>
-            <label class="sr-only" for="key-sync-passphrase">{keySync === 'setup' ? 'Choose a sync passphrase' : 'Manorama sync passphrase'}</label>
-            <input id="key-sync-passphrase" type="password" required autocomplete={keySync === 'setup' ? 'new-password' : 'current-password'} value={passphrase} onInput={(event) => setPassphrase((event.currentTarget as HTMLInputElement).value)} placeholder={keySync === 'setup' ? 'Choose a sync passphrase' : 'Sync passphrase'} />
-            <button class="m-btn m-btn--primary" type="submit">{keySync === 'setup' ? 'Enable key sync' : 'Sync to my devices'}</button>
-            <button class="m-btn m-btn--secondary" type="button" onClick={() => setKeySync(null)}>Not now</button>
+            <label class="sr-only" for="key-sync-passphrase">Manorama sync passphrase</label>
+            <input id="key-sync-passphrase" type="password" required autocomplete="current-password" value={passphrase} onInput={(event) => setPassphrase((event.currentTarget as HTMLInputElement).value)} placeholder="Sync passphrase" />
+            <button class="m-btn m-btn--primary" type="submit">Sync to my devices</button>
+            <button class="m-btn m-btn--secondary" type="button" onClick={() => { dismissKeySync(galleryId); setKeySync(false) }}>Not now</button>
           </form>
           {keySyncNote ? <p role="alert">{keySyncNote}</p> : null}
         </aside>
