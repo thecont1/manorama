@@ -3,6 +3,7 @@ import { libraryLayout } from '../../packages/core/library-layout'
 import { isVideoItem, mediaCountOf, type GalleryMediaItem, type GalleryManifest } from './imagesource'
 import { getUserByAccountId } from './user-repository'
 import { clearDeviceGalleryLink } from './device-gallery-repository'
+import { deleteGalleryKey } from './key-vault-repository'
 import {
   assertGalleryEditable,
   FREE_RETAINED_LIMIT,
@@ -626,6 +627,7 @@ const previewImages = (images: readonly GalleryMediaItem[]) => images.map((image
 })
 
 export const deleteGallery = async (ownerId: string, slug: string, env?: GalleryEnv, options?: { force?: boolean }): Promise<boolean> => {
+  const galleryId = (await getStoredGallery(ownerId, slug, env))?.id
   if (d1Configured(env)) {
     const result = await env.DB
       .prepare('DELETE FROM galleries WHERE owner_id = ? AND slug = ?')
@@ -634,9 +636,14 @@ export const deleteGallery = async (ownerId: string, slug: string, env?: Gallery
     // The device link bound to this gallery — a different gallery that
     // later takes the slug must not inherit it.
     if ((result.meta.changes ?? 0) > 0) await clearDeviceGalleryLink(env.DB, ownerId, slug)
+    // Its escrowed key is ciphertext nobody can open for a row that no
+    // longer exists.
+    if ((result.meta.changes ?? 0) > 0 && galleryId) await deleteGalleryKey(ownerId, galleryId, env)
     return (result.meta.changes ?? 0) > 0
   }
-  return ownerStore(ownerId).delete(slug)
+  const removed = ownerStore(ownerId).delete(slug)
+  if (removed && galleryId) await deleteGalleryKey(ownerId, galleryId, env)
+  return removed
 }
 
 /** Counts retained galleries only; pipeline galleries do not consume the cap. */
