@@ -363,13 +363,14 @@ export default function PickerEditor({
         <div class="viewer-picker-actions">
           <PickerSizer value={itemHeight} onChange={onItemHeight} />
           <button type="button" class="viewer-picker-switch" onClick={cancel} disabled={saving}>Switch to Photo Picker</button>
-          {/* The terminal slot is always 72px: a Save while the draft is
-              dirty, otherwise a Cancel that exits like browse's Close —
-              an untouched draft must not trap the owner in Reorder. */}
-          {dirty
-            ? <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-            : <button type="button" class="viewer-picker-end" onClick={onDone}>Cancel</button>}
         </div>
+        {/* The terminal slot is always 72px: a Save while the draft is
+            dirty, otherwise a Cancel that exits like browse's Close —
+            an untouched draft must not trap the owner in Reorder. It sits
+            outside actions so the narrow layout pairs it with the title. */}
+        {dirty
+          ? <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          : <button type="button" class="viewer-picker-end" onClick={onDone}>Cancel</button>}
       </div>
       {/* The tap-raised mark is a touch affordance — a mouse pointer has
           hover, so when it leaves the grid the mark goes with it instead

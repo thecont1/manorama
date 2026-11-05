@@ -1177,7 +1177,10 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-picker-title { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
 .viewer-picker-mode { font-family: var(--m-font); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: #f4f1ea; }
 .viewer-picker-desc { margin: 0; font-size: 13px; color: rgba(244, 240, 232, .62); }
-.viewer-picker-actions { display: flex; align-items: center; gap: 12px; }
+/* A third child of the bar now (the terminal button left the group so
+   narrow screens can pair it with the title) — the auto margin keeps it
+   clustered right against `space-between` instead of drifting centre. */
+.viewer-picker-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 /* The switch's two labels differ in length — pin the slot so the row
    never shifts between modes. */
 .viewer-picker-top .viewer-picker-switch { min-width: 10.5rem; }
@@ -1334,14 +1337,16 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-filmstrip .viewer-picker-top,
 .viewer-filmstrip .viewer-picker-header { background: rgb(10, 12, 12); }
 @media (max-width: 720px) {
+  /* Portrait phones get their own two-row composition, not a collapsed
+     desktop row: the title shares row one with the terminal button (the
+     app-bar pairing) and the size slider + mode switch share row two at
+     opposite ends. The desktop slots alone totalled ~424px — that both
+     spilled past the right edge and, wrapped whole, orphaned Close onto
+     a third row beside a void. */
   .viewer-picker-top { flex-wrap: wrap; }
-  .viewer-picker-title { flex-basis: 100%; }
-  /* The actions row must shrink too — the fixed slots total ~424px and
-     spilled past a portrait phone's right edge (Close clipped off).
-     Compress them so sizer + switch hold one line on ≈390px widths and
-     let the terminal button wrap under, right-aligned, on 375px and
-     below — always fully on screen. */
-  .viewer-picker-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .viewer-picker-title { order: 1; flex: 1 1 auto; }
+  .viewer-picker-top > .viewer-picker-end { order: 2; }
+  .viewer-picker-actions { order: 3; flex-basis: 100%; margin-left: 0; justify-content: space-between; }
   .viewer-edit-sizer input[type="range"] { width: 72px; }
   .viewer-picker-top .viewer-picker-switch { min-width: 9rem; }
   .viewer-picker-top .viewer-picker-end { min-width: 4rem; }
