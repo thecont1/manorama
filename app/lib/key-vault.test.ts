@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import {
-  cacheVaultKey, cachedVaultKey, createVault, ensureVaultKey, keySyncShouldPrompt,
+  cacheVaultKey, cachedVaultKey, createVault, ensureVaultKey, fetchGalleryKey, keySyncShouldPrompt,
   openVault, unwrapSourceForVault, wrapSourceForVault, type OwnerVaultRecord,
 } from './key-vault'
 
@@ -102,5 +102,18 @@ describe('the key vault', () => {
     expect(keySyncShouldPrompt({ vaultExists: true, alreadyEscrowed: true, dismissed: false })).toBe(false)
     // Dismissed → "not now" means not on every open.
     expect(keySyncShouldPrompt({ vaultExists: true, alreadyEscrowed: false, dismissed: true })).toBe(false)
+  })
+
+  test('fetchGalleryKey returns null only for a stored-nothing read — a failed read throws', async () => {
+    globals.fetch = (async () => new Response(JSON.stringify({ key: null }), { status: 200 })) as unknown as typeof fetch
+    // The gallery answered and holds no wrapped key — the prompt decision
+    // may treat this as "not escrowed".
+    expect(await fetchGalleryKey('italy')).toBeNull()
+    globals.fetch = (async () => new Response('{}', { status: 503 })) as unknown as typeof fetch
+    // A failed read must surface as a failure, not as "not escrowed" —
+    // otherwise an outage fires the passphrase card for no reason.
+    await expect(fetchGalleryKey('italy')).rejects.toThrow('The gallery key could not be read')
+    globals.fetch = (async () => new Response(JSON.stringify({ key: { wrappedSource: 'abc', nonce: 'n' } }), { status: 200 })) as unknown as typeof fetch
+    expect(await fetchGalleryKey('italy')).toEqual({ wrappedSource: 'abc', nonce: 'n' })
   })
 })
