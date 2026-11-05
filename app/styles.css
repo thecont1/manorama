@@ -1309,11 +1309,11 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-edit-sizer input[type="range"] { width: 110px; accent-color: #fc0fc0; }
 .viewer-picker-alert { display: block; color: #ff7d95; font-size: 11px; font-weight: 400; }
 .viewer-picker-lock { color: rgba(244, 240, 232, .58); font-size: 12px; max-width: 36ch; }
-/* In Edit mode the top bar's controls and the bottom bar's title must
-   read on their own ground — the filmstrip's translucent frost turns
-   both bars solid (the same colour at alpha 1.0). */
-.viewer-filmstrip--edit .viewer-picker-top,
-.viewer-filmstrip--edit .viewer-picker-header { background: rgb(10, 12, 12); }
+/* The top bar's controls and the bottom bar's title read on their own
+   ground in both modes — the filmstrip's translucent frost turns both
+   bars solid (the same colour at alpha 1.0). */
+.viewer-filmstrip .viewer-picker-top,
+.viewer-filmstrip .viewer-picker-header { background: rgb(10, 12, 12); }
 @media (max-width: 720px) {
   .viewer-picker-top { flex-wrap: wrap; }
   .viewer-edit-status { flex-basis: 100%; }
