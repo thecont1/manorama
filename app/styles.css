@@ -1735,10 +1735,12 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    back so the bold "m" starts square on the heading's left edge; the
    thin script may overhang a few px left, like a proper optical margin.
    In the rail the mark scales with the column instead of a fixed 306px. */
-.admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin: 0 0 18px -28px; }
-/* The build commit sits under the mark in the rail — small and dim, a
-   build tag rather than a heading. */
-.admin-version { margin: -16px 0 16px; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; color: rgba(var(--ink), .38); }
+/* The mark's PNG carries ~29% of transparent padding under the wordmark,
+   so "under the logo" means inside the image box: the build tag is
+   anchored into that dead zone, proportional at every rail width. */
+.admin-brand { position: relative; margin-bottom: 18px; }
+.admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin-left: -28px; }
+.admin-version { position: absolute; left: 0; bottom: 13%; margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; color: rgba(var(--ink), .38); }
 /* The copyright is the rail's last line — it sits directly under the
    sponsored slot, and when the day switch has suppressed the slot it
    keeps the bottom anchor itself. */
