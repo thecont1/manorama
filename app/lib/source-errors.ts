@@ -21,7 +21,7 @@ export const friendlySourceError = (error: unknown) => {
   if (/Proton Drive link is password-protected|password-protected links are not supported/i.test(message)) return 'That Proton Drive link carries its own password — password-protected Proton Drive links are not supported yet.'
   if (/no longer supported by Proton/i.test(message)) return 'That Proton Drive link is no longer supported — ask the owner for a fresh link.'
   if (/complete public Proton Drive link/i.test(message)) return 'Paste a public Proton Drive link (drive.proton.me/urls/…) with its #password fragment.'
-  if (/Proton Drive sources are scanned on your device/i.test(message)) return message
+  if (/Proton Drive sources are scanned on your device|Proton Drive does not let websites call its API/i.test(message)) return message
   if (/password-protected/i.test(message)) return 'That Ente album is password-protected — password-protected albums are not supported yet.'
   if (/Ente album key is malformed|complete public Ente album link/i.test(message)) return 'Paste a public Ente album link (albums.ente.io/…) with its #key fragment.'
   if (/expired or was revoked/i.test(message)) return 'That Ente album link has expired or was revoked. Ask the owner for a fresh link.'

@@ -279,4 +279,9 @@ describe('friendlySourceError', () => {
     expect(message).toContain('1,423 images')
     expect(message).toContain('1,000 items')
   })
+
+  test('passes the browser-only Proton refusal through — the sentence is the guidance', () => {
+    const message = friendlySourceError(new Error('Proton Drive does not let websites call its API — add this link in the manorama app instead'))
+    expect(message).toBe('Proton Drive does not let websites call its API — add this link in the manorama app instead')
+  })
 })

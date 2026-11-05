@@ -180,6 +180,71 @@ const sniffContentType = (bytes: Uint8Array) =>
       : bytes[0] === 0x89 && bytes[1] === 0x50 ? 'image/png'
         : 'application/octet-stream'
 
+/** The slice of @capacitor/core's CapacitorHttp plugin the native
+ *  transport needs — structural so a stub can stand in under test. */
+type CapacitorHttpRequest = (options: {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+  data?: unknown
+  responseType?: 'arraybuffer'
+}) => Promise<{ status: number; headers: Record<string, string>; data: unknown }>
+
+/** CapacitorHttp drives the native network stack — outside the WebView,
+ *  so drive-api.proton.me's CORS rules never apply — but answers with a
+ *  bare status/headers envelope whose body arrives base64-encoded; this
+ *  folds it back into the fetch/Response shape the SDK's httpClient is
+ *  written against. There is no streaming and no real cancellation: an
+ *  aborted signal only stops us waiting on a request the native stack may
+ *  still finish, which is enough to release the SDK's download-queue
+ *  slot. */
+export const capacitorHttpFetch = (request: CapacitorHttpRequest): typeof fetch => {
+  ensureUint8ArrayCodecs()
+  return async (input, init = {}) => {
+    const source = typeof Request !== 'undefined' && input instanceof Request ? input : undefined
+    const headers: Record<string, string> = {}
+    new Headers(source?.headers).forEach((value, key) => { headers[key] = value })
+    new Headers(init.headers).forEach((value, key) => { headers[key] = value })
+    const signal = init.signal
+    if (signal?.aborted) throw signal.reason
+    const pending = request({
+      url: source?.url ?? String(input),
+      method: init.method ?? source?.method ?? 'GET',
+      headers,
+      data: init.body ?? undefined,
+      responseType: 'arraybuffer',
+    })
+    const response = signal
+      ? await Promise.race([
+          pending,
+          new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          }),
+        ])
+      : await pending
+    const body = response.data instanceof ArrayBuffer
+      ? response.data
+      : typeof response.data === 'string'
+        ? Uint8Array.fromBase64(response.data).buffer as ArrayBuffer
+        : new ArrayBuffer(0)
+    return new Response(body, { status: response.status, headers: response.headers })
+  }
+}
+
+/** drive-api.proton.me answers CORS only for drive.proton.me itself — a
+ *  fetch from any other origin is refused before it leaves the machine,
+ *  and a WKWebView is as much a browser as Safari is. Inside the
+ *  Capacitor shell the SDK's calls ride native networking instead, which
+ *  knows nothing of CORS; runtimes with no DOM (bun, SSR, tests) enforce
+ *  none either. A real browser gets the honest refusal up front rather
+ *  than a guaranteed opaque fetch failure. */
+const protonTransport = async (): Promise<typeof fetch> => {
+  if (typeof window === 'undefined') return fetch
+  const { Capacitor, CapacitorHttp } = await import('@capacitor/core')
+  if (Capacitor.isNativePlatform()) return capacitorHttpFetch((options) => CapacitorHttp.request(options))
+  throw new SourceFetchError('Proton Drive does not let websites call its API — add this link in the manorama app instead')
+}
+
 export type ProtonScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
 
 export type ProtonClientSession = {
@@ -195,8 +260,9 @@ export type ProtonClientSession = {
 /** The anonymous URL-access client carries every key inside the SDK
  *  session, so unlike MEGA/Ente there is no per-node key map to feed —
  *  materialize works off whichever uids the caller holds the moment
- *  authURLAccess returns. */
-export const openProtonSession = async (input: string, fetchImpl: typeof fetch = fetch): Promise<ProtonClientSession> => {
+ *  authURLAccess returns. `fetchImpl` overrides the transport for tests
+ *  and harnesses; callers normally leave it to `protonTransport`. */
+export const openProtonSession = async (input: string, fetchImpl?: typeof fetch): Promise<ProtonClientSession> => {
   const link = extractProtonLink(input)
   if (!link) throw new Error('Use a complete public Proton Drive link')
   const sourceUrl = keylessSourceUrl(input)
@@ -208,11 +274,12 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
   const { CryptoProxy } = await import('@protontech/crypto')
   const { getSrp, computeKeyPassword, generateKeySalt } = await import('@protontech/crypto/srp')
 
+  const transport = fetchImpl ?? (await protonTransport())
   // JSON metadata rides the scan budget; binary content rides the media
   // budget. The SDK splits its calls the same way — fetchJson for API
   // requests, fetchBlob for block-stream and thumbnail downloads.
-  const scanFetch = createScanBudget(PROTON_SCAN_REQUEST_BUDGET).fetch(fetchImpl)
-  const mediaFetch = createScanBudget(PROTON_MEDIA_REQUEST_BUDGET).fetch(fetchImpl)
+  const scanFetch = createScanBudget(PROTON_SCAN_REQUEST_BUDGET).fetch(transport)
+  const mediaFetch = createScanBudget(PROTON_MEDIA_REQUEST_BUDGET).fetch(transport)
   /** Every request rides this client, which stamps the honest third-party
    *  identity the SDK terms ask for, honours the SDK's own timeouts, and
    *  spends the caller's request budget. */
