@@ -25,7 +25,12 @@ type Props = JSX.HTMLAttributes & {
 
 export function HeicImg({ src, preview, media, previewMedia, galleryId, filename, ...rest }: Props) {
   const hasPreview = Boolean(preview || previewMedia)
-  const needsDecode = !hasPreview && isHeicFilename(filename)
+  // A `preview` string can carry a placeholder-grade stand-in (MEGA writes an
+  // SVG data URL into `placeholder`) — never a real rendition when `media`
+  // is present, since encrypted manifests keep rendition URLs empty by
+  // design. A HEIC original must therefore always decode unless a genuine
+  // `previewMedia` rendition exists; unencrypted items keep the old rule.
+  const needsDecode = isHeicFilename(filename) && (media ? !previewMedia : !hasPreview)
   const [decoded, setDecoded] = useState<string | null>(null)
   const [encrypted, setEncrypted] = useState<{ url: string; preview: boolean } | null>(null)
   const hostRef = useRef<HTMLImageElement | null>(null)

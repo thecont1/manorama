@@ -2952,6 +2952,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onItemHeight={setPickerItemH}
               currentPhotoId={() => images[indexRef.current]?.id ?? ''}
               onExit={exitEdit}
+              onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
             />
           ) : (

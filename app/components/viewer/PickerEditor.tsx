@@ -154,6 +154,9 @@ type Props = {
   onItemHeight: (height: number) => void
   /** Leaves Edit for browse mode; the draft dies with the component. */
   onExit: () => void
+  /** Leaves the whole picker — the browse mode's Close, offered here as
+   *  Cancel whenever there is no draft to lose. */
+  onDone: () => void
   /** Where Save and Cancel land when Edit was entered from outside the
    *  gallery (the Library's card menu) — the screen the user came from.
    *  Unset, both end on the gallery. */
@@ -161,7 +164,7 @@ type Props = {
 }
 
 export default function PickerEditor({
-  slug, galleryId, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, doneHref,
+  slug, galleryId, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -359,10 +362,23 @@ export default function PickerEditor({
         <div class="viewer-picker-actions">
           <PickerSizer value={itemHeight} onChange={onItemHeight} />
           <button type="button" class="viewer-picker-switch" onClick={cancel} disabled={saving}>Switch to Photo Picker</button>
-          <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
+          {/* The terminal slot is always 72px: a Save while the draft is
+              dirty, otherwise a Cancel that exits like browse's Close —
+              an untouched draft must not trap the owner in Reorder. */}
+          {dirty
+            ? <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            : <button type="button" class="viewer-picker-end" onClick={onDone}>Cancel</button>}
         </div>
       </div>
-      <div ref={frameRef} class="viewer-filmstrip-frame" {...pan}>
+      {/* The tap-raised mark is a touch affordance — a mouse pointer has
+          hover, so when it leaves the grid the mark goes with it instead
+          of staying pinned to the last cell tapped. */}
+      <div
+        ref={frameRef}
+        class="viewer-filmstrip-frame"
+        onPointerLeave={(event) => { if (event.pointerType === 'mouse') setRevealedId(null) }}
+        {...pan}
+      >
         <div class="viewer-filmstrip-track">
           {session.items.map((item, index) => {
             const hidden = hiddenKeys.has(item.orderKey)

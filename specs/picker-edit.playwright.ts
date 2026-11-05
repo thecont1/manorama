@@ -76,7 +76,9 @@ test('owner Edit mode reorders and hides, reload shows the result, and restore i
     await enterEdit(page)
     await expect(top).toContainText('pick it up')
     await expect(top.getByRole('button', { name: 'Switch to Photo Picker' })).toBeVisible()
-    await expect(top.getByRole('button', { name: 'Save' })).toBeVisible()
+    // An untouched draft exits through Cancel in the same terminal slot;
+    // Save takes the slot over only once there is something to save.
+    await expect(top.getByRole('button', { name: 'Cancel' })).toBeVisible()
     await expect(top.locator('.viewer-edit-sizer svg.s')).toBeVisible()
     await expect(top.locator('.viewer-edit-sizer svg.l')).toBeVisible()
 
@@ -98,6 +100,7 @@ test('owner Edit mode reorders and hides, reload shows the result, and restore i
     await page.locator('.viewer-edit-cell [data-grid-item]').nth(0).click()
     await page.locator('.viewer-edit-cell [data-grid-item]').nth(2).click()
     expect((await cellIds(page))[2]).toBe(ids[0])
+    await expect(top.getByRole('button', { name: 'Save' })).toBeVisible()
 
     const hideCell = page.locator(`.viewer-edit-cell:has([data-image-id="${ids[1]}"])`)
     await hideCell.hover()

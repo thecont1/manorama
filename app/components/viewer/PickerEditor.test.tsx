@@ -45,10 +45,12 @@ const items = [item('a'), item('b', { hidden: true }), item('c'), item('d')]
 
 let actions: { current: PickerEditActions | null }
 let exited: number
+let dones: number
 
 const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?: string } = {}) => {
   actions = { current: null }
   exited = 0
+  dones = 0
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
   flushSync(() => {
@@ -65,6 +67,7 @@ const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?:
         itemHeight={12}
         onItemHeight={() => {}}
         onExit={() => { exited += 1 }}
+        onDone={() => { dones += 1 }}
         doneHref={over.doneHref}
       />,
       container as unknown as HTMLElement,
@@ -81,6 +84,7 @@ const key = (value: string) => {
   return result
 }
 const saveButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Save' || b.textContent === 'Saving…')!
+const cancelButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')
 const settle = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); flushSync(() => {}) }
 
 describe('the picker Edit mode', () => {
@@ -117,10 +121,23 @@ describe('the picker Edit mode', () => {
     expect(cells(root)[0].classList.contains('is-hidden')).toBe(true)
   })
 
+  test('an untouched draft exits through Cancel in the terminal slot; Save takes it over once dirty', () => {
+    const root = mounted()
+    expect(cancelButton(root)).toBeTruthy()
+    flushSync(() => cancelButton(root)!.click())
+    expect(dones).toBe(1)
+    expect(exited).toBe(0)
+    // Dirty the draft: the slot becomes Save, and the draft is still alive.
+    const root2 = mounted()
+    flushSync(() => cells(root2)[0].querySelector('.viewer-edit-mark')!.dispatchEvent(new dom.window.Event('click', { bubbles: true }) as unknown as Event))
+    expect(cancelButton(root2)).toBeUndefined()
+    expect(saveButton(root2)).toBeTruthy()
+  })
+
   test('Save stays disabled until the draft is dirty, then PATCHes order and hidden', async () => {
     calls = []; replaced = []
     const root = mounted()
-    expect(saveButton(root).disabled).toBe(true)
+    expect(cancelButton(root)).toBeTruthy()
     // Hide cell 0, move nothing else.
     flushSync(() => cells(root)[0].querySelector('.viewer-edit-mark')!.dispatchEvent(new dom.window.Event('click', { bubbles: true }) as unknown as Event))
     expect(saveButton(root).disabled).toBe(false)
@@ -196,10 +213,10 @@ describe('the picker Edit mode', () => {
       return { handled, prevented: event.defaultPrevented }
     }
     const mark = cells(root)[0].querySelector('.viewer-edit-mark')!
-    const save = saveButton(root)
+    const end = cancelButton(root)!
     const cancel = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Switch to Photo Picker')!
     const sizer = root.querySelector('.viewer-edit-sizer input')!
-    for (const el of [mark, save, cancel, sizer]) {
+    for (const el of [mark, end, cancel, sizer]) {
       for (const value of ['Enter', ' ']) {
         const result = keyOn(el, value)
         expect(result.handled).toBe(true)
