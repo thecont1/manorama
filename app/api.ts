@@ -7,7 +7,7 @@ import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -74,24 +74,12 @@ const slugify = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 48) || 'gallery'
 
-/** Pin policy in one place: a pin claims permanence for a Free owner —
- *  promoting a pipeline row, capped by the retained limit — while a Free
- *  unpin hands the gallery back to the pipeline with a fresh window.
- *  Visionary rows are all retained already, so only the timestamp moves. */
-const applyGalleryPin = async (accountId: string, gallery: GalleryRecord, pinned: boolean, env: GalleryEnv | undefined) => {
-  const user = await getUserByAccountId(accountId, env)
-  const pro = user?.tier === 'pro'
-  if (pinned && !pro) {
-    const others = await listGalleries(accountId, env)
-    const pinnedCount = others.filter((item) => item.pinnedAt && item.slug !== gallery.slug).length
-    const retainedCount = others.filter((item) => item.retention !== 'pipeline' && item.slug !== gallery.slug).length
-    // A pin spends a pin slot; pinning a *pipeline* row spends a permanent
-    // slot too, so both counts gate the request — the cap a downgrade
-    // overfilled binds here, not retroactively.
-    if (pinnedCount >= FREE_RETAINED_LIMIT || (gallery.retention === 'pipeline' && retainedCount >= FREE_RETAINED_LIMIT)) throw pinLimitError()
-  }
-  return setGalleryPinned(accountId, gallery.slug, pinned, { demote: !pro }, env)
-}
+/** Pin policy in one place: a pin is a display choice — it moves the
+ *  card between the strip and compact sections and nothing more.
+ *  Permanence is a separate axis handled by the swap route, so no
+ *  pin-only request can mint a fresh expiry window or a free retain. */
+const applyGalleryPin = async (accountId: string, gallery: GalleryRecord, pinned: boolean, env: GalleryEnv | undefined) =>
+  setGalleryPinned(accountId, gallery.slug, pinned, env)
 
 /** Rejects editorial requests for pipeline galleries before their handlers
  *  run. Missing galleries continue to the handler so it can return 404. */
@@ -798,6 +786,37 @@ export const createManoramaApi = () => {
     } catch (error) {
       if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'PIN_LIMIT' ? 409 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be pinned' }, 422)
+    }
+  })
+
+  /** The permanence swap: a temporary gallery claims a permanent slot,
+   *  either bare (when the owner's permanent set has room) or by
+   *  exchanging permanence, expiry *and* pinned position with a named
+   *  retained gallery — the exchange the card's chooser promises. */
+  api.post('/api/galleries/:slug/swap', async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<unknown>().catch((): unknown => ({}))
+    const withSlug = typeof payload === 'object' && payload !== null && typeof (payload as { with?: unknown }).with === 'string'
+      ? (payload as { with: string }).with
+      : null
+    try {
+      const target = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!target || isGalleryExpired(target)) return c.json({ error: 'That gallery was not found' }, 404)
+      if (target.retention !== 'pipeline') return c.json({ error: 'That gallery is already permanent' }, 422)
+      if (withSlug) {
+        const swapped = await swapGalleryRetention(session.accountId, target.slug, withSlug, dbEnv(c))
+        if (!swapped) return c.json({ error: 'Choose a permanent gallery to swap with' }, 422)
+        return c.json({ incoming: toSummary(swapped.incoming), outgoing: toSummary(swapped.outgoing) })
+      }
+      const user = await getUserByAccountId(session.accountId, dbEnv(c))
+      // The limit lives inside the promote's guarded UPDATE — Visionary
+      // promotes unconditionally.
+      const promoted = await setGalleryRetained(session.accountId, target.slug, user?.tier === 'pro' ? null : FREE_RETAINED_LIMIT, dbEnv(c))
+      if (promoted === 'limit') return c.json({ code: 'PIN_LIMIT', error: pinLimitError().message }, 409)
+      if (!promoted) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ gallery: toSummary(promoted) })
+    } catch {
+      return c.json({ error: 'That gallery is temporarily unavailable' }, 503)
     }
   })
 

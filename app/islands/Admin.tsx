@@ -67,11 +67,15 @@ const sortRecent = (items: readonly GallerySummary[]) => [...items].sort((a, b) 
 })
 
 const isLocked = (gallery: GallerySummary) => gallery.retention === 'pipeline'
-/** On Free the pin *is* permanence — a retained gallery lives in "Your
- *  galleries" whether or not its flag was stamped (e.g. created before
- *  pinning), so the menu state follows retention, not the timestamp. */
-const effectivePinned = (gallery: GallerySummary, tier: AccountTier) =>
-  tier === 'pro' ? Boolean(gallery.pinnedAt) : gallery.retention !== 'pipeline'
+/** The pin is a display choice — the strip section follows the stamped
+ *  timestamp, not the retention flag. Permanence only moves through the
+ *  swap or a tier change. */
+const effectivePinned = (gallery: GallerySummary) => Boolean(gallery.pinnedAt)
+
+/** Whole days until a pipeline gallery's expiry instant — the number the
+ *  stopwatch popover quotes. */
+const daysUntilExpiry = (expiresAt: string | null | undefined, now: number) =>
+  expiresAt ? Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 86_400_000)) : null
 
 /** After a new gallery card mounts, bring it fully into view: centered with
  *  breathing room when it fits, top-parked with a margin when it doesn't.
@@ -846,25 +850,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
    *  A Free owner at the pin cap is not refused outright: the chooser
    *  makes them pick which permanent gallery to give up, or the plan. */
   const togglePin = async (gallery: GallerySummary) => {
-    const pinning = !effectivePinned(gallery, tier)
-    // The gate mirrors applyGalleryPin: a pin spends a pin slot always,
-    // and a permanent slot only when the candidate is still temporary.
-    const pinCapHit = pinnedCount >= FREE_RETAINED_LIMIT
-    const permanentCapHit = gallery.retention === 'pipeline' && retainedCount >= FREE_RETAINED_LIMIT
-    if (pinning && tier !== 'pro' && (pinCapHit || permanentCapHit)) {
-      setPinChoiceSlug(gallery.slug)
-      setMenuSlug(null)
-      return
-    }
+    const pinning = !effectivePinned(gallery)
     setBusy(true)
     setMenuSlug(null)
     try {
       await pinGallery(gallery.slug, pinning)
       await refetchLibrary()
-      // A promote or demote changed retention, not just the flag — say so.
-      announce(pinning
-        ? gallery.retention === 'pipeline' ? `“${gallery.title}” pinned — now permanent` : `“${gallery.title}” pinned`
-        : tier === 'pro' ? `“${gallery.title}” unpinned` : `“${gallery.title}” unpinned — now temporary`)
+      announce(pinning ? `“${gallery.title}” pinned` : `“${gallery.title}” unpinned`)
     } catch (error) {
       announce(error instanceof Error ? error.message : 'That gallery could not be pinned')
     } finally {
@@ -872,18 +864,28 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
-  /** The cap chooser's one-tap swap: the victim loses its permanent slot
-   *  (back to the temporary set) and the candidate takes it. */
-  const swapPin = async (victim: GallerySummary, incoming: GallerySummary) => {
+  /** The stopwatch popover's permanence calls: promote into a free slot,
+   *  or swap position and expiry with a named permanent gallery. */
+  const keepGallery = async (temp: GallerySummary, withSlug?: string) => {
+    const response = await fetch(`/api/galleries/${encodeURIComponent(temp.slug)}/swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withSlug ? { with: withSlug } : {}),
+    })
+    const payload = await response.json() as { error?: string }
+    if (!response.ok) throw new Error(payload.error || 'That gallery could not be kept')
+  }
+  const runKeep = async (temp: GallerySummary, withSlug?: string, victim?: GallerySummary) => {
     setBusy(true)
     try {
-      await pinGallery(victim.slug, false)
-      await pinGallery(incoming.slug, true)
+      await keepGallery(temp, withSlug)
       await refetchLibrary()
       setPinChoiceSlug(null)
-      announce(`“${victim.title}” unpinned — “${incoming.title}” is permanent`)
+      announce(victim
+        ? `“${temp.title}” is permanent — “${victim.title}” takes its expiry`
+        : `“${temp.title}” is permanent`)
     } catch (error) {
-      announce(error instanceof Error ? error.message : 'That gallery could not be pinned')
+      announce(error instanceof Error ? error.message : 'That gallery could not be kept')
     } finally {
       setBusy(false)
     }
@@ -999,8 +1001,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
-          <h2 id="lib-strips-title" class="lib-section-title">Your galleries</h2>
-          <p class="lib-section-sub">Galleries in this section are permanent — they show up as strips and download entirely.</p>
+          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries</h2>
+          <p class="lib-section-sub">Pinned galleries show up as strips and download entirely — pinning is a display choice, not permanence.</p>
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
@@ -1045,6 +1047,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
             <div class="lib-card-head">
               <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+              {locked ? (
+                <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires ${gallery.expiresAt.slice(0, 10)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
+                </button>
+              ) : null}
               <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
             </div>
             <p class="lib-card-sub">
@@ -1061,7 +1068,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         })}</ul></section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">{tier === 'pro' ? 'More galleries' : 'Temporary galleries'}</h2>
+            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Your galleries</h2>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
@@ -1078,6 +1085,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
                 <div class="lib-compact-body">
                   <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+                  {locked ? (
+                    <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires ${gallery.expiresAt.slice(0, 10)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
+                    </button>
+                  ) : null}
                   <p class="lib-card-sub">
                     {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
                     {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
@@ -1127,13 +1139,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           {/* Native buttons and links, not menu/menuitem roles: there is no
               arrow-key roving focus here, so the menu role would overpromise. */}
           <div class="lib-menu">
-            {/* Pinning is how any gallery — including a temporary one on
-                Free — joins "Your galleries" and becomes permanent. */}
+            {/* The pin moves the card between "Pinned galleries" and the
+                compact list — a display choice, never permanence. */}
             <button
               type="button"
               disabled={busy}
               onClick={() => { void togglePin(menuGallery) }}
-            >{effectivePinned(menuGallery, tier) ? 'Unpin gallery' : 'Pin to “Your galleries”'}</button>
+            >{effectivePinned(menuGallery) ? 'Unpin gallery' : 'Pin gallery'}</button>
             <button type="button" onClick={() => { setShareSlug(menuGallery.slug); setMenuSlug(null) }}>Share link</button>
             {/* The gallery's own Settings — the same panel the viewer's
                 Settings popover hosts, so the owner edits in place. */}
@@ -1185,21 +1197,33 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       ) : null}
 
       {pinChoiceGallery ? (
-        <Sheet open onClose={() => setPinChoiceSlug(null)} title="Your galleries are full">
+        <Sheet open onClose={() => setPinChoiceSlug(null)} title="Temporary gallery">
           <div class="lib-pin-choice">
             <p class="lib-pin-choice-copy">
-              Free keeps {FREE_RETAINED_LIMIT} permanent galleries. To keep “{pinChoiceGallery.title || pinChoiceGallery.slug}”,
-              unpin one below — it goes back to the temporary set — or upgrade for unlimited permanent galleries.
+              “{pinChoiceGallery.title || pinChoiceGallery.slug}” is a temporary gallery{(() => {
+                const days = daysUntilExpiry(pinChoiceGallery.expiresAt, now)
+                return days === null ? '.' : days === 1 ? ' and expires tomorrow.' : ` and expires in ${days} days.`
+              })()} Choose a plan, or swap its place with a permanent gallery —
+              the two trade permanence, position and expiry, nothing else moves.
             </p>
             <ul class="lib-pin-choice-list">
+              <li>
+                <span class="lib-pin-choice-name">Visionary — unlimited permanent galleries</span>
+                <a class="m-btn" href={upgradeHref}>Upgrade</a>
+              </li>
+              {tier === 'pro' || retainedCount < FREE_RETAINED_LIMIT ? (
+                <li>
+                  <span class="lib-pin-choice-name">Keep it permanently — {tier === 'pro' ? 'Visionary is unlimited' : 'a slot is free'}</span>
+                  <button type="button" class="m-btn" disabled={busy} onClick={() => { void runKeep(pinChoiceGallery) }}>Keep it</button>
+                </li>
+              ) : null}
               {permanentGalleries.map((gallery) => (
                 <li key={gallery.slug}>
                   <span class="lib-pin-choice-name">{gallery.title || gallery.slug}</span>
-                  <button type="button" class="m-btn" disabled={busy} onClick={() => { void swapPin(gallery, pinChoiceGallery) }}>Unpin</button>
+                  <button type="button" class="m-btn" disabled={busy} onClick={() => { void runKeep(pinChoiceGallery, gallery.slug, gallery) }}>Swap</button>
                 </li>
               ))}
             </ul>
-            <a class="admin-upgrade-link lib-pin-choice-upgrade" href={upgradeHref}>Upgrade to Visionary</a>
           </div>
         </Sheet>
       ) : null}

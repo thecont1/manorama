@@ -89,9 +89,9 @@ const manoramaDevSeed = (): Plugin => {
     for (const [index, { ownerId, gallery }] of pristine.entries()) {
       await galleries.createGallery(ownerId, structuredClone(gallery), devEnv())
       // The fixture pretends to an established account: its first three
-      // galleries carry the pin — permanence arrives via it — and any
-      // further scans stand as the compact "More galleries" cards.
-      if (index < 3) await galleries.setGalleryPinned(ownerId, gallery.slug, true, {}, devEnv())
+      // galleries are retained by the quota and carry the pin so they
+      // render as strips; any further scans stand as compact cards.
+      if (index < 3) await galleries.setGalleryPinned(ownerId, gallery.slug, true, devEnv())
     }
     return owner
   }
@@ -403,7 +403,7 @@ const manoramaDevSeed = (): Plugin => {
             images,
             ...(encrypted ? { manifestVersion: 2 } : {}),
           } as GalleryRecord, devEnv())
-          if (result.ok && entry.pinned === true) await galleries.setGalleryPinned(accountId, entry.slug, true, {}, devEnv())
+          if (result.ok && entry.pinned === true) await galleries.setGalleryPinned(accountId, entry.slug, true, devEnv())
           results.push(result.ok
             ? { ok: true, slug: entry.slug, retention: result.gallery.retention ?? 'retained', expiresAt: result.gallery.expiresAt ?? null }
             : { ok: false, slug: entry.slug, reason: result.reason })

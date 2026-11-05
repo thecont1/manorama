@@ -2140,6 +2140,13 @@ button.lib-card-title {
 /* A pinned card carries the pin beside its title — presentation only,
    the pin itself lives in the ··· menu. */
 .lib-pin { display: inline-flex; align-items: center; margin-left: 6px; color: rgba(var(--ink), .55); }
+/* The stopwatch on a temporary card opens the keep/swap popover — an
+   icon the same size as the pin glyph, amber so the clock reads as
+   running out rather than decorative. */
+.lib-temp-flag { display: inline-flex; align-items: center; margin-left: 6px; padding: 2px; border: 0; background: none; color: #ffb45e; cursor: pointer; }
+.lib-temp-flag svg { width: 14px; height: 14px; display: block; }
+.lib-temp-flag:hover { color: #ffc987; }
+.lib-temp-flag:focus-visible { outline: 2px solid #ffb45e; outline-offset: 1px; border-radius: 4px; }
 
 /* The card menu is a sheet of rows, each a finger-sized target. Rows are
    plain buttons and links — no menu role, since there is no roving focus. */

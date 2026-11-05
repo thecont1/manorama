@@ -804,34 +804,77 @@ describe('pinning and the lean library', () => {
     expect(response.status).toBe(200)
   })
 
-  test('a free pin promotes a pipeline gallery once a permanent slot frees', async () => {
+  test('the pin is layout-only — it never moves retention or expiry', async () => {
     const { setUserTier } = await import('./lib/user-repository')
-    const { resetGalleryStore } = await import('./lib/gallery-repository')
+    const { resetGalleryStore, getStoredGallery } = await import('./lib/gallery-repository')
     await setUserTier(TEST_OWNER.accountId, 'free')
-    // The cap counts permanent galleries, so the fixture must be hermetic:
-    // every gallery seeded earlier in this file would otherwise count.
     resetGalleryStore()
     for (let index = 0; index < 3; index += 1) await seed(`free-keep-${index}`, index + 10)
     await seed('free-temp', 40)
-    // All permanent slots are taken: pinning the temporary one is refused
-    // with the unpin-or-upgrade answer, not a generic denial.
-    const refused = await patchPin('free-temp', true)
+    // A temporary gallery pins fine — permanence is not for sale here.
+    const pinned = await patchPin('free-temp', true)
+    expect(pinned.status).toBe(200)
+    const after = await getStoredGallery(TEST_OWNER.accountId, 'free-temp')
+    expect(after?.pinnedAt).toBeTruthy()
+    expect(after?.retention).toBe('pipeline')
+    expect(after?.expiresAt).toBeTruthy()
+    // And an unpin hands nothing back — no fresh window, no demotion.
+    const unpin = await patchPin('free-keep-0', false)
+    expect(unpin.status).toBe(200)
+    const kept = await getStoredGallery(TEST_OWNER.accountId, 'free-keep-0')
+    expect(kept?.pinnedAt).toBeNull()
+    expect(kept?.retention).toBe('retained')
+    expect(kept?.expiresAt).toBeNull()
+    await setUserTier(TEST_OWNER.accountId, 'pro')
+  })
+
+  test('the swap route exchanges permanence, expiry and position', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    const { resetGalleryStore, getStoredGallery } = await import('./lib/gallery-repository')
+    await setUserTier(TEST_OWNER.accountId, 'free')
+    resetGalleryStore()
+    for (let index = 0; index < 3; index += 1) await seed(`swap-keep-${index}`, index + 10)
+    await seed('swap-temp', 40)
+    // All three permanent slots are spoken for — a bare ask is the
+    // chooser answer, not a silent demote.
+    const refused = await api.request('/api/galleries/swap-temp/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({}),
+    }, env)
     expect(refused.status).toBe(409)
     expect(((await refused.json()) as { code?: string }).code).toBe('PIN_LIMIT')
-    // Unpinning a retained gallery hands it to the pipeline — a fresh
-    // 30-day window — which frees the permanent slot the temp claims.
-    const demoted = await patchPin('free-keep-0', false)
-    expect(demoted.status).toBe(200)
-    const demotedPayload = await demoted.json() as { gallery?: { retention?: string; pinnedAt?: string | null; expiresAt?: string | null } }
-    expect(demotedPayload.gallery?.retention).toBe('pipeline')
-    expect(demotedPayload.gallery?.pinnedAt).toBeNull()
-    expect(Date.parse(demotedPayload.gallery?.expiresAt ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000)
-    const promoted = await patchPin('free-temp', true)
-    expect(promoted.status).toBe(200)
-    const promotedPayload = await promoted.json() as { gallery?: { retention?: string; pinnedAt?: string | null; expiresAt?: string | null } }
-    expect(promotedPayload.gallery?.retention).toBe('retained')
-    expect(promotedPayload.gallery?.pinnedAt).toBeTruthy()
-    expect(promotedPayload.gallery?.expiresAt).toBeNull()
+    // The named swap exchanges permanence, expiry and pinned position.
+    const temp = await getStoredGallery(TEST_OWNER.accountId, 'swap-temp')
+    await patchPin('swap-keep-0', true)
+    const response = await api.request('/api/galleries/swap-temp/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ with: 'swap-keep-0' }),
+    }, env)
+    expect(response.status).toBe(200)
+    const incoming = await getStoredGallery(TEST_OWNER.accountId, 'swap-temp')
+    const outgoing = await getStoredGallery(TEST_OWNER.accountId, 'swap-keep-0')
+    // Position and permanence cross together: the temp takes the
+    // victim's pin, the victim takes the temp's own clock — not a fresh
+    // thirty days.
+    expect(incoming?.retention).toBe('retained')
+    expect(incoming?.expiresAt).toBeNull()
+    expect(incoming?.pinnedAt).toBeTruthy()
+    expect(outgoing?.retention).toBe('pipeline')
+    expect(outgoing?.expiresAt).toBe(temp?.expiresAt)
+    expect(outgoing?.pinnedAt).toBeNull()
+    // A slot opens (a delete): the bare request promotes the pipeline
+    // row that is still temporary — no victim needed.
+    const { deleteGallery } = await import('./lib/gallery-repository')
+    await deleteGallery(TEST_OWNER.accountId, 'swap-keep-2')
+    const kept = await api.request('/api/galleries/swap-keep-0/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({}),
+    }, env)
+    expect(kept.status).toBe(200)
+    expect((await getStoredGallery(TEST_OWNER.accountId, 'swap-keep-0'))?.retention).toBe('retained')
     await setUserTier(TEST_OWNER.accountId, 'pro')
   })
 
