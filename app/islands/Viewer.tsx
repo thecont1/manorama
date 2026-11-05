@@ -2913,7 +2913,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={() => { if (pickerActionsRef.current) pickerActionsRef.current.cancel(); else requestCloseModals() }} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
+        <div ref={gridModalRef} class={`viewer-filmstrip ${pickerEdit && editItems ? 'viewer-filmstrip--edit' : ''} ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
           if (pickerActionsRef.current?.onKey(event)) return
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
