@@ -55,18 +55,24 @@ describe('encrypted media resolver', () => {
     resolver.dispose()
   })
 
-  test('evicts only unreferenced URLs to stay within the byte budget', async () => {
+  test('evicts only unreferenced URLs — the budget never drops a held entry', async () => {
     stubUrls()
     const other = { ...ref, nodeId: 'other' }
     const resolver = new EncryptedMediaResolver(session(async (media) => ({
       bytes: new Uint8Array('nodeId' in media && media.nodeId === 'node' ? 4 : 4), mimeType: 'image/jpeg',
     })), { maxBytes: 4 })
     const first = await resolver.acquire(ref, false)
-    await expect(resolver.acquire(other, false)).rejects.toThrow('working set')
+    // Held bytes may exceed the soft cap — the caller's own working set —
+    // but the freshly requested entry must still resolve.
+    const heldOverCap = await resolver.acquire(other, false)
+    expect(heldOverCap).toBeTruthy()
+    resolver.release(other, false)
     resolver.release(ref, false)
-    const second = await resolver.acquire(other, false)
-    expect(second).toBe('blob:test-3')
-    expect(revoked).toContain(first)
+    const third = { ...ref, nodeId: 'third' }
+    const thirdUrl = await resolver.acquire(third, false)
+    expect(thirdUrl).toBe('blob:test-3')
+    // Idle entries are what eviction eats.
+    expect(revoked).toEqual(expect.arrayContaining([first, heldOverCap]))
     resolver.dispose()
   })
 

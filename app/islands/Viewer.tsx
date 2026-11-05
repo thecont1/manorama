@@ -1,7 +1,7 @@
 import { useEffect as useHonoEffect, useLayoutEffect, useMemo, useRef, useState, type Child } from 'hono/jsx'
 import { formatMediaCount, isVideoItem, mediaCountOf, type GalleryImage, type GalleryMediaItem, type MediaCount, type VideoItem } from '../lib/imagesource'
 import { heicObjectUrl, isHeicFilename } from '../lib/heic'
-import { encryptedSourceFromGalleryHash } from '../../packages/core/encrypted-source'
+import { encryptedSourceFromGalleryHash, type MediaReference } from '../../packages/core/encrypted-source'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import type { EncryptedMediaResolver } from '../lib/encrypted-resolver'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
@@ -248,44 +248,57 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(() => clamp(initialIndex, 0, Math.max(0, sourceImages.length - 1)))
   const [resolvedMedia, setResolvedMedia] = useState<Record<string, { src?: string; previews: Record<number, string> }>>({})
+  // The acquire window is incremental: only items entering the ±2/±8 frame
+  // are fetched, only items leaving it are released. Aborting the whole
+  // window on every step used to restart in-flight megabyte downloads for
+  // refs that were still wanted — and evicted originals pointed resolved
+  // frames at revoked blob URLs when the user stepped back.
+  const resolvedWindowRef = useRef(new Map<string, { reference: MediaReference; preview: boolean }>())
   useEffect(() => {
     if (!encryptedResolver) return
-    const controller = new AbortController()
-    let cancelled = false
-    const acquired: { reference: NonNullable<GalleryImage['media']>; preview: boolean }[] = []
+    const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number }>()
     for (const [imageIndex, image] of sourceImages.entries()) {
       if (isVideoItem(image) || !image.media) continue
-      const requests: { reference: NonNullable<GalleryImage['media']>; preview: boolean }[] = []
-      if (Math.abs(imageIndex - index) <= 2) requests.push({ reference: image.media, preview: false })
+      if (Math.abs(imageIndex - index) <= 2) desired.set(`original:${JSON.stringify(image.media)}`, { image, reference: image.media, preview: false, variantIndex: -1 })
       if (Math.abs(imageIndex - index) <= 8) {
-        image.variants?.forEach((variant) => { if (variant.media) requests.push({ reference: variant.media, preview: true }) })
-      }
-      for (const request of requests) {
-        acquired.push(request)
-        void encryptedResolver.acquire(request.reference, request.preview, controller.signal).then((url) => {
-          if (cancelled) return
-          setResolvedMedia((previous) => {
-            const current = previous[image.id] ?? { previews: {} }
-            const previews = request.preview ? { ...current.previews } : current.previews
-            const variantIndex = request.preview
-              ? image.variants?.findIndex((variant) => variant.media === request.reference) ?? -1
-              : -1
-            if (request.preview && variantIndex >= 0) previews[variantIndex] = url
-            return { ...previous, [image.id]: { src: request.preview ? current.src : url, previews } }
-          })
-        }).catch(() => {
-          // Corrupt, revoked, and cancelled items retain their SSR geometry;
-          // the gate reports session-level failures, and stage error UI owns
-          // per-item retries without falling back to a server decryptor.
+        image.variants?.forEach((variant, variantIndex) => {
+          if (variant.media) desired.set(`preview:${JSON.stringify(variant.media)}`, { image, reference: variant.media, preview: true, variantIndex })
         })
       }
     }
-    return () => {
-      cancelled = true
-      controller.abort()
-      for (const request of acquired) encryptedResolver.release(request.reference, request.preview)
+    const held = resolvedWindowRef.current
+    for (const [key, request] of held) {
+      if (!desired.has(key)) {
+        encryptedResolver.release(request.reference, request.preview)
+        held.delete(key)
+      }
+    }
+    for (const [key, request] of desired) {
+      if (held.has(key)) continue
+      held.set(key, { reference: request.reference, preview: request.preview })
+      void encryptedResolver.acquire(request.reference, request.preview).then((url) => {
+        if (unmountedRef.current) return
+        const { image, variantIndex } = request
+        setResolvedMedia((previous) => {
+          const current = previous[image.id] ?? { previews: {} }
+          const previews = request.preview ? { ...current.previews } : current.previews
+          if (request.preview && variantIndex >= 0) previews[variantIndex] = url
+          return { ...previous, [image.id]: { src: request.preview ? current.src : url, previews } }
+        })
+      }).catch(() => {
+        // Drop the held mark so a later pass over the same frame retries —
+        // corrupt or transient items stay on their SSR geometry, never a
+        // server decryptor.
+        held.delete(key)
+      })
     }
   }, [sourceImages, index, encryptedResolver])
+  useEffect(() => () => {
+    // Unmount or resolver swap: every held ref returns to the working set.
+    const held = resolvedWindowRef.current
+    for (const [, request] of held) encryptedResolver?.release(request.reference, request.preview)
+    held.clear()
+  }, [encryptedResolver])
   const resolvedSourceImages = useMemo(() => sourceImages.map((image) => {
     const resolved = resolvedMedia[image.id]
     if (!resolved || isVideoItem(image)) return image

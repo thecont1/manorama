@@ -109,12 +109,9 @@ export class EncryptedMediaResolver {
         entry!.url = URL.createObjectURL(new Blob([snapshot.buffer], { type: materialized.mimeType }))
         entry!.lastUsed = Date.now()
         this.evict()
-        if (this.bytes > this.maxBytes) {
-          URL.revokeObjectURL(entry!.url!)
-          this.bytes -= entry!.bytes
-          this.entries.delete(key)
-          throw new Error('Encrypted media working set is full; release an image and retry')
-        }
+        // Idle bytes are capped; held ones are not. An entry the caller just
+        // asked for is by definition in use — dropping it here was the
+        // working-set-full throw that left resolved frames permanently blank.
         return entry!.url!
       }).catch((error) => {
         // Evict only this entry — a re-acquire after an abort may already
