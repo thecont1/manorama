@@ -10,6 +10,7 @@ let prev: Record<string, unknown>
 type Call = { url: string; init?: RequestInit }
 let calls: Call[] = []
 let replaced: string[] = []
+let assigned: string[] = []
 
 beforeAll(() => {
   prev = {
@@ -29,6 +30,7 @@ beforeAll(() => {
     return new Response(JSON.stringify({ ok: true }), { status: 200 })
   }) as unknown as typeof fetch
   ;(dom.location as unknown as { replace: (u: string) => void }).replace = (u: string) => { replaced.push(u) }
+  ;(dom.location as unknown as { assign: (u: string) => void }).assign = (u: string) => { assigned.push(u) }
 })
 
 afterAll(() => {
@@ -44,7 +46,7 @@ const items = [item('a'), item('b', { hidden: true }), item('c'), item('d')]
 let actions: { current: PickerEditActions | null }
 let exited: number
 
-const mounted = (over: { items?: PickerEditItem[]; selIndex?: number } = {}) => {
+const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?: string } = {}) => {
   actions = { current: null }
   exited = 0
   const container = dom.document.createElement('div')
@@ -60,7 +62,10 @@ const mounted = (over: { items?: PickerEditItem[]; selIndex?: number } = {}) => 
         suppressClickRef={{ current: false }}
         actionsRef={actions}
         currentPhotoId={() => 'a'}
+        itemHeight={12}
+        onItemHeight={() => {}}
         onExit={() => { exited += 1 }}
+        doneHref={over.doneHref}
       />,
       container as unknown as HTMLElement,
     )
@@ -136,10 +141,27 @@ describe('the picker Edit mode', () => {
     expect(replaced).toEqual(['/thecontrarian/mixed?photo=a'])
   })
 
-  test('Cancel and the actions-cancel both leave Edit mode', () => {
+  test('Switching to the Photo Picker and the actions-cancel both leave Edit mode', () => {
     const root = mounted()
-    flushSync(() => { [...root.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')?.click() })
+    flushSync(() => { [...root.querySelectorAll('button')].find((b) => b.textContent === 'Switch to Photo Picker')?.click() })
     expect(exited).toBe(1)
+  })
+
+  test('Save lands on doneHref when Edit was entered from outside the gallery; the mode switch only exits Edit', async () => {
+    calls = []; replaced = []; assigned = []
+    const root = mounted({ doneHref: '/thecontrarian' })
+    // The switch is a mode toggle, not an exit — it leaves the draft
+    // dead and the browse cells showing, same as the old Cancel.
+    flushSync(() => { [...root.querySelectorAll('button')].find((b) => b.textContent === 'Switch to Photo Picker')?.click() })
+    expect(exited).toBe(1)
+    expect(assigned).toEqual([])
+    // Save writes, then lands on the screen the session came from.
+    flushSync(() => cells(root)[0].querySelector('.viewer-edit-mark')!.dispatchEvent(new dom.window.Event('click', { bubbles: true }) as unknown as Event))
+    flushSync(() => saveButton(root).click())
+    await settle()
+    expect(calls.find((call) => call.init?.method === 'PATCH')).toBeTruthy()
+    expect(assigned).toEqual(['/thecontrarian'])
+    expect(replaced).toEqual([])
   })
 
   test('keyboard: Enter picks up, arrows move the held item, H hides, Escape puts back then exits', () => {
@@ -175,7 +197,7 @@ describe('the picker Edit mode', () => {
     }
     const mark = cells(root)[0].querySelector('.viewer-edit-mark')!
     const save = saveButton(root)
-    const cancel = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!
+    const cancel = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Switch to Photo Picker')!
     const sizer = root.querySelector('.viewer-edit-sizer input')!
     for (const el of [mark, save, cancel, sizer]) {
       for (const value of ['Enter', ' ']) {

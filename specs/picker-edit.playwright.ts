@@ -21,7 +21,7 @@ const openPicker = async (page: Page) => {
   await expect(page.locator('.viewer-filmstrip')).toBeVisible({ timeout: 10_000 })
 }
 const enterEdit = async (page: Page) => {
-  await page.getByRole('button', { name: 'Reorder photographs' }).click()
+  await page.getByRole('button', { name: 'Switch to Reorder Photos' }).click()
   await expect(page.locator('.viewer-edit-cell').first()).toBeVisible({ timeout: 20_000 })
 }
 const mark = (page: Page, imageId: string) =>
@@ -75,7 +75,7 @@ test('owner Edit mode reorders and hides, reload shows the result, and restore i
 
     await enterEdit(page)
     await expect(top).toContainText('pick it up')
-    await expect(top.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    await expect(top.getByRole('button', { name: 'Switch to Photo Picker' })).toBeVisible()
     await expect(top.getByRole('button', { name: 'Save' })).toBeVisible()
     await expect(top.locator('.viewer-edit-sizer svg.s')).toBeVisible()
     await expect(top.locator('.viewer-edit-sizer svg.l')).toBeVisible()
@@ -149,11 +149,22 @@ test('the library card menu and the legacy ?reorder=1 link land in Edit mode', a
     await expect(page.locator('.viewer-edit-cell').first()).toBeVisible({ timeout: 20_000 })
     expect(new URL(page.url()).searchParams.get('edit')).toBeNull()
 
-    // The old dashboard deep link hands off to the same place.
+    // Entered from the Library, the way out hands the session back to
+    // it — the switch lands in the Photo Picker, Close goes home.
+    await page.getByRole('button', { name: 'Switch to Photo Picker' }).click()
+    await expect(page.locator('.viewer-filmstrip-item').first()).toBeVisible({ timeout: 20_000 })
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page).toHaveURL(new RegExp(`/${owner}$`), { timeout: 15_000 })
+
+    // The old dashboard deep link hands off to the same place, and its
+    // exit lands the same way.
     await page.goto(`${base}/${owner}?details=${slug}&reorder=1`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('.viewer-edit-cell').first()).toBeVisible({ timeout: 20_000 })
     expect(new URL(page.url()).pathname).toBe(`/${owner}/${slug}`)
     expect(new URL(page.url()).searchParams.get('reorder')).toBeNull()
+    await page.getByRole('button', { name: 'Switch to Photo Picker' }).click()
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page).toHaveURL(new RegExp(`/${owner}$`), { timeout: 15_000 })
   } finally {
     await context.close().catch(() => {})
   }

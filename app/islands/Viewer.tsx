@@ -11,8 +11,8 @@ import VideoSlide, { formatDuration } from './VideoSlide'
 import { connectionOf, videoMountsFor, type ConnectionLike } from '../lib/video-playback'
 import ViewerChrome from '../components/viewer/ViewerChrome'
 import SettingsSheet from '../components/viewer/SettingsSheet'
+import PickerEditor, { BROWSE_HINT, loadGalleryItems, PickerEditButton, PickerSizer, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import OwnerGalleryPanel, { OwnerGalleryHead } from '../components/viewer/OwnerGalleryPanel'
-import PickerEditor, { BROWSE_HINT, loadGalleryItems, PickerEditButton, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
@@ -302,6 +302,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const [editItems, setEditItems] = useState<PickerEditItem[] | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [editNote, setEditNote] = useState<string | null>(null)
+  // The photograph size is shared by both modes — it lives here so the
+  // mode switch keeps the cell height and both sliders drive the same var.
+  const [pickerItemH, setPickerItemH] = useState(12)
   const editLoadingRef = useRef(false)
   // A Reorder tap that lands while the summary fetch is still in flight —
   // the mode flips the moment the items arrive, no second tap.
@@ -822,6 +825,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     openGrid()
     beginEdit()
   }
+  // Entered straight into Edit from outside the gallery (the Library's
+  // card menu, the legacy reorder link) — terminal exits (Save, Close)
+  // land back on that screen, not on a gallery the user never opened.
+  const pickerDoneHref = initialEdit ? libraryHref : undefined
   // The same chrome slot serves the member and the visitor. A member's
   // "Add to Library" copies the gallery into their account and lands on
   // the copy — the 409 duplicate path answers the existing gallery's URL,
@@ -2913,7 +2920,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
       {gridOpen ? <>
         <div class={`filmstrip-scrim ${gridClosing ? 'is-closing' : ''}`} aria-hidden="true" onPointerDown={() => { if (pickerActionsRef.current) pickerActionsRef.current.cancel(); else requestCloseModals() }} />
-        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
+        <div ref={gridModalRef} class={`viewer-filmstrip ${gridClosing ? 'is-closing' : ''}`} style={`--picker-item-h: ${pickerItemH}dvh`} role="dialog" aria-modal="true" aria-label={`${displayTitle || slug} photographs`} onKeyDown={(event) => {
           if (pickerActionsRef.current?.onKey(event)) return
           if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
             event.preventDefault()
@@ -2936,22 +2943,32 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               pan={{ onPointerDown: startFilmstripPan, onPointerMove: moveFilmstripPan, onPointerUp: endFilmstripPan, onPointerCancel: endFilmstripPan, onWheel: wheelFilmstrip }}
               suppressClickRef={gridSuppressClickRef}
               actionsRef={pickerActionsRef}
+              itemHeight={pickerItemH}
+              onItemHeight={setPickerItemH}
               currentPhotoId={() => images[indexRef.current]?.id ?? ''}
               onExit={exitEdit}
+              doneHref={pickerDoneHref}
             />
           ) : (
           <>
-          {/* One top bar in both modes: what a tap does on the left, the
-              mode's controls on the right. While the owner summary is
-              still in flight the picker's cells stay on screen and the
-              description says the mode change is coming. */}
+          {/* The top bar is pixel-identical across modes: the mode title
+              in the brand font and the tap description on the left; the
+              sizer, the mode switch, and the mode's own action on the
+              right, in fixed slots so nothing jumps when the mode
+              flips. While the owner summary is still in flight the
+              picker's cells stay on screen and the description says
+              the mode change is coming. */}
           <div class="viewer-picker-top">
-            <p class="viewer-picker-desc">{pickerEdit ? 'Loading the gallery…' : BROWSE_HINT}</p>
+            <div class="viewer-picker-title">
+              <strong class="viewer-picker-mode">{pickerEdit ? 'Reorder Photos' : 'Photo Picker'}</strong>
+              <p class="viewer-picker-desc">{pickerEdit ? 'Loading the gallery…' : BROWSE_HINT}</p>
+            </div>
             <div class="viewer-picker-actions">
+              <PickerSizer value={pickerItemH} onChange={setPickerItemH} />
               {ownerInline ? (
                 <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
               ) : null}
-              <button type="button" onClick={requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
+              <button type="button" class="viewer-picker-end" onClick={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals} aria-label={`Close ${displayTitle || slug}`}>Close</button>
             </div>
           </div>
           <div ref={filmstripFrameRef} class="viewer-filmstrip-frame" onPointerDown={startFilmstripPan} onPointerMove={moveFilmstripPan} onPointerUp={endFilmstripPan} onPointerCancel={endFilmstripPan} onWheel={wheelFilmstrip}>

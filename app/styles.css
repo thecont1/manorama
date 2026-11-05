@@ -1135,6 +1135,9 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   position: fixed;
   z-index: 30;
   inset: 0;
+  /* Both modes size their cells from one var — the top bar's slider
+     drives it whether the picker is browsing or reordering. */
+  --picker-item-h: 12dvh;
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -1159,8 +1162,17 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   border-bottom: 1px solid rgba(244, 240, 232, .18);
   color: rgba(244, 240, 232, .88);
 }
+/* The top bar is the same layout in both modes — the mode name wears
+   the brand font, the description sits under it, and the controls hold
+   fixed slots so no button jumps when the mode flips. */
+.viewer-picker-title { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+.viewer-picker-mode { font-family: var(--m-font); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: #f4f1ea; }
 .viewer-picker-desc { margin: 0; font-size: 13px; color: rgba(244, 240, 232, .62); }
 .viewer-picker-actions { display: flex; align-items: center; gap: 12px; }
+/* The switch's two labels differ in length — pin the slot so the row
+   never shifts between modes. */
+.viewer-picker-top .viewer-picker-switch { min-width: 10.5rem; }
+.viewer-picker-top .viewer-picker-end { min-width: 4.5rem; }
 .viewer-picker-header {
   order: 2;
   flex: 0 0 auto;
@@ -1209,7 +1221,7 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   z-index: 0;
   flex: 0 0 auto;
   width: auto;
-  height: 12dvh;
+  height: var(--picker-item-h);
   margin: 0;
   padding: 0;
   border: 0;
@@ -1228,7 +1240,7 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-filmstrip-item img {
   display: block;
   width: auto;
-  height: 12dvh;
+  height: var(--picker-item-h);
   max-width: none;
   object-fit: contain;
   opacity: 0;
@@ -1299,9 +1311,7 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-edit-cell.is-hidden .viewer-edit-mark,
 .viewer-edit-mark:focus-visible { opacity: 1; }
 .viewer-edit-mark:focus-visible { outline: 2px solid #fc0fc0; outline-offset: 1px; }
-.viewer-edit-status { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 13px; color: rgba(244, 240, 232, .82); }
 .viewer-edit-alert { color: #ff7d95; font-weight: 600; }
-.viewer-edit-controls { display: flex; align-items: center; gap: 12px; }
 .viewer-edit-sizer { display: flex; align-items: center; gap: 8px; color: rgba(244, 240, 232, .62); }
 .viewer-edit-sizer svg { flex: 0 0 auto; }
 .viewer-edit-sizer svg.s { width: 14px; height: 14px; }
@@ -1316,7 +1326,7 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 .viewer-filmstrip .viewer-picker-header { background: rgb(10, 12, 12); }
 @media (max-width: 720px) {
   .viewer-picker-top { flex-wrap: wrap; }
-  .viewer-edit-status { flex-basis: 100%; }
+  .viewer-picker-title { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

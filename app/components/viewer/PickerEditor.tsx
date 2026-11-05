@@ -80,8 +80,32 @@ export const PickerEditButton = ({ temporary, loading, onBegin }: { temporary: b
   temporary ? (
     <span class="viewer-picker-lock">{PIPELINE_LOCK_MESSAGE}</span>
   ) : (
-    <button type="button" onClick={onBegin} disabled={loading}>{loading ? 'Loading…' : 'Reorder photographs'}</button>
+    <button type="button" class="viewer-picker-switch" onClick={onBegin} disabled={loading}>{loading ? 'Loading…' : 'Switch to Reorder Photos'}</button>
   )
+
+/** The photograph-size slider — identical markup in both modes so it
+ *  never moves a pixel when the mode switches. */
+export const PickerSizer = ({ value, onChange }: { value: number; onChange: (height: number) => void }) => (
+  <label class="viewer-edit-sizer">
+    <svg class="s" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
+    <span class="sr-only">Photograph size</span>
+    <input
+      type="range"
+      min={8}
+      max={24}
+      step={1}
+      value={value}
+      aria-label="Photograph size"
+      onInput={(event) => onChange(Number((event.currentTarget as HTMLInputElement).value))}
+      onKeyDown={(event) => {
+        // Home/End size the slider natively; the editor's handler
+        // would otherwise move a held photograph or the selection.
+        if (event.key === 'Home' || event.key === 'End') event.stopPropagation()
+      }}
+    />
+    <svg class="l" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
+  </label>
+)
 
 /** One line under the picker title, both modes — the screen reads the
  *  same, only what a tap does changes. */
@@ -114,12 +138,20 @@ type Props = {
   /** The on-stage photograph at save time — the reload returns to it
    *  unless the draft hides it. */
   currentPhotoId: () => string
+  /** The photograph size both modes share — hoisted to the viewer so a
+   *  switch carries it over. */
+  itemHeight: number
+  onItemHeight: (height: number) => void
   /** Leaves Edit for browse mode; the draft dies with the component. */
   onExit: () => void
+  /** Where Save and Cancel land when Edit was entered from outside the
+   *  gallery (the Library's card menu) — the screen the user came from.
+   *  Unset, both end on the gallery. */
+  doneHref?: string
 }
 
 export default function PickerEditor({
-  slug, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, currentPhotoId, onExit,
+  slug, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, doneHref,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -139,7 +171,6 @@ export default function PickerEditor({
   // The mark surfaces on hover or focus; on touch it is raised by the tap
   // that picks the photograph up, and rides along to the next cell tapped.
   const [revealedId, setRevealedId] = useState<string | null>(null)
-  const [itemHeight, setItemHeight] = useState(12)
   const [saving, setSaving] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
@@ -229,6 +260,9 @@ export default function PickerEditor({
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That order could not be saved')
         announce('Order saved')
+        // Entered from outside the gallery — go back to that screen
+        // rather than reloading into a gallery the user never opened.
+        if (doneHref) { window.location.assign(doneHref); return }
         // Return to the on-stage photograph when the draft still shows it;
         // a freshly hidden one leaves the reload on the first frame.
         const current = currentPhotoId()
@@ -261,7 +295,7 @@ export default function PickerEditor({
       // Save, Cancel, the size slider, and the per-cell mark activate
       // natively — claiming the key would turn them into a pick-up.
       const el = event.target as HTMLElement | null
-      if (el?.closest?.('.viewer-edit-controls, .viewer-edit-mark')) return true
+      if (el?.closest?.('.viewer-picker-actions, .viewer-edit-mark')) return true
       const target = sessionRef.current.items[selIndex]
       if (!target) return true
       event.preventDefault()
@@ -298,36 +332,24 @@ export default function PickerEditor({
   // A real element diffs in place, so nothing under the pointer moves.
   return (
     <div style="display:contents">
-      {/* One top bar in both modes: a description of what a tap does on
-          the left, the mode's controls on the right. The gallery title
-          and count stay in the shared bottom bar the viewer renders. */}
+      {/* The top bar is pixel-identical across modes: the mode title in
+          the brand font and the tap description on the left; the sizer,
+          the mode switch, and the mode's own action on the right, in
+          fixed slots so nothing jumps when the mode flips. The gallery
+          title and count stay in the shared bottom bar the viewer
+          renders. */}
       <div class="viewer-picker-top">
-        <p class="viewer-edit-status">
-          {status}
-          {note ? <span class="viewer-edit-alert" role="alert"> {note}</span> : null}
-        </p>
-        <div class="viewer-edit-controls">
-          <label class="viewer-edit-sizer">
-            <svg class="s" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
-            <span class="sr-only">Photograph size</span>
-            <input
-              type="range"
-              min={8}
-              max={24}
-              step={1}
-              value={itemHeight}
-              aria-label="Photograph size"
-              onInput={(event) => setItemHeight(Number((event.currentTarget as HTMLInputElement).value))}
-              onKeyDown={(event) => {
-                // Home/End size the slider natively; the editor's handler
-                // would otherwise move a held photograph or the selection.
-                if (event.key === 'Home' || event.key === 'End') event.stopPropagation()
-              }}
-            />
-            <svg class="l" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 16l5-5 4 4 3-3 6 6"/></svg>
-          </label>
-          <button type="button" onClick={cancel} disabled={saving}>Cancel</button>
-          <button type="button" class="viewer-edit-save" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <div class="viewer-picker-title">
+          <strong class="viewer-picker-mode">Reorder Photos</strong>
+          <p class="viewer-picker-desc">
+            {status}
+            {note ? <span class="viewer-edit-alert" role="alert"> {note}</span> : null}
+          </p>
+        </div>
+        <div class="viewer-picker-actions">
+          <PickerSizer value={itemHeight} onChange={onItemHeight} />
+          <button type="button" class="viewer-picker-switch" onClick={cancel} disabled={saving}>Switch to Photo Picker</button>
+          <button type="button" class="viewer-picker-end viewer-edit-save" onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
       <div ref={frameRef} class="viewer-filmstrip-frame" {...pan}>
