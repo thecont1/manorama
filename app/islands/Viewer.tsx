@@ -2699,11 +2699,6 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   decoding="async"
                   loading={isActive ? 'eager' : 'lazy'}
                 />
-                {/* Encrypted frames sit on the placeholder while multi-MB
-                    originals materialize — the pink bar says "downloading"
-                    without a dishonest percentage: materialize delivers
-                    whole bytes, so no honest endpoint exists to fill to. */}
-                {!isVideoItem(image) && image.media && !(isHeic(image) ? heicSrc[image.id] : image.src) ? <span class="viewer-frame-progress" aria-hidden="true" /> : null}
                 {mountsMedia && (isHeic(image) ? heicSrc[image.id] : image.src) ? (
                   <img
                     class="frame-img"
@@ -2804,6 +2799,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                     }}
                   />
                 ) : null}
+                {/* Any still whose img has no `is-loaded` yet is in flight —
+                    provider fetch, decrypt+materialize, or HEIC decode alike.
+                    The bar is indeterminate on purpose: no honest endpoint
+                    exists to fill toward, so a percentage would lie. The
+                    sibling rule retires it the moment pixels arrive. */}
+                {mountsMedia ? <span class="viewer-frame-progress" aria-hidden="true" /> : null}
                 </>
                 )}
               </figure>

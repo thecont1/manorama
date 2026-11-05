@@ -476,6 +476,9 @@ button { color: inherit; }
 .viewer-frame-progress::before { content: ''; position: absolute; top: 0; bottom: 0; width: 34%; background: #ff2d95; animation: viewer-frame-progress 1.3s ease-in-out infinite; }
 @keyframes viewer-frame-progress { 0% { left: -34%; } 100% { left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .viewer-frame-progress::before { animation: none; left: 33%; } }
+/* Retired by the frame's own is-loaded mark — covers a slow provider fetch,
+   an encrypted materialize, or a HEIC decode with one rule. */
+.viewer-frame .frame-img.is-loaded ~ .viewer-frame-progress { display: none; }
 /* A plate: a photograph whose own pixels cannot fill this stage, shown at its
    honest size inside a frame that keeps the stage's full height. The canvas
    left above and below is the mount, and the mount is marked the way every
