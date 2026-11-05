@@ -52,6 +52,9 @@ declare global {
   }
 }
 
+/** Install the TC39 Uint8Array base64/hex methods the crypto package
+ *  calls when the engine predates them (WebViews older than mid-2025).
+ *  No-ops where the methods already exist. */
 const ensureUint8ArrayCodecs = () => {
   const ctor = Uint8Array as unknown as { fromBase64?: (input: string) => Uint8Array }
   if (typeof ctor.fromBase64 !== 'function') {
@@ -91,9 +94,15 @@ const DIMS_PROBE_BYTES = 65536
 // coexist in the collector, matching the MEGA/Ente cap.
 const MAX_FILE_BYTES = 48 * 1024 * 1024
 const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
-// Client-side scans have no subrequest ceiling; the budget is a backstop
-// against runaway fan-out, same posture as the MEGA/Ente clients.
-const PROTON_SCAN_REQUEST_BUDGET = MAX_GALLERY_ITEMS * 3
+// Client-side scans have no subrequest ceiling; the budgets are backstops
+// against runaway fan-out, same posture as the MEGA/Ente clients. JSON
+// metadata (auth, listings, node keys, block tokens) spends the scan
+// budget — a few calls per node. Binary content (blocks, thumbnails)
+// spends the independent media budget so a viewer materializing mid-scan
+// can never starve the listing, and a finished scan cannot cap later
+// downloads; ~2 thumbnail fetches plus a block chain per item bounds it.
+const PROTON_SCAN_REQUEST_BUDGET = MAX_GALLERY_ITEMS * 5
+const PROTON_MEDIA_REQUEST_BUDGET = MAX_GALLERY_ITEMS * 16
 // The SDK's download queue admits five concurrent file downloads — stay
 // inside it so probe batches never block on queue capacity.
 const PROBE_BATCH = 5
@@ -143,19 +152,28 @@ const claimedMediaDims = (claimed: object | undefined): { width: number; height:
   return orientation && orientation >= 5 && orientation <= 8 ? { width: height, height: width } : { width, height }
 }
 
+/** The node's decrypted display name, or the unverified placeholder the
+ *  SDK carries when name decryption fails — trimmed, never an empty
+ *  string. */
 const nodeName = (node: NodeEntity): string | null => {
   if (node.name.ok) return node.name.value.trim() || null
   const placeholder = (node.name.error as { name?: unknown }).name
   return typeof placeholder === 'string' && placeholder.trim() ? placeholder.trim() : null
 }
 
+/** Whether a node belongs in the gallery: its `mediaType` mime wins, with
+ *  the filename extension as the fallback for nodes that claim none. */
 const isImageNode = (node: NodeEntity, name: string | null): boolean => {
   if (node.mediaType) return IMAGE_MEDIA_TYPES.test(node.mediaType)
   return Boolean(name && IMAGE_EXTENSIONS.test(name))
 }
 
+/** A human alt label from a filename: strips the extension, turns
+ *  separators into spaces, and falls back to 'Photograph'. */
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 
+/** Content type from magic bytes — Proton thumbnails carry no declared
+ *  mime, so the first four bytes decide. */
 const sniffContentType = (bytes: Uint8Array) =>
   bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg'
     : bytes[0] === 0x52 && bytes[1] === 0x49 ? 'image/webp'
@@ -190,11 +208,15 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
   const { CryptoProxy } = await import('@protontech/crypto')
   const { getSrp, computeKeyPassword, generateKeySalt } = await import('@protontech/crypto/srp')
 
-  const meteredFetch = createScanBudget(PROTON_SCAN_REQUEST_BUDGET).fetch(fetchImpl)
-  // Every request — API JSON, block-stream blobs, and the thumbnail CDN —
-  // rides this client, which stamps the honest third-party identity the
-  // SDK terms ask for and spends the scan budget.
-  const protonFetch = (request: { url: string; method: string; headers: Headers; json?: object; body?: XMLHttpRequestBodyInit; timeoutMs: number; signal?: AbortSignal }): Promise<Response> => {
+  // JSON metadata rides the scan budget; binary content rides the media
+  // budget. The SDK splits its calls the same way — fetchJson for API
+  // requests, fetchBlob for block-stream and thumbnail downloads.
+  const scanFetch = createScanBudget(PROTON_SCAN_REQUEST_BUDGET).fetch(fetchImpl)
+  const mediaFetch = createScanBudget(PROTON_MEDIA_REQUEST_BUDGET).fetch(fetchImpl)
+  /** Every request rides this client, which stamps the honest third-party
+   *  identity the SDK terms ask for, honours the SDK's own timeouts, and
+   *  spends the caller's request budget. */
+  const protonFetch = (meteredFetch: typeof fetch) => (request: { url: string; method: string; headers: Headers; json?: object; body?: XMLHttpRequestBodyInit; timeoutMs: number; signal?: AbortSignal }): Promise<Response> => {
     const headers = new Headers(request.headers)
     headers.set('x-pm-appversion', `external-drive-manorama@${MANORAMA_SDK_APP_VERSION}-stable`)
     const signal = request.signal
@@ -208,8 +230,8 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
     })
   }
   const httpClient: ProtonDriveHTTPClient = {
-    fetchJson: (request) => protonFetch(request),
-    fetchBlob: (request) => protonFetch(request),
+    fetchJson: protonFetch(scanFetch),
+    fetchBlob: protonFetch(mediaFetch),
   }
 
   // Anonymous sessions have no account: every account method throws if a
@@ -269,6 +291,9 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
 
   const nodes = new Map<string, NodeEntity>()
 
+  /** Walk the share: root node (folder or single file), then every
+   *  descendant, keeping file nodes whose mediaType is a supported image
+   *  and caching entities for later materialize calls. */
   const collectNodes = async (linkClient: PublicLinkSession): Promise<{ title: string; files: NodeEntity[]; foundTotal: number }> => {
     const root = await linkClient.getRootNode()
     const title = nodeName(root) ?? 'Untitled gallery'
@@ -301,6 +326,8 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
     return { title, files, foundTotal: files.length }
   }
 
+  /** The scanned entity when listed, a live lookup otherwise — manifest
+   *  submitters only ever materialize scanned nodes. */
   const nodeEntity = async (uid: string): Promise<NodeEntity> => nodes.get(uid) ?? session.getNode(uid)
 
   /** Ranged decrypted head read — the same trick as the MEGA head probe:
@@ -337,6 +364,9 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
     return { width: 4, height: 3 }
   }
 
+  /** Build the GalleryImage for a scanned file node: keyless proton ref,
+   *  sha-256 contentVersion over identity inputs, and a thumbnail variant
+   *  materialized lazily by node uid — same shape as Ente. */
   const makeImage = async (node: NodeEntity, index: number, width: number, height: number): Promise<GalleryImage> => {
     const name = nodeName(node) ?? `photo-${index + 1}.jpg`
     const media = { kind: 'encrypted' as const, provider: 'proton' as const, sourceKind: 'urls' as const, sourceId: link.token, nodeId: node.uid, previewId: node.uid }
@@ -370,6 +400,8 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
     }
   }
 
+  /** The dims pass over the listing, batched to the download queue's
+   *  capacity — exhausted budgets truncate rather than fail the scan. */
   const scanImages = async (listed: { title: string; files: NodeEntity[]; foundTotal: number }): Promise<ProtonScan> => {
     const images: GalleryImage[] = []
     let exhausted = false
@@ -391,6 +423,8 @@ export const openProtonSession = async (input: string, fetchImpl: typeof fetch =
     return { sourceUrl, title: listed.title, images, ...(truncated ? { truncated } : {}) }
   }
 
+  /** A WritableStream that accumulates decrypted chunks and enforces the
+   *  whole-file byte ceiling and abort — downloadToStream writes into it. */
   const collectDownloaded = (signal?: AbortSignal): { stream: WritableStream<Uint8Array>; bytes: () => Uint8Array } => {
     const chunks: Uint8Array[] = []
     let total = 0
