@@ -73,7 +73,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await addTrigger.click()
     const addSheet = page.getByRole('dialog', { name: 'Add a gallery' })
     await expect(addSheet).toBeVisible()
-    await expect(addSheet.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA')).toBeVisible()
+    await expect(addSheet.getByLabel('Shared folder or album link — Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive')).toBeVisible()
     await expect(addSheet.getByRole('button', { name: 'Paste', exact: true })).toBeVisible()
     await expect(addSheet.getByLabel('Name (optional)')).toBeVisible()
     await expect(page.locator('.m-sheet-foot').getByRole('button', { name: 'Add a gallery', exact: true })).toBeInViewport()

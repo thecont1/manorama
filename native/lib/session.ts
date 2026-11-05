@@ -2,7 +2,7 @@ import { SecureStorage } from '@aparajita/capacitor-secure-storage'
 import { App } from '@capacitor/app'
 import { Browser } from '@capacitor/browser'
 import type { AuthProvider } from '../../app/lib/identity-repository'
-import { encryptedSourceFromGalleryHash, galleryIdFromGalleryHash } from '../../packages/core/encrypted-source'
+import { encryptedSourceFromGalleryHash, enteIdentityFromUrl, galleryIdFromGalleryHash, protonIdentityFromUrl } from '../../packages/core/encrypted-source'
 
 export type { AuthProvider }
 
@@ -28,6 +28,11 @@ const supportedQuickAddSource = (sourceUrl: string): boolean => {
     if (host === 'icloud.com') return source.pathname.startsWith('/sharedalbum/')
     if (host === 'share.icloud.com') return source.pathname.startsWith('/photos/')
     if (host === 'mega.nz' || host === 'mega.co.nz') return /^\/(?:folder|collection)\//.test(source.pathname)
+    // Encrypted providers match on their canonical URL shape — the key
+    // fragment is optional here (the scanner reports a missing key, same
+    // as a keyless MEGA link) and rides url.hash through the wrapper.
+    if (enteIdentityFromUrl(sourceUrl)) return true
+    if (protonIdentityFromUrl(sourceUrl)) return true
     return false
   } catch {
     return false

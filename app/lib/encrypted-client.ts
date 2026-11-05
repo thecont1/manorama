@@ -41,5 +41,23 @@ export const openEncryptedSource = async (sourceUrl: string): Promise<EncryptedC
       dispose: () => ente.dispose(),
     }
   }
-  throw new Error('Use a complete MEGA or Ente public album link')
+  if (provider === 'proton') {
+    const { openProtonSession } = await import('./proton-client')
+    const proton = await openProtonSession(sourceUrl)
+    return {
+      provider: 'proton',
+      sourceUrl: proton.sourceUrl,
+      listing: proton.scan.then((scan) => ({
+        title: scan.title,
+        images: scan.images,
+        ...(scan.truncated ? { truncated: scan.truncated } : {}),
+      })),
+      materialize: (reference, preview, signal) => {
+        if (reference.kind !== 'encrypted' || reference.provider !== 'proton') throw new Error('Proton Drive media reference is invalid')
+        return proton.materialize(reference.nodeId, preview, signal)
+      },
+      dispose: () => proton.dispose(),
+    }
+  }
+  throw new Error('Use a complete MEGA, Ente or Proton Drive public link')
 }

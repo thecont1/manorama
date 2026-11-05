@@ -115,14 +115,17 @@ const manoramaDevSeed = (): Plugin => {
     const sources = sourceSeeds.length
       ? await server.ssrLoadModule('/app/lib/sources.ts') as unknown as Sources
       : null
-    // Encrypted providers (MEGA) can no longer be scanned server-side — the
-    // Worker dispatcher rejects them. Seed them through the same client
-    // scanner a browser would run, so the dev fixture exercises the real path.
+    // Encrypted providers (MEGA/Ente/Proton) can no longer be scanned
+    // server-side — the Worker dispatcher rejects them. Seed them through
+    // the same client scanner a browser would run, so the dev fixture
+    // exercises the real path.
     const clientScan = async (url: string) => {
       if (/\/file\//i.test(new URL(url).pathname)) throw new Error('Use a public MEGA folder or collection link')
-      const { scanMegaSource } = await server.ssrLoadModule('/app/lib/mega-client.ts') as
-        typeof import('./app/lib/mega-client')
-      return scanMegaSource(url)
+      const { openEncryptedSource } = await server.ssrLoadModule('/app/lib/encrypted-client.ts') as
+        typeof import('./app/lib/encrypted-client')
+      const session = await openEncryptedSource(url)
+      const listing = await session.listing
+      return { sourceUrl: session.sourceUrl, title: listing.title, images: listing.images, ...(listing.truncated ? { truncated: listing.truncated } : {}) }
     }
     const seenUrls = new Set<string>()
     const scans = await Promise.all(sourceSeeds.map(async ({ slug, url }) => {

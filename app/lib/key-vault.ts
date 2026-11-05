@@ -150,9 +150,12 @@ export const putVaultRecord = async (record: OwnerVaultRecord): Promise<void> =>
   if (!response.ok) throw new Error('The key vault could not be saved')
 }
 
+/** Read the escrowed key for a gallery. `null` means the read succeeded
+ *  and nothing is stored — a non-OK response is a failed read and throws,
+ *  so callers can never mistake 'unavailable' for 'not escrowed'. */
 export const fetchGalleryKey = async (slug: string): Promise<WrappedGalleryKey | null> => {
   const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}/key`)
-  if (!response.ok) return null
+  if (!response.ok) throw new Error('The gallery key could not be read')
   const payload = await response.json() as { key?: WrappedGalleryKey | null }
   return payload.key ?? null
 }

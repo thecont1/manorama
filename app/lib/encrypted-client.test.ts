@@ -13,12 +13,18 @@ describe('openEncryptedSource provider gate', () => {
     expect(encryptedProviderForUrl('https://albums.ente.io/?t=AbCdEfGh')).toBe('ente')
   })
 
+  test('a Proton Drive share URL is detected as proton', () => {
+    expect(encryptedProviderForUrl('https://drive.proton.me/urls/AbCdEfGh#secretpassword')).toBe('proton')
+  })
+
   test('provider branches stay dynamically imported — the dispatch file holds no network code', () => {
     const dispatch = source.indexOf('encryptedProviderForUrl(sourceUrl)')
     const megaBranch = source.indexOf("provider === 'mega'")
     const megaImport = source.indexOf("import('./mega-client')")
     const enteBranch = source.indexOf("provider === 'ente'")
     const enteImport = source.indexOf("import('./ente-client')")
+    const protonBranch = source.indexOf("provider === 'proton'")
+    const protonImport = source.indexOf("import('./proton-client')")
     expect(dispatch).toBeGreaterThan(-1)
     // Provider detection runs before any branch, each branch lazily imports
     // its own client module, and the dispatch file itself holds no fetch —
@@ -27,11 +33,13 @@ describe('openEncryptedSource provider gate', () => {
     expect(megaBranch).toBeLessThan(megaImport)
     expect(enteBranch).toBeGreaterThan(-1)
     expect(enteBranch).toBeLessThan(enteImport)
-    expect(source.match(/import\(/g)).toHaveLength(2)
+    expect(protonBranch).toBeGreaterThan(-1)
+    expect(protonBranch).toBeLessThan(protonImport)
+    expect(source.match(/import\(/g)).toHaveLength(3)
     expect(source).not.toContain('fetch(')
   })
 
   test('unrecognized links fall through to provider guidance', () => {
-    expect(source).toContain('Use a complete MEGA or Ente public album link')
+    expect(source).toContain('Use a complete MEGA, Ente or Proton Drive public link')
   })
 })

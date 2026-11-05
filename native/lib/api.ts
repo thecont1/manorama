@@ -121,7 +121,7 @@ export const createGalleryFromQuickAdd = async (
  * fragment/key never appears here — `sourceUrl` is the canonical keyless URL,
  * and every image carries only keyless media references. */
 export type KeylessManifest = {
-  provider: 'mega' | 'ente'
+  provider: 'mega' | 'ente' | 'proton'
   sourceUrl: string
   title: string
   images: GalleryMediaItem[]

@@ -1566,7 +1566,7 @@ describe('signed-in account area', () => {
     // always-on workbench form.
     const addForm = await openAddForm(container)
     expect(addForm.querySelector('input[type="url"]')?.getAttribute('aria-label'))
-      .toBe('Shared folder or album link — Dropbox, Google Drive, iCloud or MEGA')
+      .toBe('Shared folder or album link — Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive')
     ;(container.querySelector('.m-sheet [aria-label="Close"]') as HTMLButtonElement).click()
     await settle()
 

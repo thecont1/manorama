@@ -19,6 +19,7 @@ const listSources = (dir: string): string[] => {
 // surface may reference them at all — the flagged switch is deleted.
 const DECRYPTOR_MODULES = [
   'mega-client', 'mega-crypto', 'mega-decrypt', 'mega-crypto.worker',
+  'proton-client',
   'encrypted-client', 'encrypted-resolver', 'encrypted-display',
   'encrypted-refresh',
 ]
@@ -59,6 +60,7 @@ describe('encrypted-source architecture guards', () => {
   test('the server dispatcher routes MEGA to the client', () => {
     const dispatcher = source('app/lib/sources.ts')
     expect(dispatcher).toContain('MEGA sources are scanned on your device')
+    expect(dispatcher).toContain('Proton Drive sources are scanned on your device')
   })
 
   test('web key custody is session-only and keyed by immutable gallery id', () => {

@@ -4,7 +4,7 @@ import type { GalleryImage } from './imagesource'
 export type MaterializedMedia = { bytes: Uint8Array; mimeType: string }
 export type EncryptedListing = { title: string; images: GalleryImage[]; truncated?: number }
 export type EncryptedClientSession = {
-  provider: 'mega' | 'ente'
+  provider: 'mega' | 'ente' | 'proton'
   sourceUrl: string
   /** The scan's probe pass, still running when open returns. Manifest
    *  submitters await it; a viewer must not block first paint on it —

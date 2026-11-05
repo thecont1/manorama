@@ -2,7 +2,7 @@ import { scanDropboxFolder } from './dropbox-public'
 import { extractDriveFolderId, scanDriveFolder } from './gdrive-public'
 import { extractAlbumToken, isICloudDriveLink, scanICloudAlbum } from './icloud-shared'
 import { isLocalPathInput, localSourcesEnabled, normalizeLocalPathString, scanLocalFolder } from './local-source'
-import { enteIdentityFromUrl, megaIdentityFromUrl } from '../../packages/core/encrypted-source'
+import { enteIdentityFromUrl, megaIdentityFromUrl, protonIdentityFromUrl } from '../../packages/core/encrypted-source'
 import type { GalleryMediaItem } from './imagesource'
 
 /**
@@ -19,7 +19,7 @@ import type { GalleryMediaItem } from './imagesource'
  * the link fragment). There are no per-user source tokens.
  */
 
-export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'ente' | 'local'
+export type SourceProvider = 'dropbox' | 'gdrive' | 'icloud' | 'mega' | 'ente' | 'proton' | 'local'
 
 export type SourceScan = { provider: SourceProvider; sourceUrl: string; title: string; images: GalleryMediaItem[]; truncated?: number; partial?: boolean }
 
@@ -30,7 +30,7 @@ export type SourceEnv = {
 }
 
 export const UNRECOGNIZED_LINK_MESSAGE =
-  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, MEGA folder/collection, or Ente album link'
+  'Paste a public Dropbox folder, Google Drive folder, iCloud shared album, MEGA folder/collection, Ente album, or Proton Drive link'
 
 export const detectSource = (input: string): SourceProvider | null => {
   // Dev-only local folders: absolute paths and file:// URLs. The flag is
@@ -51,6 +51,7 @@ export const detectSource = (input: string): SourceProvider | null => {
   if (host === 'photos.icloud.com' && url.pathname.startsWith('/shared/album/')) return 'icloud'
   if (host === 'mega.nz' || host === 'mega.co.nz') return 'mega'
   if (host === 'albums.ente.io' || host === 'albums.ente.com') return 'ente'
+  if (host === 'drive.proton.me') return 'proton'
   return null
 }
 
@@ -94,6 +95,10 @@ const isShareResource = (url: URL, provider: SourceProvider): boolean => {
       // Same fragment-custody rule as MEGA: the album key never reaches
       // the server, so only the access-token shape is checked here.
       return Boolean(url.searchParams.get('t') || /^\/[0-9A-Za-z_-]+(?:\/|$)/.test(url.pathname))
+    case 'proton':
+      // Same fragment-custody rule: the share password lives in
+      // `#password`, so only the /urls/{token} resource is checked here.
+      return /^\/urls\/[0-9A-Za-z_-]+(?:\/|$)/.test(url.pathname)
     case 'local':
       // Local folders are claimed by the dev route's filesystem check, not
       // by URL shape — an embedded file path is never a share resource.
@@ -204,6 +209,13 @@ export const canonicalSourceMatches = (storedSourceUrl: string, candidateUrl: st
       // a rotated or keyless link still names the same public album.
       return Boolean(stored && candidate && stored.id === candidate.id)
     }
+    case 'proton': {
+      const stored = protonIdentityFromUrl(storedSourceUrl)
+      const candidate = protonIdentityFromUrl(candidateUrl)
+      // The link token is the share's identity; the fragment password
+      // is access-only, so rotated/keyless links still match.
+      return Boolean(stored && candidate && stored.id === candidate.id)
+    }
     case 'gdrive': {
       try {
         const stored = extractDriveFolderId(storedSourceUrl)
@@ -298,6 +310,8 @@ const scanSourceUnbounded = async (input: string, env: SourceEnv, fetchImpl: typ
         throw new Error('MEGA sources are scanned on your device, never by the server')
       case 'ente':
         throw new Error('Ente sources are scanned on your device, never by the server')
+      case 'proton':
+        throw new Error('Proton Drive sources are scanned on your device, never by the server')
       case 'local':
         return scanLocalFolder(input)
     }

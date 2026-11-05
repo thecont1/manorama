@@ -5,6 +5,7 @@ import {
   enteIdentityFromUrl,
   mediaReferenceIsValid,
   megaIdentityFromUrl,
+  protonIdentityFromUrl,
   validatePublishedDimensions,
   type EncryptedSourceProvider,
 } from '../../packages/core/encrypted-source'
@@ -25,6 +26,10 @@ const IMAGE_FIELDS = new Set([
 const VARIANT_FIELDS = new Set(['width', 'src', 'media', 'format'])
 const MANIFEST_FIELDS = new Set(['provider', 'sourceUrl', 'title', 'images', 'truncated'])
 const HANDLE = /^[0-9A-Za-z_-]{1,256}$/
+// Proton nodeUids carry a '~' volume separator — still keyless-safe.
+const PROTON_NODE = /^[0-9A-Za-z_~=-]{1,256}$/
+const refIsValid = (provider: EncryptedSourceProvider, ref: unknown): ref is string =>
+  typeof ref === 'string' && ref.length <= 256 && (provider === 'proton' ? PROTON_NODE.test(ref) : HANDLE.test(ref))
 
 const record = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -46,9 +51,10 @@ const validateVariant = (value: unknown, source: { provider: EncryptedSourceProv
 const validateImage = (value: unknown, source: { provider: EncryptedSourceProvider; handle: string; kind?: string }): value is GalleryImage => {
   if (!record(value) || !onlyFields(value, IMAGE_FIELDS)) return false
   if (value.type !== undefined && value.type !== 'image') return false
-  if (!text(value.id, 128, false) || !text(value.ref, 256, false) || !HANDLE.test(value.ref)) return false
+  if (!text(value.id, 128, false) || !text(value.ref, 256, false) || !refIsValid(source.provider, value.ref)) return false
   if (source.provider === 'mega' && !/^mega-[0-9A-Za-z]{1,18}$/.test(value.id)) return false
   if (source.provider === 'ente' && !/^ente-\d{1,20}$/.test(value.id)) return false
+  if (source.provider === 'proton' && !/^proton-[0-9A-Za-z]{1,18}$/.test(value.id)) return false
   if (!text(value.filename, 512, false) || value.src !== '' || !text(value.alt, 2048) || !text(value.caption ?? '', 10_000)) return false
   if (typeof value.c2pa !== 'boolean' || !safePlaceholder(value.placeholder)) return false
   if (value.hidden !== undefined && typeof value.hidden !== 'boolean') return false
@@ -68,11 +74,15 @@ const validateImage = (value: unknown, source: { provider: EncryptedSourceProvid
  * keyless still-image manifests and never returns a server-fetchable URL. */
 export const validateEncryptedManifest = (input: unknown): EncryptedManifestInput => {
   if (!record(input) || !onlyFields(input, MANIFEST_FIELDS)) throw new Error('Encrypted manifest has an invalid shape')
-  if (input.provider !== 'mega' && input.provider !== 'ente') throw new Error('Encrypted provider is not supported')
+  if (input.provider !== 'mega' && input.provider !== 'ente' && input.provider !== 'proton') throw new Error('Encrypted provider is not supported')
   if (!text(input.sourceUrl, 2048, false) || input.sourceUrl.includes('#')) throw new Error('Encrypted source URL must be keyless')
   if (encryptedProviderForUrl(input.sourceUrl) !== input.provider) throw new Error('Encrypted source provider does not match its URL')
   if (keylessSourceUrl(input.sourceUrl) !== input.sourceUrl) throw new Error('Encrypted source URL is not canonical')
-  const identity = input.provider === 'mega' ? megaIdentityFromUrl(input.sourceUrl) : enteIdentityFromUrl(input.sourceUrl)
+  const identity = input.provider === 'mega'
+    ? megaIdentityFromUrl(input.sourceUrl)
+    : input.provider === 'proton'
+      ? protonIdentityFromUrl(input.sourceUrl)
+      : enteIdentityFromUrl(input.sourceUrl)
   const handle = identity?.id
   if (!handle || !HANDLE.test(handle)) throw new Error('Encrypted source handle is invalid')
   if (!text(input.title, 120) || !Array.isArray(input.images) || input.images.length < 1 || input.images.length > MAX_GALLERY_ITEMS) {

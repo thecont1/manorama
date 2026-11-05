@@ -123,6 +123,35 @@ describe('native OAuth callback', () => {
     expect(gallerySelectionFromDeepLink('https://manorama.xyz/ftp://dropbox.com/scl/fo/folder/key')).toBeNull()
   })
 
+  test('quick-add wrappers carry ente and proton links with their fragment keys intact', () => {
+    // The wrapped provider URL sits in the Manorama path; its own '#key'
+    // travels in the Manorama fragment and is reattached before matching.
+    expect(gallerySelectionFromDeepLink(
+      'https://manorama.xyz/https://albums.ente.io/AbCdEf12Gh34#c2VjcmV0LWtleQ',
+    )).toEqual({
+      kind: 'quick-add',
+      sourceUrl: 'https://albums.ente.io/AbCdEf12Gh34#c2VjcmV0LWtleQ',
+    })
+    expect(gallerySelectionFromDeepLink(
+      'https://manorama.xyz/https://drive.proton.me/urls/15C18NM2P0#CRQg5B9kSrQ2',
+    )).toEqual({
+      kind: 'quick-add',
+      sourceUrl: 'https://drive.proton.me/urls/15C18NM2P0#CRQg5B9kSrQ2',
+    })
+    // A keyless link is still a supported shape — the client scanner
+    // reports the missing key, matching the keyless MEGA posture.
+    expect(gallerySelectionFromDeepLink(
+      'https://manorama.xyz/https://drive.proton.me/urls/15C18NM2P0',
+    )).toEqual({
+      kind: 'quick-add',
+      sourceUrl: 'https://drive.proton.me/urls/15C18NM2P0',
+    })
+    // Non-share paths on those hosts do not qualify.
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/https://drive.proton.me/u/0')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/https://albums.ente.io/')).toBeNull()
+    expect(gallerySelectionFromDeepLink('https://manorama.xyz/https://ente.io/')).toBeNull()
+  })
+
   test('a full #source fragment opens an encrypted gallery without leaking the key', () => {
     const keyed = 'https://mega.nz/folder/AbCdEf12#a2V5LXNlY3JldA'
     const hash = `#source=${encodeURIComponent(keyed)}`

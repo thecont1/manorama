@@ -12,7 +12,7 @@ import { resetUserStore } from '../lib/user-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from '../lib/test-fixtures'
 
 const SENTENCE = 'Your shared folders, shown properly'
-const EXPLANATION = 'Paste a shared Dropbox, Google Drive, iCloud or MEGA album link. manorama turns it into a quiet, full-screen gallery at your own address.'
+const EXPLANATION = 'Paste a shared Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive album link. manorama turns it into a quiet, full-screen gallery at your own address.'
 
 const globals = globalThis as Record<string, unknown>
 let previousWindow: unknown
