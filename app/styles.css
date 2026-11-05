@@ -1336,6 +1336,15 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 @media (max-width: 720px) {
   .viewer-picker-top { flex-wrap: wrap; }
   .viewer-picker-title { flex-basis: 100%; }
+  /* The actions row must shrink too — the fixed slots total ~424px and
+     spilled past a portrait phone's right edge (Close clipped off).
+     Compress them so sizer + switch hold one line on ≈390px widths and
+     let the terminal button wrap under, right-aligned, on 375px and
+     below — always fully on screen. */
+  .viewer-picker-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .viewer-edit-sizer input[type="range"] { width: 72px; }
+  .viewer-picker-top .viewer-picker-switch { min-width: 9rem; }
+  .viewer-picker-top .viewer-picker-end { min-width: 4rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
