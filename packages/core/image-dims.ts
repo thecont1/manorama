@@ -65,3 +65,45 @@ const parseIsobmffDimensions = (bytes: Uint8Array) => {
 
 export const probeImageDimensions = (bytes: Uint8Array) =>
   parseJpegDimensions(bytes) ?? parsePngDimensions(bytes) ?? parseGifDimensions(bytes) ?? parseWebpDimensions(bytes) ?? parseIsobmffDimensions(bytes)
+
+/** JPEG EXIF orientation (tag 0x0112 in APP1) — the browser displays values
+ *  5–8 with width and height swapped, so stored dims must be the swapped pair
+ *  or the frame reserves the wrong box. */
+export const parseJpegOrientation = (bytes: Uint8Array): number | undefined => {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined
+  let offset = 2
+  while (offset + 4 < bytes.length) {
+    if (bytes[offset] !== 0xff) { offset += 1; continue }
+    const marker = bytes[offset + 1]!
+    const length = u16be(bytes, offset + 2)
+    if (marker === 0xda) return undefined
+    if (marker === 0xe1 && isAscii(bytes, offset + 4, 'Exif') && bytes[offset + 8] === 0 && bytes[offset + 9] === 0) {
+      const tiff = offset + 10
+      const little = bytes[tiff] === 0x49
+      const u16 = little ? u16le : u16be
+      const u32 = (b: Uint8Array, o: number) => little ? b[o]! + (b[o + 1]! << 8) + (b[o + 2]! << 16) + ((b[o + 3]! << 24) >>> 0) : u32be(b, o)
+      const ifd0 = tiff + u32(bytes, tiff + 4)
+      if (ifd0 + 2 > bytes.length) return undefined
+      const count = u16(bytes, ifd0)
+      for (let i = 0; i < count; i++) {
+        const entry = ifd0 + 2 + i * 12
+        if (entry + 12 > bytes.length) return undefined
+        if (u16(bytes, entry) === 0x0112) return u16(bytes, entry + 8)
+      }
+      return undefined
+    }
+    offset += Math.max(2, length + 2)
+  }
+  return undefined
+}
+
+/** Raw header dims are the pixels as stored; orientation 5–8 is what the
+ *  browser shows. This is the pair a frame's reserved box must match. */
+export const displayedImageDimensions = (bytes: Uint8Array) => {
+  const dimensions = probeImageDimensions(bytes)
+  if (!dimensions) return null
+  const orientation = parseJpegOrientation(bytes)
+  return orientation !== undefined && orientation >= 5
+    ? { width: dimensions.height, height: dimensions.width }
+    : dimensions
+}

@@ -1,6 +1,6 @@
 import { MAX_GALLERY_ITEMS, SourceFetchError, type GalleryImage } from './imagesource'
 import { keylessSourceUrl } from '../../packages/core/encrypted-source'
-import { parseJpegDimensions, parseWebpDimensions, probeImageDimensions } from './image-dims'
+import { displayedImageDimensions, parseJpegDimensions, parseWebpDimensions } from './image-dims'
 import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, decryptTlvRecords, ecbDecrypt, foldKey, metaMacMatches } from './mega-crypto'
 import { createScanBudget, ScanBudgetExhausted } from './scan-budget'
 import { cbcDecryptClient, ctrDecryptClient, ctrDecryptMetaMacClient } from './mega-decrypt'
@@ -291,12 +291,9 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
   // recovers most probes, anything still failing falls back to 4:3.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const renderable = BROWSER_RENDERABLE.test(name)
       const fah = faHandle(node.fa, 1) ?? faHandle(node.fa, 0)
-      // The preview is the dims source of choice for renderable files. For
-      // HEIC/HEIF its dims describe a capped rendition — it still gets
-      // fetched to warm the rail cache and to stand in as the fallback,
-      // but the original's head is authoritative.
+      // The preview still gets fetched to warm the rail cache and to stand
+      // in as the dims fallback, but the original's head is authoritative.
       let previewDims: { width: number; height: number } | null = null
       let previewFormat: string | undefined
       if (fah) {
@@ -304,13 +301,16 @@ const probeDimensions = async (auth: MegaAuth, node: { h: string; fa?: string },
         if (preview) {
           previewDims = parsePreviewDimensions(preview) ?? null
           previewFormat = sniffContentType(preview)
-          if (renderable && previewDims) return { ...previewDims, previewFormat }
         }
       }
+      // The original's head is authoritative: MEGA previews are capped at
+      // ~1024px, and a frame staged at rendition dims visibly resizes when
+      // the true pixels land. displayedImageDimensions applies EXIF
+      // orientation so the reserved box matches what the browser draws.
       const info = await downloadInfo(auth, node.h, fetchImpl)
       if (info.g) {
         const head = await fetchRange(info.g, 0, DIMS_PROBE_BYTES - 1, fetchImpl)
-        const dimensions = probeImageDimensions(await decryptContent(head, nodeKey))
+        const dimensions = displayedImageDimensions(await decryptContent(head, nodeKey))
         if (dimensions) return { ...dimensions, previewFormat }
       }
       if (previewDims) return { ...previewDims, previewFormat }

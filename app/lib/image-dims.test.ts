@@ -1,8 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { probeImageDimensions } from './image-dims'
+import { displayedImageDimensions, parseJpegOrientation, probeImageDimensions } from './image-dims'
 
 const jpeg = (w: number, h: number) => new Uint8Array([
   0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, ...new Array(14).fill(0),
+  0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 0xff, w >> 8, w & 0xff, 0x03,
+])
+
+/** SOI + APP1 Exif (little-endian TIFF, IFD0 tag 0x0112) + SOF0. */
+const jpegWithOrientation = (w: number, h: number, orientation: number) => new Uint8Array([
+  0xff, 0xd8,
+  0xff, 0xe1, 0x00, 0x1c, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
+  0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+  0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, orientation, 0x00, 0x00, 0x00,
   0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 0xff, w >> 8, w & 0xff, 0x03,
 ])
 
@@ -58,6 +67,18 @@ describe('probeImageDimensions', () => {
     b.set(isobmff('mif1', 160, 120).subarray(0, 48), 0)
     b.set(isobmff('mif1', 4000, 3000).subarray(24, 48), 48)
     expect(probeImageDimensions(b)).toEqual({ width: 4000, height: 3000 })
+  })
+  test('jpeg APP1 Exif orientation parses', () => {
+    expect(parseJpegOrientation(jpegWithOrientation(5712, 4284, 6))).toBe(6)
+    expect(parseJpegOrientation(jpegWithOrientation(5712, 4284, 1))).toBe(1)
+    expect(parseJpegOrientation(jpeg(5712, 4284))).toBeUndefined()
+  })
+  test('displayedImageDimensions swaps axes for orientations 5–8 only', () => {
+    expect(displayedImageDimensions(jpegWithOrientation(5712, 4284, 6))).toEqual({ width: 4284, height: 5712 })
+    expect(displayedImageDimensions(jpegWithOrientation(5712, 4284, 8))).toEqual({ width: 4284, height: 5712 })
+    expect(displayedImageDimensions(jpegWithOrientation(5712, 4284, 3))).toEqual({ width: 5712, height: 4284 })
+    expect(displayedImageDimensions(jpeg(5712, 4284))).toEqual({ width: 5712, height: 4284 })
+    expect(displayedImageDimensions(png(1920, 1080))).toEqual({ width: 1920, height: 1080 })
   })
   test('unrecognised bytes return null', () => {
     expect(probeImageDimensions(new Uint8Array(64))).toBeNull()
