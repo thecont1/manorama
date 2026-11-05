@@ -1339,15 +1339,17 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
 @media (max-width: 720px) {
   /* Portrait phones get their own two-row composition, not a collapsed
      desktop row: the title shares row one with the terminal button (the
-     app-bar pairing) and the size slider + mode switch share row two at
-     opposite ends. The desktop slots alone totalled ~424px — that both
-     spilled past the right edge and, wrapped whole, orphaned Close onto
-     a third row beside a void. */
+     app-bar pairing) and the mode switch holds row two alone, right under
+     it. The sizer stays off phones — the default cell height suffices and
+     a squeezed slider was decoration — but remains mounted so its value
+     survives a rotate. When the row's only tenant was the sizer (a
+     non-owner pick) there is nothing to spread, so it goes entirely. */
   .viewer-picker-top { flex-wrap: wrap; }
   .viewer-picker-title { order: 1; flex: 1 1 auto; }
   .viewer-picker-top > .viewer-picker-end { order: 2; }
-  .viewer-picker-actions { order: 3; flex-basis: 100%; margin-left: 0; justify-content: space-between; }
-  .viewer-edit-sizer input[type="range"] { width: 72px; }
+  .viewer-picker-actions { order: 3; flex-basis: 100%; margin-left: 0; justify-content: flex-end; }
+  .viewer-picker-actions:not(:has(.viewer-picker-switch, .viewer-picker-lock)) { display: none; }
+  .viewer-edit-sizer { display: none; }
   .viewer-picker-top .viewer-picker-switch { min-width: 9rem; }
   .viewer-picker-top .viewer-picker-end { min-width: 4rem; }
 }
