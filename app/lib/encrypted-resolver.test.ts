@@ -72,7 +72,8 @@ describe('encrypted media resolver', () => {
     const thirdUrl = await resolver.acquire(third, false)
     expect(thirdUrl).toBe('blob:test-3')
     // Idle entries are what eviction eats.
-    expect(revoked).toEqual(expect.arrayContaining([first, heldOverCap]))
+    expect(revoked).toContain(first)
+    expect(revoked).toContain(heldOverCap)
     resolver.dispose()
   })
 
