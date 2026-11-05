@@ -1211,9 +1211,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 <span class="lib-pin-choice-name">Visionary — unlimited permanent galleries</span>
                 <a class="m-btn" href={upgradeHref}>Upgrade</a>
               </li>
-              {retainedCount < FREE_RETAINED_LIMIT ? (
+              {tier === 'pro' || retainedCount < FREE_RETAINED_LIMIT ? (
                 <li>
-                  <span class="lib-pin-choice-name">Keep it permanently — a slot is free</span>
+                  <span class="lib-pin-choice-name">Keep it permanently — {tier === 'pro' ? 'Visionary is unlimited' : 'a slot is free'}</span>
                   <button type="button" class="m-btn" disabled={busy} onClick={() => { void runKeep(pinChoiceGallery) }}>Keep it</button>
                 </li>
               ) : null}

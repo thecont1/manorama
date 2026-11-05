@@ -456,18 +456,27 @@ export const setGalleryPinned = async (ownerId: string, slug: string, pinned: bo
 }
 
 /** Promotes a pipeline gallery into a permanent slot on its own — used
- *  when the owner's permanent set is not full and no swap is needed. */
-export const setGalleryRetained = async (ownerId: string, slug: string, env?: GalleryEnv): Promise<GalleryRecord | null> => {
+ *  when the owner's permanent set has room and no swap is needed. The
+ *  slot check rides inside the same UPDATE (a count-and-write pre-check
+ *  would race a concurrent promote and overfill the quota); `limit`
+ *  of null means unlimited. Returns 'limit' when the quota was the
+ *  reason nothing changed, null for a missing or non-pipeline row. */
+export const setGalleryRetained = async (ownerId: string, slug: string, limit: number | null, env?: GalleryEnv): Promise<GalleryRecord | 'limit' | null> => {
   if (d1Configured(env)) {
     const result = await env.DB
-      .prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL WHERE owner_id = ? AND slug = ?`)
-      .bind(ownerId, slug).run()
-    if ((result.meta.changes ?? 0) === 0) return null
-    return getGallery(ownerId, slug, env)
+      .prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL
+                WHERE owner_id = ? AND slug = ? AND retention = 'pipeline'
+                  AND (? IS NULL OR (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'retained') < ?)`)
+      .bind(ownerId, slug, limit, ownerId, limit).run()
+    if ((result.meta.changes ?? 0) > 0) return getGallery(ownerId, slug, env)
+    const current = await getStoredGallery(ownerId, slug, env)
+    return current && current.retention === 'pipeline' ? 'limit' : null
   }
   const store = ownerStore(ownerId)
   const current = store.get(slug)
-  if (!current) return null
+  if (!current || retentionOf(current) !== 'pipeline') return null
+  const retainedCount = [...store.values()].filter((item) => retentionOf(item) === 'retained').length
+  if (limit !== null && retainedCount >= limit) return 'limit'
   const updated = { ...normalizeRecord(current), retention: 'retained' as const, expiresAt: null }
   store.set(slug, updated)
   return updated
@@ -480,17 +489,30 @@ export const setGalleryRetained = async (ownerId: string, slug: string, env?: Ga
  *  cross together so the owner sees exactly the exchange they chose. */
 export const swapGalleryRetention = async (ownerId: string, pipelineSlug: string, retainedSlug: string, env?: GalleryEnv): Promise<{ incoming: GalleryRecord; outgoing: GalleryRecord } | null> => {
   if (d1Configured(env)) {
-    const [incoming, outgoing] = await Promise.all([
-      getStoredGallery(ownerId, pipelineSlug, env),
-      getStoredGallery(ownerId, retainedSlug, env),
-    ])
-    if (!incoming || !outgoing || retentionOf(incoming) === 'retained' || retentionOf(outgoing) === 'pipeline') return null
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL, pinned_at = ? WHERE owner_id = ? AND slug = ?`)
-        .bind(outgoing.pinnedAt ?? null, ownerId, pipelineSlug),
-      env.DB.prepare(`UPDATE galleries SET retention = 'pipeline', expires_at = ?, pinned_at = ? WHERE owner_id = ? AND slug = ?`)
-        .bind(incoming.expiresAt ?? null, incoming.pinnedAt ?? null, ownerId, retainedSlug),
-    ])
+    // One guarded statement: the CASE columns cross each row's values onto
+    // the other, and the WHERE clause proves the expected retention of
+    // both rows at update time — a read-then-write would let either row
+    // drift in between. Exactly two changed rows is the acceptance test.
+    const result = await env.DB
+      .prepare(`UPDATE galleries SET
+                  retention = CASE WHEN slug = ? THEN 'retained' ELSE 'pipeline' END,
+                  expires_at = CASE WHEN slug = ? THEN NULL
+                    ELSE (SELECT expires_at FROM galleries WHERE owner_id = ? AND slug = ?) END,
+                  pinned_at = CASE WHEN slug = ?
+                    THEN (SELECT pinned_at FROM galleries WHERE owner_id = ? AND slug = ?)
+                    ELSE (SELECT pinned_at FROM galleries WHERE owner_id = ? AND slug = ?) END
+                WHERE owner_id = ? AND slug IN (?, ?)
+                  AND (SELECT retention FROM galleries WHERE owner_id = ? AND slug = ?) = 'pipeline'
+                  AND (SELECT retention FROM galleries WHERE owner_id = ? AND slug = ?) = 'retained'`)
+      .bind(
+        pipelineSlug,
+        pipelineSlug, ownerId, pipelineSlug,
+        pipelineSlug, ownerId, retainedSlug, ownerId, pipelineSlug,
+        ownerId, pipelineSlug, retainedSlug,
+        ownerId, pipelineSlug,
+        ownerId, retainedSlug,
+      ).run()
+    if ((result.meta.changes ?? 0) !== 2) return null
     const [nextIn, nextOut] = await Promise.all([getGallery(ownerId, pipelineSlug, env), getGallery(ownerId, retainedSlug, env)])
     return nextIn && nextOut ? { incoming: nextIn, outgoing: nextOut } : null
   }

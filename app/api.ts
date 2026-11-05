@@ -795,26 +795,29 @@ export const createManoramaApi = () => {
    *  retained gallery — the exchange the card's chooser promises. */
   api.post('/api/galleries/:slug/swap', async (c) => {
     const session = c.get('manoramaSession')
-    const payload = await c.req.json<{ with?: string }>().catch((): { with?: string } => ({}))
-    const target = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
-    if (!target || isGalleryExpired(target)) return c.json({ error: 'That gallery was not found' }, 404)
-    if (target.retention !== 'pipeline') return c.json({ error: 'That gallery is already permanent' }, 422)
-    if (payload.with) {
-      const victim = await getStoredGallery(session.accountId, payload.with, dbEnv(c))
-      if (!victim || victim.retention === 'pipeline') return c.json({ error: 'Choose a permanent gallery to swap with' }, 422)
-      const swapped = await swapGalleryRetention(session.accountId, target.slug, victim.slug, dbEnv(c))
-      if (!swapped) return c.json({ error: 'That gallery was not found' }, 404)
-      return c.json({ incoming: toSummary(swapped.incoming), outgoing: toSummary(swapped.outgoing) })
+    const payload = await c.req.json<unknown>().catch((): unknown => ({}))
+    const withSlug = typeof payload === 'object' && payload !== null && typeof (payload as { with?: unknown }).with === 'string'
+      ? (payload as { with: string }).with
+      : null
+    try {
+      const target = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!target || isGalleryExpired(target)) return c.json({ error: 'That gallery was not found' }, 404)
+      if (target.retention !== 'pipeline') return c.json({ error: 'That gallery is already permanent' }, 422)
+      if (withSlug) {
+        const swapped = await swapGalleryRetention(session.accountId, target.slug, withSlug, dbEnv(c))
+        if (!swapped) return c.json({ error: 'Choose a permanent gallery to swap with' }, 422)
+        return c.json({ incoming: toSummary(swapped.incoming), outgoing: toSummary(swapped.outgoing) })
+      }
+      const user = await getUserByAccountId(session.accountId, dbEnv(c))
+      // The limit lives inside the promote's guarded UPDATE — Visionary
+      // promotes unconditionally.
+      const promoted = await setGalleryRetained(session.accountId, target.slug, user?.tier === 'pro' ? null : FREE_RETAINED_LIMIT, dbEnv(c))
+      if (promoted === 'limit') return c.json({ code: 'PIN_LIMIT', error: pinLimitError().message }, 409)
+      if (!promoted) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ gallery: toSummary(promoted) })
+    } catch {
+      return c.json({ error: 'That gallery is temporarily unavailable' }, 503)
     }
-    const user = await getUserByAccountId(session.accountId, dbEnv(c))
-    if (user?.tier !== 'pro') {
-      const others = await listGalleries(session.accountId, dbEnv(c))
-      const retainedCount = others.filter((item) => item.retention !== 'pipeline').length
-      if (retainedCount >= FREE_RETAINED_LIMIT) return c.json({ code: 'PIN_LIMIT', error: pinLimitError().message }, 409)
-    }
-    const promoted = await setGalleryRetained(session.accountId, target.slug, dbEnv(c))
-    if (!promoted) return c.json({ error: 'That gallery was not found' }, 404)
-    return c.json({ gallery: toSummary(promoted) })
   })
 
   api.delete('/api/galleries/:slug', async (c) => {
