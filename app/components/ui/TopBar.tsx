@@ -8,11 +8,15 @@ type Props = {
   end?: Child
   title?: string
   logo?: boolean
+  /** Marks the bar as a Tauri drag region ("deep": empty pixels drag the
+   *  window, clickable children still take their clicks). Inert outside the
+   *  desktop shell — no other runtime reads the attribute. */
+  drag?: boolean
 }
 
-export function TopBar({ start, end, title, logo = true }: Props) {
+export function TopBar({ start, end, title, logo = true, drag = false }: Props) {
   return (
-    <header class="m-topbar">
+    <header class="m-topbar" data-tauri-drag-region={drag ? 'deep' : undefined}>
       <div class="m-topbar-slot">{start}</div>
       {title ? (
         <h2 class="m-topbar-title">{title}</h2>

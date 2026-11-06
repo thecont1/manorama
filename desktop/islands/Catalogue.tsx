@@ -733,7 +733,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   if (detailsRecord) {
     return (
       <>
-        <div class="desktop-titlebar" data-tauri-drag-region />
         <LocalGalleryDetails
           record={detailsRecord}
           availability={availability[detailsRecord.id] ?? 'available'}
@@ -799,11 +798,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // island renders nothing above until the private files have been read, so
     // anything measuring the surface can wait for it instead of guessing.
     <main class="admin-page admin-page--selector desktop-catalogue" data-admin-ready="true">
-      <div class="desktop-titlebar" data-tauri-drag-region />
       {/* The compact owner shell: shared mark in the bar, a gear for the
           account/settings drawer, Library and Add on one row — the same
-          contract as the web Library (TASTE-03). */}
-      <TopBar end={(
+          contract as the web Library (TASTE-03). The bar itself is the
+          window's drag region — the strip only backs chrome-less screens. */}
+      <TopBar drag end={(
         <button
           type="button"
           class="m-btn m-btn--quiet m-iconbtn"

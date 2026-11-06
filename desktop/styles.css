@@ -18,13 +18,16 @@ body.manorama-desktop {
 }
 
 /* The window is undecorated (titleBarStyle Overlay): this strip keeps the
-   traffic-light height draggable on every surface. */
+   traffic-light height draggable on chrome-free surfaces (viewer, welcome,
+   loading). Surfaces with a TopBar drag through the bar itself instead —
+   a fixed overlay can never stack cleanly inside .admin-page's z-index
+   context, and pointer-events:none would make the attribute dead markup
+   anyway. Below the account drawer (60) and sheets (90+), above content. */
 .desktop-titlebar {
   position: fixed;
   inset: 0 0 auto;
   height: var(--desktop-safe-top);
-  z-index: 100;
-  pointer-events: none;
+  z-index: 50;
 }
 
 .desktop-shell {
