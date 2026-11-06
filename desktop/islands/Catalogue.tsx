@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
-import { defaultGallerySettings } from '../../app/lib/gallery-settings'
+import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gallery-settings'
 import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
 import type { GalleryManifest } from '../../app/lib/imagesource'
 import { formatMediaCount, summaryMediaCount } from '../../app/lib/imagesource'
@@ -26,17 +26,17 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
+import { fetchAccountGalleries, fetchAccountGallery, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
+import { isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
 import { Sheet } from '../../app/components/ui/Sheet'
-import { TopBar } from '../../app/components/ui/TopBar'
 import { applyTheme, oppositeTheme, readStoredTheme, storeTheme, themeControlLabel, type Theme } from '../lib/theme'
 import {
   beginDesktopSignIn,
@@ -52,6 +52,10 @@ import {
 
 const CATALOGUE_FILE = 'catalogue.json'
 const DEVICE_LABEL = 'This Mac'
+
+// The build tag under the rail mark — injected by vite's define, 'dev' under
+// tests and scripts which never see it.
+const buildCommit = typeof __MANORAMA_COMMIT__ === 'string' ? __MANORAMA_COMMIT__ : 'dev'
 const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
 const sourceLabel = (record: LocalGalleryRecord): string =>
   record.sourceKind === 'card' ? 'Memory card' : 'Folder on this Mac'
@@ -92,6 +96,8 @@ const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
 
 type ViewerState = { galleryId: string; index: number }
+/** A fetched cloud manifest riding the same Viewer the local records use. */
+type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number }
 type SyncState = 'idle' | 'syncing' | 'synced' | 'partial' | 'failed'
 
 const syncMessage = (state: SyncState, session: DesktopSession | null): string => {
@@ -137,6 +143,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [catalogue, setCatalogue] = useState<LocalCatalogue | null>(null)
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
+  const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
   const [plate, setPlate] = useState<AdFrame | null>(null)
   const [session, setSession] = useState<DesktopSession | null>(null)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
@@ -589,6 +596,29 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     if (w > 0 && h > 0) dimsRef.current.set(itemId, { w, h })
   }
 
+  // A fetched cloud manifest rides the same Viewer as local records — the
+  // app hosts the viewing it advertises rather than handing it to a browser.
+  if (accountViewer) {
+    return (
+      <>
+        <div class="desktop-titlebar" data-tauri-drag-region />
+        <GalleryShell settings={accountViewer.settings}>
+          <Viewer
+            key={`${accountViewer.manifest.slug}:${accountViewer.index}`}
+            slug={accountViewer.manifest.slug}
+            galleryTitle={accountViewer.manifest.title}
+            images={accountViewer.manifest.images}
+            settings={accountViewer.settings}
+            plate={plate}
+            initialIndex={accountViewer.index}
+            allowFullscreen={false}
+            onReturnToGalleries={() => setAccountViewer(null)}
+          />
+        </GalleryShell>
+      </>
+    )
+  }
+
   // Full-screen viewing: the shared Viewer, fed by manifest items pointing
   // at convertFileSrc URLs. The viewer heals guessed dims to the real
   // natural size on load — nothing is upscaled or re-encoded.
@@ -784,6 +814,27 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
 
   const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
+
+  /** A cloud gallery opens in the app's own Viewer — the viewing experience
+   *  is the product, not a browser tab. Encrypted sources keep the browser
+   *  path: their key flow lives on the web surface and the desktop has no
+   *  provider-key UI. A manifest that cannot be fetched degrades the same
+   *  way — the browser still opens the gallery. */
+  const openAccountGallery = async (gallery: GallerySummary, index: number) => {
+    const url = accountGalleryUrl(gallery)
+    if (!session || (gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))) {
+      openExternal(url)
+      return
+    }
+    try {
+      const { manifest, settings } = await fetchAccountGallery(
+        base, ownerSlug ?? session.ownerSlug, gallery.slug, session.token,
+      )
+      setAccountViewer({ manifest, settings, index })
+    } catch {
+      openExternal(url)
+    }
+  }
   const menuAnchor = (url: string) => ({
     ...externalAnchor(url),
     onClick: (event: MouseEvent) => {
@@ -798,23 +849,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // island renders nothing above until the private files have been read, so
     // anything measuring the surface can wait for it instead of guessing.
     <main class="admin-page admin-page--selector desktop-catalogue" data-admin-ready="true">
-      {/* The compact owner shell: shared mark in the bar, a gear for the
-          account/settings drawer, Library and Add on one row — the same
-          contract as the web Library (TASTE-03). The bar itself is the
-          window's drag region — the strip only backs chrome-less screens. */}
-      <TopBar drag end={(
-        <button
-          type="button"
-          class="m-btn m-btn--quiet m-iconbtn"
-          aria-label="Settings"
-          aria-expanded={menuOpen ? 'true' : 'false'}
-          aria-controls="admin-account-drawer"
-          ref={menuButtonRef}
-          onClick={() => setMenuOpen(true)}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>
-        </button>
-      )} />
+      <div class="desktop-titlebar" data-tauri-drag-region />
       {/* Hidden account controls stay outside the accessibility tree until the
           hydrated catalogue opens them. */}
       <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
@@ -872,23 +907,53 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       </div>
 
       <div class="admin-content">
-        <section class="gallery-list" aria-labelledby="galleries-heading">
+        {/* The same two-column anatomy as the web Library: the rail carries
+            mark + build tag, the heading's actions (Add, Sync, Settings —
+            the gear that opens the account drawer), the device line and
+            copyright; the cards scroll beside it. */}
+        <aside class="admin-rail">
+          <div class="admin-brand">
+            <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
+            <p class="admin-version">version {buildCommit}</p>
+          </div>
           <div class="admin-library-heading">
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
-            <div class="desktop-library-actions">
-              {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>{syncState === 'syncing' ? 'Syncing…' : 'Sync now'}</button> : null}
+            <div class="admin-heading-actions">
               <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
+              {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>{syncState === 'syncing' ? 'Syncing…' : 'Sync now'}</button> : null}
+              <button
+                type="button"
+                class="admin-button admin-settings-pill"
+                aria-label="Settings"
+                aria-expanded={menuOpen ? 'true' : 'false'}
+                aria-controls="admin-account-drawer"
+                ref={menuButtonRef}
+                onClick={() => setMenuOpen(true)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>
+              </button>
             </div>
           </div>
           <p class="admin-library-sub">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'} · {syncMessage(syncState, session)}</p>
           {notice ? <p class="desktop-source-note" role="status">{notice}</p> : null}
           {accountNote ? <p class="desktop-source-note" role="status">{accountNote}</p> : null}
           {slugNote ? <p class="desktop-source-note" role="status">{slugNote}</p> : null}
+          <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />All platform rights reserved.</p>
+        </aside>
+        <section class="gallery-list" aria-labelledby="galleries-heading">
           {galleries.length || accountGalleries?.length || remoteDeviceGalleries.length ? (
             <ul class="lib-list">
               {accountGalleries?.map((gallery) => {
                 const title = gallery.title || gallery.slug
                 const galleryUrl = accountGalleryUrl(gallery)
+                const encrypted = Boolean(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))
+                /* Click opens in-app; ⌘/Ctrl-click (and encrypted sources,
+                   whose key flow lives on the web) keeps the browser path. */
+                const openCard = (index: number) => (event: MouseEvent) => {
+                  event.preventDefault()
+                  if (encrypted || event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
+                  void openAccountGallery(gallery, index)
+                }
                 return <li key={`account-${gallery.slug}`}><article class="lib-card">
                   {gallery.images.length ? (
                     <div class="admin-gallery-strip-frame">
@@ -896,7 +961,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                         {gallery.images.map((image, index) => (
                           <li class="admin-gallery-strip-item" key={image.id}>
                             <a
-                              {...externalAnchor(galleryUrl)}
+                              href={galleryUrl}
+                              onClick={openCard(index)}
                               draggable={false}
                               aria-label={`Open ${title} — photograph ${index + 1} of ${gallery.images.length}`}
                             >
@@ -914,7 +980,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     </div>
                   ) : null}
                   <div class="lib-card-head">
-                    <a class="lib-card-title" {...externalAnchor(galleryUrl)} draggable={false}>{title}</a>
+                    <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}</a>
                     <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
                   </div>
                   <p class="lib-card-sub">

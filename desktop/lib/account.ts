@@ -1,5 +1,6 @@
-import type { ImageVariant } from '../../app/lib/imagesource'
+import type { GalleryManifest, ImageVariant } from '../../app/lib/imagesource'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
+import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gallery-settings'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { normalizeApiBase } from './session'
 
@@ -57,6 +58,46 @@ export const fetchAccountGalleries = async (
       ...('type' in image && image.type === 'video' ? { poster: { ...image.poster, src: absoluteUrl(image.poster.src, apiBase) } } : {}),
     })) } : {}),
   }))
+}
+
+/** GET {apiBase}/api/gallery/{owner}/{slug} — the public manifest the
+ *  gallery route serves to every viewer, fetched so a cloud gallery can
+ *  open inside the app's own Viewer instead of the system browser. Item
+ *  URLs arrive server-relative and are rewritten like the list's previews.
+ *  The bearer is optional: the route is public, but a session lets the
+ *  owner's own delivery capabilities through unchanged. */
+export const fetchAccountGallery = async (
+  apiBase: string,
+  ownerSlug: string,
+  slug: string,
+  token?: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<{ manifest: GalleryManifest; settings: GallerySettings }> => {
+  const response = await fetcher(
+    `${normalizeApiBase(apiBase)}/api/gallery/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(slug)}`,
+    { headers: token ? bearer(token) : undefined, signal },
+  )
+  const payload = await response.json().catch(() => ({})) as {
+    manifest?: GalleryManifest
+    settings?: GallerySettings
+    error?: string
+  }
+  if (!response.ok || !payload.manifest) {
+    throw new AccountApiError(response.status, payload.error || `Gallery request failed (${response.status})`)
+  }
+  const manifest = {
+    ...payload.manifest,
+    images: payload.manifest.images.map((image) => ({
+      ...image,
+      src: absoluteUrl(image.src, apiBase),
+      variants: image.variants?.map((variant) => rewriteVariant(variant, apiBase)),
+      ...('type' in image && image.type === 'video' && image.poster
+        ? { poster: { ...image.poster, src: absoluteUrl(image.poster.src, apiBase) } }
+        : {}),
+    })),
+  }
+  return { manifest, settings: payload.settings ?? defaultGallerySettings(manifest) }
 }
 
 /** GET {apiBase}/api/device-galleries — the synced records every device

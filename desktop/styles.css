@@ -122,7 +122,10 @@ body.manorama-desktop {
 
 .desktop-catalogue { padding-bottom: clamp(40px, 6vw, 88px); }
 
-.desktop-library-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+/* No TopBar on this surface — the rail's own mark heads the page, so the
+   content starts below the traffic-light strip rather than under it. */
+.desktop-catalogue .admin-content { padding-top: calc(var(--desktop-safe-top) + clamp(12px, 2vw, 20px)); }
+
 .desktop-source-note {
   margin: 14px 0 0;
   color: rgba(var(--ink), .82);

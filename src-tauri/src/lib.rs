@@ -28,8 +28,11 @@ fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
 /// shows the folder dialog, and the directory the user picked — never a
 /// path the renderer supplied — is what gets granted. The pick is then
 /// recorded as provenance so launch-time re-grants stay inside it.
+// Async, not sync: a non-async command runs inline in the IPC handler — the
+// main thread on macOS — and blocking_pick_folder would park that thread on
+// a channel while the dialog it queued waits for the same thread. Deadlock.
 #[tauri::command]
-fn pick_gallery_root(app: AppHandle) -> Result<Option<String>, String> {
+async fn pick_gallery_root(app: AppHandle) -> Result<Option<String>, String> {
     let Some(picked) = app.dialog().file().blocking_pick_folder() else {
         return Ok(None);
     };

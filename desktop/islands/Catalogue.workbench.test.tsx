@@ -270,18 +270,18 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.desktop-catalogue')).not.toBeNull()
     expect(container.querySelector('.desktop-shell')).toBeNull()
 
-    // The compact owner shell: shared mark in the top bar, then a Library +
-    // Add row ahead of the cards — the same contract as the web Library.
+    // The web Library's anatomy: the shared mark heads the left rail, then
+    // a Library + actions row, with the cards scrolling beside.
     const galleries = container.querySelector('#galleries-heading')
     expect(galleries?.textContent).toBe('Library')
-    expect(container.querySelector('.m-topbar-logo')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
+    expect(container.querySelector('.admin-brand-mark')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
     const addButton = byText(container, '+ Add Gallery')
     expect(addButton).toBeDefined()
     const html = container.innerHTML
-    expect(html.indexOf('m-topbar')).toBeLessThan(html.indexOf('galleries-heading'))
+    expect(html.indexOf('admin-rail')).toBeLessThan(html.indexOf('galleries-heading'))
     expect(html.indexOf('admin-library-heading')).toBeLessThan(html.indexOf('lib-list'))
 
-    // The account controls live behind the gear in the top bar.
+    // The account controls live behind the gear in the rail's heading.
     const tab = container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')
     expect(tab?.getAttribute('aria-label')).toBe('Settings')
     expect(tab?.getAttribute('aria-expanded')).toBe('false')
