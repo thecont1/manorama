@@ -1035,9 +1035,11 @@ export const createManoramaApi = () => {
   api.get('/api/account', async (c) => {
     const session = c.get('manoramaSession')
     // The desktop reads this row on every sync tick — tier rides along so a
-    // downgrade propagates without waiting for a fresh sign-in exchange.
-    const user = await getUserByAccountId(session.accountId, dbEnv(c)).catch(() => null)
-    return c.json({ ownerSlug: session.ownerSlug, tier: user?.tier ?? 'free' })
+    // downgrade propagates without waiting for a fresh sign-in exchange. A
+    // failed lookup omits the field rather than reporting free, so a
+    // transient database error cannot demote a stored session.
+    const user = await getUserByAccountId(session.accountId, dbEnv(c)).catch(() => undefined)
+    return c.json({ ownerSlug: session.ownerSlug, ...(user === undefined ? {} : { tier: user?.tier ?? 'free' }) })
   })
 
   /** The sign-in methods bound to the account. Provider subjects never
