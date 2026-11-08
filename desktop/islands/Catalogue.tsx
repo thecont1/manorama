@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
+import EncryptedGallery from '../../app/islands/EncryptedGallery'
 import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gallery-settings'
 import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
 import type { GalleryManifest } from '../../app/lib/imagesource'
-import { formatMediaCount, summaryMediaCount } from '../../app/lib/imagesource'
+import { cardCountSource, formatMediaCount, summaryMediaCount } from '../../app/lib/imagesource'
+import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, PIPELINE_LOCK_MESSAGE, expiryCountdownText } from '../../app/lib/gallery-policy'
+import { libraryLayout } from '../../packages/core/library-layout'
 import {
   classifyRoot,
   galleryTitleForRoot,
@@ -26,18 +29,29 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { fetchAccountGalleries, fetchAccountGallery, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
-import { isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
+import { galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
+import { WebGalleryKeyStore } from '../../app/lib/key-store'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
 import LocalGalleryDetails from './LocalGalleryDetails'
 import { Sheet } from '../../app/components/ui/Sheet'
-import { applyTheme, oppositeTheme, readStoredTheme, storeTheme, themeControlLabel, type Theme } from '../lib/theme'
+import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-icons'
+import { AddGallerySheet } from '../../app/components/AddGallerySheet'
+import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
+import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
+import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
+import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
+import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
+import { Button } from '../../app/components/ui/Button'
+import { friendlySourceError } from '../../app/lib/source-errors'
+import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
+import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/theme'
 import {
   beginDesktopSignIn,
   clearSession,
@@ -45,7 +59,7 @@ import {
   getSession,
   installDesktopAuth,
   normalizeApiBase,
-  DESKTOP_AUTH_PROVIDERS,
+  storeSession,
   type AuthProvider,
   type DesktopSession,
 } from '../lib/session'
@@ -56,7 +70,6 @@ const DEVICE_LABEL = 'This Mac'
 // The build tag under the rail mark — injected by vite's define, 'dev' under
 // tests and scripts which never see it.
 const buildCommit = typeof __MANORAMA_COMMIT__ === 'string' ? __MANORAMA_COMMIT__ : 'dev'
-const PROVIDER_META = new Map(SIGN_IN_PROVIDERS.map((provider) => [provider.id, provider]))
 const sourceLabel = (record: LocalGalleryRecord): string =>
   record.sourceKind === 'card' ? 'Memory card' : 'Folder on this Mac'
 
@@ -91,23 +104,68 @@ type CardMenu =
   | { kind: 'account'; gallery: GallerySummary }
   | { kind: 'local'; record: LocalGalleryRecord }
 
+/* The strip/card helpers the web Library uses — same badges, same temp
+ *  wording, so an owner sees one product across the two shells. */
+type SummaryImage = GallerySummary['images'][number]
+const isLocked = (gallery: GallerySummary) => gallery.retention === 'pipeline'
+const isVideoPreview = (image: SummaryImage) => (image as { type?: string }).type === 'video'
+const itemKind = (image: SummaryImage) => isVideoPreview(image) ? 'video' : 'image'
+const videoBadge = (image: SummaryImage) => {
+  const seconds = isVideoPreview(image) ? (image as { durationSeconds?: number }).durationSeconds : undefined
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '▶'
+  const total = Math.round(seconds)
+  return `▶ ${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
+/** The stopwatch flag is a status icon here — the pin-swap flow it opens
+ *  on the web dashboard has no desktop surface yet. */
+const tempFlag = (gallery: GallerySummary) => (
+  <span class="lib-temp-flag" role="img" title={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}`} aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}`}>
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
+  </span>
+)
+const tempWording = (gallery: GallerySummary) =>
+  isLocked(gallery) ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}` : ''
+const pinGlyph = (gallery: GallerySummary) => gallery.pinnedAt
+  ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span>
+  : null
+/** Strips overflow horizontally; a vertical wheel gesture pans them so a
+ *  mouse/trackpad never strands the rail — same mapping the web uses. */
+const stripWheel = (event: WheelEvent) => {
+  const frame = event.currentTarget as HTMLDivElement
+  const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX
+  frame.scrollLeft += delta
+  event.preventDefault()
+}
+/* A transient upstream 5xx otherwise leaves a permanent hole in a remote
+   strip — one bounded retry, keyed on the source so a swapped-in src earns
+   its own. Same guard the web strip carries. */
+const stripImgRetry = (event: Event) => {
+  const img = event.currentTarget as HTMLImageElement
+  const baseOf = (src: string) => src.replace(/([?&])mreload=\d+&?/, '$1').replace(/[?&]$/, '')
+  const failed = baseOf(img.getAttribute('src') ?? '')
+  if (!failed || img.dataset.retriedSrc === failed) return
+  img.dataset.retriedSrc = failed
+  window.setTimeout(() => {
+    if (baseOf(img.getAttribute('src') ?? '') === failed) {
+      img.src = `${failed}${failed.includes('?') ? '&' : '?'}mreload=1`
+    }
+  }, 1500)
+}
+
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
 
 type ViewerState = { galleryId: string; index: number }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
-type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number }
-type SyncState = 'idle' | 'syncing' | 'synced' | 'partial' | 'failed'
+type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string }
 
-const syncMessage = (state: SyncState, session: DesktopSession | null): string => {
-  if (!session) return 'Sign in to sync this catalogue to your account.'
-  if (state === 'syncing') return 'Syncing catalogue…'
-  if (state === 'synced') return 'Catalogue synced.'
-  if (state === 'partial') return 'Some galleries could not be synced — will retry.'
-  if (state === 'failed') return 'Sync failed — local viewing is unaffected.'
-  return 'Catalogue syncs quietly; viewing never waits on it.'
-}
+/** The app's gallery-key custody: an app is not a browser tab, so keys
+ *  persist on this Mac (the webview's own storage, never synced) until the
+ *  owner removes them. Passed explicitly so the web's session-only rule
+ *  stays untouched. */
+const desktopKeyStore = () => new WebGalleryKeyStore(localStorage)
+type SyncState = 'idle' | 'syncing' | 'synced' | 'partial' | 'failed'
 
 /** Dimensions learned from decoded thumbs — ephemeral by design, never
  *  persisted or synced. */
@@ -145,6 +203,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
   const [plate, setPlate] = useState<AdFrame | null>(null)
+  const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
+  const [adsShow, setAdsShow] = useState(true)
   const [session, setSession] = useState<DesktopSession | null>(null)
   const [accountGalleries, setAccountGalleries] = useState<GallerySummary[] | null>(null)
   const [deviceRows, setDeviceRows] = useState<DeviceGallery[]>([])
@@ -163,11 +223,26 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [shareStep, setShareStep] = useState<ShareStep>('choose')
   const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
   const [cardMenu, setCardMenu] = useState<CardMenu | null>(null)
+  // The card menu's own confirmations and sub-surfaces — the web keeps
+  // the same range: pin, share, settings, reorder, source, rescan, remove.
+  const [menuRemove, setMenuRemove] = useState(false)
+  const [shareGallery, setShareGallery] = useState<GallerySummary | null>(null)
+  const [galSettingsSlug, setGalSettingsSlug] = useState<string | null>(null)
+  /** Full-link fragments for encrypted galleries this device can share —
+   *  keyed by gallery id, same contract as the web's galleryHashes. */
+  const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
   const [theme, setTheme] = useState<Theme>(() => readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage))
-  // The account pane opens closed on every load and is never encoded in the URL.
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuButtonRef = useRef<HTMLButtonElement | null>(null)
-  const drawerRef = useRef<HTMLDivElement | null>(null)
+  // Signed-in gear opens the shared WebSettings — the same groups and
+  // options the web dashboard shows, fed by bearer-token API calls.
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [ownerSlugDraft, setOwnerSlugDraft] = useState('')
+  const [settingsNote, setSettingsNote] = useState<string | null>(null)
+  const [identities, setIdentities] = useState<AccountIdentityWeb[] | null>(null)
+  const [identityNote, setIdentityNote] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteNote, setDeleteNote] = useState<string | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const dimsRef = useRef<DimsMap>(new Map())
   // The deep-link sign-in callback is installed once at launch — a ref is
   // the only way it can sync the catalogue as it is THEN, not as it was.
@@ -175,6 +250,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   useEffect(() => {
     catalogueRef.current = catalogue
   }, [catalogue])
+  // Toasts are transient like the web dashboard's — five seconds, then
+  // gone. The derived account/slug warnings are not timed: they stay up
+  // until the underlying failure clears on the next refresh.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 5000)
+    return () => clearTimeout(timer)
+  }, [notice])
   // The interim house plate rides every open gallery, seeded by its id. The
   // master's day/region switch still suppresses it — the same fail-open
   // courtesy as the native viewer: unanswered means show, never a gate.
@@ -192,9 +275,27 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       .catch(() => apply(true))
     return () => { active = false }
   }, [base, viewerState?.galleryId])
+  // The rail carries the same sponsored slot the web Library does. Seeded
+  // client-side so a midnight straddle cannot hydrate the wrong frame; a
+  // failed fetch still means show (suppression is a courtesy, not a gate).
+  useEffect(() => {
+    let live = true
+    setAccountAd(houseAdFrameFor('library'))
+    void fetch(`${base}/api/ads/visibility`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: unknown) => {
+        if (live) setAdsShow(payload !== null ? (payload as { show?: boolean }).show !== false : true)
+      })
+      .catch(() => { if (live) setAdsShow(true) })
+    return () => { live = false }
+  }, [base])
   // Opening a gallery seeds its own creative up front — otherwise the
   // freshly mounted Viewer keeps wearing the previous gallery's plate for
   // the round-trip until the visibility fetch above answers.
+  // Local galleries are a Visionary feature: the session's last-known tier
+  // gates the section, the add flow, and every mount path below. The account
+  // read refreshes it on each sync tick, so a downgrade takes effect live.
+  const accountTier = session?.tier ?? 'free'
   const openViewer = (galleryId: string, index: number) => {
     setPlate(houseAdFrameFor(galleryId))
     setViewerState({ galleryId, index })
@@ -246,7 +347,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   const runSync = useCallback(
     async (cat: LocalCatalogue, active: DesktopSession | null) => {
-      if (!active || !cat.galleries.length) return
+      // Free accounts hold their catalogue locally and nothing else — the
+      // server refuses the rows anyway, so the sync is skipped outright.
+      if (!active || active.tier !== 'pro' || !cat.galleries.length) return
       setSyncState('syncing')
       try {
         const result = await syncDeviceGalleries(base, active.token, cat)
@@ -325,8 +428,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       (rows) => { if (alive()) { setDeviceRows(rows); setDevicesFailed(false) } },
       () => { if (alive()) setDevicesFailed(true) },
     )
-    void fetchAccountOwnerSlug(base, session.token, fetch, controller.signal).then(
-      (slug) => { if (alive()) { setOwnerSlug(slug); setSlugFailed(false) } },
+    void fetchAccountProfile(base, session.token, fetch, controller.signal).then(
+      (account) => {
+        if (!alive()) return
+        setOwnerSlug(account.ownerSlug)
+        setSlugFailed(false)
+        // A downgrade observed here demotes the session immediately — the
+        // Local galleries gate reads session.tier, and persisting keeps the
+        // next launch honest too.
+        if (account.tier && account.tier !== session.tier) {
+          const refreshed = { ...session, tier: account.tier }
+          setSession(refreshed)
+          void storeSession(refreshed).catch(() => {})
+        }
+      },
       () => { if (alive()) setSlugFailed(true) },
     )
     return () => controller.abort()
@@ -347,36 +462,27 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // The pane is a modal dialog: focus enters it, Tab stays inside it, and
   // Escape or a backdrop click hands the caret back to the tab that opened it.
-  const closeMenu = () => {
-    setMenuOpen(false)
-    menuButtonRef.current?.focus()
-  }
-  useEffect(() => {
-    if (!menuOpen) return
-    const panel = drawerRef.current
-    const overflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    panel?.querySelector<HTMLButtonElement>('button')?.focus()
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return }
-      if (event.key !== 'Tab' || !panel) return
-      const focusable = [...panel.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), summary')]
-        .filter((element) => element.getClientRects().length > 0)
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (!first || !last) return
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = overflow
-    }
-  }, [menuOpen])
+  // Add-a-gallery state: the chooser sits in front of two paths — a folder
+  // on this Mac (the existing local flow) or a shared cloud link, which
+  // follows the web dashboard's verify-then-create contract exactly.
+  const [addChooserOpen, setAddChooserOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [addUrl, setAddUrl] = useState('')
+  const [addName, setAddName] = useState('')
+  const [addCaption, setAddCaption] = useState('')
+  const [addChecking, setAddChecking] = useState(false)
+  const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
+  const [addError, setAddError] = useState<string | null>(null)
+  const addVerifySeq = useRef(0)
+  const addVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const addEncryptedSession = useRef<EncryptedClientSession | null>(null)
 
   const addFolder = async () => {
     setNotice(null)
+    if (accountTier !== 'pro') {
+      setNotice('Local galleries are included with Visionary')
+      return
+    }
     setBusy(true)
     try {
       const root = await pickGalleryFolder()
@@ -414,6 +520,230 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       void runSync(next, session)
     } catch {
       setNotice('That folder could not be opened')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The verification contract is the web dashboard's: a plausible URL earns a
+  // debounced check, a committed edit checks immediately, and the optional
+  // name/caption fields only appear after the link scans clean.
+  const resetAddVerification = () => {
+    if (addVerifyTimer.current) {
+      clearTimeout(addVerifyTimer.current)
+      addVerifyTimer.current = null
+    }
+    addVerifySeq.current += 1
+    addEncryptedSession.current?.dispose()
+    addEncryptedSession.current = null
+    setAddVerifiedTitle(null)
+    setAddChecking(false)
+  }
+
+  const verifyAddUrl = async (url: string) => {
+    if (!session) return
+    const seq = ++addVerifySeq.current
+    setAddChecking(true)
+    try {
+      if (isEncryptedSourceUrl(url)) {
+        const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
+        const encrypted = await openEncryptedSource(url)
+        const { title } = await encrypted.listing
+        if (seq !== addVerifySeq.current) { encrypted.dispose(); return }
+        addEncryptedSession.current?.dispose()
+        addEncryptedSession.current = encrypted
+        setAddError(null)
+        setAddVerifiedTitle(title)
+        setAddName((current) => (current.trim() ? current : title))
+        return
+      }
+      const result = await scanGalleryLink(base, session.token, url)
+      if (seq !== addVerifySeq.current) return
+      if (result.status < 200 || result.status >= 300 || !result.scan) {
+        setAddVerifiedTitle(null)
+        setAddError(result.error || 'That link could not be read')
+        return
+      }
+      setAddError(null)
+      const title = result.scan.title ?? ''
+      setAddVerifiedTitle(title)
+      // The scanned name pre-fills only an untouched field — a name typed
+      // while the scan was in flight is never clobbered.
+      setAddName((current) => (current.trim() ? current : title))
+    } catch (error) {
+      if (seq === addVerifySeq.current) setAddError(friendlySourceError(error))
+    } finally {
+      if (seq === addVerifySeq.current) setAddChecking(false)
+    }
+  }
+
+  const onAddUrlChange = (value: string) => {
+    setAddUrl(value)
+    setAddError(null)
+    resetAddVerification()
+    const url = value.trim()
+    if (/^https?:\/\/\S+\.\S+/.test(url)) {
+      addVerifyTimer.current = setTimeout(() => void verifyAddUrl(url), 700)
+    }
+  }
+
+  const onAddUrlCommit = (value: string) => {
+    setAddUrl(value)
+    setAddError(null)
+    resetAddVerification()
+    const url = value.trim()
+    if (/^https?:\/\/\S+\.\S+/.test(url)) void verifyAddUrl(url)
+  }
+
+  const closeAddSheet = () => {
+    setAddOpen(false)
+    setAddUrl('')
+    setAddName('')
+    setAddCaption('')
+    setAddError(null)
+    resetAddVerification()
+  }
+
+  const refreshAccountGalleries = async (token: string) => {
+    const galleries = await fetchAccountGalleries(base, token).catch(() => null)
+    if (galleries) setAccountGalleries(galleries)
+  }
+
+  // Encrypted cards only produce a full link — the shareable form with the
+  // fragment key — when this device holds it in custody. The map mirrors
+  // the web dashboard's galleryHashes; a card without a hash shares its
+  // keyless address and the sheet says so instead of pretending.
+  useEffect(() => {
+    let live = true
+    for (const gallery of accountGalleries ?? []) {
+      if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) continue
+      void desktopKeyStore().get(gallery.id).then((source) => {
+        if (!live || !source || !gallery.id) return
+        const hash = galleryHashForSource(source, gallery.id)
+        setGalleryHashes((previous) => previous[gallery.id!] === hash ? previous : { ...previous, [gallery.id!]: hash })
+      })
+    }
+    return () => { live = false }
+  }, [accountGalleries])
+
+  // The card menu's account actions — the same calls the web dashboard
+  // issues, against manorama.xyz with the desktop session's bearer. Every
+  // mutation refetches the summaries so strip/compact and pin flags move
+  // together rather than drifting.
+  const togglePin = async (gallery: GallerySummary) => {
+    if (!session) return
+    const pinning = !gallery.pinnedAt
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    try {
+      await setAccountGalleryPin(base, session.token, gallery.slug, pinning)
+      await refreshAccountGalleries(session.token)
+      setNotice(pinning ? `“${gallery.title || gallery.slug}” pinned` : `“${gallery.title || gallery.slug}” unpinned`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be pinned')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refreshGallery = async (gallery: GallerySummary) => {
+    if (!session || !gallery.sourceUrl) return
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    try {
+      const init = await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl, keyStore: desktopKeyStore() })
+      await refreshAccountGallery(base, session.token, gallery.slug, init)
+      await refreshAccountGalleries(session.token)
+      setNotice(`“${gallery.title || gallery.slug}” refreshed`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be refreshed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeGalleryConfirmed = async (gallery: GallerySummary) => {
+    if (!session) return
+    setBusy(true)
+    try {
+      await deleteAccountGallery(base, session.token, gallery.slug)
+      // The D1 row is gone; this device's copy of the key goes with it —
+      // the provider's originals are never touched (invariant 9).
+      if (gallery.id) await desktopKeyStore().remove(gallery.id).catch(() => {})
+      setCardMenu(null)
+      setMenuRemove(false)
+      await refreshAccountGalleries(session.token)
+      setNotice('Gallery removed')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be removed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // "Open source" resolves the full provider link for encrypted galleries —
+  // the stored sourceUrl is keyless; this device's custody holds the key.
+  const openSourceResolved = async (gallery: GallerySummary) => {
+    if (!gallery.sourceUrl) return
+    if (gallery.manifestVersion !== 2 || !gallery.id || !isEncryptedSourceUrl(gallery.sourceUrl)) return
+    const source = await desktopKeyStore().get(gallery.id).catch(() => null)
+    if (source) openExternal(source)
+  }
+
+  const addGallerySubmit = async (input: { url: string; name: string; caption: string }) => {
+    const url = input.url.trim()
+    if (!url || !session) return
+    setAddError(null)
+    setBusy(true)
+    try {
+      let body: Record<string, unknown> = {
+        url,
+        ...(input.name ? { title: input.name } : {}),
+        ...(input.caption ? { caption: input.caption } : {}),
+      }
+      if (isEncryptedSourceUrl(url)) {
+        const encrypted =
+          addEncryptedSession.current ??
+          (await (await import('../../app/lib/encrypted-client')).openEncryptedSource(url))
+        addEncryptedSession.current = encrypted
+        const listing = await encrypted.listing
+        body = {
+          manifest: {
+            provider: encrypted.provider,
+            sourceUrl: encrypted.sourceUrl,
+            ...listing,
+          },
+          ...(input.name ? { title: input.name } : {}),
+          ...(input.caption ? { caption: input.caption } : {}),
+        }
+      }
+      const result = await createAccountGallery(base, session.token, body)
+      // The pasted link's fragment is the gallery key — it never reached
+      // the server (the manifest above carries the keyless source). Keep it
+      // in this device's custody so the new card opens in-app rather than
+      // on a locked web page.
+      if (isEncryptedSourceUrl(url) && result.gallery?.id) {
+        await desktopKeyStore().put(result.gallery.id, url).catch(() => {})
+      }
+      if (result.status === 409 && result.gallery) {
+        await refreshAccountGalleries(session.token)
+        closeAddSheet()
+        scrollToGalleryCard(result.gallery.slug)
+        setNotice(result.error || 'That link is already one of your galleries.')
+        return
+      }
+      if (result.status < 200 || result.status >= 300 || !result.gallery) {
+        setAddError(result.error || 'That gallery could not be added')
+        return
+      }
+      await refreshAccountGalleries(session.token)
+      closeAddSheet()
+      scrollToGalleryCard(result.gallery.slug)
+      setNotice(`${result.gallery.title ?? 'Gallery'} added.`)
+    } catch (error) {
+      setAddError(friendlySourceError(error))
     } finally {
       setBusy(false)
     }
@@ -592,6 +922,88 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setSession(null)
   }
 
+  const openSettings = () => {
+    if (!session) return
+    setOwnerSlugDraft(ownerSlug ?? session.ownerSlug)
+    setSettingsNote(null)
+    setIdentityNote(null)
+    setDeleteOpen(false)
+    setDeleteConfirm('')
+    setSettingsOpen(true)
+  }
+
+  // The sign-in methods load with the surface, like the web — a failed
+  // read just leaves the list hidden.
+  useEffect(() => {
+    if (!settingsOpen || !session) { setIdentities(null); return }
+    let live = true
+    void fetchAccountIdentities(base, session.token)
+      .then((list) => { if (live) setIdentities(list) })
+      .catch(() => { if (live) setIdentities([]) })
+    return () => { live = false }
+  }, [settingsOpen, session, base])
+
+  // Every anchor inside Settings opens in the system browser — the webview
+  // itself never navigates away from the app. Relative hrefs resolve
+  // against the API origin (privacy page, auth link flows).
+  const interceptSettingsLink = (event: MouseEvent) => {
+    const anchor = (event.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+    const href = anchor?.getAttribute('href') ?? ''
+    if (!href) return
+    event.preventDefault()
+    openExternal(/^(https?:|mailto:|sms:)/.test(href) ? href : `${base}${href}`)
+  }
+
+  const saveOwnerSlug = async () => {
+    if (!session) return
+    const value = ownerSlugDraft.trim().toLowerCase()
+    if (value.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
+      setSettingsNote('Use at least 3 lowercase letters, numbers, and single hyphens')
+      return
+    }
+    if (value === (ownerSlug ?? session.ownerSlug)) return
+    setBusy(true)
+    setSettingsNote(null)
+    try {
+      const payload = await patchAccountOwnerSlug(base, session.token, value)
+      setOwnerSlug(payload.ownerSlug)
+      // The persisted session keeps the sign-in-time slug — every account
+      // call already prefers the live ownerSlug state, and the next launch
+      // re-resolves it anyway.
+      setNotice(`Your address is now manorama.xyz/${payload.ownerSlug}`)
+    } catch (error) {
+      setSettingsNote(error instanceof Error ? error.message : 'That URL could not be saved')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const unlinkIdentity = async (provider: AuthProvider) => {
+    if (!session) return
+    const result = await unlinkAccountIdentity(base, session.token, provider).catch(() => ({ status: 0, error: undefined as string | undefined }))
+    if (result.status < 200 || result.status >= 300) {
+      setIdentityNote(result.error === 'last-identity' ? 'Keep at least one way to sign in.' : 'That sign-in method could not be removed.')
+      return
+    }
+    setIdentityNote(null)
+    setIdentities(await fetchAccountIdentities(base, session.token).catch(() => identities))
+  }
+
+  const removeAccount = async () => {
+    if (!session) return
+    setDeleteNote(null)
+    setDeleteBusy(true)
+    try {
+      const result = await deleteAccount(base, session.token, deleteConfirm.trim())
+      if (result.status < 200 || result.status >= 300) throw new Error(result.error || 'Your account could not be deleted right now')
+      // The account is gone — the local session is dead weight.
+      signOut()
+    } catch (error) {
+      setDeleteNote(error instanceof Error ? error.message : 'Your account could not be deleted right now')
+      setDeleteBusy(false)
+    }
+  }
+
   const recordDims = (itemId: string, w: number, h: number) => {
     if (w > 0 && h > 0) dimsRef.current.set(itemId, { w, h })
   }
@@ -599,21 +1011,43 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // A fetched cloud manifest rides the same Viewer as local records — the
   // app hosts the viewing it advertises rather than handing it to a browser.
   if (accountViewer) {
+    const viewerProps = {
+      slug: accountViewer.manifest.slug,
+      galleryTitle: accountViewer.manifest.title,
+      images: accountViewer.manifest.images,
+      settings: accountViewer.settings,
+      plate,
+      initialIndex: accountViewer.index,
+      apiBase: base,
+      authToken: session?.token,
+      initialEdit: accountViewer.edit ?? false,
+      allowFullscreen: false,
+      onReturnToGalleries: () => setAccountViewer(null),
+    }
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
         <GalleryShell settings={accountViewer.settings}>
-          <Viewer
-            key={`${accountViewer.manifest.slug}:${accountViewer.index}`}
-            slug={accountViewer.manifest.slug}
-            galleryTitle={accountViewer.manifest.title}
-            images={accountViewer.manifest.images}
-            settings={accountViewer.settings}
-            plate={plate}
-            initialIndex={accountViewer.index}
-            allowFullscreen={false}
-            onReturnToGalleries={() => setAccountViewer(null)}
-          />
+          {accountViewer.encryptedSourceUrl ? (
+            // The same island the web route mounts: it resolves the key
+            // from this device's custody, and when the device truly has
+            // none it shows its own unlock form in place — never a
+            // browser round-trip that misreports the app as a stranger.
+            <EncryptedGallery
+              key={`${accountViewer.manifest.slug}:${accountViewer.index}`}
+              {...viewerProps}
+              galleryId={accountViewer.galleryId ?? ''}
+              sourceUrl={accountViewer.encryptedSourceUrl}
+              keyStore={desktopKeyStore()}
+              viewerRole="owner"
+            />
+          ) : (
+            <Viewer
+              key={`${accountViewer.manifest.slug}:${accountViewer.index}`}
+              {...viewerProps}
+              galleryId={accountViewer.galleryId}
+            />
+          )}
         </GalleryShell>
       </>
     )
@@ -622,7 +1056,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // Full-screen viewing: the shared Viewer, fed by manifest items pointing
   // at convertFileSrc URLs. The viewer heals guessed dims to the real
   // natural size on load — nothing is upscaled or re-encoded.
-  const viewableRecord = viewerState && catalogue
+  const viewableRecord = viewerState && catalogue && accountTier === 'pro'
     ? catalogue.galleries.find((g) => g.id === viewerState.galleryId)
     : undefined
   if (viewableRecord && availability[viewableRecord.id] !== 'unavailable') {
@@ -737,7 +1171,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // place of the workbench, with the shared Sheet+ShareFlow hosted alongside
   // it (Share opens only from Details). The viewer takes precedence when a
   // photograph is open — Open leaves details first.
-  const detailsRecord = detailsId && catalogue ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
+  const detailsRecord = detailsId && catalogue && accountTier === 'pro' ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
   // A published link exists only when this Mac's own synced row carries the
   // public slug; the local record id is the device-gallery row id.
@@ -799,30 +1233,39 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // device row published as a cloud gallery collapses the moment the account
   // read arrives, without waiting on the slower call.
   const remoteDeviceGalleries = standaloneDeviceGalleries(deviceRows, accountGalleries ?? [], catalogue.deviceId)
+  // Partition the account galleries into pinned strips and compact cards,
+  // mirroring the web Library's shared layout rule. Pinned rows lead by
+  // pinnedAt; everything else collapses to a compact cover card.
+  const liveAccountGalleries = accountGalleries ?? []
+  const accountLayout = libraryLayout(
+    liveAccountGalleries.map((gallery) => ({ slug: gallery.slug, pinnedAt: gallery.pinnedAt })),
+    accountTier,
+  )
+  const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [gallery.slug, gallery]))
+  const pinnedAccountGalleries = accountLayout.strips
+    .map((slug) => accountBySlug.get(slug))
+    .filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const compactAccountGalleries = accountLayout.compact
+    .map((slug) => accountBySlug.get(slug))
+    .filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
   const accountNote = galleriesFailed || devicesFailed ? 'Your galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
   const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
-  const photoCount = galleries.reduce((total, record) => total + record.itemCount, 0)
-
-  // The account surface speaks the vocabulary the web dashboard and iOS
-  // already use — "Welcome to manorama.xyz.", and the plan as a sentence. What
-  // follows it is the Mac's own fact: these galleries live on this Mac rather
-  // than against an account limit, so the count is local, not the account's.
-  // A session stored before the exchange answered `tier` omits the plan
-  // sentence rather than guessing Free.
-  const planSentence = session?.tier === 'pro' ? 'You are a Visionary.' : session?.tier === 'free' ? 'You are a Free User.' : null
-  const galleryWord = galleries.length === 1 ? 'gallery' : 'galleries'
+  const retainedCount = (accountGalleries ?? []).filter((g) => g.retention !== 'pipeline').length
+  const temporaryCount = (accountGalleries ?? []).filter((g) => g.retention === 'pipeline').length
+  const retainedLimit = accountTier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
 
   const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
 
   /** A cloud gallery opens in the app's own Viewer — the viewing experience
-   *  is the product, not a browser tab. Encrypted sources keep the browser
-   *  path: their key flow lives on the web surface and the desktop has no
-   *  provider-key UI. A manifest that cannot be fetched degrades the same
-   *  way — the browser still opens the gallery. */
-  const openAccountGallery = async (gallery: GallerySummary, index: number) => {
+   *  is the product, not a browser tab. Encrypted sources mount the shared
+   *  EncryptedGallery island, which resolves the key from this device's
+   *  custody (or shows its own honest unlock form). A manifest that cannot
+   *  be fetched still degrades to the browser. */
+  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false) => {
     const url = accountGalleryUrl(gallery)
-    if (!session || (gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))) {
+    if (!session) {
       openExternal(url)
       return
     }
@@ -830,81 +1273,26 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       const { manifest, settings } = await fetchAccountGallery(
         base, ownerSlug ?? session.ownerSlug, gallery.slug, session.token,
       )
-      setAccountViewer({ manifest, settings, index })
+      setAccountViewer({
+        manifest,
+        settings,
+        index,
+        galleryId: gallery.id,
+        edit,
+        ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
+          ? { encryptedSourceUrl: keylessSourceUrl(gallery.sourceUrl) }
+          : {}),
+      })
     } catch {
       openExternal(url)
     }
   }
-  const menuAnchor = (url: string) => ({
-    ...externalAnchor(url),
-    onClick: (event: MouseEvent) => {
-      event.preventDefault()
-      setCardMenu(null)
-      openExternal(url)
-    },
-  })
-
   return (
     // `data-admin-ready` is the shell's own "catalogue restored" signal: the
     // island renders nothing above until the private files have been read, so
     // anything measuring the surface can wait for it instead of guessing.
     <main class="admin-page admin-page--selector desktop-catalogue" data-admin-ready="true">
       <div class="desktop-titlebar" data-tauri-drag-region />
-      {/* Hidden account controls stay outside the accessibility tree until the
-          hydrated catalogue opens them. */}
-      <div class="admin-drawer" id="admin-account-drawer" data-account-drawer hidden={!menuOpen}>
-        <div class="admin-drawer-scrim" aria-hidden="true" onClick={closeMenu} />
-        <aside class="admin-drawer-panel" role="dialog" aria-modal="true" aria-label="Account" ref={drawerRef}>
-          <button type="button" class="admin-drawer-close" aria-label="Close account menu" onClick={closeMenu}>
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-          </button>
-          <div class="admin-left">
-            <header class="admin-header">
-              <div>
-                {/* The pane states the account, not the product pitch — the
-                    dictionary definition and greeting belong to Welcome. */}
-                {session ? <p class="admin-greeting-url">manorama.xyz/{ownerSlug ?? session.ownerSlug}</p> : null}
-                {planSentence ? <p>{planSentence}</p> : null}
-                <p class="desktop-device-line">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'}</p>
-                {!session ? (
-                  <div class="desktop-signin desktop-account-signin">
-                    <span class="desktop-signin-lead">Continue with</span>
-                    <div class="desktop-signin-icons">
-                      {DESKTOP_AUTH_PROVIDERS.map((id) => {
-                        const provider = PROVIDER_META.get(id)
-                        if (!provider) return null
-                        const { name, Glyph } = provider
-                        return (
-                          <button type="button" class="desktop-signin-icon" key={id} aria-label={`Continue with ${name}`} onClick={() => signIn(id)}>
-                            <Glyph />
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-                {authError ? <p class="landing-note" role="alert">{authError}</p> : null}
-                {pasteForm}
-              </div>
-            </header>
-            <footer class="site-footer">
-              <a class="site-footer-link" {...externalAnchor(PRIVACY_URL)}>Privacy Policy</a>
-              <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a {...externalAnchor(AUTHOR_URL)}>thecontrarian.in</a></p>
-            </footer>
-          </div>
-          {/* The account actions sit at the pane's foot: labelled, and away
-              from the galleries. */}
-          <div class="admin-drawer-actions">
-            <button
-              type="button"
-              class="admin-drawer-action"
-              aria-pressed={theme === 'light'}
-              onClick={() => setTheme(oppositeTheme(theme))}
-            >{themeControlLabel(theme)}</button>
-            <button type="button" class="admin-drawer-action" onClick={signOut}>Sign out</button>
-          </div>
-        </aside>
-      </div>
 
       <div class="admin-content">
         {/* The same two-column anatomy as the web Library: the rail carries
@@ -919,159 +1307,426 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <div class="admin-library-heading">
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
             <div class="admin-heading-actions">
-              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => void addFolder()} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
-              {session ? <button type="button" class="admin-button" onClick={() => catalogue && void runSync(catalogue, session)} disabled={syncState === 'syncing'}>{syncState === 'syncing' ? 'Syncing…' : 'Sync now'}</button> : null}
+              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
               <button
                 type="button"
                 class="admin-button admin-settings-pill"
                 aria-label="Settings"
-                aria-expanded={menuOpen ? 'true' : 'false'}
-                aria-controls="admin-account-drawer"
-                ref={menuButtonRef}
-                onClick={() => setMenuOpen(true)}
+                onClick={openSettings}
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>
+                <SettingsIcon />
               </button>
             </div>
           </div>
-          <p class="admin-library-sub">{catalogue.deviceLabel} · {galleries.length} {galleryWord} · {photoCount} {photoCount === 1 ? 'photograph' : 'photographs'} · {syncMessage(syncState, session)}</p>
-          {notice ? <p class="desktop-source-note" role="status">{notice}</p> : null}
-          {accountNote ? <p class="desktop-source-note" role="status">{accountNote}</p> : null}
-          {slugNote ? <p class="desktop-source-note" role="status">{slugNote}</p> : null}
+          {session ? (
+            <p class="admin-library-sub">
+              You are a manorama <strong>{accountTier === 'pro' ? 'Visionary' : 'Free User'}</strong> hosting{' '}
+              <strong>{retainedCount}</strong> of {retainedLimit} permanent galleries
+              {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}.
+            </p>
+          ) : null}
+          {adsShow && accountAd ? (
+            <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
+              <span class="account-ad-badge">{accountAd.badge}</span>
+              <div class="account-ad-media">
+                {accountAd.image ? (
+                  accountAd.cta ? (
+                    <a class="account-ad-media-link" href={accountAd.cta.url} target="_blank" rel="noopener" aria-label={accountAd.cta.label}>
+                      <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+                    </a>
+                  ) : (
+                    <img src={accountAd.image.src} width={accountAd.image.width} height={accountAd.image.height} alt="" />
+                  )
+                ) : (
+                  <span class="account-ad-placeholder">Vertical photograph, fit to height</span>
+                )}
+              </div>
+              <div class="account-ad-copy">
+                <strong class="account-ad-headline">{accountAd.headline ?? accountAd.advertiser}</strong>
+                <span class="account-ad-sub">A placeholder until sponsored photographs arrive.</span>
+                {accountAd.cta ? <a class="account-ad-cta" href={accountAd.cta.url} target="_blank" rel="noopener">{accountAd.cta.label}</a> : null}
+              </div>
+            </aside>
+          ) : null}
           <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />All platform rights reserved.</p>
         </aside>
         <section class="gallery-list" aria-labelledby="galleries-heading">
-          {galleries.length || accountGalleries?.length || remoteDeviceGalleries.length ? (
-            <ul class="lib-list">
-              {accountGalleries?.map((gallery) => {
-                const title = gallery.title || gallery.slug
-                const galleryUrl = accountGalleryUrl(gallery)
-                const encrypted = Boolean(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl))
-                /* Click opens in-app; ⌘/Ctrl-click (and encrypted sources,
-                   whose key flow lives on the web) keeps the browser path. */
-                const openCard = (index: number) => (event: MouseEvent) => {
-                  event.preventDefault()
-                  if (encrypted || event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
-                  void openAccountGallery(gallery, index)
-                }
-                return <li key={`account-${gallery.slug}`}><article class="lib-card">
-                  {gallery.images.length ? (
-                    <div class="admin-gallery-strip-frame">
-                      <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
-                        {gallery.images.map((image, index) => (
-                          <li class="admin-gallery-strip-item" key={image.id}>
-                            <a
-                              href={galleryUrl}
-                              onClick={openCard(index)}
-                              draggable={false}
-                              aria-label={`Open ${title} — photograph ${index + 1} of ${gallery.images.length}`}
+          {pinnedAccountGalleries.length ? (
+            <section aria-labelledby="pinned-galleries-title">
+              <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries</h2>
+              <ul class="lib-list">
+                {pinnedAccountGalleries.map((gallery) => {
+                  const title = gallery.title || gallery.slug
+                  const galleryUrl = accountGalleryUrl(gallery)
+                  const openCard = (index: number) => (event: MouseEvent) => {
+                    event.preventDefault()
+                    // A modified click explicitly asks for the browser;
+                    // encrypted cards open in-app like every other source.
+                    if (event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
+                    void openAccountGallery(gallery, index)
+                  }
+                  return <li key={`account-${gallery.slug}`} data-gallery-card={gallery.slug}><article class="lib-card" data-retention={gallery.retention}>
+                    {gallery.images.length ? (
+                      <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onWheel={stripWheel}>
+                        <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
+                          {gallery.images.map((image, index) => (
+                            <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
+                              <a
+                                href={galleryUrl}
+                                onClick={openCard(index)}
+                                draggable={false}
+                                aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
+                              >
+                                <img
+                                  src={previewSrcFor(image)}
+                                  alt=""
+                                  loading="lazy"
+                                  draggable={false}
+                                  style={{ aspectRatio: `${Math.max(1, image.width)} / ${Math.max(1, image.height)}` }}
+                                  onLoad={(event: Event) => {
+                                    const img = event.currentTarget as HTMLImageElement
+                                    // Stored dims are the placeholder's shape — the
+                                    // decoded frame owns the real ratio once it lands.
+                                    if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                                    img.classList.add('is-loaded')
+                                  }}
+                                  onError={stripImgRetry}
+                                />
+                                {isVideoPreview(image) ? <span class="admin-strip-badge" aria-hidden="true">{videoBadge(image)}</span> : null}
+                                {image.hidden
+                                  ? <span class="admin-strip-badge admin-strip-badge--hidden" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="m4 4 16 16"/></svg></span>
+                                  : null}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <div class="lib-card-head">
+                      <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}{pinGlyph(gallery)}</a>
+                      {isLocked(gallery) ? tempFlag(gallery) : null}
+                      <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+                    </div>
+                    <p class="lib-card-sub">
+                      {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+                      {tempWording(gallery)}
+                    </p>
+                    {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
+                  </article></li>
+                })}
+              </ul>
+            </section>
+          ) : null}
+          {accountTier === 'pro' && (remoteDeviceGalleries.length || galleries.length) ? (
+            <section aria-labelledby="local-galleries-title">
+              <h2 id="local-galleries-title" class="lib-section-title">Local galleries</h2>
+              <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
+              <ul class="lib-list">
+                {remoteDeviceGalleries.map((gallery) => (
+                  <li key={`device-${gallery.id}`}><article class="lib-card">
+                    <div class="lib-card-head">
+                      <span class="lib-card-title">{gallery.title}</span>
+                    </div>
+                    <p class="lib-card-sub">
+                      {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
+                    </p>
+                  </article></li>
+                ))}
+                {galleries.map((record) => {
+                  const state = availability[record.id] ?? 'available'
+                  const unavailable = state === 'unavailable'
+                  return <li key={record.id}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
+                    <div class="admin-gallery-strip-frame" onWheel={stripWheel}>
+                      <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
+                        {record.items.map((item, index) => (
+                          <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
+                            <button
+                              type="button"
+                              disabled={unavailable}
+                              aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
+                              onClick={() => openViewer(record.id, index)}
                             >
                               <img
-                                src={previewSrcFor(image)}
+                                src={assetUrl(item.path)}
                                 alt=""
                                 loading="lazy"
                                 draggable={false}
-                                onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')}
+                                onLoad={(event: Event) => {
+                                  const img = event.currentTarget as HTMLImageElement
+                                  img.classList.add('is-loaded')
+                                  recordDims(item.id, img.naturalWidth, img.naturalHeight)
+                                }}
                               />
-                            </a>
+                            </button>
                           </li>
                         ))}
                       </ul>
+                      {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
                     </div>
-                  ) : null}
-                  <div class="lib-card-head">
-                    <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}</a>
-                    <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
-                  </div>
-                  <p class="lib-card-sub">
-                    {formatMediaCount(summaryMediaCount(gallery))} · {sourceLabelFor(gallery.sourceUrl)} · cloud gallery
-                  </p>
-                </article></li>
-              })}
-              {remoteDeviceGalleries.map((gallery) => (
-                <li key={`device-${gallery.id}`}><article class="lib-card">
-                  {/* Nothing on this Mac opens a remote copy — the card stays
-                      informational: no rail, no menu, no title action. */}
-                  <div class="lib-card-head">
-                    <span class="lib-card-title">{gallery.title}</span>
-                  </div>
-                  <p class="lib-card-sub">
-                    {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
-                  </p>
-                </article></li>
-              ))}
-              {galleries.map((record) => {
-                const state = availability[record.id] ?? 'available'
-                const unavailable = state === 'unavailable'
-                return <li key={record.id}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
-                  {/* One gapless row of aspect-true originals, hung exactly as
-                      the web editor rail and the native picker hang them: one
-                      height, width from the source, zero gaps. */}
-                  <div class="admin-gallery-strip-frame">
-                    <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
-                      {record.items.map((item, index) => (
-                        <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
-                          <button
-                            type="button"
-                            disabled={unavailable}
-                            aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
-                            onClick={() => openViewer(record.id, index)}
-                          >
-                            <img
-                              src={assetUrl(item.path)}
-                              alt=""
-                              loading="lazy"
-                              draggable={false}
-                              onLoad={(event: Event) => {
-                                const img = event.currentTarget as HTMLImageElement
-                                img.classList.add('is-loaded')
-                                recordDims(item.id, img.naturalWidth, img.naturalHeight)
-                              }}
-                            />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
-                  </div>
-                  <div class="lib-card-head">
-                    {/* Title is the primary action like everywhere else: the
-                        gallery when it can open, Details — where the fix lives —
-                        when the source is gone. */}
-                    <button
-                      type="button"
-                      class="lib-card-title"
-                      onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
-                    >{record.title}</button>
-                    <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
-                  </div>
-                  <p class="lib-card-sub">
-                    {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
-                  </p>
-                  {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
-                </article></li>
-              })}
-            </ul>
-          ) : (
+                    <div class="lib-card-head">
+                      <button
+                        type="button"
+                        class="lib-card-title"
+                        onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
+                      >{record.title}</button>
+                      <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+                    </div>
+                    <p class="lib-card-sub">
+                      {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+                    </p>
+                    {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+                  </article></li>
+                })}
+              </ul>
+            </section>
+          ) : null}
+          {compactAccountGalleries.length ? (
+            <section aria-labelledby="lib-compact-title">
+              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Your galleries</h2>
+              <ul class="lib-compact-grid">
+                {compactAccountGalleries.map((gallery) => {
+                  const title = gallery.title || gallery.slug
+                  const galleryUrl = accountGalleryUrl(gallery)
+                  const openCard = (event: MouseEvent) => {
+                    event.preventDefault()
+                    if (event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
+                    void openAccountGallery(gallery, 0)
+                  }
+                  // The cover is the first VISIBLE item — falling back to
+                  // images[0] would leak a concealed photograph.
+                  const cover = gallery.images.find((image) => !image.hidden)
+                  return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+                    <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
+                      {cover ? <img src={previewSrcFor(cover)} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} onError={stripImgRetry} /> : null}
+                    </a>
+                    <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+                    <div class="lib-compact-body">
+                      <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
+                      {isLocked(gallery) ? tempFlag(gallery) : null}
+                      <p class="lib-card-sub">
+                        {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+                        {tempWording(gallery)}
+                      </p>
+                    </div>
+                  </li>
+                })}
+              </ul>
+            </section>
+          ) : null}
+          {!galleries.length && !accountGalleries?.length && !remoteDeviceGalleries.length ? (
             <p class="desktop-empty">Choose a folder or a mounted memory card. Manorama references the originals in place — nothing is copied, uploaded, or moved.</p>
-          )}
+          ) : null}
         </section>
       </div>
 
+      {/* "+ Add Gallery" is a fork, not a picker: a folder on this Mac goes
+          through the local scan flow; a shared cloud link goes through the
+          same sheet and verify-then-create contract as the web Library. */}
+      <Sheet open={addChooserOpen} onClose={() => setAddChooserOpen(false)} title="Add a gallery">
+        <ActionGroup note="Local folders stay on this Mac. Cloud links join your account galleries.">
+          <ActionRow
+            icon={<SourceIcon />}
+            label="A folder on this Mac"
+            value={accountTier === 'pro' ? undefined : 'Visionary'}
+            onClick={() => { setAddChooserOpen(false); void addFolder() }}
+            disabled={busy || accountTier !== 'pro'}
+          />
+          <ActionRow
+            icon={<LinkIcon />}
+            label="A shared cloud link"
+            value={session ? undefined : 'Sign in first'}
+            onClick={() => {
+              if (!session) return
+              setAddChooserOpen(false)
+              setAddUrl('')
+              setAddName('')
+              setAddCaption('')
+              setAddError(null)
+              resetAddVerification()
+              setAddOpen(true)
+            }}
+            disabled={!session}
+          />
+        </ActionGroup>
+      </Sheet>
+      <AddGallerySheet
+        open={addOpen}
+        url={addUrl}
+        name={addName}
+        caption={addCaption}
+        checking={addChecking}
+        verifiedTitle={addVerifiedTitle}
+        busy={busy}
+        error={addError}
+        onUrlChange={onAddUrlChange}
+        onVerify={onAddUrlCommit}
+        onNameChange={setAddName}
+        onCaptionChange={setAddCaption}
+        onClose={closeAddSheet}
+        onSubmit={addGallerySubmit}
+      />
       {cardMenu ? (
-        <Sheet open onClose={() => setCardMenu(null)} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}>
-          {/* Native buttons and links, not menu/menuitem roles: there is no
-              arrow-key roving focus here, so the menu role would overpromise. */}
+        <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}>
+          {menuRemove ? (
+            <div class="lib-menu">
+              <p>Remove “{cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}” from manorama?{cardMenu.kind === 'account' && cardMenu.gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(cardMenu.gallery.sourceUrl)}.` : ' The folder on this Mac is untouched.'}</p>
+              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => {
+                if (cardMenu.kind === 'account') void removeGalleryConfirmed(cardMenu.gallery)
+                else { const record = cardMenu.record; setCardMenu(null); setMenuRemove(false); void remove(record) }
+              }}>Remove gallery</button>
+              <button type="button" disabled={busy} onClick={() => setMenuRemove(false)}>Cancel</button>
+            </div>
+          ) : (
+          /* Native buttons and links, not menu/menuitem roles: there is no
+             arrow-key roving focus here, so the menu role would overpromise. */
           <div class="lib-menu">
             {cardMenu.kind === 'account' ? (<>
-              <a {...menuAnchor(accountGalleryUrl(cardMenu.gallery))}>Open</a>
-              {cardMenu.gallery.sourceUrl ? <a {...menuAnchor(cardMenu.gallery.sourceUrl)}>Open source</a> : null}
+              {/* The pin moves the card between "Pinned galleries" and the
+                  compact list — a display choice, never permanence. */}
+              <button type="button" disabled={busy} onClick={() => { void togglePin(cardMenu.gallery) }}>{cardMenu.gallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              <button type="button" onClick={() => { setShareGallery(cardMenu.gallery); setCardMenu(null) }}>Share link</button>
+              {/* The gallery's own Settings — the same panel the viewer's
+                  Settings popover hosts, so the owner edits in place. */}
+              <button type="button" onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery settings</button>
+              <button
+                type="button"
+                disabled={busy || isLocked(cardMenu.gallery)}
+                title={isLocked(cardMenu.gallery) ? PIPELINE_LOCK_MESSAGE : undefined}
+                onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void openAccountGallery(g, 0, true) }}
+              >Reorder photographs</button>
+              {cardMenu.gallery.sourceUrl ? <a href={cardMenu.gallery.sourceUrl} target="_blank" rel="noopener" onClick={(event) => {
+                // Encrypted sourceUrl is stored keyless — the full provider
+                // link is rebuilt from this device's custody before it
+                // leaves for the browser, same as the web menu.
+                event.preventDefault()
+                const g = cardMenu.gallery
+                setCardMenu(null)
+                if (g.manifestVersion === 2 && g.id && isEncryptedSourceUrl(g.sourceUrl!)) void openSourceResolved(g)
+                else openExternal(g.sourceUrl!)
+              }}>Open source</a> : null}
+              {cardMenu.gallery.sourceUrl ? (
+                <button
+                  type="button"
+                  disabled={busy || isLocked(cardMenu.gallery)}
+                  title={isLocked(cardMenu.gallery) ? PIPELINE_LOCK_MESSAGE : undefined}
+                  onClick={() => { void refreshGallery(cardMenu.gallery) }}
+                >Read the folder again</button>
+              ) : null}
+              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Read the folder again</button>
+              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}
           </div>
+          )}
         </Sheet>
+      ) : null}
+      {shareGallery ? (
+        <div onClick={interceptSettingsLink}>
+          <GalleryShareSheet
+            payload={{
+              title: shareGallery.title || shareGallery.slug,
+              caption: shareGallery.caption,
+              url: `${accountGalleryUrl(shareGallery)}${shareGallery.id ? galleryHashes[shareGallery.id] ?? '' : ''}`,
+            }}
+            onClose={() => setShareGallery(null)}
+            onCopy={copyText}
+            shareDisabled={Boolean(shareGallery.manifestVersion === 2 && shareGallery.id && !galleryHashes[shareGallery.id])}
+            shareWarning="This device does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
+          />
+        </div>
+      ) : null}
+      {galSettingsGallery ? (
+        <Sheet open onClose={() => setGalSettingsSlug(null)} title="Gallery settings">
+          <div class="m-dark" onClick={interceptSettingsLink}>
+            <OwnerGalleryPanel
+              owner={ownerSlug ?? session?.ownerSlug ?? ''}
+              slug={galSettingsGallery.slug}
+              title={galSettingsGallery.title}
+              caption={galSettingsGallery.caption}
+              sourceLabel={sourceLabelFor(galSettingsGallery.sourceUrl)}
+              galleryId={galSettingsGallery.id}
+              sourceUrl={galSettingsGallery.sourceUrl}
+              temporary={isLocked(galSettingsGallery)}
+              expiresAt={galSettingsGallery.expiresAt}
+              mediaCount={summaryMediaCount(galSettingsGallery)}
+              upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
+              onOpen={() => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, 0) }}
+              onReorder={() => { const g = galSettingsGallery; setGalSettingsSlug(null); void openAccountGallery(g, 0, true) }}
+              currentPhotoId={() => ''}
+              onTitleSaved={(next) => setAccountGalleries((previous) => previous?.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item) ?? previous)}
+              onCaptionSaved={(next) => setAccountGalleries((previous) => previous?.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item) ?? previous)}
+              apiBase={base}
+              authToken={session?.token}
+              keyStore={desktopKeyStore()}
+              shareHref={`${accountGalleryUrl(galSettingsGallery)}${galSettingsGallery.id ? galleryHashes[galSettingsGallery.id] ?? '' : ''}`}
+              onRenamed={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token) }}
+              onRefreshed={() => { if (session) void refreshAccountGalleries(session.token) }}
+              onRemoved={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token); setNotice('Gallery removed') }}
+            />
+          </div>
+        </Sheet>
+      ) : null}
+      {/* The shared Settings surface — the same groups and options the
+          web dashboard shows. Its anchors (privacy, connect links, the
+          upgrade mailto) all open in the system browser. */}
+      {settingsOpen && session ? (
+        <div onClick={interceptSettingsLink}>
+          <WebSettings
+            ownerSlug={ownerSlug ?? session.ownerSlug}
+            ownerSlugDraft={ownerSlugDraft}
+            onOwnerSlugDraft={(value) => { setOwnerSlugDraft(value); setSettingsNote(null) }}
+            onSaveOwnerSlug={() => void saveOwnerSlug()}
+            ownerSlugBusy={busy}
+            ownerSlugNote={settingsNote}
+            identities={identities}
+            identityNote={identityNote}
+            onUnlinkIdentity={(provider) => void unlinkIdentity(provider)}
+            tier={accountTier}
+            retainedCount={retainedCount}
+            retainedLimit={retainedLimit}
+            upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
+            theme={theme}
+            onTheme={setTheme}
+            deleteConfirm={deleteConfirm}
+            onDeleteConfirmChange={setDeleteConfirm}
+            deleteOpen={deleteOpen}
+            onRequestDelete={() => { setDeleteOpen(true); setDeleteNote(null) }}
+            onCancelDelete={() => { setDeleteOpen(false); setDeleteConfirm(''); setDeleteNote(null) }}
+            deleteBusy={deleteBusy}
+            deleteNote={deleteNote}
+            onDeleteAccount={() => void removeAccount()}
+            onBack={() => setSettingsOpen(false)}
+            onSignOut={signOut}
+            deviceSection={(
+              <ActionGroup label="This Mac">
+                <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
+                <ActionRow
+                  label="Catalogue sync"
+                  control={(
+                    <Button
+                      variant="quiet"
+                      disabled={syncState === 'syncing' || !catalogue}
+                      onClick={() => catalogue && void runSync(catalogue, session)}
+                    >
+                      {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
+                    </Button>
+                  )}
+                />
+              </ActionGroup>
+            )}
+          />
+        </div>
+      ) : null}
+      {/* Status notes toast over the surface like the web dashboard's —
+          the rail stays clean of transient text. */}
+      {notice || accountNote || slugNote ? (
+        <div class="desktop-toast-stack">
+          {notice ? <div class="admin-toast" role="status" aria-live="polite">{notice}</div> : null}
+          {accountNote ? <div class="admin-toast" role="status">{accountNote}</div> : null}
+          {slugNote ? <div class="admin-toast" role="status">{slugNote}</div> : null}
+        </div>
       ) : null}
     </main>
   )

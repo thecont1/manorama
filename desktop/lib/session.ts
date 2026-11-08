@@ -144,7 +144,9 @@ export const getSession = async (): Promise<DesktopSession | null> => {
   }
 }
 
-const storeSession = async (session: DesktopSession): Promise<void> =>
+/** Exported so the account read can persist a tier change it observes —
+ * a downgrade must reach the next launch, not just this one. */
+export const storeSession = async (session: DesktopSession): Promise<void> =>
   invoke('write_private_file', { name: SESSION_FILE, contents: JSON.stringify(session) })
 
 export const clearSession = async (): Promise<void> => {
