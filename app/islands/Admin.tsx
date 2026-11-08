@@ -3,7 +3,7 @@ import { applyTheme, readStoredTheme, storeTheme, type Theme } from '../lib/owne
 import type { GallerySummary } from '../lib/gallery-repository'
 import type { AccountTier } from '../../packages/core/account'
 import { friendlySourceError } from '../lib/source-errors'
-import { PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired } from '../lib/gallery-policy'
+import { PIPELINE_LOCK_MESSAGE, FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, isGalleryExpired, expiryCountdownText } from '../lib/gallery-policy'
 import type { AuthProvider } from '../lib/identity-repository'
 import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
@@ -14,9 +14,10 @@ import { Sheet } from '../components/ui/Sheet'
 import { GalleryDetailsView } from '../components/GalleryDetailsView'
 import { GalleryEditSheet, type GalleryEditField } from '../components/GalleryEditSheet'
 import { WebSettings, type AccountIdentityWeb } from '../components/WebSettings'
+import { SettingsIcon } from '../components/admin-icons'
 import OwnerGalleryPanel from '../components/viewer/OwnerGalleryPanel'
 import { copyText } from '../lib/gallery-share'
-import { formatMediaCount, summaryMediaCount } from '../lib/imagesource'
+import { cardCountSource, formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 import { libraryLayout } from '../../packages/core/library-layout'
 import { galleryHashForSource, isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
@@ -76,11 +77,6 @@ const buildCommit = typeof __MANORAMA_COMMIT__ === 'string' ? __MANORAMA_COMMIT_
  *  timestamp, not the retention flag. Permanence only moves through the
  *  swap or a tier change. */
 const effectivePinned = (gallery: GallerySummary) => Boolean(gallery.pinnedAt)
-
-/** Whole days until a pipeline gallery's expiry instant — the number the
- *  stopwatch popover quotes. */
-const daysUntilExpiry = (expiresAt: string | null | undefined, now: number) =>
-  expiresAt ? Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 86_400_000)) : null
 
 /** After a new gallery card mounts, bring it fully into view: centered with
  *  breathing room when it fits, top-parked with a margin when it doesn't.
@@ -457,12 +453,6 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     document.addEventListener('click', follow)
     return () => document.removeEventListener('click', follow)
   }, [galleries, owner])
-  // A compound count ("19 photographs · 7 hidden") takes its own dot
-  // before the source so the parts read as separate facts; a lone count
-  // flows straight into "from" instead of dangling a separator.
-  const cardCountSource = (count: string, source: string) =>
-    `${count}${count.includes('·') ? ' · ' : ' '}from ${source}`
-
   const cancelOwnerSlugEditing = () => {
     setOwnerSlugDraft(owner)
   }
@@ -957,7 +947,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <div class="admin-heading-actions">
             <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => { setAddError(null); setAddOpen(true) }} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
             <button type="button" class="admin-button admin-settings-pill" aria-label="Settings" onClick={openSettings}>
-              <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></svg>
+              <SettingsIcon />
             </button>
           </div>
         </div>
@@ -1042,7 +1032,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             <div class="lib-card-head">
               <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
               {locked ? (
-                <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires ${gallery.expiresAt.slice(0, 10)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
+                <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
                 </button>
               ) : null}
@@ -1050,7 +1040,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             </div>
             <p class="lib-card-sub">
               {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-              {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+              {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
             </p>
             {gallery.caption?.trim() ? <p class="lib-card-caption">{gallery.caption}</p> : null}
             {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
@@ -1080,13 +1070,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 <div class="lib-compact-body">
                   <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
                   {locked ? (
-                    <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires ${gallery.expiresAt.slice(0, 10)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
+                    <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
                       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
                     </button>
                   ) : null}
                   <p class="lib-card-sub">
                     {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-                    {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+                    {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
                   </p>
                 </div>
                 {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
@@ -1196,10 +1186,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         <Sheet open onClose={() => setPinChoiceSlug(null)} title="Temporary gallery">
           <div class="lib-pin-choice">
             <p class="lib-pin-choice-copy">
-              “{pinChoiceGallery.title || pinChoiceGallery.slug}” is a temporary gallery{(() => {
-                const days = daysUntilExpiry(pinChoiceGallery.expiresAt, now)
-                return days === null ? '.' : days === 1 ? ' and expires tomorrow.' : ` and expires in ${days} days.`
-              })()} Choose a plan, or swap its place with a permanent gallery —
+              “{pinChoiceGallery.title || pinChoiceGallery.slug}” is a temporary gallery{pinChoiceGallery.expiresAt ? ` and expires in ${expiryCountdownText(pinChoiceGallery.expiresAt, now)}.` : '.'} Choose a plan, or swap its place with a permanent gallery —
               the two trade permanence, position and expiry, nothing else moves.
             </p>
             <ul class="lib-pin-choice-list">

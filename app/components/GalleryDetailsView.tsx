@@ -1,5 +1,5 @@
 import type { Child } from 'hono/jsx'
-import { PIPELINE_LOCK_MESSAGE } from '../lib/gallery-policy'
+import { PIPELINE_LOCK_MESSAGE, expiryCountdownText } from '../lib/gallery-policy'
 import { formatMediaCount, type MediaCount } from '../lib/imagesource'
 import { ActionGroup, ActionRow } from './ui/ActionRow'
 import { Button } from './ui/Button'
@@ -135,7 +135,7 @@ export function GalleryDetailsView({
           <div class="d-name">{title}</div>
           <div class="d-sub">
             {formatMediaCount(mediaCount)} · {sourceLabel}
-            {temporary ? ` · Temporary gallery${expiresAt ? ` · expires ${expiresAt.slice(0, 10)}` : ''}` : ''}
+            {temporary ? ` · Temporary gallery${expiresAt ? ` · expires in ${expiryCountdownText(expiresAt, Date.now())}` : ''}` : ''}
             {deviceStatus}
           </div>
           {caption ? <div class="d-cap">{caption}</div> : null}

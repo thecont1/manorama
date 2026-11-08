@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
 import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from '../../packages/core/owner-navigation'
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
+import { expiryCountdownText } from '../../app/lib/gallery-policy'
 import { decideBack } from '../lib/back-decision'
 import { nativeDeviceLabel } from '../lib/device-label'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
@@ -1476,7 +1477,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <p class="lib-card-sub">
           {formatMediaCount(summaryMediaCount(gallery))}
           {' · '}{sourceLabelFor(gallery.sourceUrl)}
-          {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+          {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}` : ''}
           <LibraryDeviceStatus
             galleryId={galleryId}
             imageCount={gallery.imageCount}
