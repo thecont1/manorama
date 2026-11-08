@@ -1193,8 +1193,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             setNotice('Offline copy saved in your encrypted vault.')
             void refreshSavedGalleries()
           }
-        }).catch(() => {
-          if (!abort.signal.aborted) setNotice('Offline saving was interrupted — you can keep viewing online.')
+        }).catch((error) => {
+          const reason = error instanceof Error && error.message ? ` (${error.message})` : ''
+          if (!abort.signal.aborted) setNotice(`Offline saving was interrupted${reason} — you can keep viewing online.`)
         })
       }
       if (result.source === 'offline') setNotice('Opened from your encrypted vault.')
@@ -1305,11 +1306,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
       )
       if (result.status === 'skipped-video') setNotice('This gallery includes video — offline saving is not supported for mixed galleries yet.')
+      else if (result.status === 'skipped-encrypted') setNotice('This gallery cannot be saved on this Mac yet — its encrypted form predates the vault.')
       else if (result.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — raise the limit in Settings.')
       else setNotice('Saved on this Mac — encrypted, viewable only in manorama.')
       await refreshSavedGalleries()
-    } catch {
-      setNotice('That gallery could not be saved on this Mac')
+    } catch (error) {
+      // The failure reason rides the toast — a vault failure needs its real
+      // name (locked custody, too-large entry, transport) visible, not a shrug.
+      const reason = error instanceof Error && error.message ? `: ${error.message}` : ''
+      setNotice(`That gallery could not be saved on this Mac${reason}`)
     }
   }
 

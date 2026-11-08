@@ -155,13 +155,19 @@ fn vault_entry_path(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
 /// four times the size. An absent file answers an empty body.
 #[tauri::command]
 fn vault_read(app: AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
-    match std::fs::read(vault_entry_path(&app, &path)?) {
+    let result = match std::fs::read(vault_entry_path(&app, &path)?) {
         Ok(bytes) => Ok(tauri::ipc::Response::new(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("[vault] read {path} -> MISSING");
             Ok(tauri::ipc::Response::new(Vec::new()))
         }
         Err(error) => Err(error.to_string()),
+    };
+    match &result {
+        Ok(_) => {}
+        Err(error) => eprintln!("[vault] read {path} -> ERR {error}"),
     }
+    result
 }
 
 #[tauri::command]
@@ -170,13 +176,22 @@ fn vault_write(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<(), Strin
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&target, &bytes).map_err(|e| e.to_string())
+    let len = bytes.len();
+    let result = std::fs::write(&target, &bytes).map_err(|e| e.to_string());
+    if result.is_err() {
+        eprintln!("[vault] write {path} ({len} B) -> ERR {}", result.as_ref().err().unwrap());
+    }
+    result
 }
 
 #[tauri::command]
 fn vault_move(app: AppHandle, from: String, to: String) -> Result<(), String> {
-    std::fs::rename(vault_entry_path(&app, &from)?, vault_entry_path(&app, &to)?)
-        .map_err(|e| e.to_string())
+    let result = std::fs::rename(vault_entry_path(&app, &from)?, vault_entry_path(&app, &to)?)
+        .map_err(|e| e.to_string());
+    if result.is_err() {
+        eprintln!("[vault] move {from} -> {to}: ERR {}", result.as_ref().err().unwrap());
+    }
+    result
 }
 
 /// "Already missing" is the only absorbed outcome — a delete that could leave
@@ -234,18 +249,28 @@ fn vault_key_entry(name: &str) -> Result<keyring::Entry, String> {
 
 #[tauri::command]
 fn vault_key_get(name: String) -> Result<Option<String>, String> {
-    match vault_key_entry(&name)?.get_password() {
+    let result = match vault_key_entry(&name)?.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error.to_string()),
+    };
+    match &result {
+        Ok(None) => eprintln!("[vault] key_get {name} -> NONE"),
+        Err(error) => eprintln!("[vault] key_get {name} -> ERR {error}"),
+        Ok(Some(_)) => {}
     }
+    result
 }
 
 #[tauri::command]
 fn vault_key_set(name: String, value: String) -> Result<(), String> {
-    vault_key_entry(&name)?
+    let result = vault_key_entry(&name)?
         .set_password(&value)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    if result.is_err() {
+        eprintln!("[vault] key_set {name} -> ERR {}", result.as_ref().err().unwrap());
+    }
+    result
 }
 
 /// A key that survives removal must fail loudly — a verified purge depends on
