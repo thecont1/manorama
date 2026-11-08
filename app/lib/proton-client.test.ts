@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { capacitorHttpFetch, extractProtonLink, openProtonSession } from './proton-client'
 
@@ -180,6 +180,12 @@ mock.module('@protontech/crypto/srp', () => ({
   computeKeyPassword: async () => '',
   generateKeySalt: () => 'x',
 }))
+
+// mock.module is process-global — restore the real SDK bindings when the
+// suite ends so a sibling file never sees these stubs.
+afterAll(() => {
+  mock.restore()
+})
 
 describe('a Proton session over a stubbed SDK', () => {
   const openSession = () =>
