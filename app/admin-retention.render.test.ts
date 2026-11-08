@@ -162,7 +162,7 @@ describe('the dashboard renders retention state', () => {
     expect(html).toContain('data-retention="retained"')
     const settings = renderSettings()
     expect(settings).toContain(FREE_RETENTION_DISCLOSURE)
-    expect(settings).toContain('Editable galleries')
+    expect(settings).toContain('Permanent galleries')
     expect(settings).toContain('3 of 3')
 
     const card = cardSection(html, 'locked')

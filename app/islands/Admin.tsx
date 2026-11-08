@@ -1240,6 +1240,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           tier={tier}
           retainedCount={retainedCount}
           retainedLimit={retainedLimit}
+          temporaryCount={temporaryCount}
           upgradeHref={upgradeHref}
           theme={theme}
           onTheme={setTheme}

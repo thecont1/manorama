@@ -31,6 +31,12 @@ type Props = {
   tier: 'free' | 'pro'
   retainedCount: number
   retainedLimit: number
+  /** Pipeline (temporary) galleries — surfaced on every surface that can
+   *  count them. Absent surfaces omit the row entirely. */
+  temporaryCount?: number
+  /** Local galleries are a device concept — only native shells pass this;
+   *  the web has no persistence and omits the row (invariant 7). */
+  localCount?: number
   /** Already-composed by the container: either the Stripe payment link with
    *  the encoded client reference, or the plain mailto fallback. */
   upgradeHref: string
@@ -122,8 +128,10 @@ export function WebSettings(props: Props) {
         </ActionGroup>
 
         <ActionGroup label="Plan">
-          <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free'} chevron={false} />
-          <ActionRow label="Editable galleries" value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
+          <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
+          <ActionRow label="Permanent galleries" value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
+          {props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={props.temporaryCount} chevron={false} /> : null}
+          {props.localCount != null ? <ActionRow label="Local galleries" value={props.localCount} chevron={false} /> : null}
           {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
           {props.tier === 'pro' ? (
             <>
@@ -152,7 +160,7 @@ export function WebSettings(props: Props) {
 
         <ActionGroup label="About">
           <ActionRow label="Privacy Policy" href="/privacy" />
-          <ActionRow label="Mahesh Shantaram · thecontrarian.in" href="https://thecontrarian.in" />
+          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram.</p>
         </ActionGroup>
 
         <ActionGroup label="Sign out and delete">
