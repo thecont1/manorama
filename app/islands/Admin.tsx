@@ -1067,11 +1067,13 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                   {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
                     const img = event.currentTarget as HTMLImageElement
                     img.classList.add('is-loaded')
-                    // The cover never renders larger than its thumbnail's
-                    // own pixels — a small rendition floats centred at its
-                    // honest size rather than upscaling into mush.
-                    if (img.naturalWidth) img.style.maxWidth = `${img.naturalWidth}px`
-                    if (img.naturalHeight) img.style.maxHeight = `${img.naturalHeight}px`
+                    // The card takes the thumbnail's own size — the image
+                    // always fills it exactly, and a small rendition never
+                    // stretches into mush. Stored dims are the placeholder's
+                    // shape; the decoded frame owns the real ratio.
+                    if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                    const card = img.closest('.lib-compact-card') as HTMLElement | null
+                    if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
                   }} /> : null}
                 </a>
                 <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
