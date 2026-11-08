@@ -63,6 +63,10 @@ export const loadGalleryItems = async (slug: string, apiBase = '', token?: strin
   if (!response.ok) throw new Error(payload.error || 'That gallery could not be read')
   const summary = payload.gallery
   if (!summary) throw new Error('That gallery could not be found in the account')
+  // Media paths are server-relative — on a non-web shell they must resolve
+  // against the API origin or the cells ask tauri://localhost for them.
+  const mediaUrl = <T extends string | undefined>(src: T): T =>
+    (src && base && src.startsWith('/') ? `${base}${src}` : src) as T
   return summary.images.map((image) => {
     const video = isVideoItem(image as GalleryMediaItem)
     const poster = video ? (image as GalleryMediaItem & { poster?: { src: string } }).poster : undefined
@@ -71,10 +75,10 @@ export const loadGalleryItems = async (slug: string, apiBase = '', token?: strin
       orderKey: image.ref ?? image.filename,
       width: image.width,
       height: image.height,
-      src: poster?.src ?? image.src,
+      src: mediaUrl(poster?.src ?? image.src),
       // The same URL browse mode puts in its <img> — identical bytes mean
       // the browser cache answers the mode switch instead of the network.
-      preview: image.variants?.[0]?.src ?? poster?.src ?? image.placeholder,
+      preview: mediaUrl(image.variants?.[0]?.src ?? poster?.src ?? image.placeholder),
       media: image.media,
       previewMedia: image.variants?.[0]?.media,
       filename: image.filename,
