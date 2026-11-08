@@ -3591,9 +3591,9 @@ test.describe("retention policy", () => {
     });
     const page = await context.newPage();
     await page.goto(`${BASE}/${RETENTION_OWNER}`, { waitUntil: "domcontentloaded" });
-    // The retention disclosure lives in Settings › Plan.
+    // The retention disclosure lives in Settings › Allowance.
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.locator(".web-settings").getByText(/Free accounts retain up to 3 editable galleries/)).toBeVisible();
+    await expect(page.locator(".web-settings").getByText(/Free accounts retain up to 3 permanent galleries plus 96 temporary/)).toBeVisible();
     await page.locator(".web-settings").getByRole("button", { name: "Back", exact: true }).click();
     const card = page.locator('[data-gallery-card="ui-d"]');
     await expect(card.locator(".lib-card-sub")).toContainText("Temporary gallery");

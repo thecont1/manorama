@@ -3,6 +3,8 @@ import {
   AUTH_PROVIDERS,
   canRetainAnotherGallery,
   countRetainedGalleries,
+  FREE_PIPELINE_CAP_MESSAGE,
+  FREE_PIPELINE_LIMIT,
   FREE_RETAINED_LIMIT,
   FREE_RETENTION_DISCLOSURE,
   normalizeSlug,
@@ -103,7 +105,7 @@ describe('retained-gallery caps', () => {
     expect(PAID_RETAINED_LIMIT).toBe(99)
     expect(PIPELINE_LIFETIME_MS).toBe(30 * 24 * 60 * 60 * 1000)
     expect(PIPELINE_LOCK_MESSAGE).toContain('temporary gallery')
-    expect(FREE_RETENTION_DISCLOSURE).toContain('3 editable galleries')
+    expect(FREE_RETENTION_DISCLOSURE).toContain('3 permanent galleries plus 96 temporary')
     expect(PAID_RETAINED_CAP_MESSAGE).toContain('99 galleries')
   })
 
@@ -119,6 +121,20 @@ describe('retained-gallery caps', () => {
     for (const retained of [3, 4, 10, 99, 100]) {
       expect(nextGalleryRetentionFor('free', retained)).toEqual({ allowed: true, retention: 'pipeline' })
     }
+  })
+
+  test('free temporaries cap at 96 — 3 permanent + 96 temporary is the full 99', () => {
+    expect(FREE_PIPELINE_LIMIT).toBe(PAID_RETAINED_LIMIT - FREE_RETAINED_LIMIT)
+    for (const pipeline of [0, 1, 95]) {
+      expect(nextGalleryRetentionFor('free', FREE_RETAINED_LIMIT, pipeline)).toEqual({ allowed: true, retention: 'pipeline' })
+    }
+    for (const pipeline of [96, 97, 200]) {
+      const result = nextGalleryRetentionFor('free', FREE_RETAINED_LIMIT, pipeline)
+      expect(result).toEqual({ allowed: false, reason: 'pipeline-cap', message: FREE_PIPELINE_CAP_MESSAGE })
+    }
+    // The cap only bites once the retained slots are full — while a free
+    // account still has permanent room, its temporary count is irrelevant.
+    expect(nextGalleryRetentionFor('free', 0, 200)).toEqual({ allowed: true, retention: 'retained' })
   })
 
   test('paid retains up to the cap and refuses beyond it', () => {

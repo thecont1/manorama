@@ -20,7 +20,7 @@ import {
   type GalleryRecord,
 } from './gallery-repository'
 import { resetUserStore, setUserTier, upsertUser } from './user-repository'
-import { GalleryPolicyError, PIPELINE_LIFETIME_MS, PIPELINE_LOCK_MESSAGE } from './gallery-policy'
+import { FREE_PIPELINE_LIMIT, GalleryPolicyError, PAID_RETAINED_LIMIT, PIPELINE_LIFETIME_MS, PIPELINE_LOCK_MESSAGE } from './gallery-policy'
 import type { GalleryImage } from './imagesource'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -259,6 +259,25 @@ for (const backend of BACKENDS) {
       }
     }))
 
+    test('a free owner is capped at 96 temporary galleries through both create wrappers', withBackend(backend, async (b) => {
+      await b.seedUser('free')
+      await b.seedRetained(3)
+      for (let index = 0; index < FREE_PIPELINE_LIMIT; index++) {
+        const seeded = await createGalleryWithinLimit(OWNER, galleryRecord(`temp-${index}`), b.env)
+        if (!seeded.ok) throw new Error(`temporary seed failed at ${index}: ${seeded.reason}`)
+      }
+      const result = await createGalleryWithinLimit(OWNER, galleryRecord('hundredth'), b.env)
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.reason).toBe('pipeline-limit')
+      try {
+        await createGallery(OWNER, galleryRecord('hundredth-and-one'), b.env)
+        throw new Error('expected createGallery to throw')
+      } catch (error) {
+        expect(error).toBeInstanceOf(GalleryPolicyError)
+        expect((error as GalleryPolicyError).code).toBe('GALLERY_LIMIT')
+      }
+    }))
+
     test('an incoming retention flag cannot bypass the pipeline assignment', withBackend(backend, async (b) => {
       await b.seedUser('free')
       await b.seedRetained(3)
@@ -425,10 +444,10 @@ for (const backend of BACKENDS) {
       expect(await getStoredGallery(OWNER, 'doomed', b.env)).toBeNull()
     }))
 
-    test('promotion is uncapped beyond 99, but the next create is denied', withBackend(backend, async (b) => {
+    test('promotion converts the full 3+96 free set into 99 permanents, then denies the next create', withBackend(backend, async (b) => {
       await b.seedUser('free')
       await b.seedRetained(3)
-      for (let index = 0; index < 100; index += 1) {
+      for (let index = 0; index < FREE_PIPELINE_LIMIT; index += 1) {
         const result = await createGalleryWithinLimit(OWNER, galleryRecord(`extra-${index}`), b.env)
         if (!result.ok || result.gallery.retention !== 'pipeline') throw new Error(`pipeline seed failed at ${index}`)
       }
@@ -436,6 +455,9 @@ for (const backend of BACKENDS) {
       const spot = await getStoredGallery(OWNER, 'extra-42', b.env)
       expect(spot?.retention).toBe('retained')
       expect(spot?.expiresAt).toBeNull()
+      const stored = await listGalleries(OWNER, b.env)
+      expect(stored).toHaveLength(PAID_RETAINED_LIMIT)
+      expect(stored.every((gallery) => gallery.retention === 'retained' && gallery.expiresAt === null)).toBe(true)
       const denied = await createGalleryWithinLimit(OWNER, galleryRecord('over-the-top'), b.env)
       expect(denied.ok).toBe(false)
       if (!denied.ok) expect(denied.reason).toBe('limit')

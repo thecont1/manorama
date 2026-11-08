@@ -6,11 +6,13 @@ import { clearDeviceGalleryLink } from './device-gallery-repository'
 import { deleteGalleryKey } from './key-vault-repository'
 import {
   assertGalleryEditable,
+  FREE_PIPELINE_LIMIT,
   FREE_RETAINED_LIMIT,
   GalleryPolicyError,
   isGalleryExpired,
   PAID_RETAINED_LIMIT,
   paidGalleryLimitError,
+  pipelineGalleryLimitError,
   PIPELINE_LIFETIME_MS,
   type GalleryRetention,
 } from './gallery-policy'
@@ -216,14 +218,14 @@ export const getStoredGallery = async (ownerId: string, slug: string, env?: Gall
 
 export type CreateWithinLimitResult =
   | { readonly ok: true; readonly gallery: GalleryRecord }
-  | { readonly ok: false; readonly reason: 'limit' | 'conflict' | 'duplicate-source' }
+  | { readonly ok: false; readonly reason: 'limit' | 'pipeline-limit' | 'conflict' | 'duplicate-source' }
 
 /** Applies the account's retention policy and inserts the gallery atomically.
  *  Free accounts retain their first three galleries and receive 30-day
- *  pipeline galleries thereafter; paid accounts retain galleries up to the
- *  99-gallery cap. Returns `conflict` for an occupied owner/slug pair,
- *  `duplicate-source` for a reused owner/source URL, or `limit` at the paid
- *  cap. */
+ *  pipeline galleries thereafter — up to the 96-temporary cap; paid accounts
+ *  retain galleries up to the 99-gallery cap. Returns `conflict` for an
+ *  occupied owner/slug pair, `duplicate-source` for a reused owner/source
+ *  URL, `limit` at the paid cap, `pipeline-limit` at the free cap. */
 export const createGalleryWithinLimit = async (
   ownerId: string,
   gallery: GalleryRecord,
@@ -240,12 +242,19 @@ export const createGalleryWithinLimit = async (
           CASE WHEN tier = 'pro' OR retained_count < 3 THEN NULL ELSE ? END
          FROM (
           SELECT COALESCE((SELECT tier FROM users WHERE account_id = ?), 'free') AS tier,
-          (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'retained') AS retained_count
+          (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'retained') AS retained_count,
+          (SELECT COUNT(*) FROM galleries WHERE owner_id = ? AND retention = 'pipeline') AS pipeline_count
          )
-         WHERE tier != 'pro' OR retained_count < 99
+         WHERE (tier = 'pro' AND retained_count < 99)
+            OR (tier != 'pro' AND (retained_count < 3 OR pipeline_count < 96))
          RETURNING ${GALLERY_COLUMNS}`,
-      ).bind(row.id, row.manifest_version, row.slug, ownerId, row.title, row.caption, row.date, row.source_url, row.images_json, row.created_at, pipelineExpiresAt, ownerId, ownerId).first<GalleryRow>()
-      if (!stored) return { ok: false, reason: 'limit' }
+      ).bind(row.id, row.manifest_version, row.slug, ownerId, row.title, row.caption, row.date, row.source_url, row.images_json, row.created_at, pipelineExpiresAt, ownerId, ownerId, ownerId).first<GalleryRow>()
+      if (!stored) {
+        // A failed free insert can only be the temporary cap — a Free
+        // retained slot never refuses creation while under its own limit.
+        const user = await getUserByAccountId(ownerId, env)
+        return { ok: false, reason: user?.tier === 'pro' ? 'limit' : 'pipeline-limit' }
+      }
       return { ok: true, gallery: rowToRecord(stored)! }
     } catch (error) {
       const message = String(error)
@@ -264,6 +273,7 @@ export const createGalleryWithinLimit = async (
   const retainedCount = records.filter((item) => retentionOf(item) === 'retained').length
   const tier = user?.tier ?? 'free'
   if (tier === 'pro' && retainedCount >= PAID_RETAINED_LIMIT) return { ok: false, reason: 'limit' }
+  if (tier !== 'pro' && retainedCount >= FREE_RETAINED_LIMIT && records.filter((item) => retentionOf(item) === 'pipeline').length >= FREE_PIPELINE_LIMIT) return { ok: false, reason: 'pipeline-limit' }
   const retention: GalleryRetention = tier === 'pro' || retainedCount < FREE_RETAINED_LIMIT ? 'retained' : 'pipeline'
   const stored: GalleryRecord = {
     ...gallery,
@@ -284,6 +294,7 @@ export const createGalleryWithinLimit = async (
 export const createGallery = async (ownerId: string, gallery: GalleryRecord, env?: GalleryEnv): Promise<GalleryRecord> => {
   const result = await createGalleryWithinLimit(ownerId, gallery, env)
   if (result.ok) return result.gallery
+  if (result.reason === 'pipeline-limit') throw pipelineGalleryLimitError()
   if (result.reason === 'limit') throw paidGalleryLimitError()
   if (result.reason === 'duplicate-source') throw new Error('A gallery from that link already exists')
   throw new Error('That gallery URL is already in use')
