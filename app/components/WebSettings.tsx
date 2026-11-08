@@ -1,3 +1,4 @@
+import type { Child } from 'hono/jsx'
 import { ActionGroup, ActionRow } from './ui/ActionRow'
 import { Button } from './ui/Button'
 import { Segmented } from './ui/Segmented'
@@ -46,6 +47,12 @@ type Props = {
   deleteNote?: string | null
   onDeleteAccount: () => void
   onBack: () => void
+  /** Native surfaces sign out in-process — there is no /auth/logout form to
+   *  post. When present it replaces the web form with a plain button. */
+  onSignOut?: () => void
+  /** A device's own controls (catalogue sync on the desktop) — the web has
+   *  none, so the slot is absent there by design. */
+  deviceSection?: Child
 }
 
 /** Web owner Settings — one full-screen surface holding every account,
@@ -141,6 +148,8 @@ export function WebSettings(props: Props) {
           </div>
         </ActionGroup>
 
+        {props.deviceSection ?? null}
+
         <ActionGroup label="About">
           <ActionRow label="Privacy Policy" href="/privacy" />
           <ActionRow label="Mahesh Shantaram · thecontrarian.in" href="https://thecontrarian.in" />
@@ -149,7 +158,9 @@ export function WebSettings(props: Props) {
         <ActionGroup label="Sign out and delete">
           <ActionRow
             label="Session"
-            control={(
+            control={props.onSignOut ? (
+              <Button variant="quiet" onClick={props.onSignOut}>Sign out</Button>
+            ) : (
               <form method="post" action="/auth/logout" class="m-signout-form">
                 <Button variant="quiet" type="submit">Sign out</Button>
               </form>

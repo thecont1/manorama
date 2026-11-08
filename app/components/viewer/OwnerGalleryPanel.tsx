@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type Child } from 'hono/jsx'
-import { PIPELINE_LOCK_MESSAGE } from '../../lib/gallery-policy'
+import { PIPELINE_LOCK_MESSAGE, expiryCountdownText } from '../../lib/gallery-policy'
 import { formatMediaCount, type MediaCount } from '../../lib/imagesource'
 import { refreshRequestInit } from '../../lib/encrypted-refresh'
+import type { WebGalleryKeyStore } from '../../lib/key-store'
 import { announce } from '../../lib/announce'
 import { ActionGroup, ActionRow } from '../ui/ActionRow'
 import { Button } from '../ui/Button'
@@ -52,6 +53,24 @@ export type OwnerGalleryPanelProps = {
   /** A saved caption propagates to a host list (the Library's summary
    *  would otherwise reopen the sheet with the stale text). */
   onCaptionSaved?: (caption: string) => void
+  /** Absolute API origin — empty means same-origin (web). The desktop
+   *  shell talks to manorama.xyz explicitly. */
+  apiBase?: string
+  /** Bearer token for a cross-origin session (desktop). */
+  authToken?: string
+  /** Device custody for encrypted refresh — the web's session store is
+   *  the default; shells with their own store inject it. */
+  keyStore?: WebGalleryKeyStore
+  /** The link the Share row copies — defaults to this origin's address. */
+  shareHref?: string
+  /** Post-rename continuation — defaults to redirecting to the new
+   *  address at the same photograph. */
+  onRenamed?: (slug: string) => void
+  /** Post-refresh continuation — defaults to reloading the page so the
+   *  SSR manifest picks up the fresh scan. */
+  onRefreshed?: () => void
+  /** Post-remove landing — defaults to `libraryHref ?? '/'`. */
+  onRemoved?: () => void
 }
 
 type EditField = 'name' | 'caption' | 'address'
@@ -65,7 +84,7 @@ export const OwnerGalleryHead = ({ title, caption, sourceLabel, temporary, expir
     <div class="m-owner-panel-title">{title}</div>
     <p class="m-owner-panel-meta">
       {formatMediaCount(mediaCount)} · {sourceLabel}
-      {temporary ? ` · Temporary gallery${expiresAt ? ` · expires ${expiresAt.slice(0, 10)}` : ''}` : ''}
+      {temporary ? ` · Temporary gallery${expiresAt ? ` · expires in ${expiryCountdownText(expiresAt, Date.now())}` : ''}` : ''}
     </p>
     {caption ? <p class="m-owner-panel-cap">{caption}</p> : null}
   </header>
@@ -90,7 +109,21 @@ export default function OwnerGalleryPanel({
   currentPhotoId,
   onTitleSaved,
   onCaptionSaved,
+  apiBase = '',
+  authToken,
+  keyStore,
+  shareHref,
+  onRenamed,
+  onRefreshed,
+  onRemoved,
 }: OwnerGalleryPanelProps) {
+  // Same-origin on the web; absolute + bearer on shells that carry their
+  // own session. The bearer rides every call because the cross-origin
+  // route cannot see the web's cookie.
+  const api = (path: string, init?: RequestInit) => fetch(`${apiBase}${path}`, {
+    ...init,
+    headers: { ...(init?.headers as Record<string, string> | undefined), ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+  })
   const [liveTitle, setLiveTitle] = useState(title)
   const [liveCaption, setLiveCaption] = useState(caption)
   const [editing, setEditing] = useState<EditField | null>(null)
@@ -141,7 +174,7 @@ export default function OwnerGalleryPanel({
     setEditNote(null)
     void (async () => {
       try {
-        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}`, {
+        const response = await api(`/api/galleries/${encodeURIComponent(slug)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(field === 'address' ? { newSlug: value.trim() } : { [field === 'name' ? 'title' : 'caption']: value }),
@@ -152,6 +185,7 @@ export default function OwnerGalleryPanel({
           // A rename changes the gallery's address — land on the new one at
           // the same photograph rather than staying on a 404.
           const nextSlug = payload.gallery?.slug ?? value.trim()
+          if (onRenamed) { onRenamed(nextSlug); return }
           const photo = currentPhotoId()
           window.location.replace(`/${encodeURIComponent(owner)}/${encodeURIComponent(nextSlug)}${photo ? `?photo=${encodeURIComponent(photo)}` : ''}`)
           return
@@ -198,7 +232,7 @@ export default function OwnerGalleryPanel({
   const copyShareLink = () => {
     void (async () => {
       try {
-        await navigator.clipboard.writeText(`${window.location.origin}/${owner}/${slug}`)
+        await navigator.clipboard.writeText(shareHref ?? `${window.location.origin}/${owner}/${slug}`)
         setLinkCopied(true)
         if (copyResetRef.current) clearTimeout(copyResetRef.current)
         copyResetRef.current = setTimeout(() => setLinkCopied(false), 1600)
@@ -214,9 +248,10 @@ export default function OwnerGalleryPanel({
     setReadNote(null)
     void (async () => {
       try {
-        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}/refresh`, await refreshRequestInit({ id: galleryId, sourceUrl }))
+        const response = await api(`/api/galleries/${encodeURIComponent(slug)}/refresh`, await refreshRequestInit({ id: galleryId, sourceUrl, keyStore }))
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That folder could not be read again')
+        if (onRefreshed) { onRefreshed(); return }
         // The manifest is SSR state — reload into the fresh gallery at the
         // same photograph so the re-read shows what changed.
         const here = new URL(window.location.href)
@@ -239,9 +274,10 @@ export default function OwnerGalleryPanel({
     setRemoveNote(null)
     void (async () => {
       try {
-        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}`, { method: 'DELETE' })
+        const response = await api(`/api/galleries/${encodeURIComponent(slug)}`, { method: 'DELETE' })
         const payload = await response.json().catch(() => ({})) as { error?: string }
         if (!response.ok) throw new Error(payload.error || 'That gallery could not be removed')
+        if (onRemoved) { onRemoved(); return }
         window.location.assign(libraryHref ?? '/')
       } catch (error) {
         setRemoveBusy(false)
