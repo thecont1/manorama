@@ -4,6 +4,7 @@ import { DEVICE_GALLERY_ID_PATTERN, parseDeviceGalleryInput } from '../packages/
 import { deleteDeviceGallery, listDeviceGalleries, putDeviceGallery, type DeviceGalleryEnv } from './lib/device-gallery-repository'
 import { getStoredGallery } from './lib/gallery-repository'
 import { isGalleryExpired } from './lib/gallery-policy'
+import { getUserByAccountId } from './lib/user-repository'
 import { accessEnvOf, resolveManoramaSession, type HonoSessionEnv } from './lib/session'
 
 const dbEnv = (c: { env: unknown }) => c.env as DeviceGalleryEnv
@@ -39,8 +40,12 @@ export const createDeviceGalleryApi = () => {
   api.get('/api/device-galleries', async (c) => {
     const session = c.get('manoramaSession')
     try {
+      // The listing runs first so a broken database still answers 503; the
+      // tier only filters the payload — a Free account's feed is simply
+      // empty, the same answer a demotion leaves behind.
       const galleries = await listDeviceGalleries(session.accountId, dbEnv(c))
-      return c.json({ galleries })
+      const user = await getUserByAccountId(session.accountId, dbEnv(c))
+      return c.json({ galleries: user?.tier === 'pro' ? galleries : [] })
     } catch {
       return c.json({ error: 'The device gallery list is temporarily unavailable' }, 503)
     }
@@ -48,6 +53,18 @@ export const createDeviceGalleryApi = () => {
 
   api.put('/api/device-galleries/:id', bodyLimit({ maxSize: 8192 }), async (c) => {
     const session = c.get('manoramaSession')
+    // Syncing is a Visionary feature. The gate only applies when the account
+    // record could be read — a missing binding falls through to the store,
+    // which reports its own 503.
+    if (dbEnv(c).DB) {
+      let user = null as Awaited<ReturnType<typeof getUserByAccountId>>
+      try {
+        user = await getUserByAccountId(session.accountId, dbEnv(c))
+      } catch {
+        return c.json({ error: 'The device gallery list is temporarily unavailable' }, 503)
+      }
+      if (user?.tier !== 'pro') return c.json({ error: 'Local galleries are included with Visionary' }, 403)
+    }
     const id = c.req.param('id')
     if (!DEVICE_GALLERY_ID_PATTERN.test(id)) return c.json({ error: 'That device gallery is invalid' }, 400)
     const contentType = c.req.header('Content-Type') ?? ''

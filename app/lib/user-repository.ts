@@ -403,15 +403,22 @@ export const setUserTier = async (
            OR (billing_event_timestamp_ms = ? AND COALESCE(billing_event_id, '') < ?)
          )`,
       ).bind(tier, now, eventTimestamp, eventId, accountId, eventTimestamp, eventTimestamp, eventId)
-      const statements = [update]
       if (tier === 'pro') {
-        statements.push(env.DB.prepare(
-          `UPDATE galleries SET retention = 'retained', expires_at = NULL
-           WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`,
-        ).bind(accountId, now))
+        const results = await env.DB.batch([
+          update,
+          env.DB.prepare(
+            `UPDATE galleries SET retention = 'retained', expires_at = NULL
+             WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`,
+          ).bind(accountId, now),
+        ])
+        if (!results[0].meta.changes) return null
+      } else {
+        const result = await update.run()
+        if (!result.meta.changes) return null
+        // A demotion ends Local galleries — the synced rows are the
+        // devices' own catalogues, so they go rather than linger served.
+        await env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId).run()
       }
-      const results = await env.DB.batch(statements)
-      if (!results[0].meta.changes) return null
       return {
         ...current,
         tier,
@@ -425,9 +432,12 @@ export const setUserTier = async (
         env.DB.prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`).bind(accountId, now),
       ])
     } else {
-      await env.DB.prepare(
-        `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE account_id = ?`,
-      ).bind(tier, accountId).run()
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE account_id = ?`,
+        ).bind(tier, accountId),
+        env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
+      ])
     }
     return { ...current, tier }
   }

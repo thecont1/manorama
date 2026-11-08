@@ -1034,7 +1034,10 @@ export const createManoramaApi = () => {
    *  DELETE below needs it as the typed confirmation. */
   api.get('/api/account', async (c) => {
     const session = c.get('manoramaSession')
-    return c.json({ ownerSlug: session.ownerSlug })
+    // The desktop reads this row on every sync tick — tier rides along so a
+    // downgrade propagates without waiting for a fresh sign-in exchange.
+    const user = await getUserByAccountId(session.accountId, dbEnv(c)).catch(() => null)
+    return c.json({ ownerSlug: session.ownerSlug, tier: user?.tier ?? 'free' })
   })
 
   /** The sign-in methods bound to the account. Provider subjects never
