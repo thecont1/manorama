@@ -410,7 +410,7 @@ describe('desktop catalogue workbench', () => {
       // The ··· menu carries the web's full range; Details stays local-only.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Read the folder again', 'Remove gallery']) {
+      for (const item of ['Pin gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       expect(menuItem(container, 'Gallery details')).toBeUndefined()
@@ -549,7 +549,7 @@ describe('desktop catalogue workbench', () => {
     expect(details).not.toBeNull()
     expect(details?.querySelector('.d-name')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library']) {
+    for (const label of ['Open', 'Publish', 'Name', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
@@ -640,13 +640,13 @@ describe('desktop catalogue workbench', () => {
     globals.fetch = originalFetch
   })
 
-  test('Read the folder again rescans the source and updates details and card counts', async () => {
+  test('Refresh gallery contents rescans the source and updates details and card counts', async () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
 
     dirs[ROOT_PATH]!.push({ name: 'MS201810-Italy0200.jpg', isDirectory: false, isFile: true })
-    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
     await settle()
 
     expect(container.querySelector('.d-head')?.textContent).toContain('3 photographs')
@@ -881,7 +881,7 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
     await settle()
 
     // The error surfaces; no success note; the prior record/count stays and
@@ -908,7 +908,7 @@ describe('desktop catalogue workbench', () => {
       return originalInvoke(command, args)
     }
 
-    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
     await settle()
 
     // The error surfaces; no success note; the prior record/count stays on
@@ -1084,7 +1084,7 @@ describe('desktop catalogue workbench', () => {
     expect(screen).not.toBeNull()
     expect(screen.getAttribute('data-screen')).toBe('settings')
     const groups = [...screen.querySelectorAll('.m-actiongroup-label')].map((el) => el.textContent)
-    for (const label of ['Account', 'Sign-in methods', 'Plan', 'Appearance', 'This Mac', 'About', 'Sign out and delete']) {
+    for (const label of ['Account', 'Sign-in methods', 'Allowance', 'Appearance', 'This Mac', 'About', 'Sign out and delete']) {
       expect(groups).toContain(label)
     }
     // The device group carries the real catalogue state.
@@ -1096,8 +1096,7 @@ describe('desktop catalogue workbench', () => {
     expect(screen.textContent).toContain('Temporary galleries')
     expect(screen.textContent).toContain('Local galleries')
     // The byline is gone — the About group carries a plain copyright notice.
-    expect(screen.textContent).toContain('© 2026 Mahesh Shantaram.')
-    expect(screen.textContent).not.toContain('thecontrarian.in')
+    expect(screen.textContent).toContain('© 2026 Mahesh Shantaram / thecontrarian.in')
     // Sync feedback appears while the sync runs and reports its outcome —
     // the PUT is held open so the syncing state can be observed at rest.
     const defaultFetch = globals.fetch
@@ -1259,7 +1258,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
     await settle()
-    for (const item of ['Gallery details', 'Read the folder again', 'Remove gallery']) {
+    for (const item of ['Gallery details', 'Refresh gallery contents', 'Remove gallery']) {
       expect(menuItem(container, item)).toBeDefined()
     }
     // Remove confirms inside the sheet before the catalogue entry goes.

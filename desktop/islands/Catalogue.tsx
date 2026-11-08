@@ -45,7 +45,9 @@ import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-i
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
+import { HeicImg } from '../../app/components/ui/HeicImg'
 import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
+import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
 import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Button } from '../../app/components/ui/Button'
@@ -66,7 +68,11 @@ import {
 } from '../lib/session'
 
 const CATALOGUE_FILE = 'catalogue.json'
-const DEVICE_LABEL = 'This Mac'
+// The catalogue's device label is the owner's own name for the machine
+// (scutil ComputerName → hostname → generic), resolved natively once per
+// launch. Two of the owner's Macs stop reading identically.
+const FALLBACK_DEVICE_LABEL = 'This Mac'
+const resolveDeviceLabel = () => invoke<string>('device_label').catch(() => FALLBACK_DEVICE_LABEL)
 
 // The build tag under the rail mark — injected by vite's define, 'dev' under
 // tests and scripts which never see it.
@@ -166,6 +172,9 @@ type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings
  *  owner removes them. Passed explicitly so the web's session-only rule
  *  stays untouched. */
 const desktopKeyStore = () => new WebGalleryKeyStore(localStorage)
+// The shared display resolver reads the session-scoped web store by
+// default; this shell's custody is the durable local one.
+configureEncryptedDisplayKeyStore(desktopKeyStore)
 type SyncState = 'idle' | 'syncing' | 'synced' | 'partial' | 'failed'
 
 /** Dimensions learned from decoded thumbs — ephemeral by design, never
@@ -379,11 +388,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void (async () => {
       const storedSession = await getSession()
       if (storedSession && active) setSession(storedSession)
+      const deviceLabel = await resolveDeviceLabel()
       let next: LocalCatalogue
       try {
-        next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), DEVICE_LABEL)
+        next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), deviceLabel)
       } catch {
-        next = newCatalogue(crypto.randomUUID(), DEVICE_LABEL)
+        next = newCatalogue(crypto.randomUUID(), deviceLabel)
+      }
+      // A catalogue written before labels were resolved still says the
+      // generic "This Mac" — heal it once; an owner-set name is never
+      // overwritten.
+      if (next.deviceLabel === FALLBACK_DEVICE_LABEL && deviceLabel !== FALLBACK_DEVICE_LABEL) {
+        next = { ...next, deviceLabel }
       }
       await registerSavedGalleryRoots().catch(() => {})
       const avail = await probeAllAvailability(next.galleries, pathExists)
@@ -679,6 +695,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setCardMenu(null)
     setMenuRemove(false)
     setBusy(true)
+    setNotice(`Refreshing “${gallery.title || gallery.slug}”…`)
     try {
       const init = await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl, keyStore: desktopKeyStore() })
       await refreshAccountGallery(base, session.token, gallery.slug, init)
@@ -778,7 +795,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   const rescan = async (record: LocalGalleryRecord) => {
     if (!catalogue) return
-    setNotice(null)
+    setNotice(`Refreshing “${record.title}”…`)
     // A remounted card needs its scope granted again — runtime scopes do
     // not survive eject + relaunch.
     await registerSavedGalleryRoots().catch(() => {})
@@ -812,7 +829,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // keeps the prior record on screen instead of pretending the rescan stuck.
     await writeCatalogueFile(serializeLocalCatalogue(next))
     setCatalogue(next)
-    if (!updated.items.length) setNotice('That source has no photos Manorama can display')
+    setNotice(updated.items.length ? `“${record.title}” refreshed` : 'That source has no photos Manorama can display')
     void runSync(next, session)
   }
 
@@ -1389,7 +1406,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <div class="admin-library-heading">
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
             <div class="admin-heading-actions">
-              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
+              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
               <button
                 type="button"
                 class="admin-button admin-settings-pill"
@@ -1460,8 +1477,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                 draggable={false}
                                 aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
                               >
-                                <img
+                                <HeicImg
                                   src={previewSrcFor(image)}
+                                  preview={image.variants?.[0]?.src}
+                                  media={image.media}
+                                  previewMedia={image.variants?.[0]?.media}
+                                  galleryId={gallery.id}
+                                  filename={image.filename}
                                   alt=""
                                   loading="lazy"
                                   draggable={false}
@@ -1580,7 +1602,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   const cover = gallery.images.find((image) => !image.hidden)
                   return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                     <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-                      {cover ? <img src={previewSrcFor(cover)} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} onError={stripImgRetry} /> : null}
+                      {cover ? <HeicImg src={previewSrcFor(cover)} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+                        const img = event.currentTarget as HTMLImageElement
+                        img.classList.add('is-loaded')
+                        // The cover never renders larger than its thumbnail's
+                        // own pixels — a small rendition floats centred at its
+                        // honest size rather than upscaling into mush.
+                        if (img.naturalWidth) img.style.maxWidth = `${img.naturalWidth}px`
+                        if (img.naturalHeight) img.style.maxHeight = `${img.naturalHeight}px`
+                      }} onError={stripImgRetry} /> : null}
                     </a>
                     <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
                     <div class="lib-compact-body">
@@ -1693,12 +1723,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   disabled={busy || isLocked(cardMenu.gallery)}
                   title={isLocked(cardMenu.gallery) ? PIPELINE_LOCK_MESSAGE : undefined}
                   onClick={() => { void refreshGallery(cardMenu.gallery) }}
-                >Read the folder again</button>
+                >Refresh gallery contents</button>
               ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
-              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Read the folder again</button>
+              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}
           </div>
@@ -1787,28 +1817,34 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             deviceSection={(
               <ActionGroup label="This Mac">
                 <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
-                <ActionRow
-                  label="Catalogue sync"
-                  value={syncState === 'synced' ? 'Up to date'
-                    : syncState === 'partial' ? 'Partly synced'
-                    : syncState === 'failed' ? 'Sync failed' : undefined}
-                  control={(
-                    <Button
-                      variant="quiet"
-                      disabled={syncState === 'syncing' || !catalogue}
-                      onClick={() => catalogue && void runSync(catalogue, session)}
-                    >
-                      {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
-                    </Button>
-                  )}
-                />
-                {syncState === 'syncing' ? (
-                  <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
+                {/* Sync publishes local-gallery rows — a Visionary-only
+                    feature, so the row simply isn't offered on Free. */}
+                {accountTier === 'pro' ? (
+                  <>
+                    <ActionRow
+                      label="Catalogue sync"
+                      value={syncState === 'synced' ? 'Up to date'
+                        : syncState === 'partial' ? 'Partly synced'
+                        : syncState === 'failed' ? 'Sync failed' : undefined}
+                      control={(
+                        <Button
+                          variant="quiet"
+                          disabled={syncState === 'syncing' || !catalogue}
+                          onClick={() => catalogue && void runSync(catalogue, session)}
+                        >
+                          {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
+                        </Button>
+                      )}
+                    />
+                    {syncState === 'syncing' ? (
+                      <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
+                    ) : null}
+                    <p class="m-note m-panel-note">
+                      Sends each local gallery's title and photograph count — never the photographs — so
+                      your other devices can list this Mac's folders.
+                    </p>
+                  </>
                 ) : null}
-                <p class="m-note m-panel-note">
-                  Sends each local gallery's title and photograph count — never the photographs — so
-                  your other devices can list this Mac's folders.
-                </p>
               </ActionGroup>
             )}
           />
