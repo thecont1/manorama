@@ -226,7 +226,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
               {sortTh('devices', 'Devices')}
               {sortTh('signins', 'Sign-ins')}
               {sortTh('location', 'Location')}
-              {sortTh('lastseen', 'Last seen')}
+              {sortTh('lastseen', 'Last active')}
               {sortTh('created', 'Created')}
               {sortTh('access', 'Access')}
               <th scope="col">Actions</th>

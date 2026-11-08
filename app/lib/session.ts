@@ -1,6 +1,6 @@
 import { jwtVerify, SignJWT } from 'jose'
 import type { MiddlewareHandler } from 'hono'
-import { getUserByAccountId, type UserRepositoryEnv } from './user-repository'
+import { getUserByAccountId, touchLastSeen, type UserRepositoryEnv } from './user-repository'
 import { isMasterAccountId, type MasterAccountEnv } from './master-accounts'
 
 /**
@@ -247,6 +247,12 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
     const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
     if (!session) return c.json({ error: 'Authentication required' }, 401)
     c.set('manoramaSession', session)
+    // Activity rides the call the app already makes — no beacon, no extra
+    // request, no new data (cf geo arrives on every request anyway). One
+    // write a day per account at most; it can never fail this request.
+    // `executionCtx` is a throwing getter off-Workers — ask for it safely.
+    const executionCtx = (() => { try { return c.executionCtx } catch { return undefined } })()
+    touchLastSeen(session.accountId, (c.req.raw as { cf?: { country?: unknown; colo?: unknown } }).cf, accessEnvOf(c), executionCtx)
     await next()
   }
 
