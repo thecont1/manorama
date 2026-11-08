@@ -370,7 +370,7 @@ export default function OwnerGalleryPanel({
       ) : null}
       <ActionGroup>
         <ActionRow
-          label={readState === 'busy' ? 'Reading the folder…' : 'Read the folder again'}
+          label={readState === 'busy' ? 'Refreshing…' : 'Refresh gallery contents'}
           icon={DETAILS_ICONS.refresh()}
           onClick={readFolderAgain}
           disabled={locked || readState === 'busy'}

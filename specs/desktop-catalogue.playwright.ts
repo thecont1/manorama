@@ -333,7 +333,7 @@ test('window-1280x840: details surface and share sheet over real photographs, bo
     }
     await expect(details.locator('.m-actionrow')).toHaveCount(5)
     const labels = await details.locator('.m-actionrow-label').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Read the folder again', 'Remove from Library'])
+    expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Refresh gallery contents', 'Remove from Library'])
 
     mkdirSync(evidence, { recursive: true })
     await page.screenshot({ path: resolve(evidence, `${engine}-window-1280x840-${theme}-details.png`), animations: 'disabled', timeout: 15_000 })

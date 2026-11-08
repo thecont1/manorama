@@ -214,7 +214,7 @@ describe('local gallery details (desktop)', () => {
 
   test('renders exactly the four action verbs and no banned surfaces', async () => {
     const { container } = mount()
-    for (const label of ['Open', 'Publish', 'Read the folder again', 'Remove from Library']) {
+    for (const label of ['Open', 'Publish', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
     // Five rows: the editable Name row plus exactly the four action verbs.
@@ -247,7 +247,7 @@ describe('local gallery details (desktop)', () => {
     const { container, calls } = mount({ availability: 'unavailable' })
     const openRow = row(container, 'Open') as HTMLButtonElement
     const shareRow = row(container, 'Publish') as HTMLButtonElement
-    const rescanRow = row(container, 'Read the folder again') as HTMLButtonElement
+    const rescanRow = row(container, 'Refresh gallery contents') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
     expect(shareRow.disabled).toBe(true)
     // Rescan is the recovery path and stays enabled.
@@ -410,7 +410,7 @@ describe('local gallery details (desktop)', () => {
   test('a rescan calls back and reports success and failure', async () => {
     const rescanGate = deferred()
     const { container, calls } = mount({ onRescan: () => rescanGate.promise })
-    ;(row(container, 'Read the folder again') as HTMLButtonElement).click()
+    ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
     await settle()
     expect(calls.rescan).toBe(1)
     rescanGate.resolve()
@@ -419,7 +419,7 @@ describe('local gallery details (desktop)', () => {
 
     const failGate = deferred()
     const failing = mount({ onRescan: () => failGate.promise })
-    ;(row(failing.container, 'Read the folder again') as HTMLButtonElement).click()
+    ;(row(failing.container, 'Refresh gallery contents') as HTMLButtonElement).click()
     await settle()
     failGate.reject(new Error('The card is not mounted'))
     await settle()

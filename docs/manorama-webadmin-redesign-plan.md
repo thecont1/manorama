@@ -49,10 +49,10 @@ implementation is still pending.
   **Shipped (PR #151):** title and rail open the public gallery in a new tab;
   the `···` menu leads with management verbs.
 - **D4 — The `···` menu contents.** iOS: Share link · Gallery details · Reorder
-  photographs · Read the folder again · Remove gallery. Web-only verbs with no
+  photographs · Refresh gallery contents · Remove gallery. Web-only verbs with no
   iOS counterpart: Open in new tab (covered by D3) and Open source.
   **Shipped (PR #151):** Share link · Gallery details · Reorder photographs ·
-  Open source (when `sourceUrl`) · Read the folder again (when `sourceUrl`) ·
+  Open source (when `sourceUrl`) · Refresh gallery contents (when `sourceUrl`) ·
   Remove gallery. Open-in-new-tab folded into D3's card tap.
 - **D5 — Locked/pipeline panel.** Was a full explanatory block with the expiry,
   the 30-day rule, and the Stripe upgrade link; iOS folds it into the sub line
@@ -127,7 +127,7 @@ implementation is still pending.
   `LibraryRail` → `.lib-card-head` (title + `···`) → `.lib-card-sub`
   (`N photographs · Provider · Temporary gallery · expires … · device status`)
   → optional caption. `···` opens a `Sheet` containing a `role="menu"` list:
-  Share link, Gallery details, Reorder photographs, Read the folder again,
+  Share link, Gallery details, Reorder photographs, Refresh gallery contents,
   Remove gallery (`lib-menu-danger`).
 - iOS heading row (~1486): `h1 Library` + `m-btn--primary` Add (+ icon);
   status line under; sponsored panel between heading and cards.

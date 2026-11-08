@@ -78,7 +78,7 @@ describe('the web owner panel', () => {
     expect(root.textContent).not.toContain('This gallery')
     expect(root.textContent).toContain('Mixed album')
     expect(root.textContent).toContain('24 photographs · 1 video · Dropbox')
-    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again', 'Remove gallery']) {
+    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery']) {
       expect(row(root, label)).toBeTruthy()
     }
     expect(root.querySelector('.m-owner-panel-note')?.textContent).toContain('Removing it leaves every photograph in Dropbox.')
@@ -150,10 +150,10 @@ describe('the web owner panel', () => {
     expect(replaced).toEqual(['/thecontrarian/renamed?photo=photo-3'])
   })
 
-  test('Read the folder again POSTs bare for an ordinary source', async () => {
+  test('Refresh gallery contents POSTs bare for an ordinary source', async () => {
     calls = []
     const root = mounted()
-    flushSync(() => row(root, 'Read the folder again')?.click())
+    flushSync(() => row(root, 'Refresh gallery contents')?.click())
     await settle()
     const refresh = calls.filter((call) => call.url === '/api/galleries/mixed/refresh')
     expect(refresh.length).toBe(1)
@@ -166,7 +166,7 @@ describe('the web owner panel', () => {
     // No fragment — the manifest URL is keyless, so the key must come from
     // this device's store, which is empty in the test.
     const root = mounted({ galleryId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', sourceUrl: 'https://mega.nz/folder/28NkBZqD' })
-    flushSync(() => row(root, 'Read the folder again')?.click())
+    flushSync(() => row(root, 'Refresh gallery contents')?.click())
     await settle()
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('does not hold the key')
     expect(calls).toEqual([])
@@ -178,7 +178,7 @@ describe('the web owner panel', () => {
     const root = mounted({ temporary: true, expiresAt })
     expect(root.textContent).toContain('Temporary gallery · expires in 12 days 5 hours')
     expect(root.textContent).toContain('temporary gallery cannot be edited')
-    for (const label of ['Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again']) {
+    for (const label of ['Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents']) {
       const button = row(root, label) as HTMLButtonElement
       expect(button.disabled).toBe(true)
     }
