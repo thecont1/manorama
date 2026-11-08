@@ -152,6 +152,7 @@ body.manorama-desktop {
   letter-spacing: .04em;
 }
 .desktop-badge-unavailable { margin: 10px 0 0; color: rgba(240, 188, 92, .88); font-size: 12px; }
+.desktop-badge-saved { margin: 2px 0 0; color: rgba(120, 220, 160, .85); font-size: 11px; letter-spacing: .03em; }
 .desktop-empty { margin: 0; color: rgba(var(--ink), .7); font-size: 13px; }
 
 /* The rail is a row of list items wrapping one control each — a button that

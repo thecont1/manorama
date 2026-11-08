@@ -35,7 +35,7 @@ import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
 import { galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
-import { WebGalleryKeyStore } from '../../app/lib/key-store'
+import type { EncryptedMediaResolver } from '../../app/lib/encrypted-resolver'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
 import ShareFlow from './ShareFlow'
@@ -48,8 +48,16 @@ import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
 import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
+import { desktopKeyStore } from '../lib/key-store'
+import { desktopOfflineStore, desktopVaultPersistence, openDesktopEncryptedSession, createDesktopVaultSettings } from '../lib/offline-gallery'
+import { desktopVault } from '../lib/vault'
+import { EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../../native/lib/encrypted-gallery'
+import { openGalleryNetworkFirst, OfflineGalleryUnavailableError, type OfflineGallerySummary, type OfflineGridGallery } from '../../native/lib/offline-gallery'
+import { applyVaultCap, galleryPolicyKey, loadGalleryStreamOnly, loadVaultCapPreference, loadVaultLoadPolicy, saveGalleryStreamOnly, type VaultLoadPolicy } from '../../native/lib/vault-settings'
+import VaultSettings from '../../native/islands/VaultSettings'
 import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
+import { Switch } from '../../app/components/ui/Switch'
 import { Button } from '../../app/components/ui/Button'
 import { friendlySourceError } from '../../app/lib/source-errors'
 import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
@@ -165,13 +173,12 @@ const writeCatalogueFile = (contents: string) =>
 
 type ViewerState = { galleryId: string; index: number }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
-type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; gallery?: GallerySummary; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string }
+type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; gallery?: GallerySummary; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string; encryptedResolver?: EncryptedMediaResolver | null }
 
 /** The app's gallery-key custody: an app is not a browser tab, so keys
  *  persist on this Mac (the webview's own storage, never synced) until the
  *  owner removes them. Passed explicitly so the web's session-only rule
  *  stays untouched. */
-const desktopKeyStore = () => new WebGalleryKeyStore(localStorage)
 // The shared display resolver reads the session-scoped web store by
 // default; this shell's custody is the durable local one.
 configureEncryptedDisplayKeyStore(desktopKeyStore)
@@ -212,6 +219,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
+  // The encrypted on-device vault: galleries whose bytes already live in the
+  // login-Keychain-locked store, the owner's load policy, and the per-gallery
+  // stream-only overrides — the same three surfaces the iOS app carries.
+  const [savedGalleries, setSavedGalleries] = useState<OfflineGallerySummary[]>([])
+  // Grid entries mint the section's covers from vault thumbnails — object
+  // URLs, revoked on the next refresh, never a durable URL to ciphertext.
+  const [savedGridGalleries, setSavedGridGalleries] = useState<OfflineGridGallery[]>([])
+  const [savedThumbs, setSavedThumbs] = useState<ReadonlyMap<string, string>>(new Map())
+  const savedThumbsRef = useRef<ReadonlyMap<string, string>>(new Map())
+  const [vaultLoadPolicy, setVaultLoadPolicy] = useState<VaultLoadPolicy | null>(null)
+  const [streamOnlyPolicies, setStreamOnlyPolicies] = useState<Record<string, boolean>>({})
+  // The mounted viewer's lease on open results: an offline lease's object
+  // URLs must not be revoked while the Viewer reads them, and an online
+  // encrypted resolver must outlive the background cache fill.
+  const openLeaseRef = useRef<{ dispose?(): void } | null>(null)
+  const vaultOpenAbortRef = useRef<AbortController | null>(null)
   const [plate, setPlate] = useState<AdFrame | null>(null)
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [adsShow, setAdsShow] = useState(true)
@@ -310,6 +333,27 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // gates the section, the add flow, and every mount path below. The account
   // read refreshes it on each sync tick, so a downgrade takes effect live.
   const accountTier = session?.tier ?? 'free'
+
+  // The vault's persisted preferences and saved index load once; the cap
+  // re-applies on every tier change because Free and Visionary resolve
+  // different ceilings for the same stored preference.
+  useEffect(() => {
+    void loadVaultLoadPolicy(desktopVaultPersistence).then(setVaultLoadPolicy).catch(() => {})
+    void loadGalleryStreamOnly(desktopVaultPersistence).then(setStreamOnlyPolicies).catch(() => {})
+    void desktopOfflineStore.listGalleries().then(setSavedGalleries).catch(() => {})
+  }, [])
+  useEffect(() => {
+    void loadVaultCapPreference(desktopVaultPersistence)
+      .then((preference) => applyVaultCap(desktopVault, accountTier, preference))
+      .catch(() => {})
+  }, [accountTier])
+  // The settings sheet's own vault card writes the same persistence this
+  // state reads — closing it is the moment to re-pull policy and saved list.
+  useEffect(() => {
+    if (settingsOpen) return
+    void loadVaultLoadPolicy(desktopVaultPersistence).then(setVaultLoadPolicy).catch(() => {})
+    void refreshSavedGalleries()
+  }, [settingsOpen])
   const openViewer = (galleryId: string, index: number) => {
     setPlate(houseAdFrameFor(galleryId))
     setViewerState({ galleryId, index })
@@ -966,6 +1010,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   const signOut = () => {
     void clearSession()
+    // Sign-out releases leases and stops fills, but the vault itself stays:
+    // custody is the device's Keychain, not the account — same as iOS,
+    // where only "Forget everything" destroys saved copies.
+    vaultOpenAbortRef.current?.abort()
+    disposeOpenLease()
     setSession(null)
     setSyncState('idle')
   }
@@ -1072,38 +1121,203 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
 
   /** A cloud gallery opens in the app's own Viewer — the viewing experience
-   *  is the product, not a browser tab. Encrypted sources mount the shared
-   *  EncryptedGallery island, which resolves the key from this device's
-   *  custody (or shows its own honest unlock form). A manifest that cannot
-   *  be fetched still degrades to the browser. Declared above the
-   *  early return: the mounted viewer's continuations call this, and a
-   *  binding declared below it never initializes on a viewer render. */
+   *  is the product, not a browser tab. The network-first store decides the
+   *  source: a complete vault copy opens offline, otherwise the online
+   *  manifest mounts while the encrypted fill runs underneath it, per the
+   *  owner's load policy and the gallery's stream-only override. Encrypted
+   *  sources open sessions with this device's custody — a desktop-held key
+   *  yields a resolver for the plain Viewer, while a missing key still
+   *  mounts the shared EncryptedGallery island and its honest unlock form.
+   *  Declared above the early return: the mounted viewer's continuations
+   *  call this, and a binding declared below it never initializes on a
+   *  viewer render. */
   const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false, photoId?: string) => {
     const url = accountGalleryUrl(gallery)
     if (!session) {
       openExternal(url)
       return
     }
+    const owner = ownerSlug ?? session.ownerSlug
+    // A second open supersedes the first: aborting the earlier fill stops
+    // new writes, and its lease is released before the next one mounts.
+    vaultOpenAbortRef.current?.abort()
+    const abort = new AbortController()
+    vaultOpenAbortRef.current = abort
+    const streamOnly = streamOnlyPolicies[galleryPolicyKey(owner, gallery.slug)] === true
     try {
-      const { manifest, settings } = await fetchAccountGallery(
-        base, ownerSlug ?? session.ownerSlug, gallery.slug, session.token,
-      )
+      const result = await openGalleryNetworkFirst({
+        selection: { owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined },
+        fetchOnline: (signal) => fetchAccountGallery(base, owner, gallery.slug, session.token, fetch, signal),
+        store: desktopOfflineStore,
+        cachePolicy: streamOnly ? 'stream' : vaultLoadPolicy ?? 'vault',
+        onProgress: (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
+        signal: abort.signal,
+        openEncryptedSession: openDesktopEncryptedSession,
+      })
+      if (abort.signal.aborted) {
+        result.dispose?.()
+        return
+      }
+      openLeaseRef.current?.dispose?.()
+      openLeaseRef.current = result
+      const fill = result.cacheFill
+      if (fill) {
+        void fill.then((fillResult) => {
+          if (abort.signal.aborted) return
+          if (fillResult?.status === 'skipped-video') setNotice('This gallery includes video — offline saving is not supported for mixed galleries yet.')
+          else if (fillResult?.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — viewing stays online.')
+          else if (fillResult?.status === 'complete') {
+            setNotice('Offline copy saved in your encrypted vault.')
+            void refreshSavedGalleries()
+          }
+        }).catch(() => {
+          if (!abort.signal.aborted) setNotice('Offline saving was interrupted — you can keep viewing online.')
+        })
+      }
+      if (result.source === 'offline') setNotice('Opened from your encrypted vault.')
       setAccountViewer({
-        manifest,
-        settings,
+        manifest: result.manifest,
+        settings: result.settings,
         // A photoId resolves against the fresh manifest — it survives a
         // reorder where a saved index would land on the wrong frame.
-        index: photoId ? Math.max(0, manifest.images.findIndex((image) => image.id === photoId)) : index,
+        index: photoId ? Math.max(0, result.manifest.images.findIndex((image) => image.id === photoId)) : index,
         gallery,
         galleryId: gallery.id,
         edit,
-        ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
-          ? { encryptedSourceUrl: keylessSourceUrl(gallery.sourceUrl) }
-          : {}),
+        ...(result.encryptedResolver
+          ? { encryptedResolver: result.encryptedResolver }
+          : result.source === 'online' && gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
+            ? { encryptedSourceUrl: keylessSourceUrl(gallery.sourceUrl) }
+            : {}),
       })
-    } catch {
+    } catch (error) {
+      if (abort.signal.aborted) return
+      if (error instanceof OfflineGalleryUnavailableError) {
+        // Nothing saved on this Mac and the fetch failed — say why, then
+        // hand the URL to the browser as the last resort it has always been.
+        setNotice('This gallery is not saved on this Mac — connect to open it here.')
+        openExternal(url)
+        return
+      }
+      if (error instanceof EncryptedSourceLockedError || error instanceof EncryptedSourceMismatchError) {
+        // The device holds no usable key — the island's unlock form opens
+        // the gallery in place rather than a browser tab that misreports
+        // the app as a stranger.
+        try {
+          const { manifest, settings } = await fetchAccountGallery(base, owner, gallery.slug, session.token)
+          setAccountViewer({
+            manifest,
+            settings,
+            index: photoId ? Math.max(0, manifest.images.findIndex((image) => image.id === photoId)) : index,
+            gallery,
+            galleryId: gallery.id,
+            edit,
+            encryptedSourceUrl: gallery.sourceUrl ? keylessSourceUrl(gallery.sourceUrl) : undefined,
+          })
+        } catch {
+          openExternal(url)
+        }
+        return
+      }
       openExternal(url)
     }
+  }
+
+  const refreshSavedGalleries = async () => {
+    const [summaries, grid] = await Promise.all([
+      desktopOfflineStore.listGalleries().catch(() => [] as OfflineGallerySummary[]),
+      desktopOfflineStore.listGridGalleries().catch(() => [] as OfflineGridGallery[]),
+    ])
+    setSavedGalleries(summaries)
+    setSavedGridGalleries(grid)
+    const thumbs = new Map<string, string>()
+    for (const saved of grid) {
+      const frame = saved.frames.find((item) => !item.video) ?? saved.frames[0]
+      if (!frame) continue
+      const bytes = await desktopOfflineStore.readThumbnail(saved.galleryId, frame.entryId).catch(() => undefined)
+      if (bytes) thumbs.set(saved.galleryId, URL.createObjectURL(new Blob([bytes.slice().buffer], { type: frame.mimeType })))
+    }
+    for (const url of savedThumbsRef.current.values()) URL.revokeObjectURL(url)
+    savedThumbsRef.current = thumbs
+    setSavedThumbs(thumbs)
+  }
+
+  /** The saved-copy record for a card, when a complete vault entry exists —
+   *  partial or corrupt entries are not "saved" and never claim the badge. */
+  const savedGalleryFor = (gallery: GallerySummary): OfflineGallerySummary | null => {
+    const owner = ownerSlug ?? session?.ownerSlug
+    if (!owner) return null
+    return savedGalleries.find((saved) => saved.status === 'cached' && saved.owner === owner && saved.slug === gallery.slug) ?? null
+  }
+
+  /** A saved copy opens straight from the vault — no network, no account
+   *  row required. The lease's materialized object URLs stay leased to the
+   *  viewer until the next open or close releases them. */
+  const openSavedGallery = async (saved: OfflineGridGallery) => {
+    try {
+      const lease = await desktopOfflineStore.open({ owner: saved.owner, slug: saved.slug, galleryId: saved.galleryId })
+      if (!lease) throw new Error('missing lease')
+      openLeaseRef.current?.dispose?.()
+      openLeaseRef.current = lease
+      setNotice('Opened from your encrypted vault.')
+      setAccountViewer({ manifest: lease.manifest, settings: lease.settings, index: 0 })
+    } catch {
+      setNotice('That saved copy could not be opened — remove it from Settings')
+    }
+  }
+
+  /** "Save to this Mac" — the card-menu twin of an open under the 'vault'
+   *  load policy: downloads the gallery into the encrypted vault without
+   *  mounting the Viewer. */
+  const saveToVault = async (gallery: GallerySummary) => {
+    if (!session) return
+    const owner = ownerSlug ?? session.ownerSlug
+    setNotice('Saving to your encrypted vault…')
+    try {
+      const fetched = await fetchAccountGallery(base, owner, gallery.slug, session.token)
+      const result = await desktopOfflineStore.cache(
+        { owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined },
+        fetched,
+        undefined,
+        (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
+      )
+      if (result.status === 'skipped-video') setNotice('This gallery includes video — offline saving is not supported for mixed galleries yet.')
+      else if (result.status === 'over-cap') setNotice('This gallery is larger than the encrypted vault can hold — raise the limit in Settings.')
+      else setNotice('Saved on this Mac — encrypted, viewable only in manorama.')
+      await refreshSavedGalleries()
+    } catch {
+      setNotice('That gallery could not be saved on this Mac')
+    }
+  }
+
+  /** Crypto-erasure on demand: the record and ciphertext go, and the key is
+   *  destroyed — a removed copy cannot be resurrected from leftover bytes. */
+  const removeSavedCopy = async (galleryId: string) => {
+    try {
+      await desktopOfflineStore.purgeGallery(galleryId)
+      await refreshSavedGalleries()
+      setNotice('Saved copy removed from this Mac')
+    } catch {
+      setNotice('The saved copy could not be removed')
+    }
+  }
+
+  /** Releases the mounted viewer's open lease — offline object URLs are
+   *  revoked and an online resolver's session disposed, so nothing holds
+   *  decrypted references after the gallery closes or is replaced. */
+  const disposeOpenLease = () => {
+    openLeaseRef.current?.dispose?.()
+    openLeaseRef.current = null
+  }
+
+  /** A stream-only flag belongs to this gallery on this Mac — it cancels
+   *  future fills but never deletes a copy the owner already saved. */
+  const setGalleryStreamOnly = async (gallery: GallerySummary, streamOnly: boolean) => {
+    const owner = ownerSlug ?? session?.ownerSlug
+    if (!owner) return
+    const next = { ...streamOnlyPolicies, [galleryPolicyKey(owner, gallery.slug)]: streamOnly }
+    setStreamOnlyPolicies(next)
+    await saveGalleryStreamOnly(next, desktopVaultPersistence).catch(() => {})
   }
 
   if (accountViewer) {
@@ -1119,7 +1333,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       authToken: session?.token,
       initialEdit: accountViewer.edit ?? false,
       allowFullscreen: false,
-      onReturnToGalleries: () => setAccountViewer(null),
+      onReturnToGalleries: () => { disposeOpenLease(); setAccountViewer(null) },
       // The owner context the web route fills — the picker's Reorder
       // switch and the Settings popover's management panel both gate on
       // it. The panel's API calls need the shell's base + bearer, and its
@@ -1142,10 +1356,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         // Entered from the card menu, Save lands back on the Library like
         // the web's doneHref; entered from the picker it reopens at the
         // same photograph like the web's ?photo= reload.
-        if (!summary || accountViewer.edit) { setAccountViewer(null); return }
+        if (!summary || accountViewer.edit) { disposeOpenLease(); setAccountViewer(null); return }
         void openAccountGallery(summary, 0, false, photoId ?? undefined)
       },
       onGalleryRenamed: () => {
+        disposeOpenLease()
         setAccountViewer(null)
         if (session) void refreshAccountGalleries(session.token)
       },
@@ -1155,6 +1370,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       },
       onGalleryRemoved: () => {
         if (summary?.id) void desktopKeyStore().remove(summary.id).catch(() => {})
+        disposeOpenLease()
         setAccountViewer(null)
         if (session) void refreshAccountGalleries(session.token)
         setNotice('Gallery removed')
@@ -1180,6 +1396,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               key={`${accountViewer.manifest.slug}:${accountViewer.index}`}
               {...viewerProps}
               galleryId={accountViewer.galleryId}
+              encryptedResolver={accountViewer.encryptedResolver}
             />
           )}
         </GalleryShell>
@@ -1383,6 +1600,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     .map((slug) => accountBySlug.get(slug))
     .filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
+
+  // Saved copies are a device fact, not an account fact — a gallery whose
+  // account row is gone (removed upstream, or the list never landed) still
+  // owns its vault copy and still opens from it.
+  const savedOnlyGalleries = savedGridGalleries.filter((saved) =>
+    !(saved.owner === (ownerSlug ?? session?.ownerSlug) && (accountGalleries ?? []).some((gallery) => gallery.slug === saved.slug)))
   const accountNote = galleriesFailed || devicesFailed ? 'Your galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
   const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
   const retainedCount = (accountGalleries ?? []).filter((g) => g.retention !== 'pipeline').length
@@ -1516,6 +1739,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     <div class="lib-card-head">
                       <a class="lib-card-title" href={galleryUrl} onClick={openCard(0)} draggable={false}>{title}{pinGlyph(gallery)}</a>
                       {isLocked(gallery) ? tempFlag(gallery) : null}
+                      {savedGalleryFor(gallery) ? <span class="desktop-badge-saved">Saved on this Mac</span> : null}
                       <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
                     </div>
                     <p class="lib-card-sub">
@@ -1624,6 +1848,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     <div class="lib-compact-body">
                       <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
                       {isLocked(gallery) ? tempFlag(gallery) : null}
+                      {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
                       <p class="lib-card-sub">
                         {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
                         {tempWording(gallery)}
@@ -1631,6 +1856,41 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     </div>
                   </li>
                 })}
+              </ul>
+            </section>
+          ) : null}
+          {savedOnlyGalleries.length ? (
+            <section aria-labelledby="lib-saved-title">
+              <h2 id="lib-saved-title" class="lib-section-title lib-compact-title">Saved on this Mac</h2>
+              <ul class="lib-compact-grid">
+                {savedOnlyGalleries.map((saved) => (
+                  <li key={`saved-${saved.galleryId}`} class="lib-compact-card" data-gallery-card={`saved:${saved.galleryId}`}>
+                    <a
+                      class="lib-compact-cover"
+                      href={`#saved-${saved.slug}`}
+                      onClick={(event) => { event.preventDefault(); void openSavedGallery(saved) }}
+                      draggable={false}
+                      aria-label={`${saved.title || saved.slug} cover`}
+                    >
+                      {savedThumbs.get(saved.galleryId)
+                        ? <img src={savedThumbs.get(saved.galleryId)} alt="" loading="lazy" draggable={false} />
+                        : null}
+                    </a>
+                    <div class="lib-compact-body">
+                      <a
+                        class="lib-card-title"
+                        href={`#saved-${saved.slug}`}
+                        onClick={(event) => { event.preventDefault(); void openSavedGallery(saved) }}
+                        draggable={false}
+                      >{saved.title || saved.slug}</a>
+                      <p class="desktop-badge-saved">Saved on this Mac</p>
+                      <p class="lib-card-sub">
+                        {saved.frames.length} {saved.frames.length === 1 ? 'photograph' : 'photographs'}
+                      </p>
+                      <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => void removeSavedCopy(saved.galleryId)}>Remove saved copy</button>
+                    </div>
+                  </li>
+                ))}
               </ul>
             </section>
           ) : null}
@@ -1733,6 +1993,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   onClick={() => { void refreshGallery(cardMenu.gallery) }}
                 >Refresh gallery contents</button>
               ) : null}
+              {/* The encrypted on-device copy — bytes stay on this Mac,
+                  locked behind the Keychain, viewable only here. */}
+              {savedGalleryFor(cardMenu.gallery) ? (
+                <button type="button" disabled={busy} onClick={() => {
+                  const saved = savedGalleryFor(cardMenu.gallery)
+                  setCardMenu(null)
+                  if (saved) void removeSavedCopy(saved.galleryId)
+                }}>Remove saved copy</button>
+              ) : (
+                <button type="button" disabled={busy} onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void saveToVault(g) }}>Save to this Mac</button>
+              )}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
@@ -1786,6 +2057,21 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               onRefreshed={() => { if (session) void refreshAccountGalleries(session.token) }}
               onRemoved={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token); setNotice('Gallery removed') }}
             />
+            {/* Device-local policy, deliberately outside the owner panel:
+                it governs this Mac's encrypted vault, not the gallery the
+                account publishes. */}
+            <ActionGroup label="On this Mac" note="Stream only cancels future offline saving for this gallery; a copy already saved stays until removed.">
+              <ActionRow
+                label="Stream only"
+                control={(
+                  <Switch
+                    checked={streamOnlyPolicies[galleryPolicyKey(ownerSlug ?? session?.ownerSlug ?? '', galSettingsGallery.slug)] === true}
+                    label="Stream only — never keep an offline copy on this Mac"
+                    onChange={(value) => void setGalleryStreamOnly(galSettingsGallery, value)}
+                  />
+                )}
+              />
+            </ActionGroup>
           </div>
         </Sheet>
       ) : null}
@@ -1823,37 +2109,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             onBack={() => setSettingsOpen(false)}
             onSignOut={signOut}
             deviceSection={(
-              <ActionGroup label="This Mac">
-                <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
-                {/* Sync publishes local-gallery rows — a Visionary-only
-                    feature, so the row simply isn't offered on Free. */}
-                {accountTier === 'pro' ? (
-                  <>
-                    <ActionRow
-                      label="Catalogue sync"
-                      value={syncState === 'synced' ? 'Up to date'
-                        : syncState === 'partial' ? 'Partly synced'
-                        : syncState === 'failed' ? 'Sync failed' : undefined}
-                      control={(
-                        <Button
-                          variant="quiet"
-                          disabled={syncState === 'syncing' || !catalogue}
-                          onClick={() => catalogue && void runSync(catalogue, session)}
-                        >
-                          {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
-                        </Button>
-                      )}
-                    />
-                    {syncState === 'syncing' ? (
-                      <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
-                    ) : null}
-                    <p class="m-note m-panel-note">
-                      Sends each local gallery's title and photograph count — never the photographs — so
-                      your other devices can list this Mac's folders.
-                    </p>
-                  </>
-                ) : null}
-              </ActionGroup>
+              <>
+                <ActionGroup label="This Mac">
+                  <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
+                  {/* Sync publishes local-gallery rows — a Visionary-only
+                      feature, so the row simply isn't offered on Free. */}
+                  {accountTier === 'pro' ? (
+                    <>
+                      <ActionRow
+                        label="Catalogue sync"
+                        value={syncState === 'synced' ? 'Up to date'
+                          : syncState === 'partial' ? 'Partly synced'
+                          : syncState === 'failed' ? 'Sync failed' : undefined}
+                        control={(
+                          <Button
+                            variant="quiet"
+                            disabled={syncState === 'syncing' || !catalogue}
+                            onClick={() => catalogue && void runSync(catalogue, session)}
+                          >
+                            {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
+                          </Button>
+                        )}
+                      />
+                      {syncState === 'syncing' ? (
+                        <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
+                      ) : null}
+                      <p class="m-note m-panel-note">
+                        Sends each local gallery's title and photograph count — never the photographs — so
+                        your other devices can list this Mac's folders.
+                      </p>
+                    </>
+                  ) : null}
+                </ActionGroup>
+                {/* The same vault card the iOS Settings hosts: usage, cap,
+                    load policy, per-gallery purge, Forget everything. The
+                    controller resolves the live tier on every call. */}
+                <VaultSettings
+                  controller={createDesktopVaultSettings(() => accountTier)}
+                  tier={accountTier}
+                  embedded
+                />
+              </>
             )}
           />
         </div>
