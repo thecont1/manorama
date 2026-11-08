@@ -1064,7 +1064,15 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               const cover = gallery.images.find((image) => !image.hidden)
               return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                 <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
+                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+                    const img = event.currentTarget as HTMLImageElement
+                    img.classList.add('is-loaded')
+                    // The cover never renders larger than its thumbnail's
+                    // own pixels — a small rendition floats centred at its
+                    // honest size rather than upscaling into mush.
+                    if (img.naturalWidth) img.style.maxWidth = `${img.naturalWidth}px`
+                    if (img.naturalHeight) img.style.maxHeight = `${img.naturalHeight}px`
+                  }} /> : null}
                 </a>
                 <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
                 <div class="lib-compact-body">
@@ -1149,7 +1157,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 disabled={busy || isLocked(menuGallery)}
                 title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
                 onClick={() => { void refreshGallery(menuGallery); setMenuSlug(null) }}
-              >Read the folder again</button>
+              >Refresh gallery contents</button>
             ) : null}
             <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
           </div>
