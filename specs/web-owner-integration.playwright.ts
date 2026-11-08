@@ -234,7 +234,7 @@ test('Account → Settings shows identities/plan/typed-delete; Light persists af
     const plan = settings.locator('h3.m-actiongroup-label', { hasText: /^Plan$/ })
       .locator('..').locator('.m-actiongroup')
     await expect(plan.getByText('Visionary', { exact: true })).toBeVisible()
-    await expect(plan.getByText(/Editable galleries/)).toBeVisible()
+    await expect(plan.getByText(/Permanent galleries/)).toBeVisible()
     await expect(plan.locator('.m-actionrow-value').nth(1)).toHaveText(/\d+ of \d+/)
 
     // Typed-delete: the panel stays behind its destructive row until the

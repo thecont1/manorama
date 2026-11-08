@@ -358,8 +358,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setSyncState('syncing')
       try {
         const result = await syncDeviceGalleries(base, active.token, cat)
+        // The sync belongs to the account that started it — signing out or
+        // into another account must not inherit its outcome.
+        if (sessionRef.current?.token !== active.token) return
         setSyncState(result.failed === 0 ? 'synced' : result.synced === 0 ? 'failed' : 'partial')
       } catch {
+        if (sessionRef.current?.token !== active.token) return
         setSyncState('failed')
       }
     },
@@ -387,7 +391,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setCatalogue(next)
       setAvailability(avail)
       await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
-      if (storedSession) void runSync(next, storedSession)
+      // Pin the ref before the sync starts — its result lands only while
+      // the same account holds the session.
+      if (storedSession) { sessionRef.current = storedSession; void runSync(next, storedSession) }
       cleanup = await installDesktopAuth(
         base,
         (signedIn) => {
@@ -941,6 +947,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const signOut = () => {
     void clearSession()
     setSession(null)
+    setSyncState('idle')
   }
 
   const openSettings = () => {
