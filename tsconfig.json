@@ -17,8 +17,10 @@
     "packages",
     "native",
     "desktop",
+    "desktop-viewer",
     "vite.config.ts",
     "vite.config.native.ts",
-    "vite.config.desktop.ts"
+    "vite.config.desktop.ts",
+    "vite.config.viewer.ts"
   ]
 }
