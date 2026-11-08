@@ -104,7 +104,7 @@ test('card Details is web-only (no vault/offline) and browser Back/Forward round
     await expect(details.getByText(/vault/i)).toHaveCount(0)
     await expect(details.getByText(/offline/i)).toHaveCount(0)
     await expect(page.getByRole('switch')).toHaveCount(0)
-    await expect(details.getByRole('button', { name: 'Read the folder again', exact: true })).toBeVisible()
+    await expect(details.getByRole('button', { name: 'Refresh gallery contents', exact: true })).toBeVisible()
 
     // History Back pops the pushed entry. Schedule navigation so Playwright
     // does not wait on a same-document navigation that has no load.
@@ -139,7 +139,7 @@ test('the ⋯ menu opens the gallery’s own Settings sheet — the same panel t
     await expect(page).toHaveURL(`${base}/${owner}`)
     await expect(sheet.locator('.m-owner-panel-title')).toHaveText(title)
     // From the Library the panel earns an Open row the viewer never needs.
-    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again', 'Remove gallery']) {
+    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery']) {
       await expect(sheet.getByRole('button', { name: label }), label).toBeVisible()
     }
     await sheet.getByRole('button', { name: 'Close', exact: true }).click()
@@ -194,7 +194,7 @@ test('owner viewer Settings carries gallery management inline — no Details nav
     await expect(dialog.getByRole('button', { name: 'Manage gallery' })).toHaveCount(0)
     // The rows' accessible names carry their values ("Name Mixed album"),
     // so match on the label itself.
-    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again', 'Remove gallery']) {
+    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery']) {
       await expect(dialog.getByRole('button', { name: label }), label).toBeVisible()
     }
     await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`))
@@ -230,8 +230,8 @@ test('Account → Settings shows identities/plan/typed-delete; Light persists af
     await expect(identities.getByRole('button', { name: 'Unlink', exact: true })).toBeVisible()
     await expect(identities.getByRole('link', { name: /^Connect / })).toHaveCount(2)
 
-    // Plan: seeded account is pro → Visionary.
-    const plan = settings.locator('h3.m-actiongroup-label', { hasText: /^Plan$/ })
+    // Allowance: seeded account is pro → Visionary.
+    const plan = settings.locator('h3.m-actiongroup-label', { hasText: /^Allowance$/ })
       .locator('..').locator('.m-actiongroup')
     await expect(plan.getByText('Visionary', { exact: true })).toBeVisible()
     await expect(plan.getByText(/Permanent galleries/)).toBeVisible()

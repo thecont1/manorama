@@ -1744,20 +1744,20 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
           </div>
         ) : null}
       </section>
-      {/* The plan line is the only account copy on the Library: quiet
+      {/* The allowance line is the only account copy on the Library: quiet
           normally, a warning sentence when the next gallery would be
-          temporary. Settings › Plan carries the detail. */}
+          temporary. Settings › Allowance carries the detail. */}
       {signedIn && billingState?.tier && accountGalleries ? (
         <footer class="native-lib-foot">
           {billingState.isPro ? (
             <>
               <span><span class="num">{retainedAccountGalleries.length}</span> {retainedAccountGalleries.length === 1 ? 'gallery' : 'galleries'} · Visionary</span>
-              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Plan</button>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Allowance</button>
             </>
           ) : retainedAccountGalleries.length < galleryLimit ? (
             <>
               <span><span class="num">{retainedAccountGalleries.length} of {galleryLimit}</span> free galleries</span>
-              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Plan</button>
+              <button type="button" class="m-btn m-btn--quiet" onClick={() => dispatchNav({ type: 'open-settings' })}>Allowance</button>
             </>
           ) : (
             <>
@@ -1843,7 +1843,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
             disabled={galleryActionBusy !== null || menuGallery.retention === 'pipeline' || !menuGallery.sourceUrl}
             title={menuGallery.retention === 'pipeline' ? 'Temporary galleries cannot be edited on this plan' : undefined}
             onClick={() => { setOpenMenuSlug(null); void mutateGallery(menuGallery, 'refresh') }}
-          >Read the folder again</button>
+          >Refresh gallery contents</button>
           <button type="button" role="menuitem" class="lib-menu-danger" disabled={galleryActionBusy !== null} onClick={() => { setOpenMenuSlug(null); setRemoveGallerySlug(menuGallery.slug) }}>Remove gallery</button>
         </div>
       </Sheet>

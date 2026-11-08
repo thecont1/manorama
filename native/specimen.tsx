@@ -74,7 +74,7 @@ const Specimen = () => {
         />
 
         <Meter label="Saving" value={9} max={13} valueText="9 of 13" />
-        <Meter label="Plan" value={2} max={3} valueText="2 of 3 free galleries" />
+        <Meter label="Allowance" value={2} max={3} valueText="2 of 3 free galleries" />
 
         <div style="display:flex;flex-wrap:wrap;gap:10px">
           <Button variant="primary" onClick={() => setSheet('half')}>Open half sheet</Button>

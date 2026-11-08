@@ -5,7 +5,7 @@ import { Segmented } from './ui/Segmented'
 import { TopBar } from './ui/TopBar'
 import type { AuthProvider } from '../lib/identity-repository'
 import type { Theme } from '../lib/owner-theme'
-import { FREE_RETENTION_DISCLOSURE, paidGalleryLimitError } from '../lib/gallery-policy'
+import { FREE_PIPELINE_LIMIT, FREE_RETENTION_DISCLOSURE, paidGalleryLimitError } from '../lib/gallery-policy'
 
 export type AccountIdentityWeb = { provider: AuthProvider; displayName?: string; email?: string }
 
@@ -127,11 +127,11 @@ export function WebSettings(props: Props) {
           <p class="m-note m-panel-note">Keep at least one way to sign in.</p>
         </ActionGroup>
 
-        <ActionGroup label="Plan">
+        <ActionGroup label="Allowance">
           <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
           <ActionRow label="Permanent galleries" value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
-          {props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={props.temporaryCount} chevron={false} /> : null}
-          {props.localCount != null ? <ActionRow label="Local galleries" value={props.localCount} chevron={false} /> : null}
+          {props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={props.tier === 'pro' ? props.temporaryCount : `${props.temporaryCount} of ${FREE_PIPELINE_LIMIT}`} chevron={false} /> : null}
+          {props.localCount != null ? <ActionRow label="Local galleries" value={props.tier === 'pro' ? `${props.localCount} of ∞` : '0 of 0'} chevron={false} /> : null}
           {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
           {props.tier === 'pro' ? (
             <>
@@ -160,7 +160,7 @@ export function WebSettings(props: Props) {
 
         <ActionGroup label="About">
           <ActionRow label="Privacy Policy" href="/privacy" />
-          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram.</p>
+          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / thecontrarian.in</p>
         </ActionGroup>
 
         <ActionGroup label="Sign out and delete">
