@@ -6,9 +6,12 @@ Library at `manorama.xyz/thecontrarian` (screenshot captured 2026-11-06).
 ## 0. What's actually broken today (evidence)
 
 ### 0.1 The installed app is stale
-- `/Applications/manorama.app` reports `version 0balb5e` and is `0.2.5` (tauri.conf).
-- Commit `0balb5e` is **not** in this repository's history — the build predates
-  the desktop work that landed on `main` in the last two commits:
+- `/Applications/manorama.app` is `0.2.5` (tauri.conf). Its reported build
+  tag was read as `0balb5e` — not a valid revision (a non-hex character, and
+  no matching object exists in this repository's history), so the tag itself
+  is treated as unreliable.
+- The build's own symptoms date it instead: empty cloud thumbnails, a
+  non-draggable window, no build tag — all fixed by the last two commits:
   - `9ba1b5e` — draggable top bar; CSP `img-src` for cloud previews; cloud
     manifest fetched and rendered in-app.
   - `e901d75` — top bar drag region moved to the rail; build-commit tag; in-app
@@ -101,7 +104,9 @@ non-draggable window. Does **not** yet close the layout gaps below.
   "Your galleries" — decide in the PR; recommend a separate, clearly-labelled
   section to avoid implying local folders are cloud galleries.
 - Add tests: pinned account gallery renders as a strip; unpinned renders as a
-  compact card; a tier change re-partitions.
+  compact card; a tier change leaves the partition stable — `libraryLayout`
+  partitions on `pinnedAt` alone, so only re-pinning moves a card between
+  sections.
 
 ### Phase 3 — Sidebar parity
 - Add the account tier line to the rail when a session exists:

@@ -102,12 +102,16 @@ pipeline is correct. The *application* around it is a web page.
 
 ### 2.5 The installed build is also stale
 
-Per `docs/macos-ui-parity-plan.md` §0.1, `/Applications/manorama.app` is at
-commit `0balb5e`, which **is not in this repository's history**. It predates
-`9ba1b5e` and `e901d75`. So the installed app additionally shows empty cloud
-thumbnails (CSP), a non-draggable window, no build tag, and account galleries
-opening in a browser tab. Some of the "inferior" feeling may be this, not the
-architecture — but the architecture gap is real and separate.
+Per `docs/macos-ui-parity-plan.md` §0.1, `/Applications/manorama.app` reports
+a build tag read as `0balb5e` — not a valid revision (it contains a non-hex
+character and no matching object exists in this repository's history). The
+tag is treated as unreliable, so the staleness conclusion rests on the
+build's observed symptoms instead: empty cloud thumbnails (the CSP fix is
+`9ba1b5e`), a non-draggable window and no build tag (both `e901d75`), and
+account galleries opening in a browser tab. All three postdate it, so the
+installed app **does** predate `9ba1b5e` and `e901d75`. Some of the
+"inferior" feeling may be this, not the architecture — but the architecture
+gap is real and separate.
 
 ---
 
@@ -123,8 +127,10 @@ vibrancy, drag-and-drop via `DragDropEvent`, keep the system scrollbar.
 - **Result:** a Mac app with a Mac menu bar that is still a web page underneath.
   Resolves "the app bar is wrong," not "this doesn't feel like a Mac app."
 - **Ceiling:** the interior stays web. Every gap in §2.3 that depends on
-  AppKit behaviour (sidebar semantics, context menus, drag-and-drop *into* the
-  gallery list, focus, scroll) remains unreachable.
+  AppKit behaviour (sidebar semantics, drag-and-drop *into* the gallery
+  list, focus, scroll) remains unreachable — context menus are the exception:
+  Tauri 2.12's `Menu.popup()` can answer a webview `contextmenu` event with a
+  real AppKit menu, so right-click is wired, not missing.
 
 ### Option B — Native shell, web viewer (SwiftUI + WKWebView)  ← recommended
 
@@ -230,9 +236,25 @@ New target `macos/ManoramaMac/`, separate from the Capacitor iOS project.
   **Window**, **Help**. ⌘O / ⌘R / ⌘1–9 / ⌘W wired to the same actions.
 - `WKWebView` hosting the existing `desktop/dist` bundle, in a
   `NSVisualEffectView`-backed container for vibrancy.
-- `WKScriptMessageHandler` bridge: native → web (open gallery, rescan, share,
-  set theme) and web → native (open panel, keychain read/write, reveal in
-  Finder).
+- The bridge has two distinct halves — they are not the same mechanism:
+  - web → native: `WKScriptMessageHandler` messages posted by the bundle —
+    the replacements for Tauri's `invoke` calls: catalogue read/write
+    (`read_private_file`/`write_private_file` → App Support JSON under the
+    sandbox), `pick_gallery_root` (→ `NSOpenPanel` + security-scoped
+    bookmark), `readDirEntries`/`pathExists` (→ `FileManager` inside granted
+    roots), keychain read/write, reveal in Finder.
+  - native → web: `callAsyncJavaScript` (or `evaluateJavaScript`) pushes
+    commands into the loaded page — open gallery, rescan, share, set theme —
+    delivered through a small dispatch seam the bundle exposes on `window`,
+    the same shape the deep-link events use today.
+  - local media: `asset:`/`convertFileSrc` URLs are replaced by a
+    `WKURLSchemeHandler` on a custom scheme (`manorama-local:`) that serves
+    bytes from the security-scoped roots — the same role Tauri's `asset`
+    protocol fills now.
+  If any of these proves disproportionate for Phase 1, the honest fallback
+  is a viewer-only entrypoint (signed-in account galleries, no Local
+  section) that skips the Tauri-dependent flows entirely rather than a
+  bridge that half-works.
 - Keychain for `session.json` contents (replaces the 0600 JSON; the upgrade
   path is already named in `docs/desktop-local-viewer.md:100`).
 - `NSOpenPanel` + **security-scoped bookmarks** (`com.apple.security.files.bookmarks.app-scope`),
