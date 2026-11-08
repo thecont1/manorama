@@ -214,6 +214,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
+        // Native reqwest transport for calls CORS forbids a webview —
+        // Proton Drive's API answers only drive.proton.me origins, so the
+        // shared link verifier routes through this instead.
+        .plugin(tauri_plugin_http::init())
+        // Persists and restores the window's size, position and maximised
+        // state — the restore hooks into window creation, so the saved frame
+        // lands before the config's default 1280x840 can flash on screen.
+        // FULLSCREEN is excluded: the app declares it in tauri.conf.json and
+        // must always open fullscreen, so a state saved while the user had
+        // stepped out of it must not restore `fullscreen: false` next launch.
+        // The saved size/position still apply the moment fullscreen is left.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::FULLSCREEN)
+                .build(),
+        )
         .manage(LoopbackState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             pick_gallery_root,

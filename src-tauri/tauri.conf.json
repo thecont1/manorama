@@ -19,7 +19,8 @@
         "minHeight": 520,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "backgroundColor": "#111312"
+        "backgroundColor": "#111312",
+        "fullscreen": true
       }
     ],
     "security": {
@@ -27,13 +28,15 @@
         "enable": true,
         "scope": []
       },
-      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob: asset: http://asset.localhost https://manorama.xyz; media-src 'self' blob: asset: http://asset.localhost https://manorama.xyz; connect-src 'self' ipc: http://ipc.localhost data: blob: asset: http://asset.localhost https://manorama.xyz https://*.dropboxapi.com https://*.googleapis.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' ipc: http://ipc.localhost 'wasm-unsafe-eval'; img-src 'self' data: blob: asset: http://asset.localhost https://manorama.xyz; media-src 'self' blob: asset: http://asset.localhost https://manorama.xyz; connect-src 'self' ipc: http://ipc.localhost data: blob: asset: http://asset.localhost https://manorama.xyz https://*.dropboxapi.com https://*.googleapis.com https://g.api.mega.co.nz https://api.ente.io; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["in.thecontrarian.manorama.desktop"]
+        "schemes": [
+          "in.thecontrarian.manorama.desktop"
+        ]
       }
     }
   },
