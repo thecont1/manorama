@@ -2041,11 +2041,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {/* The encrypted on-device copy — bytes stay on this Mac,
                   locked behind the Keychain, viewable only here. */}
               {savedGalleryFor(cardMenu.gallery) ? (
-                <button type="button" disabled={busy} onClick={() => {
+                <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => {
                   const saved = savedGalleryFor(cardMenu.gallery)
                   setCardMenu(null)
                   if (saved) void removeSavedCopy(saved.galleryId)
-                }}>Remove saved copy</button>
+                }}>Delete from this Mac</button>
               ) : (
                 <button type="button" disabled={busy} onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void saveToVault(g) }}>Save to this Mac</button>
               )}
