@@ -115,6 +115,144 @@ fn device_label() -> String {
         .unwrap_or_else(|| "This Mac".to_string())
 }
 
+/// Vault ciphertext lives under the app's own Application Support directory.
+/// Every path the renderer supplies is validated to stay inside
+/// `manorama-vault-v1` — no absolute paths, no traversal — so the capability
+/// layer can keep its "no fs write" posture for the rest of the filesystem
+/// while the vault writes freely in its own root.
+const VAULT_DIR_NAME: &str = "manorama-vault-v1";
+/// Per-gallery AES-256 keys live in the login Keychain under this service.
+/// Without them the ciphertext is dead bytes — that, not file permissions,
+/// is what keeps the vault readable only through this app. Entries are
+/// addressed by the vault's own names, so only vault keys are ever touched.
+const VAULT_KEYCHAIN_SERVICE: &str = "in.thecontrarian.manorama.vault";
+
+fn vault_root(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_local_data_dir()
+        .map(|dir| dir.join(VAULT_DIR_NAME))
+        .map_err(|e| e.to_string())
+}
+
+/// Maps a renderer-supplied logical path (`manorama-vault-v1/<entry>`) to a
+/// real path inside the vault root. Segments that could escape — `..`, `.`,
+/// backslashes, a missing prefix — are rejected outright.
+fn vault_entry_path(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+    let relative = path
+        .strip_prefix(&format!("{VAULT_DIR_NAME}/"))
+        .ok_or_else(|| "Vault paths must stay inside the vault root".to_string())?;
+    if relative.is_empty()
+        || relative.contains('\\')
+        || relative.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err("Vault paths must stay inside the vault root".to_string());
+    }
+    Ok(vault_root(app)?.join(relative))
+}
+
+#[tauri::command]
+fn vault_read(app: AppHandle, path: String) -> Result<Option<Vec<u8>>, String> {
+    match std::fs::read(vault_entry_path(&app, &path)?) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn vault_write(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let target = vault_entry_path(&app, &path)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&target, &bytes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn vault_move(app: AppHandle, from: String, to: String) -> Result<(), String> {
+    std::fs::rename(vault_entry_path(&app, &from)?, vault_entry_path(&app, &to)?)
+        .map_err(|e| e.to_string())
+}
+
+/// "Already missing" is the only absorbed outcome — a delete that could leave
+/// a real file behind must report so purge never claims an unproven removal.
+#[tauri::command]
+fn vault_remove(app: AppHandle, path: String) -> Result<(), String> {
+    match std::fs::remove_file(vault_entry_path(&app, &path)?) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[derive(serde::Serialize)]
+struct VaultFileStat {
+    path: String,
+    bytes: u64,
+}
+
+fn walk_vault(dir: &PathBuf, prefix: &str, files: &mut Vec<VaultFileStat>) -> Result<(), String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let logical = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+        if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+            walk_vault(&entry.path(), &logical, files)?;
+        } else {
+            files.push(VaultFileStat {
+                path: format!("{VAULT_DIR_NAME}/{logical}"),
+                bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Every file under the vault root, with logical byte lengths and paths in
+/// the renderer's `manorama-vault-v1/...` shape — usage accounting and purge
+/// verification read it identically on both shells.
+#[tauri::command]
+fn vault_list(app: AppHandle) -> Result<Vec<VaultFileStat>, String> {
+    let mut files = Vec::new();
+    walk_vault(&vault_root(&app)?, "", &mut files)?;
+    Ok(files)
+}
+
+fn vault_key_entry(name: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(VAULT_KEYCHAIN_SERVICE, name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn vault_key_get(name: String) -> Result<Option<String>, String> {
+    match vault_key_entry(&name)?.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn vault_key_set(name: String, value: String) -> Result<(), String> {
+    vault_key_entry(&name)?
+        .set_password(&value)
+        .map_err(|e| e.to_string())
+}
+
+/// A key that survives removal must fail loudly — a verified purge depends on
+/// knowing the ciphertext really is unreachable. "Already absent" passes.
+#[tauri::command]
+fn vault_key_remove(name: String) -> Result<(), String> {
+    match vault_key_entry(&name)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 /// Binds 127.0.0.1 on an ephemeral port and returns the port. Beginning a
 /// new flow cancels any listener still waiting on an abandoned one.
 #[tauri::command]
@@ -266,6 +404,14 @@ pub fn run() {
             private_store::read_private_file,
             private_store::write_private_file,
             private_store::delete_private_file,
+            vault_read,
+            vault_write,
+            vault_move,
+            vault_remove,
+            vault_list,
+            vault_key_get,
+            vault_key_set,
+            vault_key_remove,
         ])
         .setup(|app| {
             // A cold start via the custom scheme delivers the launch URLs
