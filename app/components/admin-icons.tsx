@@ -51,6 +51,7 @@ export const ReorderIcon = () => (
   </svg>
 )
 
+/* The chain-link glyph the Share row carries in the card menu. */
 export const LinkIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.7 1.7M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
