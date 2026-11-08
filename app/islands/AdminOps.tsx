@@ -199,7 +199,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       </div>
       <header class="ops-header">
         <div>
-          <h1>manorama housekeeping</h1>
+          <h1>housekeeping</h1>
           <p class="ops-intro">Signed in as <strong>{ownerName || accountId}</strong>. This console exposes account metadata, never photographs or provider subjects.</p>
         </div>
       </header>

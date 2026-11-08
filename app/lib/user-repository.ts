@@ -271,7 +271,7 @@ export const listUsersForAdmin = async (
           SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
         ) THEN 1 ELSE 0 END AS is_master,
         (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
-        (SELECT COUNT(*) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
+        (SELECT COUNT(DISTINCT d.device_id) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
         (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count,
         (SELECT i.provider FROM auth_identities i WHERE i.account_id = u.account_id
           ORDER BY i.created_at ASC, i.provider ASC LIMIT 1) AS primary_provider
