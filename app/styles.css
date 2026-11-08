@@ -1740,7 +1740,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    anchored into that dead zone, proportional at every rail width. */
 .admin-brand { position: relative; margin-bottom: 18px; }
 .admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin-left: -28px; }
-.admin-version { position: absolute; left: 0; bottom: 13%; margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; color: rgba(var(--ink), .38); }
+.admin-version { position: absolute; left: 0; top: 71%; margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; color: rgba(var(--ink), .38); }
 /* The copyright is the rail's last line — it sits directly under the
    sponsored slot, and when the day switch has suppressed the slot it
    keeps the bottom anchor itself. */
