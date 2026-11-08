@@ -173,10 +173,14 @@ type Props = {
    *  gallery (the Library's card menu) — the screen the user came from.
    *  Unset, both end on the gallery. */
   doneHref?: string
+  /** Post-save continuation for shells that cannot reload a URL to land
+   *  back on the photograph (desktop, native) — receives the on-stage
+   *  photograph when the draft still shows it, null otherwise. */
+  onSaved?: (photoId: string | null) => void
 }
 
 export default function PickerEditor({
-  slug, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref,
+  slug, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref, onSaved,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -296,6 +300,7 @@ export default function PickerEditor({
         // a freshly hidden one leaves the reload on the first frame.
         const current = currentPhotoId()
         const stillVisible = items.some((item) => item.id === current && !hiddenRef.current.has(item.orderKey))
+        if (onSaved) { onSaved(stillVisible ? current : null); return }
         window.location.replace(`${window.location.pathname}${stillVisible ? `?photo=${encodeURIComponent(current)}` : ''}`)
       } catch (error) {
         setSaving(false)

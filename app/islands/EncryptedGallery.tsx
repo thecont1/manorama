@@ -283,7 +283,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       return scanned ? { ...scanned, ...(item.hidden ? { hidden: true as const } : {}) } : item
     })
     : viewerProps.images
-  const viewer = <Viewer {...viewerProps} images={images} encryptedResolver={resolver} galleryId={galleryId} />
+  const viewer = <Viewer {...viewerProps} images={images} encryptedResolver={resolver} galleryId={galleryId} keyStore={keyStore} />
   if (!legacySourceUrl && !keySync) return viewer
   return (
     <>

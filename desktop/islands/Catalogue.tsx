@@ -159,7 +159,7 @@ const writeCatalogueFile = (contents: string) =>
 
 type ViewerState = { galleryId: string; index: number }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
-type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string }
+type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; gallery?: GallerySummary; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string }
 
 /** The app's gallery-key custody: an app is not a browser tab, so keys
  *  persist on this Mac (the webview's own storage, never synced) until the
@@ -1042,7 +1042,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // A fetched cloud manifest rides the same Viewer as local records — the
   // app hosts the viewing it advertises rather than handing it to a browser.
+  const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
+
   if (accountViewer) {
+    const summary = accountViewer.gallery
     const viewerProps = {
       slug: accountViewer.manifest.slug,
       galleryTitle: accountViewer.manifest.title,
@@ -1055,6 +1058,45 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       initialEdit: accountViewer.edit ?? false,
       allowFullscreen: false,
       onReturnToGalleries: () => setAccountViewer(null),
+      // The owner context the web route fills — the picker's Reorder
+      // switch and the Settings popover's management panel both gate on
+      // it. The panel's API calls need the shell's base + bearer, and its
+      // continuations land here because location navigation is impossible.
+      viewerRole: 'owner' as const,
+      galleryOwner: ownerSlug ?? session?.ownerSlug,
+      keyStore: desktopKeyStore(),
+      ownerGallery: summary ? {
+        title: summary.title,
+        caption: summary.caption,
+        sourceLabel: sourceLabelFor(summary.sourceUrl),
+        sourceUrl: summary.sourceUrl,
+        temporary: isLocked(summary),
+        expiresAt: summary.expiresAt,
+        mediaCount: summaryMediaCount(summary),
+      } : undefined,
+      shareHref: summary ? `${accountGalleryUrl(summary)}${summary.id ? galleryHashes[summary.id] ?? '' : ''}` : undefined,
+      onEditSaved: (photoId: string | null) => {
+        if (session) void refreshAccountGalleries(session.token)
+        // Entered from the card menu, Save lands back on the Library like
+        // the web's doneHref; entered from the picker it reopens at the
+        // same photograph like the web's ?photo= reload.
+        if (!summary || accountViewer.edit) { setAccountViewer(null); return }
+        void openAccountGallery(summary, 0, false, photoId ?? undefined)
+      },
+      onGalleryRenamed: () => {
+        setAccountViewer(null)
+        if (session) void refreshAccountGalleries(session.token)
+      },
+      onGalleryRefreshed: () => {
+        if (session) void refreshAccountGalleries(session.token)
+        if (summary) void openAccountGallery(summary, 0, false, accountViewer.manifest.images[accountViewer.index]?.id)
+      },
+      onGalleryRemoved: () => {
+        if (summary?.id) void desktopKeyStore().remove(summary.id).catch(() => {})
+        setAccountViewer(null)
+        if (session) void refreshAccountGalleries(session.token)
+        setNotice('Gallery removed')
+      },
     }
     return (
       <>
@@ -1070,8 +1112,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {...viewerProps}
               galleryId={accountViewer.galleryId ?? ''}
               sourceUrl={accountViewer.encryptedSourceUrl}
-              keyStore={desktopKeyStore()}
-              viewerRole="owner"
             />
           ) : (
             <Viewer
@@ -1288,14 +1328,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const retainedLimit = accountTier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
 
-  const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
-
   /** A cloud gallery opens in the app's own Viewer — the viewing experience
    *  is the product, not a browser tab. Encrypted sources mount the shared
    *  EncryptedGallery island, which resolves the key from this device's
    *  custody (or shows its own honest unlock form). A manifest that cannot
    *  be fetched still degrades to the browser. */
-  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false) => {
+  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false, photoId?: string) => {
     const url = accountGalleryUrl(gallery)
     if (!session) {
       openExternal(url)
@@ -1308,7 +1346,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setAccountViewer({
         manifest,
         settings,
-        index,
+        // A photoId resolves against the fresh manifest — it survives a
+        // reorder where a saved index would land on the wrong frame.
+        index: photoId ? Math.max(0, manifest.images.findIndex((image) => image.id === photoId)) : index,
+        gallery,
         galleryId: gallery.id,
         edit,
         ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
