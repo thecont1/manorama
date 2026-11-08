@@ -1053,6 +1053,9 @@ describe('desktop catalogue workbench', () => {
     await settle()
     const rail = container.querySelector('.admin-rail')!
     expect(rail.textContent).toContain('Free User')
+    const upgrade = rail.querySelector<HTMLAnchorElement>('a.admin-upgrade-link')
+    expect(upgrade?.textContent).toBe('Upgrade to Visionary?')
+    expect(upgrade?.getAttribute('href')).toBe('mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade')
     expect(rail.textContent).not.toContain('This Mac')
     expect(rail.textContent).not.toContain('Catalogue synced')
     expect(rail.querySelector('.desktop-toast-stack .admin-toast')).toBeNull()
@@ -1086,6 +1089,37 @@ describe('desktop catalogue workbench', () => {
     }
     // The device group carries the real catalogue state.
     expect(screen.textContent).toContain('Sync now')
+    expect(screen.textContent).toContain('title and photograph count')
+    // The plan group names the tiers and all three gallery counts.
+    expect(screen.textContent).toContain('Visionary')
+    expect(screen.textContent).toContain('Permanent galleries')
+    expect(screen.textContent).toContain('Temporary galleries')
+    expect(screen.textContent).toContain('Local galleries')
+    // The byline is gone — the About group carries a plain copyright notice.
+    expect(screen.textContent).toContain('© 2026 Mahesh Shantaram.')
+    expect(screen.textContent).not.toContain('thecontrarian.in')
+    // Sync feedback appears while the sync runs and reports its outcome —
+    // the PUT is held open so the syncing state can be observed at rest.
+    const defaultFetch = globals.fetch
+    let releaseSync = () => {}
+    globals.fetch = (async (url: string, init?: { method?: string }) => {
+      const path = String(url)
+      if (init?.method === 'PUT' && path.includes('/api/device-galleries/')) {
+        await new Promise<void>((resolve) => { releaseSync = resolve })
+        return new Response('{}', { status: 200 })
+      }
+      return (defaultFetch as typeof fetch)(url, init)
+    }) as unknown as typeof fetch
+    expect(screen.querySelector('.desktop-sync-progress')).toBeNull()
+    const syncButton = [...screen.querySelectorAll('button')].find((b) => b.textContent === 'Sync now')!
+    syncButton.click()
+    await settle()
+    expect(screen.querySelector('.desktop-sync-progress')).not.toBeNull()
+    releaseSync()
+    await settle()
+    globals.fetch = defaultFetch
+    expect(screen.querySelector('.desktop-sync-progress')).toBeNull()
+    expect(screen.textContent).toContain('Up to date')
     // Back returns to the Library.
     const back = [...screen.querySelectorAll('button')].find((b) => b.textContent?.includes('Back'))!
     back.click()

@@ -1331,7 +1331,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             mark + build tag, the heading's actions (Add, Sync, Settings —
             the gear that opens the account drawer), the device line and
             copyright; the cards scroll beside it. */}
-        <aside class="admin-rail">
+        {/* Anchors in the rail (the Free tier's upgrade mailto) open in the
+            system browser — the same interception the Settings surface uses. */}
+        <aside class="admin-rail" onClick={interceptSettingsLink}>
           <div class="admin-brand">
             <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
             <p class="admin-version">version {buildCommit}</p>
@@ -1355,6 +1357,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               You are a manorama <strong>{accountTier === 'pro' ? 'Visionary' : 'Free User'}</strong> hosting{' '}
               <strong>{retainedCount}</strong> of {retainedLimit} permanent galleries
               {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}.
+              {accountTier === 'free' ? <> <a class="admin-upgrade-link" href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade to Visionary?</a></> : null}
             </p>
           ) : null}
           {adsShow && accountAd ? (
@@ -1718,6 +1721,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             tier={accountTier}
             retainedCount={retainedCount}
             retainedLimit={retainedLimit}
+            temporaryCount={temporaryCount}
+            localCount={galleries.length + remoteDeviceGalleries.length}
             upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
             theme={theme}
             onTheme={setTheme}
@@ -1736,6 +1741,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
                 <ActionRow
                   label="Catalogue sync"
+                  value={syncState === 'synced' ? 'Up to date'
+                    : syncState === 'partial' ? 'Partly synced'
+                    : syncState === 'failed' ? 'Sync failed' : undefined}
                   control={(
                     <Button
                       variant="quiet"
@@ -1746,6 +1754,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                     </Button>
                   )}
                 />
+                {syncState === 'syncing' ? (
+                  <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
+                ) : null}
+                <p class="m-note m-panel-note">
+                  Sends each local gallery's title and photograph count — never the photographs — so
+                  your other devices can list this Mac's folders.
+                </p>
               </ActionGroup>
             )}
           />
