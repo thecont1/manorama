@@ -29,7 +29,7 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -58,6 +58,7 @@ import {
   completeDesktopSignIn,
   getSession,
   installDesktopAuth,
+  linkResultFromDeepLink,
   normalizeApiBase,
   storeSession,
   type AuthProvider,
@@ -247,9 +248,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // The deep-link sign-in callback is installed once at launch — a ref is
   // the only way it can sync the catalogue as it is THEN, not as it was.
   const catalogueRef = useRef<LocalCatalogue | null>(null)
+  const sessionRef = useRef<DesktopSession | null>(null)
   useEffect(() => {
     catalogueRef.current = catalogue
   }, [catalogue])
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
   // Toasts are transient like the web dashboard's — five seconds, then
   // gone. The derived account/slug warnings are not timed: they stay up
   // until the underlying failure clears on the next refresh.
@@ -391,9 +396,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           void runSync(catalogueRef.current ?? next, signedIn)
         },
         setAuthError,
-        // Everything else on our scheme is a provider OAuth redirect —
-        // those complete the pending upload-provider connect, not sign-in.
-        handleProviderDeepLink,
+        // Everything else on our scheme is either an upload-provider OAuth
+        // redirect or a Connect flow's ?linked= result — the first settles
+        // the pending connect, the second refreshes Settings' method list.
+        (url) => {
+          if (handleProviderDeepLink(url)) return
+          const result = linkResultFromDeepLink(url)
+          if (!result) return
+          if (result.kind === 'conflict') {
+            setNotice('That sign-in method is already connected to another account.')
+            return
+          }
+          const name = SIGN_IN_PROVIDERS.find((p) => p.id === result.provider)?.name ?? result.provider
+          setNotice(`${name} connected.`)
+          const active = sessionRef.current
+          if (active) void fetchAccountIdentities(base, active.token).then(setIdentities).catch(() => {})
+        },
       ).catch(() => undefined) ?? undefined
     })()
     return () => {
@@ -435,17 +453,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         setSlugFailed(false)
         // A downgrade observed here demotes the session immediately — the
         // Local galleries gate reads session.tier, and persisting keeps the
-        // next launch honest too.
+        // next launch honest too. An upgrade restores the sync the gate
+        // suspended — push the catalogue now rather than waiting for the
+        // next sign-in or launch.
         if (account.tier && account.tier !== session.tier) {
           const refreshed = { ...session, tier: account.tier }
           setSession(refreshed)
           void storeSession(refreshed).catch(() => {})
+          if (account.tier === 'pro' && catalogueRef.current) void runSync(catalogueRef.current, refreshed)
         }
       },
       () => { if (alive()) setSlugFailed(true) },
     )
     return () => controller.abort()
-  }, [base, session, syncState])
+  }, [base, session, syncState, runSync])
 
   // The theme belongs to the catalogue, not to the stage. While a photograph is
   // in view the class is held off: the stage is a neutral near-black by
@@ -945,12 +966,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // Every anchor inside Settings opens in the system browser — the webview
   // itself never navigates away from the app. Relative hrefs resolve
-  // against the API origin (privacy page, auth link flows).
+  // against the API origin (privacy page, auth link flows). A Connect row
+  // is the exception: the browser holds no manorama cookie, so it opens
+  // `?link={handoff}&native=desktop` — the one-minute handoff binds the
+  // flow to this account, and the ?linked= result lands back on our
+  // scheme rather than the iOS one.
   const interceptSettingsLink = (event: MouseEvent) => {
     const anchor = (event.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null
     const href = anchor?.getAttribute('href') ?? ''
     if (!href) return
     event.preventDefault()
+    const connect = /^\/auth\/([a-z]+)\?link=1$/.exec(href)
+    if (connect && session) {
+      void mintLinkHandoff(base, session.token)
+        .then((linkToken) => openExternal(`${base}/auth/${connect[1]}?link=${encodeURIComponent(linkToken)}&native=desktop`))
+        .catch(() => setIdentityNote('That sign-in method could not be connected.'))
+      return
+    }
     openExternal(/^(https?:|mailto:|sms:)/.test(href) ? href : `${base}${href}`)
   }
 
