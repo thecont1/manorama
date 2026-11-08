@@ -969,6 +969,14 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
    cursor back until the pointer is over a photograph again. */
 .viewer-stage.is-magnified.is-magnifier-paused,
 .viewer-stage.is-magnified.is-magnifier-paused * { cursor: auto; }
+/* The stage rules above keep `is-magnified` meaningful; the effective
+   grab sits on the body because the lens follows the pointer over every
+   surface — chrome pills, the rail, the strip — and an arrow inside the
+   glass obstructs the magnified image. */
+body.magnifier-active,
+body.magnifier-active * { cursor: none !important; }
+body.magnifier-paused,
+body.magnifier-paused * { cursor: auto !important; }
 .magnifier-lens {
   position: fixed;
   z-index: 35;
@@ -983,8 +991,6 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   border: 1px solid rgba(8, 9, 9, .55);
   box-shadow:
     inset 0 0 0 1px rgba(244, 240, 232, .34),
-    inset 0 10px 24px rgba(255, 255, 255, .16),
-    inset 0 -14px 30px rgba(0, 0, 0, .55),
     4px 4px 0 rgba(var(--ink), .18);
   animation: magnifier-in 200ms cubic-bezier(.22, 1, .36, 1);
 }
@@ -1008,16 +1014,6 @@ html.light body:has(.viewer-stage) { --ink: 243, 240, 232; color-scheme: dark; }
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  pointer-events: none;
-}
-/* The rim highlight sells the glass without a second element in the
-   mirrored tree. */
-.magnifier-lens::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(120% 90% at 30% 18%, rgba(255, 255, 255, .20) 0%, rgba(255, 255, 255, 0) 46%);
   pointer-events: none;
 }
 .magnifier-scroll { position: absolute; inset: 0; overflow: hidden; }
