@@ -199,7 +199,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
       </div>
       <header class="ops-header">
         <div>
-          <h1>manorama housekeeping</h1>
+          <h1>housekeeping</h1>
           <p class="ops-intro">Signed in as <strong>{ownerName || accountId}</strong>. This console exposes account metadata, never photographs or provider subjects.</p>
         </div>
       </header>
@@ -226,7 +226,7 @@ export default function AdminOps({ ownerName, accountId }: Props) {
               {sortTh('devices', 'Devices')}
               {sortTh('signins', 'Sign-ins')}
               {sortTh('location', 'Location')}
-              {sortTh('lastseen', 'Last seen')}
+              {sortTh('lastseen', 'Last active')}
               {sortTh('created', 'Created')}
               {sortTh('access', 'Access')}
               <th scope="col">Actions</th>

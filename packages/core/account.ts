@@ -103,9 +103,14 @@ export const unlinkIdentityPolicy = (
  */
 export const FREE_RETAINED_LIMIT = 3
 export const PAID_RETAINED_LIMIT = 99
+/** 3 permanent + 96 temporary = the paid 99 — an upgrade converts the
+ *  whole set to permanent in place, no gallery lost on the way up. */
+export const FREE_PIPELINE_LIMIT = PAID_RETAINED_LIMIT - FREE_RETAINED_LIMIT
 export const PIPELINE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 export const PIPELINE_LOCK_MESSAGE = 'This temporary gallery cannot be edited on the free plan. Upgrade to keep it and make changes.'
-export const FREE_RETENTION_DISCLOSURE = 'Free accounts retain up to 3 editable galleries. Additional galleries are temporary and are removed after 30 days unless you upgrade.'
+/** The retention sentence surfaces show a Free owner so the temporary set
+ *  reads as part of the allowance, not a penalty. */
+export const FREE_RETENTION_DISCLOSURE = 'Free accounts retain up to 3 permanent galleries plus 96 temporary galleries — a temporary is removed after 30 days unless you upgrade, which makes the whole set permanent.'
 export const PAID_RETAINED_CAP_MESSAGE = 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.'
 
 export type GalleryRetention = 'retained' | 'pipeline'
@@ -119,21 +124,28 @@ export const canRetainAnotherGallery = (tier: AccountTier, retainedCount: number
 export type NextGalleryRetention =
   | { allowed: true; retention: 'retained' }
   | { allowed: true; retention: 'pipeline' }
-  | { allowed: false; reason: 'paid-cap'; message: string }
+  | { allowed: false; reason: 'paid-cap' | 'pipeline-cap'; message: string }
 
-/** What a new gallery becomes, given the account's tier and retained count.
- *  Mirrors the CASE in `createGalleryWithinLimit`; the server's atomic check
- *  remains the real guard against concurrent creates. */
-export const nextGalleryRetentionFor = (tier: AccountTier, retainedCount: number): NextGalleryRetention => {
+/** The single source for the pipeline-cap refusal — `pipelineGalleryLimitError`
+ *  in `app/lib/gallery-policy.ts` reuses it so client and server word the
+ *  97th-temporary refusal identically. */
+export const FREE_PIPELINE_CAP_MESSAGE = `Free accounts can hold up to ${FREE_PIPELINE_LIMIT} temporary galleries alongside the ${FREE_RETAINED_LIMIT} permanent ones — let one expire, remove it, or upgrade to Visionary.`
+
+/** What a new gallery becomes, given the account's tier, retained count,
+ *  and live temporary count. Mirrors the CASE in `createGalleryWithinLimit`;
+ *  the server's atomic check remains the real guard against concurrent
+ *  creates. */
+export const nextGalleryRetentionFor = (tier: AccountTier, retainedCount: number, pipelineCount = 0): NextGalleryRetention => {
   if (tier === 'pro') {
     if (retainedCount >= PAID_RETAINED_LIMIT) {
       return { allowed: false, reason: 'paid-cap', message: PAID_RETAINED_CAP_MESSAGE }
     }
     return { allowed: true, retention: 'retained' }
   }
-  return retainedCount < FREE_RETAINED_LIMIT
-    ? { allowed: true, retention: 'retained' }
-    : { allowed: true, retention: 'pipeline' }
+  if (retainedCount < FREE_RETAINED_LIMIT) return { allowed: true, retention: 'retained' }
+  return pipelineCount < FREE_PIPELINE_LIMIT
+    ? { allowed: true, retention: 'pipeline' }
+    : { allowed: false, reason: 'pipeline-cap', message: FREE_PIPELINE_CAP_MESSAGE }
 }
 
 /** Retained count follows `retentionOf` in `gallery-repository.ts`: a missing

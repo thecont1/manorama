@@ -86,7 +86,7 @@ Logo in the same 140 x 47 box as every other screen, centred lower as the openin
 - The rail pans by touch, trackpad or mouse drag. Tapping a thumbnail opens the viewer at that photograph through the curtain. Tapping elsewhere on the card opens the gallery at the first photograph.
 - On-device (kept) galleries: thumbnails come from the vault, instant. While a gallery is still saving, each thumbnail switches to its local copy as it lands.
 - Streamed galleries: the rail pans the same. Each thumbnail shows the existing placeholder, loads only when scrolled near view (IntersectionObserver), then fades in. Any optional locally derived colour comes from bytes already fetched — never another media fetch. Slower and patchier than on-device by design. *(28 Oct 2026)*
-- The ··· menu: Share link, Gallery details, Reorder, Read the folder again, Remove (red, last).
+- The ··· menu: Share link, Gallery details, Reorder, Refresh gallery contents, Remove (red, last).
 - Pitfall found in the prototype: a CSS grid item defaults to `min-width: auto`, so a card grew to its thumbnails' full width and the rail had nothing to scroll. Fix: `min-width: 0` on the card and `minmax(0, 1fr)` on the column. Check the real layout for the same trap.
 
 ### Add a gallery (sheet)
@@ -97,7 +97,7 @@ A bottom sheet, at most half the screen, like the Display sheet. Fields: "Shared
 - Then only action rows, each 56px, with an icon, label, current value and a chevron or switch, in four groups:
   1. Open gallery, Share link
   2. Name, Caption, Reorder photographs
-  3. Keep a copy (switch), Read the folder again
+  3. Keep a copy (switch), Refresh gallery contents
   4. Remove gallery (red), with "Removing it leaves every photograph in Dropbox." beneath
 - Name and Caption each open a small sheet with one field and Save.
 - The back button reads Library when you arrive from the Library. When you arrive from the viewer it reads Back and returns to the same photograph, skipping the curtain.
@@ -189,7 +189,7 @@ Playwright label changes already known: `Manorama-fy it!` becomes `Add gallery`;
 | End card | Rewind, Library |
 | Layout options | Strip, Scroll, One by one |
 | Canvas options | Black, Dark, Light |
-| Gallery details rows | Open gallery, Share link, Name, Caption, Reorder photographs, Keep a copy, Read the folder again, Remove gallery |
+| Gallery details rows | Open gallery, Share link, Name, Caption, Reorder photographs, Keep a copy, Refresh gallery contents, Remove gallery |
 | Remove footnote | Removing it leaves every photograph in Dropbox. |
 | Add sheet | Add a gallery; Shared folder or album link; Paste; Name; Add gallery *(28 Oct 2026: "Choose a folder on this iPhone" and "Choose photographs" removed — import deferred)* |
 | Share fallback | Copy link, WhatsApp, Messages, Email |

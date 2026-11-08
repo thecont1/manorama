@@ -4,6 +4,7 @@ import { heicObjectUrl, isHeicFilename } from '../lib/heic'
 import { encryptedSourceFromGalleryHash, type MediaReference } from '../../packages/core/encrypted-source'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import type { EncryptedMediaResolver } from '../lib/encrypted-resolver'
+import type { WebGalleryKeyStore } from '../lib/key-store'
 import { imageWithSettings, loadStoredGallerySettings, type GallerySettings } from '../lib/gallery-settings'
 import { attachMagnifier, magnifierSupported, type MagnifierHandle } from '../lib/magnifier'
 import { deviceImageDpr, effectiveImageDpr, imageStageSize, videoStageSize } from '../lib/image-staging'
@@ -108,6 +109,20 @@ type Props = {
   /** `?edit=1` — the owner's reorder/hide intent, opening the picker
    *  straight into Edit mode (the retired dashboard overlay's place). */
   initialEdit?: boolean
+  /** Device custody forwarded to the owner panel's encrypted refresh —
+   *  the web's session store is the default; shells inject their own. */
+  keyStore?: WebGalleryKeyStore
+  /** The link the panel's Share row copies — defaults to this origin's
+   *  address, which a tauri:// shell must override. */
+  shareHref?: string
+  /** Post-save continuation for shells that cannot reload a URL — receives
+   *  the on-stage photograph when the draft still shows it, else null. */
+  onEditSaved?: (photoId: string | null) => void
+  /** Owner-panel continuations for shells where the defaults' location
+   *  navigation is impossible — rename, refresh, and remove land here. */
+  onGalleryRenamed?: (slug: string) => void
+  onGalleryRefreshed?: () => void
+  onGalleryRemoved?: () => void
   foldLayout?: FoldLayout | null
   foldRenderer?: (props: {
     frames: readonly GalleryMediaItem[]
@@ -246,7 +261,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -905,6 +920,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       mediaCount={ownerGallery.mediaCount}
       libraryHref={libraryHref}
       headless
+      apiBase={apiBase}
+      authToken={authToken}
+      keyStore={keyStore}
+      shareHref={shareHref}
+      onRenamed={onGalleryRenamed}
+      onRefreshed={onGalleryRefreshed}
+      onRemoved={onGalleryRemoved}
       onReorder={openPickerEdit}
       currentPhotoId={() => images[indexRef.current]?.id ?? ''}
       onTitleSaved={(title) => setTitleOverride(title)}
@@ -2981,6 +3003,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onExit={exitEdit}
               onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
+              onSaved={onEditSaved}
             />
           ) : (
           <>

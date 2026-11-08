@@ -36,7 +36,11 @@ const dropboxPath = (filename: string) =>
 
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 const originalProxy = (sourceUrl: string, filename: string) => `/api/dropbox/file?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
-const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
+// The stored rendition asks for Dropbox's largest thumbnail box: a compact
+// cover or rail cell can show it at several hundred CSS pixels, and the
+// 256px default was visibly upscaled (mode 'strict' never upscales the
+// other way — small sources still return their honest size).
+const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w2048h2048`
 // HEIC can't render in browsers. Dropbox caps its JPEG renditions at
 // w1024h768, which reads soft at full bleed — so the display src is the
 // raw original and the viewer decodes it client-side (libheif WASM).

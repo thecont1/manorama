@@ -57,7 +57,7 @@ const providerName = (provider: string) => ({ apple: 'Apple', google: 'Google', 
 
 /** One owner settings surface. Existing account, billing and vault controllers
  * remain authoritative; this view only moves their controls into one place.
- * The groups follow the prototype: Account, Plan, This iPhone, About. */
+ * The groups follow the prototype: Account, Allowance, This iPhone, About. */
 export default function Settings(props: Props) {
   const {
     accountName, ownerSlugDraft, identities, identityNote, tier, retainedCount, galleryLimit,
@@ -110,9 +110,9 @@ export default function Settings(props: Props) {
           {identities !== null ? <p class="m-note m-panel-note">Keep at least one way to sign in.</p> : null}
         </ActionGroup>
 
-        <ActionGroup label="Plan">
+        <ActionGroup label="Allowance">
           <div class="m-settings-plan">
-            <div class="m-settings-usage"><b>{tier === 'pro' ? 'Visionary' : 'Free'}</b><span>{retainedCount} of {galleryLimit} galleries</span></div>
+            <div class="m-settings-usage"><b>{tier === 'pro' ? 'Visionary' : 'Free User'}</b><span>{retainedCount} of {galleryLimit} galleries</span></div>
             {/* The pink data hue marks the count; the bar itself is the
                 measure, so it carries the progressbar role. */}
             <span

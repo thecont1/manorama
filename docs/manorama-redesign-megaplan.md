@@ -160,7 +160,7 @@ Research limits: source inspection is complete enough to specify the changes, bu
 ### 5.4 Library, Add, Details, Share
 
 - Newest-first Library, stable tie-break, title + Add, no account workbench. Each card has rail, name, actual item/source count, caption if present, real download status, and one menu.
-- Menu order: Share link, Gallery details, Reorder photographs, Read the folder again, Remove gallery. Disable or omit inapplicable operations with explanation; pipeline galleries cannot be edited/refreshed/reordered.
+- Menu order: Share link, Gallery details, Reorder photographs, Refresh gallery contents, Remove gallery. Disable or omit inapplicable operations with explanation; pipeline galleries cannot be edited/refreshed/reordered.
 - Rail drag threshold 6px; suppress click after an actual drag. Each thumbnail opens its target; title/background opens first. Menu and inner controls must never bubble into gallery opening.
 - Progress is based on actual completed writes; distinguish saving, complete, streamed, unavailable, over-cap and failed. Mixed video galleries are not falsely marked kept: current offline store skips video-containing galleries.
 - Account list/network error must not appear as an empty account. Vault-first Library can show cached entries while list refresh is pending, with clear freshness state. No background gallery download is started merely by listing a card.
@@ -464,7 +464,7 @@ Before creating issues/PRs, inspect live issue ownership and the repository PR t
 **Dependencies:** P3–P10 shared contracts; development may overlap P10 once shared interfaces stabilize. **Owns:** Catalogue, ShareFlow presentation, desktop styles/theme, native platform labels and shell adaptations.
 
 - Desktop Library/Details uses real local records, availability and root permissions. Retain folder/card pick, manual rescan, rename, removal, sync status and explicit publishing.
-- Local Details actions say what they do: Open, Publish/Share, Read folder again, Remove from Library. No “Keep a copy,” provider-only metadata edits, or invented public address.
+- Local Details actions say what they do: Open, Publish/Share, Refresh gallery contents, Remove from Library. No “Keep a copy,” provider-only metadata edits, or invented public address.
 - Reuse ShareFlow upload/connect/confirm/error state machine; restyle without changing upload authorization or byte handling.
 - Preserve local gallery ordering only where supported; do not introduce a new persistent desktop editor just to mimic cloud controls.
 - Remove separate always-visible desktop viewer close overlay in favor of shared Library behavior when equivalent functionality is wired.

@@ -5,7 +5,7 @@ import { Segmented } from './ui/Segmented'
 import { TopBar } from './ui/TopBar'
 import type { AuthProvider } from '../lib/identity-repository'
 import type { Theme } from '../lib/owner-theme'
-import { FREE_RETENTION_DISCLOSURE, paidGalleryLimitError } from '../lib/gallery-policy'
+import { FREE_PIPELINE_LIMIT, FREE_RETENTION_DISCLOSURE, paidGalleryLimitError } from '../lib/gallery-policy'
 
 export type AccountIdentityWeb = { provider: AuthProvider; displayName?: string; email?: string }
 
@@ -31,6 +31,12 @@ type Props = {
   tier: 'free' | 'pro'
   retainedCount: number
   retainedLimit: number
+  /** Pipeline (temporary) galleries — surfaced on every surface that can
+   *  count them. Absent surfaces omit the row entirely. */
+  temporaryCount?: number
+  /** Local galleries are a device concept — only native shells pass this;
+   *  the web has no persistence and omits the row (invariant 7). */
+  localCount?: number
   /** Already-composed by the container: either the Stripe payment link with
    *  the encoded client reference, or the plain mailto fallback. */
   upgradeHref: string
@@ -121,9 +127,11 @@ export function WebSettings(props: Props) {
           <p class="m-note m-panel-note">Keep at least one way to sign in.</p>
         </ActionGroup>
 
-        <ActionGroup label="Plan">
-          <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free'} chevron={false} />
-          <ActionRow label="Editable galleries" value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
+        <ActionGroup label="Allowance">
+          <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
+          <ActionRow label="Permanent galleries" value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
+          {props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={props.tier === 'pro' ? props.temporaryCount : `${props.temporaryCount} of ${FREE_PIPELINE_LIMIT}`} chevron={false} /> : null}
+          {props.localCount != null ? <ActionRow label="Local galleries" value={props.tier === 'pro' ? `${props.localCount} of ∞` : '0 of 0'} chevron={false} /> : null}
           {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
           {props.tier === 'pro' ? (
             <>
@@ -152,7 +160,7 @@ export function WebSettings(props: Props) {
 
         <ActionGroup label="About">
           <ActionRow label="Privacy Policy" href="/privacy" />
-          <ActionRow label="Mahesh Shantaram · thecontrarian.in" href="https://thecontrarian.in" />
+          <p class="m-note m-panel-note">© 2026 Mahesh Shantaram / thecontrarian.in</p>
         </ActionGroup>
 
         <ActionGroup label="Sign out and delete">

@@ -314,3 +314,23 @@ body.manorama-desktop .admin-rail .account-ad {
 /* The stopwatch is a status icon on desktop (the pin-swap flow is web-only),
    so it takes the help cursor its tooltip explains. */
 body.manorama-desktop .lib-temp-flag[role="img"] { cursor: help; }
+
+/* Catalogue sync finishes fast, so the "thermometer" is a short
+   indeterminate pulse in the viewer's progress convention — pink on dark,
+   black under html.light. */
+.desktop-sync-progress { position: relative; height: 3px; margin: 12px 16px 14px; border-radius: 2px; background: rgba(var(--ink), .12); overflow: hidden; }
+.desktop-sync-progress::before { content: ''; position: absolute; top: 0; bottom: 0; width: 34%; background: #ff2d95; animation: desktop-sync-progress 1.3s ease-in-out infinite; }
+@keyframes desktop-sync-progress { 0% { left: -34%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .desktop-sync-progress::before { animation: none; left: 33%; } }
+html.light .desktop-sync-progress::before { background: #000; }
+
+/* The desktop Library runs edge to edge — the shared web rule caps the
+   content column at min(1440px, 100%) centred, which leaves dead margins
+   on a fullscreen window. The rail keeps its ≤300px column; the galleries
+   take the rest. */
+body.manorama-desktop .admin-page--selector .admin-content { width: 100%; }
+
+/* The shared rule lets the gap between Library sections grow to 72px —
+   on the fullscreen window it reads as a hole. Match the between-galleries
+   rhythm instead (the documented 40px of card padding either side). */
+body.manorama-desktop .gallery-list section + section { margin-top: 40px; }

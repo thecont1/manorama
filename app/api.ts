@@ -8,7 +8,7 @@ import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVi
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
 import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
-import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError } from './lib/gallery-policy'
+import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError, pipelineGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
 import { configuredMasterAccountId, grantMasterAccount, isMasterAccountId, revokeMasterAccount } from './lib/master-accounts'
@@ -697,8 +697,8 @@ export const createManoramaApi = () => {
           // so truncation is never silent.
           ...(scan.truncated ? { truncated: { kept: orderedImages.length, total: scan.truncated } } : {}),
         }, 201)
-        if (result.reason === 'limit') {
-          const error = paidGalleryLimitError()
+        if (result.reason === 'limit' || result.reason === 'pipeline-limit') {
+          const error = result.reason === 'limit' ? paidGalleryLimitError() : pipelineGalleryLimitError()
           return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
         }
         if (result.reason === 'duplicate-source') {
@@ -772,8 +772,8 @@ export const createManoramaApi = () => {
           gallery: toSummary(result.gallery),
           galleryUrl: galleryUrlFor(session.ownerSlug, result.gallery.slug),
         }, 201)
-        if (result.reason === 'limit') {
-          const error = paidGalleryLimitError()
+        if (result.reason === 'limit' || result.reason === 'pipeline-limit') {
+          const error = result.reason === 'limit' ? paidGalleryLimitError() : pipelineGalleryLimitError()
           return c.json({ code: error.code, error: error.message, dashboardUrl: `/${session.ownerSlug}` }, 403)
         }
         if (result.reason === 'duplicate-source') {

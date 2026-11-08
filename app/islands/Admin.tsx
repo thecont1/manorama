@@ -1064,7 +1064,17 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               const cover = gallery.images.find((image) => !image.hidden)
               return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                 <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} /> : null}
+                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+                    const img = event.currentTarget as HTMLImageElement
+                    img.classList.add('is-loaded')
+                    // The card takes the thumbnail's own size — the image
+                    // always fills it exactly, and a small rendition never
+                    // stretches into mush. Stored dims are the placeholder's
+                    // shape; the decoded frame owns the real ratio.
+                    if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                    const card = img.closest('.lib-compact-card') as HTMLElement | null
+                    if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
+                  }} /> : null}
                 </a>
                 <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
                 <div class="lib-compact-body">
@@ -1149,7 +1159,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 disabled={busy || isLocked(menuGallery)}
                 title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
                 onClick={() => { void refreshGallery(menuGallery); setMenuSlug(null) }}
-              >Read the folder again</button>
+              >Refresh gallery contents</button>
             ) : null}
             <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
           </div>
@@ -1240,6 +1250,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           tier={tier}
           retainedCount={retainedCount}
           retainedLimit={retainedLimit}
+          temporaryCount={temporaryCount}
           upgradeHref={upgradeHref}
           theme={theme}
           onTheme={setTheme}

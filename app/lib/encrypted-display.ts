@@ -1,14 +1,25 @@
 import type { MediaReference } from '../../packages/core/encrypted-source'
-import { webGalleryKeyStore } from './key-store'
+import { webGalleryKeyStore, type WebGalleryKeyStore } from './key-store'
 import { EncryptedMediaResolver } from './encrypted-resolver'
 
 const resolvers = new Map<string, Promise<EncryptedMediaResolver>>()
+
+// Custody is shell-scoped: the web keeps keys in a session store, device
+// shells inject their durable store at startup. A single store per shell
+// keeps the resolver map keyed by gallery id alone.
+let keyStoreForDisplay: () => WebGalleryKeyStore = webGalleryKeyStore
+
+/** Point the display resolver at this shell's key custody (desktop calls
+ *  it once at boot). Pass a factory — the store itself is cheap to build. */
+export const configureEncryptedDisplayKeyStore = (store: () => WebGalleryKeyStore): void => {
+  keyStoreForDisplay = store
+}
 
 const resolverFor = (galleryId: string): Promise<EncryptedMediaResolver> => {
   let pending = resolvers.get(galleryId)
   if (!pending) {
     pending = (async () => {
-      const source = await webGalleryKeyStore().get(galleryId)
+      const source = await keyStoreForDisplay().get(galleryId)
       if (!source) throw new Error('This tab does not hold the encrypted gallery key')
       const { openEncryptedSource } = await import('./encrypted-client')
       return new EncryptedMediaResolver(await openEncryptedSource(source))

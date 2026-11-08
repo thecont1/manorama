@@ -90,6 +90,31 @@ fn oauth_target_from(request_line: &str) -> Option<&str> {
         .then_some(target)
 }
 
+/// The name the Mac's owner gave the machine ("Mahesh's MacBook Air") —
+/// synced as the device label so two of the owner's Macs stop reading
+/// identically. It is their own chosen name, sent only to their own
+/// account; no serial, MAC address or hardware UUID is ever read.
+#[tauri::command]
+fn device_label() -> String {
+    let run = |program: &str, args: &[&str]| {
+        std::process::Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    if let Some(name) = run("scutil", &["--get", "ComputerName"]) {
+        return name;
+    }
+    run("hostname", &[])
+        .map(|s| s.trim_end_matches(".local").to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "This Mac".to_string())
+}
+
 /// Binds 127.0.0.1 on an ephemeral port and returns the port. Beginning a
 /// new flow cancels any listener still waiting on an abandoned one.
 #[tauri::command]
@@ -232,6 +257,7 @@ pub fn run() {
         )
         .manage(LoopbackState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
+            device_label,
             pick_gallery_root,
             register_saved_gallery_roots,
             oauth_loopback_begin,

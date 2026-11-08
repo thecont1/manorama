@@ -112,7 +112,7 @@ Goal: handoff section 4 for Library, Add sheet and Gallery details.
 
 3d. Gallery details (M)
 - New island and route. The header reuses the Library card component (rail, name, sub line, caption, address) minus the ··· button.
-- Four row groups. Name and Caption edit sheets with one field. Keep a copy toggles the stored preference with inverted wording (C6). Read the folder again triggers a rescan and shows the last time. Remove gallery opens the confirmation dialog ("Keep" or "Remove").
+- Four row groups. Name and Caption edit sheets with one field. Keep a copy toggles the stored preference with inverted wording (C6). Refresh gallery contents triggers a rescan and shows the last time. Remove gallery opens the confirmation dialog ("Keep" or "Remove").
 - Back behaviour: to the Library, or to the same photograph when entered from the viewer, skipping the curtain.
 
 3e. Share (S)

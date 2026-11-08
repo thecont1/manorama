@@ -271,7 +271,7 @@ export const listUsersForAdmin = async (
           SELECT 1 FROM master_accounts m WHERE m.account_id = u.account_id
         ) THEN 1 ELSE 0 END AS is_master,
         (SELECT COUNT(*) FROM galleries g WHERE g.owner_id = u.account_id) AS gallery_count,
-        (SELECT COUNT(*) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
+        (SELECT COUNT(DISTINCT d.device_id) FROM device_galleries d WHERE d.owner_id = u.account_id) AS device_gallery_count,
         (SELECT COUNT(*) FROM auth_identities i WHERE i.account_id = u.account_id) AS identity_count,
         (SELECT i.provider FROM auth_identities i WHERE i.account_id = u.account_id
           ORDER BY i.created_at ASC, i.provider ASC LIMIT 1) AS primary_provider
@@ -322,6 +322,10 @@ export const setLastSeenLocation = async (
   country: string | undefined,
   colo: string | undefined,
   env?: UserRepositoryEnv,
+  /** When >0, the write is refused while the stored stamp is fresher than
+   *  this many milliseconds — the throttle rides inside the UPDATE, so a
+   *  cold isolate cannot double-stamp the same day. */
+  onlyIfStaleMs = 0,
 ): Promise<void> => {
   const validCountry = country && /^[A-Z]{2}$/.test(country) ? country : undefined
   const validColo = colo && /^[A-Z]{3}$/.test(colo) ? colo : undefined
@@ -330,15 +334,61 @@ export const setLastSeenLocation = async (
     const binds: string[] = []
     if (validCountry) { sets.push('last_seen_country = ?'); binds.push(validCountry) }
     if (validColo) { sets.push('last_seen_colo = ?'); binds.push(validColo) }
-    await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?`).bind(...binds, accountId).run()
+    const stale = onlyIfStaleMs > 0
+      ? ` AND (last_seen_at IS NULL OR last_seen_at < datetime('now', '-${Math.max(1, Math.round(onlyIfStaleMs / 1000))} seconds'))`
+      : ''
+    await env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE account_id = ?${stale}`).bind(...binds, accountId).run()
     return
   }
   const user = users.get(accountId)
   if (user) {
+    if (onlyIfStaleMs > 0 && user.lastSeenAt && Date.now() - Date.parse(`${user.lastSeenAt.replace(' ', 'T')}Z`) < onlyIfStaleMs) return
     user.lastSeenAt = new Date().toISOString().replace('T', ' ').slice(0, 19)
     if (validCountry) user.lastSeenCountry = validCountry
     if (validColo) user.lastSeenColo = validColo
   }
+}
+
+/** How often activity may move the stamp — one write per day per account. */
+export const LAST_ACTIVITY_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+/** A rejected write is retried after this pause, not on the next request —
+ *  a persistent D1 outage must not turn every API call into a doomed write. */
+const LAST_ACTIVITY_RETRY_BACKOFF_MS = 5 * 60 * 1000
+
+/** Isolate-local throttle: an isolate that already stamped an account today
+ *  skips the UPDATE entirely, so routine traffic costs no D1 op at all. A
+ *  cold isolate may write once more — the stale-guard inside the UPDATE
+ *  still caps the day at one persisted stamp. */
+const lastActivityStamped = new Map<string, number>()
+
+/** Marks real account activity on traffic the app already makes — no
+ *  beacon, no extra request, no new data (the geo is the `cf` Cloudflare
+ *  supplies on every request anyway). Fire-and-forget; the write can never
+ *  fail the request it rode in on. */
+export const touchLastSeen = (
+  accountId: string,
+  cf: { country?: unknown; colo?: unknown } | undefined,
+  env?: UserRepositoryEnv,
+  executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void },
+): void => {
+  const stamped = lastActivityStamped.get(accountId)
+  const now = Date.now()
+  if (stamped && now - stamped < LAST_ACTIVITY_INTERVAL_MS) return
+  lastActivityStamped.set(accountId, now)
+  const write = setLastSeenLocation(
+    accountId,
+    typeof cf?.country === 'string' ? cf.country : undefined,
+    typeof cf?.colo === 'string' ? cf.colo : undefined,
+    env,
+    LAST_ACTIVITY_INTERVAL_MS,
+  ).catch(() => {
+    // Keep a shortened stamp — the next touch waits out the backoff rather
+    // than retrying a write that just failed.
+    lastActivityStamped.set(accountId, Date.now() - LAST_ACTIVITY_INTERVAL_MS + LAST_ACTIVITY_RETRY_BACKOFF_MS)
+  })
+  if (executionCtx?.waitUntil) executionCtx.waitUntil(write)
+  else void write
 }
 
 /** Sets or clears an account's sign-in suspension. Disabling is a flag flip,
@@ -537,4 +587,5 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
 export const resetUserStore = () => {
   users.clear()
   ownerSlugIndex.clear()
+  lastActivityStamped.clear()
 }

@@ -7,7 +7,7 @@ platform quirk.
 | Job | Canonical label | Intentional exceptions |
 |---|---|---|
 | Add a gallery to the Library | `+ Add Gallery` on the compact library control (web `admin-add-pill`, macOS catalogue pill, native heading button with the `+` icon) | Sentence form `Add a gallery` in explanatory contexts: the empty-library CTA, the Add sheet's title and its submit button |
-| Rescan the source folder | `Read the folder again` | — |
+| Rescan the source folder | `Refresh gallery contents` | — |
 | Library heading | `Library` | — |
 | Reorder photographs | `Reorder` in the editor bar title; `Reorder photographs` in the card menu that opens it | — |
 | Publish / share a local gallery | `Publish` while unpublished, `Share link` once a public link exists | — |

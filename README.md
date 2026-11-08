@@ -61,7 +61,7 @@ The desktop app (macOS and Windows) is a local-first viewer for folders and memo
 
 ## Plans
 
-Free accounts keep up to **3 editable galleries**. Creates beyond that still work — they become temporary galleries: public and shareable, but read-only, expiring after 30 days (the card shows the deadline and an upgrade link). **Pro** raises the cap to 99, promotes still-live temporary galleries back to editable, and widens the iOS vault — subscribe in the app or on the web.
+Free accounts keep up to **3 permanent galleries** plus **96 temporary galleries**. Creates beyond the permanent three still work — they become temporary galleries: public and shareable, but read-only, expiring after 30 days (the card shows the deadline and an upgrade link). **Pro** raises the permanent cap to 99 and promotes every still-live temporary gallery back to permanent — subscribe in the app or on the web.
 
 ## Privacy
 

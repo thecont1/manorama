@@ -88,7 +88,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     const cardMenu = page.getByRole('menu')
     await expect(cardMenu).toBeVisible()
     await expect(cardMenu.getByRole('menuitem')).toHaveText([
-      'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
+      'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     await expect(page.getByRole('dialog').locator('h2')).toBeFocused()
     await page.keyboard.press('Escape')

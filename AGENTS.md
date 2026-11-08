@@ -88,6 +88,11 @@ works, and will be reverted.
     deletes them in the same batch that demotes an account; they return on
     upgrade the next time each device syncs. We take no responsibility for
     the local catalogue itself.
+13. **Pixelated images are anathema.** Never render a bitmap larger than its
+    intrinsic pixel dimensions — thumbnails, compact covers, strips included.
+    If a provider cannot offer a larger rendition, the surface shrinks to the
+    bitmap's own size rather than stretch it (invariant 2 applies to the bytes
+    behind it; this governs the box it lands in).
 
 ---
 

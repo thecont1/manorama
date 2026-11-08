@@ -95,7 +95,7 @@ const NOTES = {
     h: "Gallery menu",
     q: "What else can I do with this gallery?",
     items: [
-      ["Order", "Most frequent first: Share link, Gallery details, Reorder, Read the folder again. Remove is last and red."],
+      ["Order", "Most frequent first: Share link, Gallery details, Reorder, Refresh gallery contents. Remove is last and red."],
       ["Replaces", "The five unlabelled icon buttons under every gallery card."]
     ]
   },
@@ -104,7 +104,7 @@ const NOTES = {
     q: "What can I do with this gallery?",
     items: [
       ["One kind of control", "Below the header, everything is the same 56px row: icon, what it does, its current value, and a chevron or a switch. No text links and no pair of mismatched buttons. The header is the Library card again: the scrolling strip of every photograph, then the name, count, source and caption."],
-      ["Order", "Looking at it (Open gallery, Share link), then changing it (Name, Caption, Reorder), then where it lives (Keep a copy, Read the folder again), and Remove on its own at the foot."],
+      ["Order", "Looking at it (Open gallery, Share link), then changing it (Name, Caption, Reorder), then where it lives (Keep a copy, Refresh gallery contents), and Remove on its own at the foot."],
       ["No Content Credentials here", "They are verified one photograph at a time, in the viewer’s Info sheet, never as a batch for the whole gallery."],
       ["Edits", "Name and Caption each open a small sheet with one field and Save. The address under the name follows it."]
     ]
@@ -614,7 +614,7 @@ function renderDetails() {
     </div>
     <div class="acts">
       <button class="act" id="d-keep" role="switch" aria-checked="false">${ICON.keep}<span class="l">Keep a copy</span><span class="v" id="d-keep-v"></span><span class="switch" aria-hidden="true"></span></button>
-      ${act("data-refresh", "refresh", "Read the folder again", `<span id="d-scanned">${x.scanned.split(",")[0]}</span>`)}
+      ${act("data-refresh", "refresh", "Refresh gallery contents", `<span id="d-scanned">${x.scanned.split(",")[0]}</span>`)}
     </div>
     <div class="acts">
       ${act("data-delete", "remove", "Remove gallery", "", "", "danger")}

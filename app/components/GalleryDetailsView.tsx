@@ -202,11 +202,11 @@ export function GalleryDetailsView({
               </p>
               {vaultNote ? <p class="m-note m-panel-note" role="status" aria-live="polite">{vaultNote}</p> : null}
               {hasSavedCopy ? <ActionRow label={`Remove saved copy from ${deviceLabel}`} onClick={onPurge} disabled={busy} /> : null}
-              <ActionRow label="Read the folder again" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
+              <ActionRow label="Refresh gallery contents" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
             </ActionGroup>
           ) : (
             <ActionGroup>
-              <ActionRow label="Read the folder again" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
+              <ActionRow label="Refresh gallery contents" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
             </ActionGroup>
           )}
 

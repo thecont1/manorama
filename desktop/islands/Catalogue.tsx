@@ -45,7 +45,9 @@ import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-i
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
+import { HeicImg } from '../../app/components/ui/HeicImg'
 import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
+import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
 import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Button } from '../../app/components/ui/Button'
@@ -66,7 +68,11 @@ import {
 } from '../lib/session'
 
 const CATALOGUE_FILE = 'catalogue.json'
-const DEVICE_LABEL = 'This Mac'
+// The catalogue's device label is the owner's own name for the machine
+// (scutil ComputerName → hostname → generic), resolved natively once per
+// launch. Two of the owner's Macs stop reading identically.
+const FALLBACK_DEVICE_LABEL = 'This Mac'
+const resolveDeviceLabel = () => invoke<string>('device_label').catch(() => FALLBACK_DEVICE_LABEL)
 
 // The build tag under the rail mark — injected by vite's define, 'dev' under
 // tests and scripts which never see it.
@@ -159,13 +165,16 @@ const writeCatalogueFile = (contents: string) =>
 
 type ViewerState = { galleryId: string; index: number }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
-type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string }
+type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; gallery?: GallerySummary; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string }
 
 /** The app's gallery-key custody: an app is not a browser tab, so keys
  *  persist on this Mac (the webview's own storage, never synced) until the
  *  owner removes them. Passed explicitly so the web's session-only rule
  *  stays untouched. */
 const desktopKeyStore = () => new WebGalleryKeyStore(localStorage)
+// The shared display resolver reads the session-scoped web store by
+// default; this shell's custody is the durable local one.
+configureEncryptedDisplayKeyStore(desktopKeyStore)
 type SyncState = 'idle' | 'syncing' | 'synced' | 'partial' | 'failed'
 
 /** Dimensions learned from decoded thumbs — ephemeral by design, never
@@ -354,12 +363,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     async (cat: LocalCatalogue, active: DesktopSession | null) => {
       // Free accounts hold their catalogue locally and nothing else — the
       // server refuses the rows anyway, so the sync is skipped outright.
-      if (!active || active.tier !== 'pro' || !cat.galleries.length) return
+      if (!active || active.tier !== 'pro') return
+      // An emptied catalogue has nothing to publish — reset rather than
+      // leave a prior outcome ("Up to date") showing for zero galleries.
+      if (!cat.galleries.length) { setSyncState('idle'); return }
       setSyncState('syncing')
       try {
         const result = await syncDeviceGalleries(base, active.token, cat)
+        // The sync belongs to the account that started it — signing out or
+        // into another account must not inherit its outcome.
+        if (sessionRef.current?.token !== active.token) return
         setSyncState(result.failed === 0 ? 'synced' : result.synced === 0 ? 'failed' : 'partial')
       } catch {
+        if (sessionRef.current?.token !== active.token) return
         setSyncState('failed')
       }
     },
@@ -375,11 +391,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void (async () => {
       const storedSession = await getSession()
       if (storedSession && active) setSession(storedSession)
+      const deviceLabel = await resolveDeviceLabel()
       let next: LocalCatalogue
       try {
-        next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), DEVICE_LABEL)
+        next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), deviceLabel)
       } catch {
-        next = newCatalogue(crypto.randomUUID(), DEVICE_LABEL)
+        next = newCatalogue(crypto.randomUUID(), deviceLabel)
+      }
+      // A catalogue written before labels were resolved still says the
+      // generic "This Mac" — heal it once; an owner-set name is never
+      // overwritten.
+      if (next.deviceLabel === FALLBACK_DEVICE_LABEL && deviceLabel !== FALLBACK_DEVICE_LABEL) {
+        next = { ...next, deviceLabel }
       }
       await registerSavedGalleryRoots().catch(() => {})
       const avail = await probeAllAvailability(next.galleries, pathExists)
@@ -387,7 +410,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setCatalogue(next)
       setAvailability(avail)
       await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
-      if (storedSession) void runSync(next, storedSession)
+      // Pin the ref before the sync starts — its result lands only while
+      // the same account holds the session.
+      if (storedSession) { sessionRef.current = storedSession; void runSync(next, storedSession) }
       cleanup = await installDesktopAuth(
         base,
         (signedIn) => {
@@ -673,6 +698,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setCardMenu(null)
     setMenuRemove(false)
     setBusy(true)
+    setNotice(`Refreshing “${gallery.title || gallery.slug}”…`)
     try {
       const init = await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl, keyStore: desktopKeyStore() })
       await refreshAccountGallery(base, session.token, gallery.slug, init)
@@ -772,7 +798,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   const rescan = async (record: LocalGalleryRecord) => {
     if (!catalogue) return
-    setNotice(null)
+    setNotice(`Refreshing “${record.title}”…`)
     // A remounted card needs its scope granted again — runtime scopes do
     // not survive eject + relaunch.
     await registerSavedGalleryRoots().catch(() => {})
@@ -806,7 +832,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // keeps the prior record on screen instead of pretending the rescan stuck.
     await writeCatalogueFile(serializeLocalCatalogue(next))
     setCatalogue(next)
-    if (!updated.items.length) setNotice('That source has no photos Manorama can display')
+    setNotice(updated.items.length ? `“${record.title}” refreshed` : 'That source has no photos Manorama can display')
     void runSync(next, session)
   }
 
@@ -941,6 +967,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const signOut = () => {
     void clearSession()
     setSession(null)
+    setSyncState('idle')
   }
 
   const openSettings = () => {
@@ -1042,7 +1069,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // A fetched cloud manifest rides the same Viewer as local records — the
   // app hosts the viewing it advertises rather than handing it to a browser.
+  const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
+
   if (accountViewer) {
+    const summary = accountViewer.gallery
     const viewerProps = {
       slug: accountViewer.manifest.slug,
       galleryTitle: accountViewer.manifest.title,
@@ -1055,6 +1085,45 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       initialEdit: accountViewer.edit ?? false,
       allowFullscreen: false,
       onReturnToGalleries: () => setAccountViewer(null),
+      // The owner context the web route fills — the picker's Reorder
+      // switch and the Settings popover's management panel both gate on
+      // it. The panel's API calls need the shell's base + bearer, and its
+      // continuations land here because location navigation is impossible.
+      viewerRole: 'owner' as const,
+      galleryOwner: ownerSlug ?? session?.ownerSlug,
+      keyStore: desktopKeyStore(),
+      ownerGallery: summary ? {
+        title: summary.title,
+        caption: summary.caption,
+        sourceLabel: sourceLabelFor(summary.sourceUrl),
+        sourceUrl: summary.sourceUrl,
+        temporary: isLocked(summary),
+        expiresAt: summary.expiresAt,
+        mediaCount: summaryMediaCount(summary),
+      } : undefined,
+      shareHref: summary ? `${accountGalleryUrl(summary)}${summary.id ? galleryHashes[summary.id] ?? '' : ''}` : undefined,
+      onEditSaved: (photoId: string | null) => {
+        if (session) void refreshAccountGalleries(session.token)
+        // Entered from the card menu, Save lands back on the Library like
+        // the web's doneHref; entered from the picker it reopens at the
+        // same photograph like the web's ?photo= reload.
+        if (!summary || accountViewer.edit) { setAccountViewer(null); return }
+        void openAccountGallery(summary, 0, false, photoId ?? undefined)
+      },
+      onGalleryRenamed: () => {
+        setAccountViewer(null)
+        if (session) void refreshAccountGalleries(session.token)
+      },
+      onGalleryRefreshed: () => {
+        if (session) void refreshAccountGalleries(session.token)
+        if (summary) void openAccountGallery(summary, 0, false, accountViewer.manifest.images[accountViewer.index]?.id)
+      },
+      onGalleryRemoved: () => {
+        if (summary?.id) void desktopKeyStore().remove(summary.id).catch(() => {})
+        setAccountViewer(null)
+        if (session) void refreshAccountGalleries(session.token)
+        setNotice('Gallery removed')
+      },
     }
     return (
       <>
@@ -1070,8 +1139,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {...viewerProps}
               galleryId={accountViewer.galleryId ?? ''}
               sourceUrl={accountViewer.encryptedSourceUrl}
-              keyStore={desktopKeyStore()}
-              viewerRole="owner"
             />
           ) : (
             <Viewer
@@ -1288,14 +1355,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const retainedLimit = accountTier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
 
-  const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
-
   /** A cloud gallery opens in the app's own Viewer — the viewing experience
    *  is the product, not a browser tab. Encrypted sources mount the shared
    *  EncryptedGallery island, which resolves the key from this device's
    *  custody (or shows its own honest unlock form). A manifest that cannot
    *  be fetched still degrades to the browser. */
-  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false) => {
+  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false, photoId?: string) => {
     const url = accountGalleryUrl(gallery)
     if (!session) {
       openExternal(url)
@@ -1308,7 +1373,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setAccountViewer({
         manifest,
         settings,
-        index,
+        // A photoId resolves against the fresh manifest — it survives a
+        // reorder where a saved index would land on the wrong frame.
+        index: photoId ? Math.max(0, manifest.images.findIndex((image) => image.id === photoId)) : index,
+        gallery,
         galleryId: gallery.id,
         edit,
         ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
@@ -1331,7 +1399,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             mark + build tag, the heading's actions (Add, Sync, Settings —
             the gear that opens the account drawer), the device line and
             copyright; the cards scroll beside it. */}
-        <aside class="admin-rail">
+        {/* Anchors in the rail (the Free tier's upgrade mailto) open in the
+            system browser — the same interception the Settings surface uses. */}
+        <aside class="admin-rail" onClick={interceptSettingsLink}>
           <div class="admin-brand">
             <img class="admin-brand-mark" src="/manorama-merged-logo.png" alt="manorama" width="280" height="94" />
             <p class="admin-version">version {buildCommit}</p>
@@ -1339,7 +1409,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <div class="admin-library-heading">
             <h1 class="admin-galleries-heading" id="galleries-heading">Library</h1>
             <div class="admin-heading-actions">
-              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}>{busy ? 'Scanning…' : <><span aria-hidden="true">+</span> Add Gallery</>}</button>
+              <button type="button" class="admin-button admin-button--solid admin-add-pill" onClick={() => setAddChooserOpen(true)} disabled={busy}><span aria-hidden="true">+</span> Add Gallery</button>
               <button
                 type="button"
                 class="admin-button admin-settings-pill"
@@ -1355,6 +1425,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               You are a manorama <strong>{accountTier === 'pro' ? 'Visionary' : 'Free User'}</strong> hosting{' '}
               <strong>{retainedCount}</strong> of {retainedLimit} permanent galleries
               {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}.
+              {accountTier === 'free' ? <> <a class="admin-upgrade-link" href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade to Visionary?</a></> : null}
             </p>
           ) : null}
           {adsShow && accountAd ? (
@@ -1409,8 +1480,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                 draggable={false}
                                 aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
                               >
-                                <img
+                                <HeicImg
                                   src={previewSrcFor(image)}
+                                  preview={image.variants?.[0]?.src}
+                                  media={image.media}
+                                  previewMedia={image.variants?.[0]?.media}
+                                  galleryId={gallery.id}
+                                  filename={image.filename}
                                   alt=""
                                   loading="lazy"
                                   draggable={false}
@@ -1529,7 +1605,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   const cover = gallery.images.find((image) => !image.hidden)
                   return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                     <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-                      {cover ? <img src={previewSrcFor(cover)} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} onError={stripImgRetry} /> : null}
+                      {cover ? <HeicImg src={previewSrcFor(cover)} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+                        const img = event.currentTarget as HTMLImageElement
+                        img.classList.add('is-loaded')
+                        // The card takes the thumbnail's own size — the image
+                        // always fills it exactly, and a small rendition never
+                        // stretches into mush. Stored dims are the placeholder's
+                        // shape; the decoded frame owns the real ratio.
+                        if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                        const card = img.closest('.lib-compact-card') as HTMLElement | null
+                        if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
+                      }} onError={stripImgRetry} /> : null}
                     </a>
                     <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
                     <div class="lib-compact-body">
@@ -1642,12 +1728,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   disabled={busy || isLocked(cardMenu.gallery)}
                   title={isLocked(cardMenu.gallery) ? PIPELINE_LOCK_MESSAGE : undefined}
                   onClick={() => { void refreshGallery(cardMenu.gallery) }}
-                >Read the folder again</button>
+                >Refresh gallery contents</button>
               ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
-              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Read the folder again</button>
+              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}
           </div>
@@ -1718,6 +1804,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             tier={accountTier}
             retainedCount={retainedCount}
             retainedLimit={retainedLimit}
+            temporaryCount={temporaryCount}
+            localCount={galleries.length + remoteDeviceGalleries.length}
             upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
             theme={theme}
             onTheme={setTheme}
@@ -1734,18 +1822,34 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             deviceSection={(
               <ActionGroup label="This Mac">
                 <ActionRow label="Device" value={catalogue?.deviceLabel} chevron={false} />
-                <ActionRow
-                  label="Catalogue sync"
-                  control={(
-                    <Button
-                      variant="quiet"
-                      disabled={syncState === 'syncing' || !catalogue}
-                      onClick={() => catalogue && void runSync(catalogue, session)}
-                    >
-                      {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
-                    </Button>
-                  )}
-                />
+                {/* Sync publishes local-gallery rows — a Visionary-only
+                    feature, so the row simply isn't offered on Free. */}
+                {accountTier === 'pro' ? (
+                  <>
+                    <ActionRow
+                      label="Catalogue sync"
+                      value={syncState === 'synced' ? 'Up to date'
+                        : syncState === 'partial' ? 'Partly synced'
+                        : syncState === 'failed' ? 'Sync failed' : undefined}
+                      control={(
+                        <Button
+                          variant="quiet"
+                          disabled={syncState === 'syncing' || !catalogue}
+                          onClick={() => catalogue && void runSync(catalogue, session)}
+                        >
+                          {syncState === 'syncing' ? 'Syncing…' : 'Sync now'}
+                        </Button>
+                      )}
+                    />
+                    {syncState === 'syncing' ? (
+                      <div class="desktop-sync-progress" role="progressbar" aria-label="Syncing this Mac's catalogue" />
+                    ) : null}
+                    <p class="m-note m-panel-note">
+                      Sends each local gallery's title and photograph count — never the photographs — so
+                      your other devices can list this Mac's folders.
+                    </p>
+                  </>
+                ) : null}
               </ActionGroup>
             )}
           />

@@ -1716,7 +1716,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    --------------------------------------------------------------------------- */
 
 .admin-page--selector { --admin-surface: #111312; --admin-muted: .68; display: block; width: 100%; height: auto; overflow: visible; background: var(--admin-surface); padding: 0; }
-.admin-page--selector .admin-content { width: min(1440px, 100%); margin-inline: auto; padding: clamp(12px, 2vw, 20px) clamp(20px, 7vw, 112px) clamp(48px, 8vw, 96px); }
+.admin-page--selector .admin-content { width: 100%; margin-inline: auto; padding: clamp(12px, 2vw, 20px) clamp(20px, 7vw, 112px) clamp(48px, 8vw, 96px); }
 .admin-page--selector .gallery-list { width: 100%; }
 /* The shared top bar owns the mark, so the list's own top padding is
    just a small gap under it — not hero spacing. */
@@ -1736,7 +1736,7 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    anchored into that dead zone, proportional at every rail width. */
 .admin-brand { position: relative; margin-bottom: 18px; }
 .admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin-left: -28px; }
-.admin-version { position: absolute; left: 0; top: 71%; margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; color: rgba(var(--ink), .38); }
+.admin-version { position: absolute; left: 0; top: calc(71% + 2px); margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; color: rgba(var(--ink), .38); }
 /* The copyright is the rail's last line — it sits directly under the
    sponsored slot, and when the day switch has suppressed the slot it
    keeps the bottom anchor itself. */

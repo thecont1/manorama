@@ -831,7 +831,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
+      'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     ;(items.find((item) => item.textContent === 'Remove gallery'))!.click()
     await settle()
@@ -857,7 +857,7 @@ describe('signed-in account area', () => {
       [...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === label) as HTMLButtonElement
     openMenu()
     await settle()
-    menuItem('Read the folder again').click()
+    menuItem('Refresh gallery contents').click()
     await settle()
     const refresh = calls.find((call) => call.url.endsWith('/api/galleries/kashmir/refresh'))
     expect(refresh?.init?.method).toBe('POST')
@@ -1440,7 +1440,7 @@ describe('signed-in account area', () => {
     await settle()
     ;([...container.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Gallery details') as HTMLButtonElement).click()
     await settle()
-    const refresh = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent === 'Read the folder again') as HTMLButtonElement
+    const refresh = [...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent === 'Refresh gallery contents') as HTMLButtonElement
     refresh.click()
     await settle()
     const call = calls.find((entry) => entry.url === 'https://manorama.xyz/api/galleries/kashmir/refresh')
@@ -1535,7 +1535,7 @@ describe('signed-in account area', () => {
     await settle()
     const items = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     expect(items.map((item) => item.textContent)).toEqual([
-      'Share link', 'Gallery details', 'Reorder photographs', 'Read the folder again', 'Remove gallery',
+      'Share link', 'Gallery details', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery',
     ])
     // Words, not drawings — the sheet is a list of sentences.
     expect(items.every((item) => item.querySelector('svg') === null)).toBe(true)
@@ -1548,7 +1548,7 @@ describe('signed-in account area', () => {
     await settle()
     const pipelineItems = [...container.querySelectorAll('[role="menuitem"]')] as HTMLButtonElement[]
     const reorder = pipelineItems.find((item) => item.textContent === 'Reorder photographs')!
-    const refresh = pipelineItems.find((item) => item.textContent === 'Read the folder again')!
+    const refresh = pipelineItems.find((item) => item.textContent === 'Refresh gallery contents')!
     expect(reorder.disabled).toBe(true)
     expect(refresh.disabled).toBe(true)
     expect(reorder.title).toBe('Temporary galleries cannot be edited on this plan')
