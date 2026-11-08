@@ -89,6 +89,9 @@ type Props = {
   /** Where the owner's library lives, resolved by the route — stored for
    *  later phases. */
   libraryHref?: string
+  /** Optional API base + auth token for non-web shells (desktop). */
+  apiBase?: string
+  authToken?: string
   /** The web owner's inline gallery management — the route fills it for
    *  viewerRole 'owner' and the Settings popover edits in place. A shell
    *  that passes onOpenDetails instead (native) keeps its own Details
@@ -243,7 +246,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -494,7 +497,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     setEditNote(null)
     void (async () => {
       try {
-        const items = await loadGalleryItems(slug)
+        const items = await loadGalleryItems(slug, apiBase, authToken)
         setEditItems(items)
         if (editWantedRef.current) {
           editWantedRef.current = false
@@ -2964,6 +2967,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             <PickerEditor
               slug={slug}
               galleryId={galleryId}
+              apiBase={apiBase}
+              token={authToken}
               items={editItems}
               selIndex={gridSel}
               frameRef={filmstripFrameRef}

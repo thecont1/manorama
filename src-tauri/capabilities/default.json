@@ -20,6 +20,13 @@
         { "url": "http://127.0.0.1:5173/*" }
       ]
     },
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*.proton.me" },
+        { "url": "https://*.protonvpn.com" }
+      ]
+    },
     "core:window:allow-start-dragging"
   ]
 }

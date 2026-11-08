@@ -93,6 +93,8 @@ sets.
 
 - There is no trash, undo, or retention window. The only recovery path is recreating the gallery from the same source link; title, caption, slug suffix, and custom ordering must be redone by hand.
 
+- Local galleries are a Visionary feature. A downgrade to Free hides the Local section on every device, `setUserTier` deletes the account's synced `device_galleries` rows in the same batch that writes the tier, and `/api/device-galleries` refuses Free writes with 403 (GET answers an empty feed). The on-device catalogue file is untouched — Manorama takes no responsibility for it, and it re-syncs on upgrade. Rows synced by accounts downgraded before the enforcement landed are cleared by the staged cleanup: `bunx wrangler d1 execute manorama --remote --file out/free-device-galleries-cleanup.sql` (review the leading SELECT, then the trailing SELECT must report `non_pro_rows_remaining = 0`).
+
 - Account deletion is self-serve (`DELETE /api/account`, surfaced in the web dashboard and the app's account area) and removes only Manorama's D1 rows — galleries, sign-in methods, auth flows, the device catalogue, and the user record. Nothing at any provider is touched, and no billing state is altered; subscribers are told to cancel first.
 
 - Refreshes and reorders are non-destructive to the source but overwrite the stored manifest — see the ordering caveat above.

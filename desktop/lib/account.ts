@@ -3,6 +3,7 @@ import type { GallerySummary } from '../../app/lib/gallery-repository'
 import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gallery-settings'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { normalizeApiBase } from './session'
+import type { AuthProvider } from '../../app/lib/identity-repository'
 
 /**
  * The account's remote galleries as the Mac reads them. Mirrors
@@ -118,24 +119,211 @@ export const fetchDeviceGalleries = async (
   return payload.galleries
 }
 
-/** GET {apiBase}/api/account — the current owner slug, resolved from the
- *  account row on every call. session.json keeps the slug from sign-in, so a
- *  rename on the web leaves the stored copy (and every link built from it)
- *  dead; the fresh read keeps Open pointing at the real address. */
-export const fetchAccountOwnerSlug = async (
+/** The account fields the app refreshes on every sync tick. `tier` is
+ *  optional in the wire shape — an older server only ever sent the slug —
+ *  so callers apply it only when present. */
+export type AccountProfile = { ownerSlug: string; tier?: 'free' | 'pro' }
+
+/** GET {apiBase}/api/account — the current owner slug and tier, resolved
+ *  from the account row on every call. session.json keeps both from
+ *  sign-in, so a rename or a downgrade on the web leaves the stored copy
+ *  dead; the fresh read keeps Open pointing at the real address and keeps
+ *  Visionary features honest. */
+export const fetchAccountProfile = async (
   apiBase: string,
   token: string,
   fetcher: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<string> => {
+): Promise<AccountProfile> => {
   const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account`, {
     headers: bearer(token),
     signal,
   })
-  const payload = await response.json().catch(() => ({})) as { ownerSlug?: string; error?: string }
+  const payload = await response.json().catch(() => ({})) as { ownerSlug?: string; tier?: unknown; error?: string }
   if (!response.ok) throw new AccountApiError(response.status, payload.error || `Account request failed (${response.status})`)
   if (typeof payload.ownerSlug !== 'string' || !payload.ownerSlug) throw new Error('Account response was incomplete')
-  return payload.ownerSlug
+  return {
+    ownerSlug: payload.ownerSlug,
+    ...(payload.tier === 'free' || payload.tier === 'pro' ? { tier: payload.tier } : {}),
+  }
+}
+
+/** POST {apiBase}/api/galleries/scan — the same dry run the web dashboard
+ *  uses to check a shared link before creating anything. The HTTP status and
+ *  payload both pass through so the caller can tell "provider refused the
+ *  link" apart from "the network did". */
+export const scanGalleryLink = async (
+  apiBase: string,
+  token: string,
+  url: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<{ status: number; scan?: { title?: string }; error?: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/scan`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { scan?: { title?: string }; error?: string }
+  return { status: response.status, ...payload }
+}
+
+/** POST {apiBase}/api/galleries — the create the web dashboard submits after
+ *  a clean scan (or a client-side encrypted listing). A 409 "already exists"
+ *  still carries the gallery — a successful reopen, not a failure. */
+export const createAccountGallery = async (
+  apiBase: string,
+  token: string,
+  body: Record<string, unknown>,
+  fetcher: typeof fetch = fetch,
+): Promise<{ status: number; gallery?: GallerySummary; error?: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json().catch(() => ({})) as { gallery?: GallerySummary; error?: string }
+  return { status: response.status, ...payload }
+}
+
+/** GET {apiBase}/api/account/identities — the account's sign-in methods,
+ *  the same list the web Settings surfaces. Provider subjects never cross
+ *  the wire, only what the UI shows. */
+export const fetchAccountIdentities = async (
+  apiBase: string,
+  token: string,
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<{ provider: AuthProvider; displayName?: string; email?: string }[]> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account/identities`, {
+    headers: bearer(token),
+    signal,
+  })
+  const payload = await response.json().catch(() => ({})) as { identities?: { provider: AuthProvider; displayName?: string; email?: string }[]; error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || `Sign-in methods request failed (${response.status})`)
+  return payload.identities ?? []
+}
+
+/** POST {apiBase}/api/account/link-handoff — mints the one-minute token a
+ *  cookieless browser needs to open `/auth/{provider}?link={token}`. The
+ *  system browser holds no manorama session, so the link intent binds to
+ *  this account through the token instead of a cookie. */
+export const mintLinkHandoff = async (
+  apiBase: string,
+  token: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account/link-handoff`, {
+    method: 'POST',
+    headers: bearer(token),
+  })
+  const payload = await response.json().catch(() => ({})) as { linkToken?: string; error?: string }
+  if (!response.ok || !payload.linkToken) throw new AccountApiError(response.status, payload.error || 'That sign-in method could not be connected.')
+  return payload.linkToken
+}
+
+/** DELETE {apiBase}/api/account/identities/{provider} — status and payload
+ *  pass through so a 'last-identity' refusal reads as policy, not failure. */
+export const unlinkAccountIdentity = async (
+  apiBase: string,
+  token: string,
+  provider: AuthProvider,
+  fetcher: typeof fetch = fetch,
+): Promise<{ status: number; error?: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account/identities/${provider}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  return { status: response.status, ...payload }
+}
+
+/** PATCH {apiBase}/api/account — rename the owner's public URL slug, the
+ *  same call the web Settings' address field makes. */
+export const patchAccountOwnerSlug = async (
+  apiBase: string,
+  token: string,
+  ownerSlug: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ ownerSlug: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account`, {
+    method: 'PATCH',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ownerSlug }),
+  })
+  const payload = await response.json().catch(() => ({})) as { ownerSlug?: string; error?: string }
+  if (!response.ok || !payload.ownerSlug) throw new AccountApiError(response.status, payload.error || 'That URL could not be saved')
+  return { ownerSlug: payload.ownerSlug }
+}
+
+/** DELETE {apiBase}/api/account — the typed-confirm close. Status and
+ *  payload pass through like the unlink helper. */
+export const deleteAccount = async (
+  apiBase: string,
+  token: string,
+  confirm: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ status: number; error?: string }> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account`, {
+    method: 'DELETE',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  return { status: response.status, ...payload }
+}
+
+/** PATCH {apiBase}/api/galleries/{slug}/pin — the same pin toggle the web
+ *  card menu sends; pin limits arrive as typed errors, not refusals. */
+export const setAccountGalleryPin = async (
+  apiBase: string,
+  token: string,
+  slug: string,
+  pinned: boolean,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/pin`, {
+    method: 'PATCH',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pinned }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be pinned')
+}
+
+/** POST {apiBase}/api/galleries/{slug}/refresh — the rescan the web card
+ *  menu runs. The init comes from refreshRequestInit so encrypted sources
+ *  scan on-device and only the keyless listing crosses the wire. */
+export const refreshAccountGallery = async (
+  apiBase: string,
+  token: string,
+  slug: string,
+  init: RequestInit,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/refresh`, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string> | undefined), ...bearer(token) },
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That folder could not be read again')
+}
+
+/** DELETE {apiBase}/api/galleries/{slug} — removes the D1 row only; the
+ *  provider's originals are never touched (invariant 9). */
+export const deleteAccountGallery = async (
+  apiBase: string,
+  token: string,
+  slug: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be removed')
 }
 
 /** A synced record earns its own card only while nothing else already

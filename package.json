@@ -41,6 +41,7 @@
     "@tauri-apps/plugin-deep-link": "^2.5.0",
     "@tauri-apps/plugin-dialog": "^2.8.0",
     "@tauri-apps/plugin-fs": "^2.6.0",
+    "@tauri-apps/plugin-http": "^2.8.3",
     "@tauri-apps/plugin-opener": "^2.6.0",
     "c2pa-wc": "^0.14.17",
     "heic-decode": "^2.1.0",

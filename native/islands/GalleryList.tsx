@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'hono/jsx'
 import { canGoBack, initialOwnerNav, ownerNavReducer, type OwnerNavState } from '../../packages/core/owner-navigation'
 import { closeTopOverlay, overlayDepth } from '../../app/lib/overlay-stack'
+import { expiryCountdownText } from '../../app/lib/gallery-policy'
 import { decideBack } from '../lib/back-decision'
 import { nativeDeviceLabel } from '../lib/device-label'
 import type { GalleryManifest, GalleryMediaItem } from '../../app/lib/imagesource'
@@ -273,6 +274,14 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
   const [addVerifiedTitle, setAddVerifiedTitle] = useState<string | null>(null)
   const [addChecking, setAddChecking] = useState(false)
   const [sharePayload, setSharePayload] = useState<GallerySharePayload | null>(null)
+  // The temporary-gallery countdown is live like the web rail's — a one-
+  // minute tick keeps "expires in N days M hours" honest while the Library
+  // stays mounted, and stops with it.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(tick)
+  }, [])
   // The editor a card's cover opens: the gallery it resequences, resolved
   // when the cover is tapped so the island owns its own read and write.
   const [editorGallery, setEditorGallery] = useState<{ owner: string; slug: string; title: string } | null>(null)
@@ -1476,7 +1485,7 @@ export default function GalleryList({ apiBase, owner, slug, deepLinkSelection, o
         <p class="lib-card-sub">
           {formatMediaCount(summaryMediaCount(gallery))}
           {' · '}{sourceLabelFor(gallery.sourceUrl)}
-          {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires ${gallery.expiresAt.slice(0, 10)}` : ''}` : ''}
+          {gallery.retention === 'pipeline' ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
           <LibraryDeviceStatus
             galleryId={galleryId}
             imageCount={gallery.imageCount}

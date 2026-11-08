@@ -17,3 +17,20 @@ export const assertGalleryEditable = (gallery: { retention?: GalleryRetention })
 }
 /** Reports whether a pipeline gallery has reached its expiration instant. */
 export const isGalleryExpired = (gallery: { retention?: GalleryRetention; expiresAt?: string | null }, now = new Date().toISOString()) => gallery.retention === 'pipeline' && Boolean(gallery.expiresAt && gallery.expiresAt <= now)
+
+/** The countdown every temporary-gallery surface shows in place of a bare
+ *  expiry date: whole days then leftover hours ("28 days 6 hours"), falling
+ *  back to "under an hour" inside the final hour or when a stale render
+ *  outlives the expiry sweep. Returns null when the gallery has no expiry. */
+export const expiryCountdownText = (expiresAt: string | null | undefined, now: number): string | null => {
+  if (!expiresAt) return null
+  const ms = Date.parse(expiresAt) - now
+  if (!Number.isFinite(ms) || ms <= 0) return 'under an hour'
+  const hours = Math.floor(ms / 3_600_000)
+  const days = Math.floor(hours / 24)
+  const rest = hours - days * 24
+  if (days === 0 && rest === 0) return 'under an hour'
+  const dayPart = days === 0 ? '' : `${days} day${days === 1 ? '' : 's'}`
+  const hourPart = rest === 0 ? '' : `${rest} hour${rest === 1 ? '' : 's'}`
+  return [dayPart, hourPart].filter(Boolean).join(' ')
+}

@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { capacitorHttpFetch, extractProtonLink } from './proton-client'
+import { capacitorHttpFetch, extractProtonLink, openProtonSession } from './proton-client'
 
 describe('extractProtonLink', () => {
   test('splits a public link into path token and fragment password', () => {
@@ -111,5 +111,108 @@ describe('proton-client module surface', () => {
     expect(source).toContain('does not let websites call its API')
     const runtimeImports = [...source.matchAll(/^\s*import\s+(?!type\b)[^;\n]*['"]@capacitor/gm)]
     expect(runtimeImports).toEqual([])
+  })
+})
+
+// A session-level fixture: the SDK stays mocked so materialize and the scan
+// are exercised without crypto or network. The stub answers a share whose
+// `with-thumb` node carries a Type1 thumbnail and whose `no-thumb` node
+// carries none — the split that decided whether a rail cell filled.
+const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])
+const THUMB_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 5, 6])
+
+const sessionNode = (uid: string, thumbnails: { uid: string; type: number }[]) => ({
+  uid,
+  type: 'file',
+  mediaType: 'image/jpeg',
+  name: { ok: true, value: `${uid}.jpg` },
+  modificationTime: new Date('2026-01-01T00:00:00.000Z'),
+  activeRevision: {
+    uid: `rev-${uid}`,
+    claimedSize: JPEG_BYTES.byteLength,
+    claimedAdditionalMetadata: { Media: { Width: 4000, Height: 3000 } },
+    thumbnails,
+  },
+})
+const sessionNodes = new Map([
+  ['with-thumb', sessionNode('with-thumb', [{ uid: 'thumb-1', type: 1 }])],
+  ['no-thumb', sessionNode('no-thumb', [])],
+])
+const protonSessionStub = {
+  getRootNode: async () => ({ uid: 'root', type: 'folder', name: { ok: true, value: 'album' } }),
+  iterateFolderChildrenNodeUids: async function* () { yield* sessionNodes.keys() },
+  iterateNodes: async function* (uids: string[]) { for (const uid of uids) yield sessionNodes.get(uid) },
+  getNode: async (uid: string) => sessionNodes.get(uid),
+  iterateThumbnails: async function* (uids: string[], type: number) {
+    for (const uid of uids) {
+      if (uid === 'with-thumb' && type === 1) yield { nodeUid: uid, ok: true, thumbnail: THUMB_BYTES }
+      else yield { nodeUid: uid, ok: false, error: 'This item has no image preview' }
+    }
+  },
+  getFileDownloader: async () => ({
+    getSeekableStream: () => ({ read: async () => ({ value: JPEG_BYTES }) }),
+    downloadToStream: (stream: WritableStream<Uint8Array>) => ({
+      completion: async () => {
+        const writer = stream.getWriter()
+        await writer.write(JPEG_BYTES)
+        await writer.close()
+      },
+    }),
+  }),
+}
+
+mock.module('@protontech/drive-sdk', () => ({
+  ProtonDriveClient: class {
+    experimental = {
+      getURLAccessInfo: async () => ({ isLegacy: false, isCustomPasswordProtected: false }),
+      authURLAccess: async () => protonSessionStub,
+    }
+  },
+  OpenPGPCryptoWithCryptoProxy: class {},
+  MemoryCache: class {},
+  NodeType: { File: 'file', Folder: 'folder' },
+  ThumbnailType: { Type1: 1, Type2: 2 },
+}))
+mock.module('@protontech/crypto/proxy/endpoint/api.ts', () => ({ Api: class { static init() {} } }))
+mock.module('@protontech/crypto', () => ({ CryptoProxy: { setEndpoint() {} } }))
+mock.module('@protontech/crypto/srp', () => ({
+  getSrp: async () => ({}),
+  computeKeyPassword: async () => '',
+  generateKeySalt: () => 'x',
+}))
+
+// mock.module is process-global — restore the real SDK bindings when the
+// suite ends so a sibling file never sees these stubs.
+afterAll(() => {
+  mock.restore()
+})
+
+describe('a Proton session over a stubbed SDK', () => {
+  const openSession = () =>
+    openProtonSession('https://drive.proton.me/urls/AbCdEf12_Gh#secretpassword', (() => Promise.resolve(new Response())) as typeof fetch)
+
+  test('only a node that carries thumbnails advertises a rail variant', async () => {
+    const session = await openSession()
+    const { images } = await session.scan
+    const withThumb = images.find((image) => image.filename === 'with-thumb.jpg')!
+    const noThumb = images.find((image) => image.filename === 'no-thumb.jpg')!
+    expect(withThumb.variants).toHaveLength(1)
+    expect(noThumb.variants).toBeUndefined()
+  })
+
+  test('a generated thumbnail materializes as the preview', async () => {
+    const session = await openSession()
+    const preview = await session.materialize('with-thumb', true)
+    expect([...preview.bytes]).toEqual([...THUMB_BYTES])
+    expect(preview.mimeType).toBe('image/jpeg')
+  })
+
+  test('a preview acquire on a thumbnail-less node falls back to the original', async () => {
+    const session = await openSession()
+    // Manifests written before variants became conditional still point the
+    // rail here — the cell must fill with the original, not stay blank.
+    const preview = await session.materialize('no-thumb', true)
+    expect([...preview.bytes]).toEqual([...JPEG_BYTES])
+    expect(preview.mimeType).toBe('image/jpeg')
   })
 })

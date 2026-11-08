@@ -80,6 +80,14 @@ works, and will be reverted.
     or the temporary↔permanent swap, which exchanges the two galleries' retention,
     expiry *and* pinned position in one move: the temporary gallery takes the
     permanent slot, the permanent one takes the temporary's own clock.
+12. **Local galleries are a Visionary feature.** A Free account sees no Local
+    section and cannot add or sync a device folder — enforced on the client
+    and again at `/api/device-galleries` (GET answers an empty feed, PUT
+    answers 403, DELETE stays open for cleanup). Because the synced rows are
+    only mirrors of catalogues that live on the devices, `setUserTier`
+    deletes them in the same batch that demotes an account; they return on
+    upgrade the next time each device syncs. We take no responsibility for
+    the local catalogue itself.
 
 ---
 

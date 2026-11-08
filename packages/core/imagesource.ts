@@ -170,6 +170,12 @@ export const summaryMediaCount = (summary: {
   ? { stills: summary.mediaCount.stills, videos: summary.mediaCount.videos, hidden: summary.mediaCount.hidden ?? 0 }
   : { stills: summary.imageCount, videos: 0, hidden: 0 }
 
+/** A compound count ("19 photographs · 7 hidden") takes its own dot
+ *  before the source so the parts read as separate facts; a lone count
+ *  flows straight into "from" instead of dangling a separator. */
+export const cardCountSource = (count: string, source: string): string =>
+  `${count}${count.includes('·') ? ' · ' : ' '}from ${source}`
+
 export type GalleryManifest = {
   id?: string
   manifestVersion?: number

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   assertGalleryEditable,
+  expiryCountdownText,
   GalleryPolicyError,
   isGalleryExpired,
   paidGalleryLimitError,
@@ -48,5 +49,28 @@ describe('gallery expiry policy', () => {
     expect(isGalleryExpired({ expiresAt: '2020-01-01T00:00:00.000Z' }, NOW)).toBe(false)
     expect(isGalleryExpired({ retention: 'pipeline', expiresAt: null }, NOW)).toBe(false)
     expect(isGalleryExpired({ retention: 'pipeline' }, NOW)).toBe(false)
+  })
+})
+
+describe('the shared expiry countdown', () => {
+  const now = Date.parse(NOW)
+
+  test('quotes whole days then leftover hours', () => {
+    expect(expiryCountdownText('2026-10-29T05:00:00.000Z', now)).toBe('28 days 5 hours')
+    expect(expiryCountdownText('2026-10-02T00:00:00.000Z', now)).toBe('1 day')
+    expect(expiryCountdownText('2026-10-02T01:00:00.000Z', now)).toBe('1 day 1 hour')
+  })
+
+  test('drops the days under one and the hours inside the last one', () => {
+    expect(expiryCountdownText('2026-10-01T05:00:00.000Z', now)).toBe('5 hours')
+    expect(expiryCountdownText('2026-10-01T01:00:00.000Z', now)).toBe('1 hour')
+    expect(expiryCountdownText('2026-10-01T00:30:00.000Z', now)).toBe('under an hour')
+  })
+
+  test('an expired or undated gallery gives no countdown', () => {
+    expect(expiryCountdownText('2026-09-30T00:00:00.000Z', now)).toBe('under an hour')
+    expect(expiryCountdownText(null, now)).toBeNull()
+    expect(expiryCountdownText(undefined, now)).toBeNull()
+    expect(expiryCountdownText('not-a-date', now)).toBe('under an hour')
   })
 })

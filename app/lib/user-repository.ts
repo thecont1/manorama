@@ -403,13 +403,30 @@ export const setUserTier = async (
            OR (billing_event_timestamp_ms = ? AND COALESCE(billing_event_id, '') < ?)
          )`,
       ).bind(tier, now, eventTimestamp, eventId, accountId, eventTimestamp, eventTimestamp, eventId)
-      const statements = [update]
-      if (tier === 'pro') {
-        statements.push(env.DB.prepare(
-          `UPDATE galleries SET retention = 'retained', expires_at = NULL
-           WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`,
-        ).bind(accountId, now))
-      }
+      const statements = tier === 'pro'
+        ? [
+            update,
+            env.DB.prepare(
+              `UPDATE galleries SET retention = 'retained', expires_at = NULL
+               WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`,
+            ).bind(accountId, now),
+          ]
+        : [
+            update,
+            // A demotion ends Local galleries — the synced rows are the
+            // devices' own catalogues, so they go rather than linger
+            // served. The EXISTS guard ties the delete to *this* event's
+            // stamp: a stale event that fails the ordering update leaves
+            // different event fields stored and deletes nothing.
+            env.DB.prepare(
+              `DELETE FROM device_galleries WHERE owner_id = ? AND EXISTS (
+                 SELECT 1 FROM users
+                 WHERE users.account_id = device_galleries.owner_id
+                   AND users.billing_event_timestamp_ms = ?
+                   AND users.billing_event_id = ?
+               )`,
+            ).bind(accountId, eventTimestamp, eventId),
+          ]
       const results = await env.DB.batch(statements)
       if (!results[0].meta.changes) return null
       return {
@@ -425,9 +442,12 @@ export const setUserTier = async (
         env.DB.prepare(`UPDATE galleries SET retention = 'retained', expires_at = NULL WHERE owner_id = ? AND retention = 'pipeline' AND expires_at > ?`).bind(accountId, now),
       ])
     } else {
-      await env.DB.prepare(
-        `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE account_id = ?`,
-      ).bind(tier, accountId).run()
+      await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE users SET tier = ?, updated_at = datetime('now') WHERE account_id = ?`,
+        ).bind(tier, accountId),
+        env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
+      ])
     }
     return { ...current, tier }
   }

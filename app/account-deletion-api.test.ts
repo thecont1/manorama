@@ -169,10 +169,10 @@ describe('DELETE /api/account', () => {
     expect(nullBody.status).toBe(400)
   })
 
-  test('GET /api/account answers the owner slug so a client can recover it', async () => {
+  test('GET /api/account answers the owner slug and tier so a client can recover both', async () => {
     const response = await api.request('/api/account', { headers: { Cookie: cookie } }, env)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ownerSlug })
+    expect(await response.json()).toEqual({ ownerSlug, tier: 'free' })
   })
 
   test('deletes the account, expires the session cookie, and invalidates it', async () => {

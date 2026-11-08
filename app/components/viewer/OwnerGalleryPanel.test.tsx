@@ -173,8 +173,10 @@ describe('the web owner panel', () => {
   })
 
   test('temporary galleries lock the edit rows but keep Share and Remove', () => {
-    const root = mounted({ temporary: true, expiresAt: '2026-11-01T00:00:00.000Z' })
-    expect(root.textContent).toContain('Temporary gallery · expires 2026-11-01')
+    // Half-hour padding keeps the floored countdown stable across test drift.
+    const expiresAt = new Date(Date.now() + 12 * 86_400_000 + 5.5 * 3_600_000).toISOString()
+    const root = mounted({ temporary: true, expiresAt })
+    expect(root.textContent).toContain('Temporary gallery · expires in 12 days 5 hours')
     expect(root.textContent).toContain('temporary gallery cannot be edited')
     for (const label of ['Name', 'Caption', 'Address', 'Reorder photographs', 'Read the folder again']) {
       const button = row(root, label) as HTMLButtonElement

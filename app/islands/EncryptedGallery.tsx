@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
 import Viewer from '../islands/Viewer'
 import { encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
-import { webGalleryKeyStore } from '../lib/key-store'
+import { webGalleryKeyStore, type WebGalleryKeyStore } from '../lib/key-store'
 import { EncryptedMediaResolver, type EncryptedClientSession, type EncryptedListing } from '../lib/encrypted-resolver'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import {
@@ -15,6 +15,9 @@ type Props = Parameters<typeof Viewer>[0] & {
   sourceUrl: string
   /** Owner-only transitional capability. Public legacy pages never receive it. */
   legacySourceUrl?: string
+  /** Device shells pass a durable store — an app is not a tab, so custody
+   *  survives a relaunch. The web keeps the default session-scoped store. */
+  keyStore?: WebGalleryKeyStore
 }
 type MigrationState = { verifiedDevices: number; keyRetired: boolean; note: string }
 type ClientManifest = Pick<EncryptedClientSession, 'provider' | 'sourceUrl'> & EncryptedListing
@@ -57,7 +60,8 @@ const dismissKeySync = (galleryId: string) => {
 
 /** SSR renders the normal dimensioned Viewer shell. Hydration supplies the
  * client resolver, or replaces it with a visible locked/error state. */
-export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl, ...viewerProps }: Props) {
+export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl, keyStore, ...viewerProps }: Props) {
+  const galleryKeys = keyStore ?? webGalleryKeyStore()
   const [resolver, setResolver] = useState<EncryptedMediaResolver | null>(null)
   const [scan, setScan] = useState<ClientManifest | null>(null)
   const [migration, setMigration] = useState<MigrationState | null>(null)
@@ -136,7 +140,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       // Wrong-album ciphertext still unwraps to *something* — bind the result
       // to this gallery's identity before it enters custody.
       if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That synced key belongs to a different source album')
-      await webGalleryKeyStore().put(galleryId, source)
+      await galleryKeys.put(galleryId, source)
       setPendingWrapped(null)
       setPassphrase('')
       setProblem(null)
@@ -153,7 +157,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     setMigration(null)
     setPendingWrapped(null)
     const fragment = encryptedSourceFromGalleryHash(window.location.hash)
-    void Promise.resolve(fragment ?? webGalleryKeyStore().get(galleryId).catch(() => null)).then(async (stored) => {
+    void Promise.resolve(fragment ?? galleryKeys.get(galleryId).catch(() => null)).then(async (stored) => {
       // The keystore read must settle before the legacy fallback applies —
       // a pending promise is truthy, so chaining `?? legacySourceUrl` would
       // never reach it and the owner's migration path would show "locked".
@@ -177,7 +181,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         }
       }
       if (!source) {
-        if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original MEGA link.')
+        if (live) setProblem('This device does not hold the gallery key. Paste the full Manorama link, or the original provider link.')
         return
       }
       if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That key belongs to a different source album')
@@ -190,7 +194,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
       // Custody follows verification: a key that opened the wrong listing
       // must never reach the store. Best-effort — quota or private-mode
       // failures must not block opening with a key this session already has.
-      await webGalleryKeyStore().put(galleryId, source).catch(() => undefined)
+      await galleryKeys.put(galleryId, source).catch(() => undefined)
       heldSourceRef.current = source
       if (!live) { session.dispose(); return }
       // The resolver goes up off the folder listing alone — first media
@@ -260,7 +264,7 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
           </form>
         ) : (
           <form onSubmit={unlock}>
-            <label for="encrypted-unlock-url">Full Manorama or MEGA link</label>
+            <label for="encrypted-unlock-url">Full Manorama or provider link</label>
             <input id="encrypted-unlock-url" type="url" required value={unlockValue} onInput={(event) => setUnlockValue((event.currentTarget as HTMLInputElement).value)} placeholder="https://…#…" />
             <button class="m-btn m-btn--primary" type="submit">Unlock gallery</button>
           </form>

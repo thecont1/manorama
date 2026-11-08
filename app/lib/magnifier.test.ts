@@ -115,9 +115,13 @@ describe('attachMagnifier', () => {
     expect(handle.isActive()).toBe(true)
     // cursor:none rides on this class.
     expect(stageOf(document).classList.contains('is-magnified')).toBe(true)
+    // …and on the body, so the arrow is gone even when the lens follows
+    // the pointer off the stage and over chrome.
+    expect(document.body.classList.contains('magnifier-active')).toBe(true)
     const world = document.querySelector('.magnifier-world') as unknown as HTMLElement
     expect(world.querySelectorAll('.viewer-frame').length).toBe(2)
     handle.destroy()
+    expect(document.body.classList.contains('magnifier-active')).toBe(false)
   })
 
   test('a cloned placeholder upgrades to the frame\u2019s real source, never a thumbnail', () => {
@@ -232,6 +236,8 @@ describe('attachMagnifier', () => {
     expect(lens.hidden).toBe(false)
     expect(lens.style.visibility).toBe('hidden')
     expect(stage.classList.contains('is-magnifier-paused')).toBe(true)
+    // The body's cursor release mirrors the stage's pause state.
+    expect(document.body.classList.contains('magnifier-paused')).toBe(true)
 
     // Back over a photograph the lens and its cursor grab return.
     ;(document as unknown as { elementFromPoint: () => Element }).elementFromPoint =
@@ -242,6 +248,7 @@ describe('attachMagnifier', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(lens.style.visibility).toBe('visible')
     expect(stage.classList.contains('is-magnifier-paused')).toBe(false)
+    expect(document.body.classList.contains('magnifier-paused')).toBe(false)
 
     handle.deactivate()
     expect(stage.classList.contains('is-magnifier-paused')).toBe(false)

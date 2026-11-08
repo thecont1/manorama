@@ -187,6 +187,7 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     // under the pointer again.
     const overVideo = frameEl?.classList.contains('viewer-frame--video') === true
     stage.classList.toggle('is-magnifier-paused', overVideo)
+    document.body.classList.toggle('magnifier-paused', overVideo)
     lens.style.visibility = overVideo ? 'hidden' : 'visible'
     const img = frameEl?.querySelector<HTMLImageElement>('img.frame-img') ?? null
     const imgRect = img?.getBoundingClientRect()
@@ -237,6 +238,11 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     lens.hidden = false
     lens.classList.toggle('is-instant', prefersReducedMotion())
     stage.classList.add('is-magnified')
+    // The lens lives on document.body and follows the pointer over every
+    // surface — chrome pills, the rail, the strip. Hiding the cursor on
+    // the stage alone left the arrow visible inside the glass the moment
+    // the pointer crossed off a frame, so the grab rides on the body.
+    document.body.classList.add('magnifier-active')
     recloneWorld()
     window.addEventListener('scroll', schedule, { passive: true })
     stage.addEventListener('scroll', schedule, { passive: true })
@@ -253,6 +259,7 @@ export const attachMagnifier = (stage: HTMLElement | null): MagnifierHandle | nu
     lens.style.visibility = ''
     stage.classList.remove('is-magnified')
     stage.classList.remove('is-magnifier-paused')
+    document.body.classList.remove('magnifier-active', 'magnifier-paused')
     window.removeEventListener('scroll', schedule)
     stage.removeEventListener('scroll', schedule)
     observer?.disconnect()

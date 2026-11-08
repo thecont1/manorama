@@ -140,6 +140,14 @@ type ClaimedAdditionalMetadata = {
   Camera?: { Orientation?: number }
 }
 
+type ThumbnailListing = { thumbnails?: { uid: string; type: number }[] }
+
+/** The public Revision type omits `thumbnails`, but the runtime entity
+ *  carries the list the SDK's own iterateThumbnails filters on. A node
+ *  whose share generated no preview has an empty or missing list. */
+const thumbnailsFor = (revision: object | undefined) =>
+  (revision as ThumbnailListing | undefined)?.thumbnails ?? []
+
 /** Proton stores photo dims in the revision's encrypted extended
  *  attributes. Orientation 5–8 transposes the frame, matching the swap
  *  displayedImageDimensions applies to EXIF bytes. */
@@ -242,6 +250,13 @@ const protonTransport = async (): Promise<typeof fetch> => {
   if (typeof window === 'undefined') return fetch
   const { Capacitor, CapacitorHttp } = await import('@capacitor/core')
   if (Capacitor.isNativePlatform()) return capacitorHttpFetch((options) => CapacitorHttp.request(options))
+  if ('__TAURI_INTERNALS__' in window) {
+    // Tauri's http plugin rides reqwest — the same outside-the-WebView
+    // transport CapacitorHttp provides on iOS, so the desktop shell answers
+    // links the browser build must refuse.
+    const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
+    return tauriFetch as unknown as typeof fetch
+  }
   throw new SourceFetchError('Proton Drive does not let websites call its API — add this link in the manorama app instead')
 }
 
@@ -455,8 +470,12 @@ export const openProtonSession = async (input: string, fetchImpl?: typeof fetch)
       fidelity: 'original',
       thumbnailFidelity: 'display-derivative',
       // The decrypted thumbnail stands in as the rail image — fetched by
-      // node uid through materialize(preview), same shape as Ente.
-      variants: [{ width, src: '', media, format: 'jpeg' }],
+      // node uid through materialize(preview), same shape as Ente. Only
+      // advertised when the share actually generated one: Proton creates
+      // thumbnails on some upload paths only, and a variant without a
+      // backing thumbnail leaves the rail permanently blank instead of
+      // falling back to the (heavier) original — the MEGA no-attribute rule.
+      ...(thumbnailsFor(node.activeRevision).length ? { variants: [{ width, src: '', media, format: 'jpeg' }] } : {}),
       width,
       height,
       alt: filenameLabel(name),
@@ -529,7 +548,10 @@ export const openProtonSession = async (input: string, fetchImpl?: typeof fetch)
             return { bytes: result.thumbnail, mimeType: sniffContentType(result.thumbnail) }
           }
         }
-        throw new SourceFetchError('That Proton Drive image preview is unavailable', 404)
+        // No thumbnail this share can serve — not an error. Manifests
+        // written before variants became conditional still point the rail
+        // here; fall through to the original so the cell fills, matching
+        // the MEGA manifest's answer to a node with no file attribute.
       }
       const node = await nodeEntity(nodeUid)
       const claimed = node.activeRevision?.claimedSize

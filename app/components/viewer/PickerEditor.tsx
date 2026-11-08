@@ -53,12 +53,20 @@ type SummaryImages = GallerySummary['images']
 /** The summary carries every item including hidden ones — the page's own
  *  manifest deliberately does not. orderKey is the Worker's persistence
  *  key (ref ?? filename), the same key the PATCH route writes. */
-export const loadGalleryItems = async (slug: string): Promise<PickerEditItem[]> => {
-  const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}`)
+export const loadGalleryItems = async (slug: string, apiBase = '', token?: string): Promise<PickerEditItem[]> => {
+  const base = apiBase.replace(/\/$/, '')
+  const url = base ? `${base}/api/galleries/${encodeURIComponent(slug)}` : `/api/galleries/${encodeURIComponent(slug)}`
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch(url, { headers })
   const payload = await response.json().catch(() => ({})) as { gallery?: { images: SummaryImages }; error?: string }
   if (!response.ok) throw new Error(payload.error || 'That gallery could not be read')
   const summary = payload.gallery
   if (!summary) throw new Error('That gallery could not be found in the account')
+  // Media paths are server-relative — on a non-web shell they must resolve
+  // against the API origin or the cells ask tauri://localhost for them.
+  const mediaUrl = <T extends string | undefined>(src: T): T =>
+    (src && base && src.startsWith('/') ? `${base}${src}` : src) as T
   return summary.images.map((image) => {
     const video = isVideoItem(image as GalleryMediaItem)
     const poster = video ? (image as GalleryMediaItem & { poster?: { src: string } }).poster : undefined
@@ -67,10 +75,10 @@ export const loadGalleryItems = async (slug: string): Promise<PickerEditItem[]> 
       orderKey: image.ref ?? image.filename,
       width: image.width,
       height: image.height,
-      src: poster?.src ?? image.src,
+      src: mediaUrl(poster?.src ?? image.src),
       // The same URL browse mode puts in its <img> — identical bytes mean
       // the browser cache answers the mode switch instead of the network.
-      preview: image.variants?.[0]?.src ?? poster?.src ?? image.placeholder,
+      preview: mediaUrl(image.variants?.[0]?.src ?? poster?.src ?? image.placeholder),
       media: image.media,
       previewMedia: image.variants?.[0]?.media,
       filename: image.filename,
@@ -129,6 +137,9 @@ type Props = {
    *  encrypted media refs the items carry. */
   galleryId?: string
   items: PickerEditItem[]
+  /** Optional API base + bearer token for non-web shells (desktop). */
+  apiBase?: string
+  token?: string
   /** The pink-box index — the viewer's gridSel, shared so the same
    *  keyboard stepping works over the draft cells. */
   selIndex: number
@@ -165,7 +176,7 @@ type Props = {
 }
 
 export default function PickerEditor({
-  slug, galleryId, items, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref,
+  slug, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -266,9 +277,13 @@ export default function PickerEditor({
     setNote(null)
     void (async () => {
       try {
-        const response = await fetch(`/api/galleries/${encodeURIComponent(slug)}`, {
+        const base = apiBase.replace(/\/$/, '')
+        const url = base ? `${base}/api/galleries/${encodeURIComponent(slug)}` : `/api/galleries/${encodeURIComponent(slug)}`
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (token) headers.Authorization = `Bearer ${token}`
+        const response = await fetch(url, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ order: sessionRef.current.items.map((item) => item.orderKey), hidden: [...hiddenRef.current] }),
         })
         const payload = await response.json().catch(() => ({})) as { error?: string }

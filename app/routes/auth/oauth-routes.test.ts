@@ -635,6 +635,25 @@ describe('the link flow', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('a desktop link flow reports ?linked on the desktop scheme', async () => {
+    const user = await seedAccount('dbid:LINKmac', 'Link Mac')
+    const { state, nonce } = await createAuthFlow(
+      { provider: 'google', intent: 'link', accountId: user.accountId, native: 'desktop' },
+      { DB: db() },
+    )
+    const { deps } = await googleDeps(nonce, { sub: 'goog-link-mac' })
+    // The handoff pre-binds the account, so the callback needs no session
+    // cookie — same as the iOS scheme twin.
+    const response = await callbackApp(deps).request(
+      `${BASE}/auth/google/callback?code=ok&state=${state}`,
+      undefined,
+      env(),
+    )
+    expect(response.headers.get('Location')).toBe('in.thecontrarian.manorama.desktop://auth/callback?linked=google')
+    expect((await listIdentities(user.accountId, { DB: db() })).map((row) => row.provider).sort())
+      .toEqual(['dropbox', 'google'])
+  })
+
   test('a subject already bound elsewhere reports ?link=conflict', async () => {
     const holder = await seedAccount('dbid:LINKholder', 'Link Holder')
     await linkIdentity(holder.accountId, { provider: 'google', subject: 'goog-taken' }, { DB: db() })

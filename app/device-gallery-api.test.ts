@@ -53,13 +53,15 @@ afterAll(async () => {
 })
 
 let ownerSeq = 0
-const seedOwner = async (displayName = 'Device Owner') => {
+// Device galleries are a Visionary feature — seeds are pro by default so
+// the suite exercises the ungated path; Free behavior gets its own tests.
+const seedOwner = async (displayName = 'Device Owner', tier: 'free' | 'pro' = 'pro') => {
   ownerSeq += 1
   const id = `dbid:AAATESTdevgal${ownerSeq}`
   const slug = `devgal-${ownerSeq}`
   await db
-    .prepare('INSERT INTO users (account_id, owner_slug, display_name) VALUES (?, ?, ?)')
-    .bind(id, slug, displayName)
+    .prepare('INSERT INTO users (account_id, owner_slug, display_name, tier) VALUES (?, ?, ?, ?)')
+    .bind(id, slug, displayName, tier)
     .run()
   const token = await createSessionToken(id, TEST_SESSION_SECRET)
   return { id, slug, bearer: `Bearer ${token}`, cookie: `${SESSION_COOKIE}=${token}` }
@@ -433,7 +435,7 @@ describe('device catalogue storage failures', () => {
   test('an unmigrated database answers 503 rather than falling back', async () => {
     const id = 'dbid:AAATESTstaledb'
     await db
-      .prepare('INSERT INTO users (account_id, owner_slug, display_name) VALUES (?, ?, ?)')
+      .prepare(`INSERT INTO users (account_id, owner_slug, display_name, tier) VALUES (?, ?, ?, 'pro')`)
       .bind(id, 'stale-db', 'Stale DB')
       .run()
     const bearer = `Bearer ${await createSessionToken(id, TEST_SESSION_SECRET)}`
@@ -501,5 +503,39 @@ describe('device catalogue CORS', () => {
     expect(refused.headers.get('Access-Control-Allow-Origin')).toBeNull()
     expect(refused.headers.get('Vary')).toBe('Origin')
     expect(refused.headers.get('Access-Control-Allow-Credentials')).toBeNull()
+  })
+})
+
+describe('device galleries are a Visionary feature', () => {
+  test('a Free account reads an empty feed even with rows stored', async () => {
+    const owner = await seedOwner('Downgraded Owner', 'pro')
+    const id = crypto.randomUUID()
+    expect((await putAs(owner.bearer, id, deviceInput())).status).toBe(200)
+    // Demote the account — the feed is empty even with the row still stored.
+    await db.prepare(`UPDATE users SET tier = 'free' WHERE account_id = ?`).bind(owner.id).run()
+    const response = await listAs(owner.bearer)
+    expect(response.status).toBe(200)
+    expect(await galleriesOf(response)).toEqual([])
+  })
+
+  test('a Free account cannot write device galleries; cleanup stays open', async () => {
+    const owner = await seedOwner('Free Owner', 'free')
+    const id = crypto.randomUUID()
+    const denied = await putAs(owner.bearer, id, deviceInput())
+    expect(denied.status).toBe(403)
+    expect(await denied.json()).toEqual({ error: 'Local galleries are included with Visionary' })
+    // A stale row can still be deleted — the refusal is on creation, not cleanup.
+    expect((await deleteAs(owner.bearer, id)).status).toBe(404)
+  })
+
+  test('a demotion through setUserTier purges the account’s synced rows', async () => {
+    const { setUserTier } = await import('./lib/user-repository')
+    const owner = await seedOwner('Demoted Owner', 'pro')
+    const id = crypto.randomUUID()
+    expect((await putAs(owner.bearer, id, deviceInput())).status).toBe(200)
+    await setUserTier(owner.id, 'free', env())
+    expect((await galleriesOf(await listAs(owner.bearer))).length).toBe(0)
+    const row = await db.prepare('SELECT COUNT(*) AS n FROM device_galleries WHERE owner_id = ?').bind(owner.id).first<{ n: number }>()
+    expect(row?.n).toBe(0)
   })
 })

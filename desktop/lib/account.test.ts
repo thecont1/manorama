@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
-import { fetchAccountGalleries, fetchAccountOwnerSlug, fetchDeviceGalleries, standaloneDeviceGalleries } from './account'
+import { fetchAccountGalleries, fetchAccountProfile, fetchDeviceGalleries, standaloneDeviceGalleries } from './account'
 
 const captureFetch = (handler: (url: string) => Response) => {
   const calls: { url: string; init?: RequestInit }[] = []
@@ -60,17 +60,22 @@ describe('fetchDeviceGalleries', () => {
   })
 })
 
-describe('fetchAccountOwnerSlug', () => {
-  test('GETs /api/account with the bearer token and returns the fresh slug', async () => {
-    const { calls, fetcher } = captureFetch(() => new Response(JSON.stringify({ ownerSlug: 'fresh-name' }), { status: 200 }))
-    await expect(fetchAccountOwnerSlug('https://manorama.xyz', 'token-value', fetcher)).resolves.toBe('fresh-name')
+describe('fetchAccountProfile', () => {
+  test('GETs /api/account with the bearer token and returns the fresh slug and tier', async () => {
+    const { calls, fetcher } = captureFetch(() => new Response(JSON.stringify({ ownerSlug: 'fresh-name', tier: 'pro' }), { status: 200 }))
+    await expect(fetchAccountProfile('https://manorama.xyz', 'token-value', fetcher)).resolves.toEqual({ ownerSlug: 'fresh-name', tier: 'pro' })
     expect(calls[0]!.url).toBe('https://manorama.xyz/api/account')
     expect((calls[0]!.init?.headers as Record<string, string>).Authorization).toBe('Bearer token-value')
   })
 
+  test('a legacy payload with no tier leaves it unset rather than guessing', async () => {
+    const { fetcher } = captureFetch(() => new Response(JSON.stringify({ ownerSlug: 'fresh-name' }), { status: 200 }))
+    await expect(fetchAccountProfile('https://manorama.xyz', 'token', fetcher)).resolves.toEqual({ ownerSlug: 'fresh-name' })
+  })
+
   test('rejects an incomplete account response', async () => {
     const { fetcher } = captureFetch(() => new Response(JSON.stringify({}), { status: 200 }))
-    await expect(fetchAccountOwnerSlug('https://manorama.xyz', 'token', fetcher)).rejects.toThrow('incomplete')
+    await expect(fetchAccountProfile('https://manorama.xyz', 'token', fetcher)).rejects.toThrow('incomplete')
   })
 })
 
