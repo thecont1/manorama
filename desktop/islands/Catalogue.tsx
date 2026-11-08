@@ -1071,6 +1071,41 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // app hosts the viewing it advertises rather than handing it to a browser.
   const accountGalleryUrl = (gallery: GallerySummary) => `${base}/${ownerSlug ?? session?.ownerSlug ?? ''}/${gallery.slug}`
 
+  /** A cloud gallery opens in the app's own Viewer — the viewing experience
+   *  is the product, not a browser tab. Encrypted sources mount the shared
+   *  EncryptedGallery island, which resolves the key from this device's
+   *  custody (or shows its own honest unlock form). A manifest that cannot
+   *  be fetched still degrades to the browser. Declared above the
+   *  early return: the mounted viewer's continuations call this, and a
+   *  binding declared below it never initializes on a viewer render. */
+  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false, photoId?: string) => {
+    const url = accountGalleryUrl(gallery)
+    if (!session) {
+      openExternal(url)
+      return
+    }
+    try {
+      const { manifest, settings } = await fetchAccountGallery(
+        base, ownerSlug ?? session.ownerSlug, gallery.slug, session.token,
+      )
+      setAccountViewer({
+        manifest,
+        settings,
+        // A photoId resolves against the fresh manifest — it survives a
+        // reorder where a saved index would land on the wrong frame.
+        index: photoId ? Math.max(0, manifest.images.findIndex((image) => image.id === photoId)) : index,
+        gallery,
+        galleryId: gallery.id,
+        edit,
+        ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
+          ? { encryptedSourceUrl: keylessSourceUrl(gallery.sourceUrl) }
+          : {}),
+      })
+    } catch {
+      openExternal(url)
+    }
+  }
+
   if (accountViewer) {
     const summary = accountViewer.gallery
     const viewerProps = {
@@ -1355,38 +1390,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const retainedLimit = accountTier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
 
-  /** A cloud gallery opens in the app's own Viewer — the viewing experience
-   *  is the product, not a browser tab. Encrypted sources mount the shared
-   *  EncryptedGallery island, which resolves the key from this device's
-   *  custody (or shows its own honest unlock form). A manifest that cannot
-   *  be fetched still degrades to the browser. */
-  const openAccountGallery = async (gallery: GallerySummary, index: number, edit = false, photoId?: string) => {
-    const url = accountGalleryUrl(gallery)
-    if (!session) {
-      openExternal(url)
-      return
-    }
-    try {
-      const { manifest, settings } = await fetchAccountGallery(
-        base, ownerSlug ?? session.ownerSlug, gallery.slug, session.token,
-      )
-      setAccountViewer({
-        manifest,
-        settings,
-        // A photoId resolves against the fresh manifest — it survives a
-        // reorder where a saved index would land on the wrong frame.
-        index: photoId ? Math.max(0, manifest.images.findIndex((image) => image.id === photoId)) : index,
-        gallery,
-        galleryId: gallery.id,
-        edit,
-        ...(gallery.sourceUrl && isEncryptedSourceUrl(gallery.sourceUrl)
-          ? { encryptedSourceUrl: keylessSourceUrl(gallery.sourceUrl) }
-          : {}),
-      })
-    } catch {
-      openExternal(url)
-    }
-  }
   return (
     // `data-admin-ready` is the shell's own "catalogue restored" signal: the
     // island renders nothing above until the private files have been read, so
