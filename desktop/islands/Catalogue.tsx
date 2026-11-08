@@ -54,7 +54,8 @@ import { desktopVault } from '../lib/vault'
 import { EncryptedSourceLockedError, EncryptedSourceMismatchError } from '../../native/lib/encrypted-gallery'
 import { openGalleryNetworkFirst, OfflineGalleryUnavailableError, type OfflineGallerySummary, type OfflineGridGallery } from '../../native/lib/offline-gallery'
 import { applyVaultCap, galleryPolicyKey, loadGalleryStreamOnly, loadVaultCapPreference, loadVaultLoadPolicy, saveGalleryStreamOnly, type VaultLoadPolicy } from '../../native/lib/vault-settings'
-import VaultSettings from '../../native/islands/VaultSettings'
+import VaultSettings, { formatBytes } from '../../native/islands/VaultSettings'
+import { Meter } from '../../app/components/ui/Meter'
 import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Switch } from '../../app/components/ui/Switch'
@@ -230,6 +231,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const savedThumbsRef = useRef<ReadonlyMap<string, string>>(new Map())
   const [vaultLoadPolicy, setVaultLoadPolicy] = useState<VaultLoadPolicy | null>(null)
   const [streamOnlyPolicies, setStreamOnlyPolicies] = useState<Record<string, boolean>>({})
+  // Live rail tracker: usage + the cap actually enforced, re-polled so a
+  // background fill, a purge, or a cap change in Settings shows through.
+  const [vaultSpace, setVaultSpace] = useState<{ measuredBytes: number; cap: number | null } | null>(null)
   // The mounted viewer's lease on open results: an offline lease's object
   // URLs must not be revoked while the Viewer reads them, and an online
   // encrypted resolver must outlive the background cache fill.
@@ -347,6 +351,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       .then((preference) => applyVaultCap(desktopVault, accountTier, preference))
       .catch(() => {})
   }, [accountTier])
+  // The rail tracker re-reads the vault on a short beat: a background fill
+  // grows usage between renders and Settings can change the cap at any time,
+  // so no state transition is a reliable refresh point. Each beat re-applies
+  // the resolved cap first, so the figure shown is the cap actually enforced.
+  useEffect(() => {
+    let cancelled = false
+    const tick = () => {
+      void loadVaultCapPreference(desktopVaultPersistence)
+        .then(async (preference) => {
+          applyVaultCap(desktopVault, accountTier, preference)
+          const usage = await desktopVault.usage()
+          if (!cancelled) setVaultSpace({ measuredBytes: usage.measuredBytes, cap: desktopVault.cap })
+        })
+        .catch(() => {})
+    }
+    tick()
+    const timer = window.setInterval(tick, 2500)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [accountTier, savedGalleries])
   // The settings sheet's own vault card writes the same persistence this
   // state reads — closing it is the moment to re-pull policy and saved list.
   useEffect(() => {
@@ -1654,6 +1677,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {accountTier === 'free' ? <> <a class="admin-upgrade-link" href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade to Visionary?</a></> : null}
             </p>
           ) : null}
+          {vaultSpace ? (() => {
+            const figures = vaultSpace.cap === null
+              ? `${formatBytes(vaultSpace.measuredBytes)} of Unlimited`
+              : `${formatBytes(vaultSpace.measuredBytes)} of ${formatBytes(vaultSpace.cap)}`
+            return (
+              <div class="lib-vault-tracker">
+                <p class="lib-vault-tracker-label">Vault on this Mac</p>
+                <Meter
+                  label={`Vault storage — ${figures}`}
+                  value={vaultSpace.measuredBytes}
+                  max={vaultSpace.cap ?? 0}
+                  valueText={figures}
+                />
+                <p class="lib-vault-tracker-figures">{figures}</p>
+              </div>
+            )
+          })() : null}
           {adsShow && accountAd ? (
             <aside class="account-ad" aria-label={`${accountAd.badge}: ${accountAd.advertiser}`}>
               <span class="account-ad-badge">{accountAd.badge}</span>

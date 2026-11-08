@@ -150,11 +150,16 @@ fn vault_entry_path(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     Ok(vault_root(app)?.join(relative))
 }
 
+/// Raw bytes over IPC, not a JSON number array — a multi-MB record must
+/// cross the webview boundary unchanged, and serde_json would carry it at
+/// four times the size. An absent file answers an empty body.
 #[tauri::command]
-fn vault_read(app: AppHandle, path: String) -> Result<Option<Vec<u8>>, String> {
+fn vault_read(app: AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
     match std::fs::read(vault_entry_path(&app, &path)?) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Ok(bytes) => Ok(tauri::ipc::Response::new(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(tauri::ipc::Response::new(Vec::new()))
+        }
         Err(error) => Err(error.to_string()),
     }
 }

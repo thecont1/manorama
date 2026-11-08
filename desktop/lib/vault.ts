@@ -8,8 +8,10 @@ import { EncryptedVault, webCryptoProvider, type VaultFileStat, type VaultKeyPro
  *  bytes; nothing is re-encoded on the way. */
 const tauriVaultStorage: VaultStorageProvider = {
   async read(path) {
-    const bytes = await invoke<number[] | null>('vault_read', { path })
-    return bytes === null ? null : new Uint8Array(bytes)
+    // The Rust side answers raw IPC bytes — an empty body (or a test
+    // double's null) means absent.
+    const buffer = await invoke<ArrayBuffer | null>('vault_read', { path })
+    return !buffer || buffer.byteLength === 0 ? null : new Uint8Array(buffer)
   },
   // Uint8Array JSON-serializes as an object, not an array — the Rust
   // Vec<u8> arg needs a plain number array or the call rejects.

@@ -316,6 +316,23 @@ body.manorama-desktop .admin-rail .account-ad {
    so it takes the help cursor its tooltip explains. */
 body.manorama-desktop .lib-temp-flag[role="img"] { cursor: help; }
 
+/* The rail's vault tracker sits under the account line. When the sponsored
+   slot is suppressed the copyright keeps its bottom anchor — the tracker
+   must not break the `+` sibling rule that pins it. */
+@media (min-width: 860px) {
+  .admin-page--selector .admin-rail .lib-vault-tracker + .admin-copyright { margin-top: auto; }
+}
+body.manorama-desktop .lib-vault-tracker { margin: 0 0 18px; }
+body.manorama-desktop .lib-vault-tracker-label {
+  margin: 0 0 6px;
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+}
+body.manorama-desktop .lib-vault-tracker-figures { margin: 6px 0 0; font-size: 12px; color: rgba(var(--ink), .62); line-height: 1.5; }
+
 /* Catalogue sync finishes fast, so the "thermometer" is a short
    indeterminate pulse in the viewer's progress convention — pink on dark,
    black under html.light. */
