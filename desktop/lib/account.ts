@@ -205,6 +205,24 @@ export const fetchAccountIdentities = async (
   return payload.identities ?? []
 }
 
+/** POST {apiBase}/api/account/link-handoff — mints the one-minute token a
+ *  cookieless browser needs to open `/auth/{provider}?link={token}`. The
+ *  system browser holds no manorama session, so the link intent binds to
+ *  this account through the token instead of a cookie. */
+export const mintLinkHandoff = async (
+  apiBase: string,
+  token: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/account/link-handoff`, {
+    method: 'POST',
+    headers: bearer(token),
+  })
+  const payload = await response.json().catch(() => ({})) as { linkToken?: string; error?: string }
+  if (!response.ok || !payload.linkToken) throw new AccountApiError(response.status, payload.error || 'That sign-in method could not be connected.')
+  return payload.linkToken
+}
+
 /** DELETE {apiBase}/api/account/identities/{provider} — status and payload
  *  pass through so a 'last-identity' refusal reads as policy, not failure. */
 export const unlinkAccountIdentity = async (

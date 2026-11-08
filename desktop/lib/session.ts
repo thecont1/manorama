@@ -95,6 +95,24 @@ export const handoffFromDeepLink = (url: string): string | null => {
   return handoff || null
 }
 
+/** A completed Connect flow lands back on our scheme as
+ *  `in.thecontrarian.manorama.desktop://auth/callback?linked={provider}`
+ *  or `?link=conflict` — no handoff, just the result the Settings surface
+ *  reports. Mirrors native's linkResultFromUrl on the desktop scheme. */
+export const linkResultFromDeepLink = (url: string): { kind: 'linked'; provider: string } | { kind: 'conflict' } | null => {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'in.thecontrarian.manorama.desktop:') return null
+  if (parsed.hostname !== 'auth' || parsed.pathname !== '/callback') return null
+  if (parsed.searchParams.get('link') === 'conflict') return { kind: 'conflict' }
+  const provider = parsed.searchParams.get('linked')?.trim()
+  return provider ? { kind: 'linked', provider } : null
+}
+
 type ExchangeResponse = { token?: string; ownerSlug?: string; tier?: string; error?: string }
 
 /**

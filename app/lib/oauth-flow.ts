@@ -119,7 +119,7 @@ const fetchIdentity = async (
 export const startProviderAuth = async (
   c: Context,
   provider: AuthProvider,
-  intent: { intent: 'signin' | 'link'; accountId?: string; native?: '1' } = { intent: 'signin' },
+  intent: { intent: 'signin' | 'link'; accountId?: string; native?: '1' | 'desktop' } = { intent: 'signin' },
 ) => {
   const env = accessEnvOf(c)
   const linking = intent.intent === 'link'
@@ -158,7 +158,9 @@ export const providerAuthEntry = async (c: Context, provider: AuthProvider) => {
     const secret = accessEnvOf(c).HOST_API_JWT_SECRET?.trim()
     const accountId = secret ? await verifyLinkHandoffToken(link, secret).catch(() => null) : null
     if (!accountId) return c.redirect('/?error=1')
-    return startProviderAuth(c, provider, { intent: 'link', accountId, native: '1' })
+    // native=desktop returns the ?linked= signal on the desktop scheme —
+    // without it the result lands on the iOS scheme this app never hears.
+    return startProviderAuth(c, provider, { intent: 'link', accountId, native: c.req.query('native') === 'desktop' ? 'desktop' : '1' })
   }
   return startProviderAuth(c, provider)
 }
@@ -337,7 +339,8 @@ export const finishProviderAuth = async (
   // the session before spending the authorization code. A client link flow
   // was pre-bound by its link handoff and returns through the custom scheme.
   let linkSessionAccount: { accountId: string; ownerSlug: string } | null = null
-  const nativeLink = flow.intent === 'link' && flow.native === '1'
+  const nativeLink = flow.intent === 'link' && (flow.native === '1' || flow.native === 'desktop')
+  const linkCallback = flow.native === 'desktop' ? DESKTOP_CALLBACK : NATIVE_CALLBACK
   if (flow.intent === 'link' && !nativeLink) {
     const session = await resolveManoramaSession(c.req.raw, env)
     if (!session || session.accountId !== flow.accountId) return finishFailure(c)
@@ -356,13 +359,13 @@ export const finishProviderAuth = async (
         await linkIdentity(flow.accountId!, identity, env)
       } catch (error) {
         if (error instanceof IdentityConflictError) {
-          return c.redirect(nativeLink ? `${NATIVE_CALLBACK}?link=conflict` : `/${linkSessionAccount!.ownerSlug}?link=conflict`)
+          return c.redirect(nativeLink ? `${linkCallback}?link=conflict` : `/${linkSessionAccount!.ownerSlug}?link=conflict`)
         }
         throw error
       }
       const geo = requestGeo(c)
       await setLastSeenLocation(flow.accountId!, geo.country, geo.colo, env).catch(() => {})
-      return c.redirect(nativeLink ? `${NATIVE_CALLBACK}?linked=${provider}` : `/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
+      return c.redirect(nativeLink ? `${linkCallback}?linked=${provider}` : `/${linkSessionAccount!.ownerSlug}?linked=${provider}`)
     }
 
     // A first-time provider identity used to mint an empty account on the

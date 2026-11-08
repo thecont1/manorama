@@ -27,16 +27,19 @@ describe('createAuthFlow validation', () => {
     await expect(createAuthFlow({ provider: 'google', intent: 'peek' as never })).rejects.toThrow()
   })
 
-  test('a link intent requires a nonblank account and rejects handoffs', async () => {
+  test('a link intent requires a nonblank account and carries its handoff flavour', async () => {
     await expect(createAuthFlow({ provider: 'google', intent: 'link' })).rejects.toThrow()
     await expect(createAuthFlow({ provider: 'google', intent: 'link', accountId: '  ' })).rejects.toThrow()
-    await expect(createAuthFlow({ provider: 'google', intent: 'link', accountId: 'acct_1', native: 'desktop' })).rejects.toThrow()
     const ok = await createAuthFlow({ provider: 'google', intent: 'link', accountId: 'acct_1' })
     expect(ok.state).toMatch(/^[0-9a-f]{64}$/)
     // A client link flow is pre-bound by its link handoff, so the native
-    // marker is the one handoff flavour it does carry.
+    // marker is the one handoff flavour it does carry — iOS or desktop.
     const nativeLink = await createAuthFlow({ provider: 'google', intent: 'link', accountId: 'acct_1', native: '1' })
     expect(nativeLink.native).toBe('1')
+    // The desktop flavour resolves without a code challenge — the result is
+    // a bare ?linked= signal and no session is minted at the callback.
+    const desktopLink = await createAuthFlow({ provider: 'google', intent: 'link', accountId: 'acct_1', native: 'desktop' })
+    expect(desktopLink.native).toBe('desktop')
   })
 
   test('native accepts only the empty, iOS and desktop flavours', async () => {

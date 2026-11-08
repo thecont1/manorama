@@ -75,11 +75,11 @@ const checked = (input: AuthFlowInput) => {
   const accountId = input.accountId?.trim() || undefined
   if (input.intent === 'link' && !accountId) throw new Error('Linking requires a signed-in account')
   // Web linking re-verifies the browser session at the callback; a native
-  // link flow arrives bound by its short-lived link handoff instead, so it
-  // skips the session recheck and returns through the custom scheme.
-  if (input.intent === 'link' && native === 'desktop') throw new Error('Linking is not available from a desktop handoff')
+  // or desktop link flow arrives bound by its short-lived link handoff
+  // instead, so it skips the session recheck and returns through the
+  // custom scheme — a bare ?linked= signal mints no session to protect.
   const appChallenge = input.appChallenge?.trim() || undefined
-  if (native === 'desktop') {
+  if (native === 'desktop' && input.intent !== 'link') {
     // The callback cannot mint a desktop handoff without the app's
     // challenge bound into it — refuse the flow up front.
     if (!appChallenge || !APP_CHALLENGE_PATTERN.test(appChallenge)) {
