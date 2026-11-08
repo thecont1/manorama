@@ -363,7 +363,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     async (cat: LocalCatalogue, active: DesktopSession | null) => {
       // Free accounts hold their catalogue locally and nothing else — the
       // server refuses the rows anyway, so the sync is skipped outright.
-      if (!active || active.tier !== 'pro' || !cat.galleries.length) return
+      if (!active || active.tier !== 'pro') return
+      // An emptied catalogue has nothing to publish — reset rather than
+      // leave a prior outcome ("Up to date") showing for zero galleries.
+      if (!cat.galleries.length) { setSyncState('idle'); return }
       setSyncState('syncing')
       try {
         const result = await syncDeviceGalleries(base, active.token, cat)

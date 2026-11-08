@@ -1,11 +1,15 @@
+import { FREE_PIPELINE_CAP_MESSAGE } from '../../packages/core/account'
+
 export type GalleryRetention = 'retained' | 'pipeline'
 export const FREE_RETAINED_LIMIT = 3
 export const PAID_RETAINED_LIMIT = 99
-// A Free account's 3 permanent + 96 temporary galleries total exactly the
-// paid 99 — an upgrade converts the whole set to permanent in place.
+/** A Free account's 3 permanent + 96 temporary galleries total exactly the
+ *  paid 99 — an upgrade converts the whole set to permanent in place. */
 export const FREE_PIPELINE_LIMIT = PAID_RETAINED_LIMIT - FREE_RETAINED_LIMIT
 export const PIPELINE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 export const PIPELINE_LOCK_MESSAGE = 'This temporary gallery cannot be edited on the free plan. Upgrade to keep it and make changes.'
+/** The retention sentence surfaces show a Free owner so the temporary set
+ *  reads as part of the allowance, not a penalty. */
 export const FREE_RETENTION_DISCLOSURE = 'Free accounts retain up to 3 permanent galleries plus 96 temporary galleries — a temporary is removed after 30 days unless you upgrade, which makes the whole set permanent.'
 export class GalleryPolicyError extends Error {
   constructor(public readonly code: 'GALLERY_LIMIT' | 'GALLERY_READ_ONLY' | 'PIN_LIMIT' | 'MANIFEST_TOO_LARGE', message: string) { super(message); this.name = 'GalleryPolicyError' }
@@ -14,7 +18,10 @@ export class GalleryPolicyError extends Error {
  *  gallery means swapping one of the permanent three out, or choosing a plan. */
 export const pinLimitError = () => new GalleryPolicyError('PIN_LIMIT', `All ${FREE_RETAINED_LIMIT} permanent galleries are spoken for — swap one out or upgrade to Visionary for unlimited.`)
 export const paidGalleryLimitError = () => new GalleryPolicyError('GALLERY_LIMIT', 'Paid accounts can retain up to 99 galleries. Delete a gallery before adding another.')
-export const pipelineGalleryLimitError = () => new GalleryPolicyError('GALLERY_LIMIT', `Free accounts can hold up to ${FREE_PIPELINE_LIMIT} temporary galleries alongside the ${FREE_RETAINED_LIMIT} permanent ones — let one expire, remove it, or upgrade to Visionary.`)
+/** The free temporary set is full — the 97th is refused outright; an
+ *  expiry, a delete, or an upgrade is the way forward. Shares the client
+ *  copy in `packages/core` so both sides word the refusal identically. */
+export const pipelineGalleryLimitError = () => new GalleryPolicyError('GALLERY_LIMIT', FREE_PIPELINE_CAP_MESSAGE)
 /** Throws a typed read-only error when a pipeline gallery is edited. */
 export const assertGalleryEditable = (gallery: { retention?: GalleryRetention }) => {
   if (gallery.retention === 'pipeline') throw new GalleryPolicyError('GALLERY_READ_ONLY', PIPELINE_LOCK_MESSAGE)

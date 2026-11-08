@@ -244,7 +244,8 @@ export async function resolveManoramaSession(
  */
 export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
   async (c, next) => {
-    const session = await resolveManoramaSession(c.req.raw, accessEnvOf(c))
+    const sessionEnv = accessEnvOf(c)
+    const session = await resolveManoramaSession(c.req.raw, sessionEnv)
     if (!session) return c.json({ error: 'Authentication required' }, 401)
     c.set('manoramaSession', session)
     // Activity rides the call the app already makes — no beacon, no extra
@@ -252,7 +253,7 @@ export const requireSession = (): MiddlewareHandler<HonoSessionEnv> =>
     // write a day per account at most; it can never fail this request.
     // `executionCtx` is a throwing getter off-Workers — ask for it safely.
     const executionCtx = (() => { try { return c.executionCtx } catch { return undefined } })()
-    touchLastSeen(session.accountId, (c.req.raw as { cf?: { country?: unknown; colo?: unknown } }).cf, accessEnvOf(c), executionCtx)
+    touchLastSeen(session.accountId, (c.req.raw as { cf?: { country?: unknown; colo?: unknown } }).cf, sessionEnv, executionCtx)
     await next()
   }
 

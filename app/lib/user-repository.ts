@@ -352,6 +352,10 @@ export const setLastSeenLocation = async (
 /** How often activity may move the stamp — one write per day per account. */
 export const LAST_ACTIVITY_INTERVAL_MS = 24 * 60 * 60 * 1000
 
+/** A rejected write is retried after this pause, not on the next request —
+ *  a persistent D1 outage must not turn every API call into a doomed write. */
+const LAST_ACTIVITY_RETRY_BACKOFF_MS = 5 * 60 * 1000
+
 /** Isolate-local throttle: an isolate that already stamped an account today
  *  skips the UPDATE entirely, so routine traffic costs no D1 op at all. A
  *  cold isolate may write once more — the stale-guard inside the UPDATE
@@ -378,7 +382,11 @@ export const touchLastSeen = (
     typeof cf?.colo === 'string' ? cf.colo : undefined,
     env,
     LAST_ACTIVITY_INTERVAL_MS,
-  ).catch(() => { lastActivityStamped.delete(accountId) })
+  ).catch(() => {
+    // Keep a shortened stamp — the next touch waits out the backoff rather
+    // than retrying a write that just failed.
+    lastActivityStamped.set(accountId, Date.now() - LAST_ACTIVITY_INTERVAL_MS + LAST_ACTIVITY_RETRY_BACKOFF_MS)
+  })
   if (executionCtx?.waitUntil) executionCtx.waitUntil(write)
   else void write
 }
@@ -579,4 +587,5 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
 export const resetUserStore = () => {
   users.clear()
   ownerSlugIndex.clear()
+  lastActivityStamped.clear()
 }

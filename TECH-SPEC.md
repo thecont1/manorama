@@ -84,14 +84,14 @@ D1 is the production store (`DB` binding, `migrations/`); vite dev and tests use
 | `sourceUrl` | The public provider link |
 | `createdAt` | Recency ordering |
 | `imagesJson` | Ordered media manifest — `image` and `video` items in one union |
-| `retention` | `retained` (editable) or `pipeline` (temporary, read-only) |
+| `retention` | `retained` (permanent, editable) or `pipeline` (temporary, read-only) |
 | `expires_at` | Pipeline removal deadline; `NULL` on retained rows |
 
 Remaining tables: `auth_identities` (linked sign-in methods), `auth_flows` (in-flight OAuth state), `device_galleries` (metadata-only sync rows for shell galleries), `ad_suppressions` (per-day/per-region plate switch), `master_accounts` (operations console access).
 
 ### Gallery retention
 
-Free accounts keep at most 3 `retained` galleries; further creates insert as `pipeline` rows with `expires_at` exactly 30 days after `created_at`. Paid accounts cap at 99 retained galleries — a create beyond that is a typed `GALLERY_LIMIT` 403. The public cutoff is enforced at read time: once `expires_at` passes, lists and gallery/OG reads hide the row immediately, while stored-record reads keep it reachable for owner deletes and the expiry walk. A daily cron (`17 3 * * *`, 03:17 UTC) physically removes expired rows with a guarded delete — a gallery recreated under the same slug after the scan survives, and manual deletes/upgrades mid-scan are safe skips. Deletion removes only the Manorama row; nothing at the provider is ever touched.
+Free accounts keep at most 3 `retained` galleries; further creates insert as `pipeline` rows with `expires_at` exactly 30 days after `created_at`, up to 96 live temporaries — a create beyond the 96 is refused `pipeline-limit`, surfaced as a typed `GALLERY_LIMIT` 403 alongside the paid cap's `limit`. Paid accounts cap at 99 retained galleries — a create beyond that is the same typed `GALLERY_LIMIT` 403. The public cutoff is enforced at read time: once `expires_at` passes, lists and gallery/OG reads hide the row immediately, while stored-record reads keep it reachable for owner deletes and the expiry walk. A daily cron (`17 3 * * *`, 03:17 UTC) physically removes expired rows with a guarded delete — a gallery recreated under the same slug after the scan survives, and manual deletes/upgrades mid-scan are safe skips. Deletion removes only the Manorama row; nothing at the provider is ever touched.
 
 All galleries present before `migrations/0002_gallery_retention.sql` normalize to `retained` with `NULL` expiry — nothing existing goes temporary.
 
