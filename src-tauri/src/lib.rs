@@ -243,6 +243,26 @@ fn vault_list(app: AppHandle) -> Result<Vec<VaultFileStat>, String> {
     Ok(files)
 }
 
+/// Diagnostic sink for the vault's serialized internals — the renderer cannot
+/// see inside them and the unified log does not capture stderr from an
+/// open-launched app. One file next to the vault root, opened per line.
+#[tauri::command]
+fn vault_log(app: AppHandle, line: String) -> Result<(), String> {
+    use std::io::Write as _;
+    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("vault-debug.log"))
+        .map_err(|e| e.to_string())?;
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    writeln!(file, "{millis} {line}").map_err(|e| e.to_string())
+}
+
 fn vault_key_entry(name: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(VAULT_KEYCHAIN_SERVICE, name).map_err(|e| e.to_string())
 }
@@ -442,6 +462,7 @@ pub fn run() {
             vault_key_get,
             vault_key_set,
             vault_key_remove,
+            vault_log,
         ])
         .setup(|app| {
             // A cold start via the custom scheme delivers the launch URLs

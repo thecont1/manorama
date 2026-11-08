@@ -45,6 +45,9 @@ export interface VaultOptions {
   keys?: VaultKeyProvider
   crypto?: VaultCryptoProvider
   now?: () => number
+  /** Optional diagnostic sink — receives miss/commit reasons for hosts that
+   *  cannot see inside the serialized internals. Never carries bytes. */
+  diagnose?: (event: string, detail?: string) => void
 }
 
 /**
@@ -273,6 +276,7 @@ export class EncryptedVault {
   private readonly crypto: VaultCryptoProvider
   private capBytes: number
   private readonly now: () => number
+  private readonly diagnose?: (event: string, detail?: string) => void
   private tail: Promise<void> = Promise.resolve()
   private replacementSequence = 0
   private clearEpoch = 0
@@ -281,6 +285,7 @@ export class EncryptedVault {
     this.storage = options.storage ?? nativeStorage; this.keys = options.keys ?? nativeKeys; this.crypto = options.crypto ?? webCryptoProvider
     this.capBytes = normalizeCap(options.maxBytes === undefined ? DEFAULT_VAULT_CAP_BYTES : options.maxBytes)
     this.now = options.now ?? Date.now
+    this.diagnose = options.diagnose
   }
   /** `null` means unlimited. Setting a bound never evicts by itself. */
   get cap(): number | null { return Number.isFinite(this.capBytes) ? this.capBytes : null }
@@ -372,8 +377,9 @@ export class EncryptedVault {
       if (guard && this.isStale(guard.since)) throw new VaultStaleWriteError()
       // Size is known before encryption: reject before a key is minted, so a
       // rejected oversized write cannot strand an unreachable gallery key.
-      if (HEADER_BYTES + NONCE_BYTES + plaintext.length + TAG_BYTES > this.capBytes) throw new VaultEntryTooLargeError()
+      if (HEADER_BYTES + NONCE_BYTES + plaintext.length + TAG_BYTES > this.capBytes) { this.diagnose?.('write.too-large', `${galleryId}/${entryId} plain=${plaintext.length} cap=${this.capBytes}`); throw new VaultEntryTooLargeError() }
       const loaded = await this.loadKey(galleryId, true); if (!loaded) throw new Error('Missing vault key')
+      this.diagnose?.('write.key', `${galleryId} ${loaded.created ? 'minted' : 'reused'}`)
       let index: Index | undefined
       let committed = false
       try {
@@ -391,7 +397,8 @@ export class EncryptedVault {
           throw error
         }
         const nextIndex = { ...index, entries: { ...index.entries, [id]: { galleryId, entryId, path, bytes: record.length, lastAccess: this.now() } } }
-        await this.evict(nextIndex)
+        const evicted = await this.evict(nextIndex)
+        if (evicted > 0) this.diagnose?.('write.evict', `${galleryId}/${entryId} removedBytes=${evicted} cap=${this.capBytes}`)
         try {
           await this.saveIndex(nextIndex)
         } catch (error) {
@@ -416,14 +423,18 @@ export class EncryptedVault {
   async read(galleryId: string, entryId: string, options: { touch?: boolean } = {}): Promise<Uint8Array | undefined> {
     const touch = options.touch ?? true
     return this.serial(async () => {
-      const index = await this.loadIndex(); const entry = index.entries[entryKey(galleryId, entryId)]; if (!entry) return undefined
+      const index = await this.loadIndex(); const entry = index.entries[entryKey(galleryId, entryId)]
+      if (!entry) { this.diagnose?.('read.miss.no-index-entry', `${galleryId}/${entryId}`); return undefined }
       const record = await this.storage.read(entry.path); const key = await this.loadKey(galleryId, false)
-      if (!record || !key) { await this.removeEntry(index, entry); await this.saveIndex(index); return undefined }
+      if (!record || !key) {
+        this.diagnose?.('read.miss', `${galleryId}/${entryId} record=${record ? 'ok' : 'absent'} key=${key ? 'ok' : 'absent'} path=${entry.path}`)
+        await this.removeEntry(index, entry); await this.saveIndex(index); return undefined
+      }
       try {
         const plaintext = await unpack(record, key.key, galleryId, entryId, this.crypto)
         if (touch) { entry.lastAccess = this.now(); await this.saveIndex(index) }
         return plaintext
-      } catch { await this.removeEntry(index, entry); await this.saveIndex(index); return undefined }
+      } catch { this.diagnose?.('read.miss.decrypt', `${galleryId}/${entryId} recordBytes=${record.length}`); await this.removeEntry(index, entry); await this.saveIndex(index); return undefined }
     })
   }
   async remove(galleryId: string, entryId: string): Promise<void> { return this.serial(async () => { const index = await this.loadIndex(); const entry = index.entries[entryKey(galleryId, entryId)]; if (entry) await this.removeEntry(index, entry); await this.saveIndex(index) }) }

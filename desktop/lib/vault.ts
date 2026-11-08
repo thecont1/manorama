@@ -37,4 +37,9 @@ export const desktopVault = new EncryptedVault({
   storage: tauriVaultStorage,
   keys: keychainVaultKeys,
   crypto: webCryptoProvider,
+  // Diagnostics ride the debug file, not the JS console — the renderer's
+  // serialized internals report which leg of a read/write actually failed.
+  diagnose: (event, detail) => {
+    void invoke<void>('vault_log', { line: `${event}${detail ? ` ${detail}` : ''}` }).catch(() => {})
+  },
 })
