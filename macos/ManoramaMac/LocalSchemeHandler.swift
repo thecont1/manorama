@@ -150,6 +150,12 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     }
     private var heldScopes: [String: ScopedAccess] = [:]
 
+    /// Tasks whose file read is still in flight — only these may be
+    /// recorded as stopped. A stop arriving after a task finished (or for
+    /// a path that answered synchronously) is ignored, so the stopped set
+    /// never collects stale identifiers a recycled ObjectIdentifier could
+    /// later collide with.
+    private var inflightTasks: Set<ObjectIdentifier> = []
     /// Tasks whose file read was stopped before it completed — the
     /// background completion checks this set so a stopped task never
     /// answers the webview late.
@@ -220,45 +226,64 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
 
         case .file(let fileURL, let mimeType):
             // Originals are large and reads belong off WebKit's queue —
-            // mapped so a big file does not sit resident in memory, and
-            // gated on the stop set so a cancelled task never answers late.
+            // mapped so a big file does not sit resident in memory.
             let taskID = ObjectIdentifier(urlSchemeTask)
+            self.stoppedTasksLock.lock()
+            self.inflightTasks.insert(taskID)
+            self.stoppedTasksLock.unlock()
             readQueue.async { [weak self] in
-                guard let self, !self.wasStopped(taskID) else { return }
-                guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
-                    // A vanished file answers 404, so the page can tell
-                    // "this photograph is gone" from "this photograph
-                    // failed to decode".
+                guard let self else { return }
+                // A task stopped before its read starts owes nothing — the
+                // identifier leaves the set with it so a recycled
+                // ObjectIdentifier is never mistaken for it.
+                if self.wasStopped(taskID) { self.clearStopped(taskID); return }
+                let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe])
+                // WebKit delivers stop on the main queue — the stopped
+                // check and every response call join it there, so a stop
+                // can never interleave between the check and the answer.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if self.wasStopped(taskID) { self.clearStopped(taskID); return }
+                    guard let data else {
+                        // A vanished file answers 404, so the page can tell
+                        // "this photograph is gone" from "this photograph
+                        // failed to decode".
+                        let response = HTTPURLResponse(
+                            url: url, statusCode: 404, httpVersion: "HTTP/1.1",
+                            headerFields: ["Content-Type": "text/plain"]
+                        )!
+                        urlSchemeTask.didReceive(response)
+                        urlSchemeTask.didFinish()
+                        self.clearStopped(taskID)
+                        return
+                    }
                     let response = HTTPURLResponse(
-                        url: url, statusCode: 404, httpVersion: "HTTP/1.1",
-                        headerFields: ["Content-Type": "text/plain"]
+                        url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                        headerFields: [
+                            "Content-Type": mimeType,
+                            "Content-Length": "\(data.count)",
+                            // A rescan must not serve a stale frame.
+                            "Cache-Control": "no-cache",
+                        ]
                     )!
                     urlSchemeTask.didReceive(response)
+                    urlSchemeTask.didReceive(data)
                     urlSchemeTask.didFinish()
                     self.clearStopped(taskID)
-                    return
                 }
-                guard !self.wasStopped(taskID) else { return }
-                let response = HTTPURLResponse(
-                    url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                    headerFields: [
-                        "Content-Type": mimeType,
-                        "Content-Length": "\(data.count)",
-                        // A rescan must not serve a stale frame.
-                        "Cache-Control": "no-cache",
-                    ]
-                )!
-                urlSchemeTask.didReceive(response)
-                urlSchemeTask.didReceive(data)
-                urlSchemeTask.didFinish()
-                self.clearStopped(taskID)
             }
         }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask)
         stoppedTasksLock.lock()
-        stoppedTasks.insert(ObjectIdentifier(urlSchemeTask))
+        // Only a task still holding a read can be stopped — a late stop on
+        // a finished task is noise, and recording it would pin the
+        // identifier forever.
+        if inflightTasks.remove(taskID) != nil {
+            stoppedTasks.insert(taskID)
+        }
         stoppedTasksLock.unlock()
     }
 
@@ -270,10 +295,12 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         return stoppedTasks.contains(taskID)
     }
 
-    /// Forget a task once it answered — the set only ever holds in-flight
-    /// or stopped tasks, never every task the handler has ever served.
+    /// Forget a task once it answered or was dropped — both sets only ever
+    /// hold in-flight or stopped tasks, never every task the handler has
+    /// ever served.
     private func clearStopped(_ taskID: ObjectIdentifier) {
         stoppedTasksLock.lock()
+        inflightTasks.remove(taskID)
         stoppedTasks.remove(taskID)
         stoppedTasksLock.unlock()
     }

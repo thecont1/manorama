@@ -125,6 +125,10 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The webview stays mounted underneath (its last frame is still
+        // live) — the state must paint opaquely over it and swallow the
+        // clicks, not let them reach the page.
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     /// A thin native status bar — the shell's own, not the web's.

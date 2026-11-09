@@ -96,6 +96,9 @@ final class AppModel: ObservableObject {
     }
 
     func removeGallery(_ gallery: LocalGallery) {
+        // Removing the open gallery closes it first — the media scope and
+        // viewer state belong to a folder that no longer exists.
+        if openGallery?.id == gallery.id { closeGallery() }
         if let entry = folderStore.entries.first(where: { $0.id == gallery.id }) {
             folderStore.remove(entry)
         }
@@ -119,60 +122,79 @@ final class AppModel: ObservableObject {
             return
         }
 
-        // Release any previous scope first — two open scopes would keep
-        // two folders readable for no reason.
-        if let token = mediaToken { schemeHandler.release(token: token) }
+        status = "Reading \(gallery.title)…"
 
-        let token = UUID().uuidString
-        mediaToken = token
-        schemeHandler.grant(token: token, url: root)
+        // The directory walk and per-file metadata reads run detached —
+        // a large folder must not hold the main actor between the click
+        // and the mount. Scope minting, state, and the webview call come
+        // back on the main actor.
+        Task.detached { [weak self] in
+            let scan = LocalScanner.scan(root: root)
+            let dimensions = scan.items.map { Self.pixelDimensions(of: $0.url) ?? (width: 0, height: 0) }
 
-        let scan = LocalScanner.scan(root: root)
-        let media = scan.items.map { item -> [String: Any] in
-            let dims = pixelDimensions(of: item.url) ?? (width: 0, height: 0)
-            let src = "manorama://media/\(token)/\(item.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.id)"
-            return [
-                "id": item.id,
-                "filename": item.name,
-                "src": src,
-                "width": dims.width,
-                "height": dims.height,
-                "alt": item.name,
-                // Local files carry no provenance evidence — unchecked is
-                // reported as absent, never claimed as present.
-                "c2pa": false,
-                // The dark aspect box every other manifest ships — the strip
-                // shows it while the original streams in, keeping frames
-                // laid out at their true ratio before a byte arrives.
-                "placeholder": placeholder(width: dims.width, height: dims.height),
-            ]
+            await MainActor.run {
+                guard let self else { return }
+
+                // Release any previous scope first — two open scopes would
+                // keep two folders readable for no reason.
+                if let token = self.mediaToken { self.schemeHandler.release(token: token) }
+
+                let token = UUID().uuidString
+                self.mediaToken = token
+                self.schemeHandler.grant(token: token, url: root)
+
+                let media = zip(scan.items, dimensions).map { item, dims -> [String: Any] in
+                    let src = "manorama://media/\(token)/\(item.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.id)"
+                    return [
+                        "id": item.id,
+                        "filename": item.name,
+                        "src": src,
+                        "width": dims.width,
+                        "height": dims.height,
+                        "alt": item.name,
+                        // Local files carry no provenance evidence — unchecked is
+                        // reported as absent, never claimed as present.
+                        "c2pa": false,
+                        // The dark aspect box every other manifest ships — the strip
+                        // shows it while the original streams in, keeping frames
+                        // laid out at their true ratio before a byte arrives.
+                        "placeholder": self.placeholder(width: dims.width, height: dims.height),
+                    ]
+                }
+
+                var payload: [String: Any] = [
+                    "slug": gallery.id.uuidString,
+                    "title": gallery.title,
+                    "images": media,
+                    "initialIndex": 0,
+                ]
+                if let truncated = scan.truncated {
+                    payload["truncated"] = truncated
+                }
+
+                self.openGallery = gallery
+                self.selectedGalleryID = gallery.id
+                self.status = scan.truncated
+                    .map { "\(gallery.title) — \(scan.items.count) of \($0) photographs" }
+                    ?? "\(gallery.title) — \(scan.items.count) photographs"
+                self.coordinator.open(payload, in: webView)
+            }
         }
-
-        var payload: [String: Any] = [
-            "slug": gallery.id.uuidString,
-            "title": gallery.title,
-            "images": media,
-            "initialIndex": 0,
-        ]
-        if let truncated = scan.truncated {
-            payload["truncated"] = truncated
-        }
-
-        openGallery = gallery
-        selectedGalleryID = gallery.id
-        status = scan.truncated
-            .map { "\(gallery.title) — \(scan.items.count) of \($0) photographs" }
-            ?? "\(gallery.title) — \(scan.items.count) photographs"
-        coordinator.open(payload, in: webView)
     }
 
     /// One original's pixel dimensions, read from the file's metadata only —
     /// the viewer needs them to hold the honest-size rule before decode.
-    private func pixelDimensions(of url: URL) -> (width: Int, height: Int)? {
+    /// Orientations 5–8 are the quarter-turn transforms: the stored pixels
+    /// are pre-rotation, so the reported frame swaps width and height or a
+    /// portrait original would claim a landscape box.
+    nonisolated private static func pixelDimensions(of url: URL) -> (width: Int, height: Int)? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        if let orientation = properties[kCGImagePropertyOrientation] as? Int, (5...8).contains(orientation) {
+            return (height, width)
+        }
         return (width, height)
     }
 
@@ -191,6 +213,9 @@ final class AppModel: ObservableObject {
             mediaToken = nil
         }
         openGallery = nil
+        // The sidebar selection is the open gesture — leaving it set means
+        // tapping the same row changes nothing and cannot reopen.
+        selectedGalleryID = nil
         position = (0, 0)
     }
 
