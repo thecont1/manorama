@@ -686,6 +686,10 @@ body:has(.policy-page) { overflow: auto; background: #111312; color: rgb(var(--i
 
 /* Admin surface: a restrained editorial workbench, separate from the image stage. */
 body:has(.admin-page) { overflow: auto; overflow-x: clip; background: #111312; }
+/* The desktop Library keeps its page scroll invisible — the catalogue is a
+   reading surface, and the cards' rails already hide their own bars. */
+body:has(.desktop-catalogue) { scrollbar-width: none; }
+body:has(.desktop-catalogue)::-webkit-scrollbar { display: none; }
 .admin-page { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column; padding: clamp(28px, 6vw, 88px) clamp(20px, 7vw, 112px) 0; color: rgb(var(--ink)); background: radial-gradient(circle at 85% 0%, rgba(86, 99, 90, .2), transparent 35rem), #111312; font-family: var(--m-font); }
 /* The toast is a quiet pill docked at the bottom edge — a status note,
    not a banner. */
@@ -1863,9 +1867,13 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   background: rgba(var(--ink), .035);
-  scrollbar-width: thin;
+  /* The strips pan by drag, wheel, and trackpad — a visible bar only ever
+     sits under the photographs. Hidden in both engines: scrollbar-width
+     covers Firefox, the WebKit pseudo covers WKWebView/Safari. */
+  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
+.admin-gallery-strip-frame::-webkit-scrollbar { display: none; }
 
 .admin-gallery-strip {
   display: flex;
