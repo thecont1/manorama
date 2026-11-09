@@ -4,12 +4,22 @@ type WorkerResult = { id: number; plain?: Uint8Array; mac?: Uint8Array; error?: 
 
 /** One bulk operation per Worker keeps cancellation and buffer ownership
  * simple. Abort terminates the worker even after the fetch has completed.
- * Non-browser native/test runtimes use the same pure implementation. */
-const run = <T>(message: Record<string, unknown>, map: (result: WorkerResult) => T | undefined, fallback: () => T, signal?: AbortSignal, transfer: ArrayBuffer[] = []): Promise<T> => {
+ * The input travels as a structured clone, never a transfer: a worker that
+ * cannot run — its script load never reaches a WKURLSchemeHandler, so the
+ * native shells can never spawn it — leaves the caller's buffer readable
+ * and the in-thread path decrypts it instead. */
+const run = <T>(message: Record<string, unknown>, map: (result: WorkerResult) => T | undefined, fallback: () => T, signal?: AbortSignal): Promise<T> => {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
   if (typeof Worker === 'undefined') return Promise.resolve(fallback())
   return new Promise<T>((resolve, reject) => {
-    const worker = new Worker(new URL('./mega-crypto.worker.ts', import.meta.url), { type: 'module' })
+    const inThread = () => { try { resolve(fallback()) } catch (error) { reject(error) } }
+    let worker: Worker
+    try {
+      worker = new Worker(new URL('./mega-crypto.worker.ts', import.meta.url), { type: 'module' })
+    } catch {
+      inThread()
+      return
+    }
     const id = 1
     const cleanup = () => {
       signal?.removeEventListener('abort', onAbort)
@@ -29,23 +39,18 @@ const run = <T>(message: Record<string, unknown>, map: (result: WorkerResult) =>
         else reject(new Error('Decrypt worker returned no result'))
       }
     }
-    worker.onerror = (event) => {
+    worker.onerror = () => {
       cleanup()
-      reject(new Error(event.message || 'Decrypt worker failed'))
+      inThread()
     }
     // A structured-clone failure (detached or uncloneable input) would
     // otherwise leak the constructed worker with no settle path.
-    try { worker.postMessage({ ...message, id }, transfer) } catch (error) { cleanup(); reject(error) }
+    try { worker.postMessage({ ...message, id }) } catch (error) { cleanup(); reject(error) }
   })
 }
 
-/** The caller relinquishes its ciphertext copy — a tight buffer moves in
- *  instead of cloning a second multi-megabyte copy. */
-const tightBuffer = (a: Uint8Array): ArrayBuffer[] =>
-  a.byteOffset === 0 && a.byteLength === a.buffer.byteLength ? [a.buffer as ArrayBuffer] : []
-
 export const ctrDecryptClient = (key: Uint8Array, nonce: Uint8Array, bytes: Uint8Array, offset = 0, signal?: AbortSignal): Promise<Uint8Array> =>
-  run({ kind: 'ctr', key, nonce, bytes, offset }, (r) => r.plain, () => ctrCrypt(key, nonce, bytes, offset), signal, tightBuffer(bytes))
+  run({ kind: 'ctr', key, nonce, bytes, offset }, (r) => r.plain, () => ctrCrypt(key, nonce, bytes, offset), signal)
 
 /** Decrypt a whole file and return its computed meta-MAC in the same
  * pass — verification is only meaningful over the complete plaintext. */
@@ -58,8 +63,7 @@ export const ctrDecryptMetaMacClient = (key: Uint8Array, nonce: Uint8Array, byte
       return { plain, mac: metaMac(key, nonce, plain) }
     },
     signal,
-    tightBuffer(bytes),
   )
 
 export const cbcDecryptClient = (key: Uint8Array, bytes: Uint8Array, signal?: AbortSignal): Promise<Uint8Array> =>
-  run({ kind: 'cbc', key, bytes }, (r) => r.plain, () => cbcDecryptZeroIv(key, bytes), signal, tightBuffer(bytes))
+  run({ kind: 'cbc', key, bytes }, (r) => r.plain, () => cbcDecryptZeroIv(key, bytes), signal)

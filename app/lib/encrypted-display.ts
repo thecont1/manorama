@@ -7,11 +7,12 @@ const resolvers = new Map<string, Promise<EncryptedMediaResolver>>()
 // Custody is shell-scoped: the web keeps keys in a session store, device
 // shells inject their durable store at startup. A single store per shell
 // keeps the resolver map keyed by gallery id alone.
-let keyStoreForDisplay: () => WebGalleryKeyStore = webGalleryKeyStore
+let keyStoreForDisplay: () => Pick<WebGalleryKeyStore, 'get'> = webGalleryKeyStore
 
 /** Point the display resolver at this shell's key custody (desktop calls
- *  it once at boot). Pass a factory — the store itself is cheap to build. */
-export const configureEncryptedDisplayKeyStore = (store: () => WebGalleryKeyStore): void => {
+ *  it once at boot). Pass a factory — the store itself is cheap to build.
+ *  The resolver only reads; stores that persist elsewhere need no more. */
+export const configureEncryptedDisplayKeyStore = (store: () => Pick<WebGalleryKeyStore, 'get'>): void => {
   keyStoreForDisplay = store
 }
 

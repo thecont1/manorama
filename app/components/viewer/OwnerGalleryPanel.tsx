@@ -60,7 +60,7 @@ export type OwnerGalleryPanelProps = {
   authToken?: string
   /** Device custody for encrypted refresh — the web's session store is
    *  the default; shells with their own store inject it. */
-  keyStore?: WebGalleryKeyStore
+  keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
   /** The link the Share row copies — defaults to this origin's address. */
   shareHref?: string
   /** Post-rename continuation — defaults to redirecting to the new

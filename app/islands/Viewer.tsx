@@ -123,7 +123,7 @@ type Props = {
   initialEdit?: boolean
   /** Device custody forwarded to the owner panel's encrypted refresh —
    *  the web's session store is the default; shells inject their own. */
-  keyStore?: WebGalleryKeyStore
+  keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
   /** The link the panel's Share row copies — defaults to this origin's
    *  address, which a tauri:// shell must override. */
   shareHref?: string

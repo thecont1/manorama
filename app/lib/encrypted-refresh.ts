@@ -6,7 +6,7 @@ import { webGalleryKeyStore, type WebGalleryKeyStore } from './key-store'
  *  happens here and the submitted manifest is the keyless listing —
  *  the server stays blind to the source link. Custody defaults to the
  *  web's session-scoped store; shells with their own store inject it. */
-export const refreshRequestInit = async (input: { id?: string | null; sourceUrl?: string | null; keyStore?: WebGalleryKeyStore }): Promise<RequestInit> => {
+export const refreshRequestInit = async (input: { id?: string | null; sourceUrl?: string | null; keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put'> }): Promise<RequestInit> => {
   if (!input.sourceUrl || !isEncryptedSourceUrl(input.sourceUrl)) return { method: 'POST' }
   const keys = input.keyStore ?? webGalleryKeyStore()
   const stored = input.id ? await keys.get(input.id) : null
