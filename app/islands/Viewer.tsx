@@ -60,11 +60,19 @@ type Props = {
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
   initialIndex?: number
-  /** A native shell's "go to photograph N": the serial distinguishes repeated
-   *  commands to the same index, so every request lands exactly once through
-   *  `goTo` — the index's single owner — with no synthesised keystrokes and
-   *  no timers two commands could interleave. */
-  navigationRequest?: { index: number; serial: number } | null
+  /** A native shell's handle on the stage: it asks the Viewer to move, it
+   *  never sets the index.
+   *
+   *  This is a handle rather than a request prop on purpose. A request
+   *  prop can only be delivered by re-rendering, and the DOM renderer
+   *  this bundle uses replaces the container's children rather than
+   *  diffing them — so a re-render destroys the Viewer and mounts a new
+   *  one. The fresh viewer starts at its first frame with an unmeasured
+   *  strip, and the strip's scroll then settles on the last frame
+   *  instead of the one that was asked for. A handle asks the mounted
+   *  Viewer to move, so the strip keeps its measurements and the
+   *  commanded photograph sticks. */
+  navigationRef?: { current: { goTo(index: number): void } | null }
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
   /** Reports the committed photograph (never an ad plate or the end card):
@@ -265,7 +273,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRequest = null, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -1419,6 +1427,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       entered()
       return
     }
+    // The class is the page's "a gallery is open and the veil has lifted"
+    // flag, and nothing takes it off again. Inside a page that mounts more
+    // than one gallery — the desktop shell's Library does — a second gallery
+    // would inherit the first one's flag and count as entered before its
+    // veil had lifted. The flag comes off until this gallery says otherwise.
+    document.body.classList.remove('gallery-entered')
+    setGalleryEntered(false)
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
@@ -1530,15 +1545,27 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
   }
 
-  // A native navigation command lands instantly — the same path Home/End
-  // take — and each serial is consumed exactly once, so two commands can
-  // never pile up a timer queue between them.
-  const navSerialRef = useRef(0)
+  // The native shell's handle on the stage.
+  //
+  // The Viewer keeps sole ownership of the index: the handle asks it to
+  // move, it never sets it. `instant` matches what Home and End already
+  // do, so a jump lands without the single-image mode's fade sequence.
+  //
+  // The handle is refreshed on every render so it always holds the
+  // current `goTo` — it closes over the mode and the index, and a stale
+  // closure would move from the wrong place. It is not cleared between
+  // renders: a shell may call it at any moment, and a gap in which the
+  // handle is null is a command that goes nowhere. Only unmounting
+  // clears it.
   useEffect(() => {
-    if (!navigationRequest || navigationRequest.serial === navSerialRef.current) return
-    navSerialRef.current = navigationRequest.serial
-    goTo(navigationRequest.index, true)
-  }, [navigationRequest])
+    if (!navigationRef) return
+    navigationRef.current = {
+      goTo: (nextIndex: number) => goTo(nextIndex, true),
+    }
+  })
+  useEffect(() => () => {
+    if (navigationRef) navigationRef.current = null
+  }, [])
 
   // Enter-at-frame: instant and pre-paint, so the curtain dissolves onto the
   // tapped photograph rather than the strip travelling to it in view.
