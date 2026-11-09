@@ -9,6 +9,7 @@ import {
   createReorderSession,
   moveHeldItem,
   pickUpItem,
+  pointerTargetIndex,
   putDownItem,
   reorderIsDirty,
   rowStepIndex,
@@ -276,6 +277,160 @@ export default function PickerEditor({
     announce(hiding ? `Hid ${item.label}. Save to remove it from the gallery.` : `${item.label} is visible again.`)
   }
 
+  // Pointer-drag reorder — the tap pick-up/put-down's sibling for mice and
+  // held touches. Mouse drags own the gesture after a small move (the frame
+  // never pans under them — the matrix has no gaps to grab); touch and pen
+  // require a press-and-hold so an immediate move stays a scroll. Once a
+  // drag activates, the held item live-moves under the pointer: every cell
+  // the point crosses becomes the draft position, and release is already a
+  // complete move — Escape or a pointercancel restores the start index.
+  type DragState = {
+    pointerId: number
+    pointerType: string
+    itemId: string
+    startX: number
+    startY: number
+    lastX: number
+    lastY: number
+    /** The index the drag picked the item up from — where cancel puts it. */
+    fromIndex: number
+    /** The cell's pixel box at activation — the ghost's size. */
+    width: number
+    height: number
+    active: boolean
+    holdTimer: ReturnType<typeof setTimeout> | null
+  }
+  const DRAG_MOUSE_PX = 6
+  const DRAG_TOUCH_CANCEL_PX = 10
+  const DRAG_HOLD_MS = 350
+  const dragRef = useRef<DragState | null>(null)
+  const ghostEl = useRef<HTMLElement | null>(null)
+  const [dragGhost, setDragGhost] = useState<{ src: string; preview?: string | null; filename: string; media?: MediaReference; previewMedia?: MediaReference; width: number; height: number } | null>(null)
+
+  const clearDrag = (drag: DragState) => {
+    if (drag.holdTimer !== null) clearTimeout(drag.holdTimer)
+    dragRef.current = null
+  }
+
+  const positionGhost = (drag: DragState) => {
+    const el = ghostEl.current
+    if (el) el.style.transform = `translate3d(${Math.round(drag.lastX - drag.width / 2)}px, ${Math.round(drag.lastY - drag.height / 2)}px, 0)`
+  }
+
+  const activateDrag = () => {
+    const drag = dragRef.current
+    if (!drag || drag.active || saving) return
+    const items = sessionRef.current.items
+    const index = items.findIndex((item) => item.id === drag.itemId)
+    const item = items[index]
+    if (!item) { clearDrag(drag); return }
+    drag.active = true
+    drag.fromIndex = index
+    commitSession(pickUpItem(sessionRef.current, drag.itemId))
+    setRevealedId(drag.itemId)
+    const cell = [...(frameRef.current?.querySelectorAll<HTMLElement>('[data-grid-item]') ?? [])].find((el) => el.dataset.imageId === drag.itemId)
+    const rect = cell?.getBoundingClientRect()
+    drag.width = rect?.width || 96
+    drag.height = rect?.height || 96
+    // Capture keeps the moves and the release on this frame wherever the
+    // pointer wanders — outside the window included.
+    frameRef.current?.setPointerCapture?.(drag.pointerId)
+    setDragGhost({ src: item.src, preview: item.preview, filename: item.filename, media: item.media, previewMedia: item.previewMedia, width: drag.width, height: drag.height })
+    // The pointerup's click must not place() — the drop is the placement.
+    suppressClickRef.current = true
+    announce(`Dragged ${item.label}. Release where it goes.`)
+  }
+
+  /** Applies the drop unless cancelled, which restores the index the drag
+   *  started from. The held ring comes down either way. */
+  const finishDrag = (drag: DragState, cancelled: boolean) => {
+    if (!drag.active) return
+    if (cancelled && drag.fromIndex >= 0) commitSession(moveHeldItem(sessionRef.current, drag.fromIndex))
+    const landed = sessionRef.current.items.findIndex((item) => item.id === drag.itemId)
+    const moved = sessionRef.current.items[landed]
+    commitSession({ ...sessionRef.current, heldId: null })
+    setDragGhost(null)
+    suppressClickRef.current = true
+    if (cancelled) announce('Put back.')
+    else if (landed >= 0 && landed !== drag.fromIndex) announce(`Moved ${moved?.label ?? 'photograph'} to position ${landed + 1} of ${sessionRef.current.items.length}.`)
+  }
+
+  const endDrag = (event: PointerEvent, cancelled: boolean) => {
+    const drag = dragRef.current
+    if (!drag || event.pointerId !== drag.pointerId) return
+    finishDrag(drag, cancelled)
+    clearDrag(drag)
+  }
+
+  /** While the drag is live the pointer is also the scroller: nearing the
+   *  frame's top or bottom edge walks the matrix under it, and every cell
+   *  crossed becomes the held item's new draft position. */
+  const moveDrag = (event: PointerEvent) => {
+    event.preventDefault()
+    const drag = dragRef.current
+    if (!drag?.active) return
+    positionGhost(drag)
+    const frame = frameRef.current
+    if (!frame) return
+    const bounds = frame.getBoundingClientRect()
+    const zone = 44
+    if (drag.lastY < bounds.top + zone) frame.scrollTop -= Math.ceil((bounds.top + zone - drag.lastY) / 6)
+    else if (drag.lastY > bounds.bottom - zone) frame.scrollTop += Math.ceil((drag.lastY - bounds.bottom + zone) / 6)
+    const to = pointerTargetIndex(
+      [...frame.querySelectorAll<HTMLElement>('[data-grid-item]')].map((el) => {
+        const cell = el.getBoundingClientRect()
+        return { top: cell.top, left: cell.left, right: cell.right, bottom: cell.bottom }
+      }),
+      event.clientX,
+      event.clientY,
+    )
+    const from = sessionRef.current.items.findIndex((item) => item.id === drag.itemId)
+    if (to >= 0 && from >= 0 && to !== from) commitSession(moveHeldItem(sessionRef.current, to))
+  }
+
+  const onFramePointerDown = (event: PointerEvent) => {
+    const cell = (event.target as HTMLElement | null)?.closest?.('[data-grid-item]') as HTMLElement | null
+    if (cell?.dataset.imageId && event.button === 0 && !saving) {
+      dragRef.current = {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType || 'mouse',
+        itemId: cell.dataset.imageId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        fromIndex: -1,
+        width: 0,
+        height: 0,
+        active: false,
+        holdTimer: null,
+      }
+      // A mouse press on a photograph is a putative drag, never a pan —
+      // the wheel and trackpad still scroll. Anything coarser holds first:
+      // scroll wins if the point moves before the timer does.
+      if (event.pointerType === 'mouse') return
+      dragRef.current.holdTimer = setTimeout(activateDrag, DRAG_HOLD_MS)
+    }
+    pan.onPointerDown(event)
+  }
+
+  const onFramePointerMove = (event: PointerEvent) => {
+    const drag = dragRef.current
+    if (drag && event.pointerId === drag.pointerId) {
+      drag.lastX = event.clientX
+      drag.lastY = event.clientY
+      if (!drag.active) {
+        const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY)
+        if (drag.pointerType === 'mouse' ? distance > DRAG_MOUSE_PX : distance > DRAG_TOUCH_CANCEL_PX) {
+          if (drag.pointerType === 'mouse') activateDrag()
+          else clearDrag(drag)
+        }
+      }
+      if (dragRef.current?.active) { moveDrag(event); return }
+    }
+    pan.onPointerMove(event)
+  }
+
   const cancel = () => onExit()
 
   // Same request shape as Admin.persistGalleryOrder — order and hidden are
@@ -327,6 +482,14 @@ export default function PickerEditor({
     const key = event.key
     if (key === 'Escape') {
       event.preventDefault()
+      // An in-flight drag cancels back to its start index rather than
+      // merely putting the photograph down wherever it floated to.
+      const drag = dragRef.current
+      if (drag?.active) {
+        finishDrag(drag, true)
+        clearDrag(drag)
+        return true
+      }
       if (sessionRef.current.heldId) {
         commitSession({ ...sessionRef.current, heldId: null })
         announce('Put back.')
@@ -411,7 +574,11 @@ export default function PickerEditor({
         ref={frameRef}
         class="viewer-filmstrip-frame"
         onPointerLeave={(event) => { if (event.pointerType === 'mouse') setRevealedId(null) }}
-        {...pan}
+        onPointerDown={onFramePointerDown}
+        onPointerMove={onFramePointerMove}
+        onPointerUp={(event) => { endDrag(event, false); pan.onPointerUp(event) }}
+        onPointerCancel={(event) => { endDrag(event, true); pan.onPointerCancel(event) }}
+        onWheel={pan.onWheel}
       >
         <div class="viewer-filmstrip-track">
           {session.items.map((item, index) => {
@@ -458,6 +625,26 @@ export default function PickerEditor({
           })}
         </div>
       </div>
+      {/* The dragged photograph's float — a fixed-position copy that rides
+          the pointer while the draft reflows beneath it. Its transform is
+          written straight onto the element so moves cost no re-render. */}
+      {dragGhost ? (
+        <div
+          class="viewer-edit-ghost"
+          ref={(el: HTMLElement | null) => {
+            ghostEl.current = el
+            // Positions always come from the live drag — hono may re-run
+            // this callback on a draft re-render, and the mount-time
+            // coordinates in state would snap the ghost backwards.
+            const drag = dragRef.current
+            if (el && drag) positionGhost(drag)
+          }}
+          style={{ width: `${Math.round(dragGhost.width)}px`, height: `${Math.round(dragGhost.height)}px` }}
+          aria-hidden="true"
+        >
+          <HeicImg src={dragGhost.src} preview={dragGhost.preview} media={dragGhost.media} previewMedia={dragGhost.previewMedia} galleryId={galleryId} filename={dragGhost.filename} alt="" draggable={false} />
+        </div>
+      ) : null}
     </div>
   )
 }

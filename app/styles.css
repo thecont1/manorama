@@ -1295,9 +1295,16 @@ body.magnifier-paused * { cursor: auto !important; }
    from the pink selection, a dimmed hidden state, and a per-cell hide
    mark — the retired dashboard overlay's language, on dark. */
 .viewer-edit-cell { position: relative; z-index: 0; flex: 0 0 auto; }
-.viewer-edit-item { display: block; width: 100%; height: 100%; }
+/* touch-action none on the edit cells keeps the browser from claiming a
+   held finger for native scroll — the frame's own JS pan answers a move
+   before the hold instead, and a held finger becomes a drag. */
+.viewer-edit-item { display: block; width: 100%; height: 100%; touch-action: none; -webkit-touch-callout: none; }
+/* The photograph under the pointer while a reorder drag is in flight —
+   fixed over the matrix, transform-driven, and never an event target. */
+.viewer-edit-ghost { position: fixed; top: 0; left: 0; z-index: 70; pointer-events: none; opacity: .94; will-change: transform; }
+.viewer-edit-ghost img { display: block; width: 100%; height: 100%; box-shadow: 0 14px 36px rgba(0, 0, 0, .55); }
 .viewer-edit-item img { width: auto; height: 100%; }
-.viewer-filmstrip-item.is-held { z-index: 1; box-shadow: inset 0 0 0 3px #4cc9f0, 0 0 0 1px #4cc9f0; }
+.viewer-filmstrip-item.is-held { z-index: 1; box-shadow: inset 0 0 0 3px #4cc9f0, 0 0 0 1px #4cc9f0; cursor: grabbing; }
 .viewer-edit-cell.is-hidden img { opacity: .32; }
 .viewer-edit-mark {
   position: absolute;

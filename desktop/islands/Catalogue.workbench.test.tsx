@@ -712,6 +712,63 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.admin-page')).not.toBeNull()
   })
 
+  test('dragging a photograph across the matrix reorders and saves', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
+    await settle()
+
+    // happy-dom does no layout — the drag's hit test reads live rects, so
+    // the two cells get synthetic boxes side by side for the pointer's trip.
+    const rectById: Record<string, { left: number; top: number; width: number; height: number }> = {
+      'MS201810-Italy0005.jpg': { left: 0, top: 0, width: 200, height: 150 },
+      'MS201810-Italy0100.jpg': { left: 200, top: 0, width: 150, height: 150 },
+    }
+    const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect
+    dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: { dataset?: { imageId?: string } }) {
+      const box = this.dataset?.imageId ? rectById[this.dataset.imageId] : undefined
+      if (box) {
+        return { ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) } as DOMRect
+      }
+      return originalRect.call(this as unknown as HTMLElement)
+    } as unknown as typeof dom.window.HTMLElement.prototype.getBoundingClientRect
+    const pointer = (type: string, target: Element, x: number, y: number) => {
+      const event = new dom.Event(type, { bubbles: true })
+      Object.assign(event, { pointerId: 1, pointerType: 'mouse', button: 0, clientX: x, clientY: y })
+      target.dispatchEvent(event as unknown as Event)
+    }
+    try {
+      const frame = container.querySelector<HTMLElement>('.viewer-filmstrip-frame')!
+      const cell = (index: number) => [...container.querySelectorAll<HTMLButtonElement>('.viewer-edit-item')][index]!
+
+      // Grab the first photograph, carry it over the second, release.
+      pointer('pointerdown', cell(0), 50, 75)
+      pointer('pointermove', frame, 150, 75)
+      await settle()
+      // Activation lifts the cell and floats a ghost under the pointer.
+      expect(cell(0).classList.contains('is-held')).toBe(true)
+      expect(container.querySelector('.viewer-edit-ghost')).not.toBeNull()
+
+      pointer('pointermove', frame, 280, 75)
+      await settle()
+      pointer('pointerup', frame, 280, 75)
+      await settle()
+
+      // The release is the move: cell order flipped, ghost gone, Save up.
+      const cells = [...container.querySelectorAll<HTMLButtonElement>('.viewer-edit-item')]
+      expect(cells.map((el) => el.dataset.imageId)).toEqual(['MS201810-Italy0100.jpg', 'MS201810-Italy0005.jpg'])
+      expect(container.querySelector('.viewer-edit-ghost')).toBeNull()
+      ;[...container.querySelectorAll<HTMLButtonElement>('.viewer-picker-end')].find((b) => b.textContent?.trim() === 'Save')!.click()
+      await settle()
+
+      const saved = JSON.parse(files['catalogue.json']!) as { galleries: { items: { id: string }[] }[] }
+      expect(saved.galleries[0]!.items.map((i) => i.id)).toEqual(['MS201810-Italy0100.jpg', 'MS201810-Italy0005.jpg'])
+    } finally {
+      dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+
   test('hiding a photograph in Edit mode removes it from the manifest and the rail, not the record', async () => {
     const container = await mount(true)
     await openCardDetails(container)

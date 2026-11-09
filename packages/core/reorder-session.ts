@@ -79,6 +79,15 @@ export const rowStepIndex = (
   return best
 }
 
+/** The matrix cell a pointer is over — a point-in-rect hit test for drag
+ *  reordering. Returns -1 between cells or beyond the matrix, so a drop
+ *  over nothing keeps the last position the draft already moved to. */
+export const pointerTargetIndex = (
+  cells: readonly { top: number; left: number; right: number; bottom: number }[],
+  x: number,
+  y: number,
+): number => cells.findIndex((cell) => x >= cell.left && x < cell.right && y >= cell.top && y < cell.bottom)
+
 export const discardReorder = <I extends ReorderItem>(state: ReorderState<I>): ReorderState<I> => {
   const byKey = new Map(state.items.map((item) => [item.orderKey, item]))
   const seen = new Set<string>()
