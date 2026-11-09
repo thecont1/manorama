@@ -4,11 +4,12 @@
  * The desktop bundle is the app — the Library, the gallery grid, the vault
  * meter, the local catalogue. It is written against Tauri's runtime API,
  * and Tauri's JavaScript surface is deliberately thin: everything the app
- * asks of the machine goes through `window.__TAURI_INTERNALS__.invoke` and
- * `window.__TAURI_INTERNALS__.convertFileSrc`.
+ * asks of the machine goes through `window.__TAURI_INTERNALS__` (`invoke`,
+ * `convertFileSrc`, `transformCallback`, `unregisterCallback`) and
+ * `window.__TAURI_EVENT_PLUGIN_INTERNALS__`.
  *
  * That thinness is the whole reason this file exists. Implementing those
- * two functions over the native shell's own channel lets the *same*
+ * primitives over the native shell's own channel lets the *same*
  * bundle run inside the SwiftUI shell, with no fork of the app's code and
  * no second implementation of the Library.
  *
@@ -18,7 +19,7 @@
  * pretending to have worked.
  */
 
-type InvokeReply = {
+export type InvokeReply = {
   id: number
   ok: boolean
   value?: unknown
@@ -36,12 +37,22 @@ declare global {
     __TAURI_INTERNALS__?: {
       invoke: (cmd: string, args?: unknown, options?: { headers?: Record<string, string> }) => Promise<unknown>
       convertFileSrc: (filePath: string, protocol?: string) => string
+      transformCallback?: (callback?: (payload: unknown) => void, once?: boolean) => number
+      unregisterCallback?: (id: number) => void
+      metadata?: {
+        currentWindow: { label: string }
+        currentWebview: { windowLabel: string; label: string }
+      }
     }
     /** The shell's own inbound channel: the native side calls these. */
     __manoramaShell?: {
       invoke: (cmd: string, args?: unknown, options?: { headers?: Record<string, string> }) => Promise<unknown>
       goTo: (index: number) => void
     }
+    /** Settles an in-flight `invoke` promise from the native side. */
+    __manoramaShellSettle?: (reply: InvokeReply) => void
+    /** Delivers a backend event (`manorama://deep-link`, `deep-link://new-url`) to registered Tauri listeners. */
+    __manoramaShellEmit?: (event: string, payload: unknown) => void
     /** The shell's outbound channel. Absent under Tauri, so every call is a
      *  no-op there and the Tauri build is unchanged by this file. */
     __MANORAMA_SHELL__?: {
@@ -50,8 +61,8 @@ declare global {
   }
 }
 
-const post = (message: ShellMessage) => {
-  const handler = (window as unknown as {
+const post = (message: ShellMessage, win: Window = window) => {
+  const handler = (win as unknown as {
     webkit?: { messageHandlers?: { manorama?: { postMessage(payload: unknown): void } } }
   }).webkit?.messageHandlers?.manorama
   handler?.postMessage(message)
@@ -60,6 +71,50 @@ const post = (message: ShellMessage) => {
 /** Pending invokes, by id. */
 const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
 let nextId = 0
+
+/** Registered JS callbacks (created by `transformCallback` for events/channels). */
+const callbacks = new Map<number, { fn: (payload: unknown) => void; once: boolean }>()
+/** Active event listeners by event name -> set of callback ids. */
+const eventListeners = new Map<string, Set<number>>()
+let nextCallbackId = 1
+
+const transformCallback = (callback?: (payload: unknown) => void, once = false): number => {
+  const id = nextCallbackId++
+  if (callback) {
+    callbacks.set(id, { fn: callback, once })
+  }
+  return id
+}
+
+const unregisterCallback = (id: number): void => {
+  callbacks.delete(id)
+  for (const ids of eventListeners.values()) {
+    ids.delete(id)
+  }
+}
+
+const unregisterListener = (event: string, eventId: number): void => {
+  eventListeners.get(event)?.delete(eventId)
+  callbacks.delete(eventId)
+}
+
+/** Deliver an event from the native shell (or `emit`) to all registered listeners. */
+const emitEvent = (event: string, payload: unknown): void => {
+  const ids = eventListeners.get(event)
+  if (!ids) return
+  for (const id of [...ids]) {
+    const entry = callbacks.get(id)
+    if (!entry) {
+      ids.delete(id)
+      continue
+    }
+    if (entry.once) {
+      ids.delete(id)
+      callbacks.delete(id)
+    }
+    entry.fn({ event, id, payload })
+  }
+}
 
 /** The shell answers an invoke by calling this. */
 const settle = (reply: InvokeReply) => {
@@ -75,13 +130,35 @@ const settle = (reply: InvokeReply) => {
  *
  * The reply comes back as JSON, so a value that is not JSON-safe — a
  * byte array, for one — is carried as base64 and revived here. The vault
- * reads are the only path that needs it today.
+ * reads and `plugin:http` streaming body chunks use this path.
  */
 const invoke = async (
   cmd: string,
   args?: unknown,
   options?: { headers?: Record<string, string> },
 ): Promise<unknown> => {
+  if (cmd === 'plugin:event|listen' && args && typeof args === 'object') {
+    const record = args as { event?: unknown; handler?: unknown }
+    if (typeof record.event === 'string' && typeof record.handler === 'number') {
+      let set = eventListeners.get(record.event)
+      if (!set) {
+        set = new Set()
+        eventListeners.set(record.event, set)
+      }
+      set.add(record.handler)
+    }
+  } else if (cmd === 'plugin:event|unlisten' && args && typeof args === 'object') {
+    const record = args as { event?: unknown; eventId?: unknown }
+    if (typeof record.event === 'string' && typeof record.eventId === 'number') {
+      unregisterListener(record.event, record.eventId)
+    }
+  } else if (cmd === 'plugin:event|emit' && args && typeof args === 'object') {
+    const record = args as { event?: unknown; payload?: unknown }
+    if (typeof record.event === 'string') {
+      emitEvent(record.event, record.payload)
+    }
+  }
+
   const id = nextId++
   const promise = new Promise<unknown>((resolve, reject) => {
     pending.set(id, { resolve, reject })
@@ -169,7 +246,7 @@ const convertFileSrc = (filePath: string): string =>
 const API_HOSTS = ['manorama.xyz', 'www.manorama.xyz']
 
 /** Put an API call back on the page's own origin. */
-const throughTheShell = (input: RequestInfo | URL, init?: RequestInit): RequestInfo | URL => {
+const throughTheShell = (input: RequestInfo | URL, _init?: RequestInit): RequestInfo | URL => {
   let url: URL
   try {
     url = input instanceof Request ? new URL(input.url) : new URL(String(input))
@@ -184,36 +261,74 @@ const throughTheShell = (input: RequestInfo | URL, init?: RequestInit): RequestI
   return proxied
 }
 
-// Install only when the Tauri runtime is absent: under Tauri the real
-// implementation is already there and must win.
-if (typeof window !== 'undefined' && !window.__TAURI_INTERNALS__) {
-  window.__TAURI_INTERNALS__ = { invoke, convertFileSrc }
+const NON_DRAGGABLE_SELECTOR = 'button, a, input, select, textarea, [role="button"], [contenteditable="true"]'
+
+/** Install the Tauri runtime shim on a target Window. */
+export const installShellBridge = (win: Window = window): void => {
+  pending.clear()
+  callbacks.clear()
+  eventListeners.clear()
+
+  win.__TAURI_INTERNALS__ = {
+    invoke,
+    convertFileSrc,
+    transformCallback,
+    unregisterCallback,
+    metadata: {
+      currentWindow: { label: 'main' },
+      currentWebview: { windowLabel: 'main', label: 'main' },
+    },
+  }
+  win.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener,
+  }
 
   // The shell is the network boundary: the page's API calls go through it
   // rather than straight out to the site.
-  const outerFetch = window.fetch.bind(window)
-  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const outerFetch = win.fetch.bind(win)
+  win.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const target = throughTheShell(input, init)
     if (target === input) return outerFetch(input, init)
     if (init) return outerFetch(target, init)
     if (input instanceof Request) return outerFetch(target)
     return outerFetch(target)
-  }) as typeof window.fetch
-  window.__manoramaShell = {
+  }) as typeof win.fetch
+
+  win.__manoramaShell = {
     invoke,
     goTo: (index: number) => {
-      const handle = (window as unknown as {
+      const handle = (win as unknown as {
         __manoramaGoTo?: (index: number) => void
       }).__manoramaGoTo
       handle?.(index)
     },
   }
-  ;(window as unknown as {
-    __manoramaShellSettle?: (reply: InvokeReply) => void
-  }).__manoramaShellSettle = settle
+  win.__manoramaShellSettle = settle
+  win.__manoramaShellEmit = emitEvent
   // The app's own outbound channel. It is the same transport the runtime
   // calls use, wrapped so the app never names the webkit handler.
-  window.__MANORAMA_SHELL__ = { post }
+  win.__MANORAMA_SHELL__ = { post: (msg) => post(msg, win) }
+
+  // Emulate Tauri's `data-tauri-drag-region` attribute so dragging `.desktop-titlebar`
+  // or `TopBar` moves the window when the user exits fullscreen into windowed mode.
+  win.addEventListener('mousedown', (event: MouseEvent) => {
+    if (event.button !== 0 || event.defaultPrevented) return
+    const target = event.target as HTMLElement | null
+    if (!target || typeof target.closest !== 'function') return
+    if (target.closest(NON_DRAGGABLE_SELECTOR)) return
+    const region = target.closest('[data-tauri-drag-region]')
+    if (!region) return
+    if (region !== target && region.getAttribute('data-tauri-drag-region') !== 'deep' && !region.classList.contains('desktop-titlebar')) {
+      return
+    }
+    void invoke('plugin:window|start_dragging').catch(() => {})
+  })
+}
+
+// Install only when the Tauri runtime is absent: under Tauri the real
+// implementation is already there and must win.
+if (typeof window !== 'undefined' && !window.__TAURI_INTERNALS__) {
+  installShellBridge(window)
 }
 
 /**
