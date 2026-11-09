@@ -12,7 +12,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   root: 'desktop-viewer',
   cacheDir: '../.work/vite-viewer-cache',
-  publicDir: false,
+  // GalleryShell loads /curtain-boot.js and /manorama-merged-logo.png — both
+  // live in the repo's shared public dir, so the shell bundle serves them.
+  publicDir: '../public',
   envDir: '..',
   envPrefix: ['VITE_'],
   build: {
