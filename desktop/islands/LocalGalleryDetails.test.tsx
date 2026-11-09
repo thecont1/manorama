@@ -74,7 +74,6 @@ type Props = Parameters<typeof LocalGalleryDetails>[0]
 
 const mount = (overrides: Partial<Props> = {}) => {
   const calls = {
-    back: 0,
     open: 0,
     share: 0,
     rescan: 0,
@@ -84,9 +83,7 @@ const mount = (overrides: Partial<Props> = {}) => {
   const props: Props = {
     record: overrides.record ?? record(),
     availability: overrides.availability ?? 'available',
-    onBack: overrides.onBack ?? (() => { calls.back += 1 }),
     onOpen: overrides.onOpen ?? (() => { calls.open += 1 }),
-    onOpenAt: overrides.onOpenAt ?? (() => { calls.open += 1 }),
     publishedUrl: overrides.publishedUrl ?? null,
     onShareLink: overrides.onShareLink,
     onShare: overrides.onShare ?? (() => { calls.share += 1 }),
@@ -157,11 +154,6 @@ beforeAll(() => {
   globals.cancelAnimationFrame = ((id: number) => {
     frames = frames.filter((frame) => frame.id !== id)
   }) as unknown as typeof cancelAnimationFrame
-  // The rail converts local paths through the asset protocol; the harness
-  // is not a Tauri webview, so it stubs the same shape the workbench does.
-  ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-    convertFileSrc: (path: string) => `asset://localhost${path}`,
-  }
 })
 
 afterAll(() => {
@@ -179,42 +171,35 @@ afterEach(() => {
   frames = []
 })
 
-describe('local gallery details (desktop)', () => {
-  test('renders the shared full-screen owner surface with a Back that fires', async () => {
-    const { container, calls } = mount()
-    const main = container.querySelector('main.m-owner.m-screen.m-screen--fixed')
-    expect(main).not.toBeNull()
-    expect(main?.getAttribute('data-screen')).toBe('local-details')
-    expect(main?.querySelector('.m-owner-content')).not.toBeNull()
-
-    const back = container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')
-    expect(back).not.toBeNull()
-    back?.click()
-    await settle()
-    expect(calls.back).toBe(1)
+describe('local gallery settings panel (desktop)', () => {
+  test('renders the owner-panel form an account gallery’s settings shares', async () => {
+    const { container } = mount()
+    const panel = container.querySelector('.m-owner-panel')
+    expect(panel).not.toBeNull()
+    expect(panel?.getAttribute('data-screen')).toBe('local-details')
+    // The panel carries no page chrome — the Sheet host owns dismiss/back,
+    // matching the account galleries' settings surface.
+    expect(container.querySelector('main')).toBeNull()
+    expect(container.querySelector('.m-topbar')).toBeNull()
   })
 
-  test('shows the shared mark in the bar and the title once, with count and source', async () => {
+  test('shows the title once in the panel head, with count and source', async () => {
     const { container } = mount()
-    // One title, in the header — the top bar carries the shared mark instead
-    // of repeating it, matching Library and cloud Details.
-    expect(container.querySelector('.m-topbar-title')).toBeNull()
-    expect(container.querySelector('.m-topbar-logo')?.getAttribute('src')).toBe('/manorama-merged-logo.png')
-    expect(container.querySelector('.d-name')?.textContent).toBe(TITLE)
-    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    expect(container.querySelector('.d-head')?.textContent).not.toContain('photograph · Folder')
+    expect(container.querySelector('.m-owner-panel-title')?.textContent).toBe(TITLE)
+    expect(container.querySelector('.m-owner-panel-meta')?.textContent).toContain('2 photographs · Folder on this Mac')
+    expect(container.querySelector('.m-owner-panel-meta')?.textContent).not.toContain('photograph · Folder')
   })
 
   test('a mounted card source reads "Memory card"', async () => {
     const { container } = mount({
       record: record({ sourceKind: 'card', mountPoint: '/Volumes/CARD' }),
     })
-    expect(container.querySelector('.d-head')?.textContent).toContain('Memory card')
+    expect(container.querySelector('.m-owner-panel-meta')?.textContent).toContain('Memory card')
   })
 
-  test('renders exactly the four action verbs and no banned surfaces', async () => {
+  test('renders exactly the local action verbs and no banned surfaces', async () => {
     const { container } = mount()
-    for (const label of ['Open', 'Publish', 'Refresh gallery contents', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'Publish', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
     // Five rows: the editable Name row plus exactly the four action verbs.
@@ -223,11 +208,9 @@ describe('local gallery details (desktop)', () => {
     expect(row(container, 'Remove from Library')?.classList.contains('m-actionrow--destructive')).toBe(true)
 
     // Paths, mount points, and filenames never surface in the copy — they are
-    // local-only. The rail's own asset URLs and photograph labels are exempt:
-    // they reference originals the same way the Library card rail does.
-    const copy = container.cloneNode(true) as HTMLElement
-    copy.querySelector('.d-rail')?.remove()
-    const html = copy.innerHTML
+    // local-only.
+    const html = container.innerHTML
+    expect(html).not.toContain('d-rail')
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain(ITEM_NAME)
@@ -245,7 +228,7 @@ describe('local gallery details (desktop)', () => {
 
   test('when the source is unavailable, Open and Share are disabled and the state shows', async () => {
     const { container, calls } = mount({ availability: 'unavailable' })
-    const openRow = row(container, 'Open') as HTMLButtonElement
+    const openRow = row(container, 'Open gallery') as HTMLButtonElement
     const shareRow = row(container, 'Publish') as HTMLButtonElement
     const rescanRow = row(container, 'Refresh gallery contents') as HTMLButtonElement
     expect(openRow.disabled).toBe(true)
@@ -265,11 +248,11 @@ describe('local gallery details (desktop)', () => {
 
   test('when available, Open and Share are enabled and fire', async () => {
     const { container, calls } = mount()
-    expect((row(container, 'Open') as HTMLButtonElement).disabled).toBe(false)
+    expect((row(container, 'Open gallery') as HTMLButtonElement).disabled).toBe(false)
     expect((row(container, 'Publish') as HTMLButtonElement).disabled).toBe(false)
     expect(container.querySelector('[data-availability="available"]')?.textContent).toBe('Source available')
 
-    ;(row(container, 'Open') as HTMLButtonElement).click()
+    ;(row(container, 'Open gallery') as HTMLButtonElement).click()
     ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
     expect(calls.open).toBe(1)

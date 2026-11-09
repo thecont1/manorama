@@ -218,11 +218,17 @@ const menuItem = (container: HTMLElement, text: string) =>
   [...container.querySelectorAll<HTMLElement>('.m-sheet .lib-menu > *')]
     .find((el) => el.textContent?.trim() === text)
 
-/** Details lives one level deep now: the card ··· menu → Gallery details. */
+/** The publish flow's sheet host — details is a sheet itself now, so a bare
+ *  `.m-sheet-host` selector can land on the settings panel instead. */
+const shareSheetHost = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLElement>('.m-sheet-host')]
+    .find((host) => host.querySelector('.desktop-share--sheet') !== null)
+
+/** Settings lives one level deep now: the card ··· menu → Gallery settings. */
 const openCardDetails = async (container: HTMLElement) => {
   container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
   await settle()
-  menuItem(container, 'Gallery details')!.click()
+  menuItem(container, 'Gallery settings')!.click()
   await settle()
 }
 
@@ -466,7 +472,6 @@ describe('desktop catalogue workbench', () => {
       for (const item of ['Pin gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
         expect(menuItem(container, item)).toBeDefined()
       }
-      expect(menuItem(container, 'Gallery details')).toBeUndefined()
       expect(menuItem(container, 'Open')).toBeUndefined()
 
       // The card itself opens — the manifest fetch fails in this mock, so the
@@ -600,18 +605,16 @@ describe('desktop catalogue workbench', () => {
 
     const details = container.querySelector('[data-screen="local-details"]')
     expect(details).not.toBeNull()
-    expect(details?.querySelector('.d-name')?.textContent).toBe(TITLE)
-    expect(details?.querySelector('.d-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open', 'Publish', 'Name', 'Refresh gallery contents', 'Remove from Library']) {
+    expect(details?.querySelector('.m-owner-panel-title')?.textContent).toBe(TITLE)
+    expect(details?.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs · Folder on this Mac')
+    for (const label of ['Open gallery', 'Publish', 'Name', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
-    // Local paths and filenames never surface in the copy; the rail's own
-    // asset URLs and photograph labels are exempt, the same way the Library
-    // card rail's are. No invented public/provider/vault surfaces ride along.
-    const copy = container.cloneNode(true) as HTMLElement
-    copy.querySelector('.d-rail')?.remove()
-    const html = copy.innerHTML
+    // Local paths and filenames never surface in the settings panel's copy.
+    // (The library beneath it legitimately carries asset:// originals in its
+    // card rails — the assertion scopes to the panel itself.)
+    const html = (details as HTMLElement).innerHTML
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain('MS201810-Italy0005.jpg')
@@ -628,7 +631,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
 
-    container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.admin-page')).not.toBeNull()
@@ -641,7 +644,7 @@ describe('desktop catalogue workbench', () => {
     await settle()
     expect(new URL(dom.window.location.href).searchParams.get('details')).toBe(GALLERY_ID)
 
-    container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.admin-page')).not.toBeNull()
@@ -652,7 +655,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     await openCardDetails(container)
     await settle()
-    ;(row(container, 'Open') as HTMLButtonElement).click()
+    ;(row(container, 'Open gallery') as HTMLButtonElement).click()
     await settle()
 
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
@@ -681,7 +684,7 @@ describe('desktop catalogue workbench', () => {
     await settle()
     expect(container.textContent).toContain('Name saved')
 
-    container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
     expect(container.querySelector('.lib-card-title')?.textContent).toBe('Vernazza')
 
@@ -702,10 +705,10 @@ describe('desktop catalogue workbench', () => {
     ;(row(container, 'Refresh gallery contents') as HTMLButtonElement).click()
     await settle()
 
-    expect(container.querySelector('.d-head')?.textContent).toContain('3 photographs')
+    expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('3 photographs')
     expect(container.textContent).toContain('Read just now')
 
-    container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
     const card = container.querySelector<HTMLElement>(`[data-gallery-card="${GALLERY_ID}"]`)!
     expect(card.querySelector('.lib-card-sub')?.textContent).toBe('3 photographs · Folder on this Mac')
@@ -746,7 +749,7 @@ describe('desktop catalogue workbench', () => {
     ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
 
-    const host = container.querySelector('.m-sheet-host')
+    const host = shareSheetHost(container)
     expect(host).not.toBeNull()
     expect(host?.querySelector('.desktop-share--sheet')).not.toBeNull()
     expect(host?.querySelector('.desktop-share-header')).toBeNull()
@@ -757,13 +760,14 @@ describe('desktop catalogue workbench', () => {
 
     host?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
-    expect(container.querySelector('.m-sheet-host')).toBeNull()
+    // Only the publish sheet leaves — the settings sheet beneath it stays.
+    expect(container.querySelector('.desktop-share--sheet')).toBeNull()
     expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
 
     // Reopening starts from a clean choose step.
     ;(row(container, 'Publish') as HTMLButtonElement).click()
     await settle()
-    expect(container.querySelector('.m-sheet-host .desktop-share--sheet')).not.toBeNull()
+    expect(container.querySelector('.desktop-share--sheet')).not.toBeNull()
     expect(container.textContent).toContain('nothing uploads until you confirm')
   })
 
@@ -780,9 +784,9 @@ describe('desktop catalogue workbench', () => {
     await settle()
     expect(container.textContent).toContain('Finish connecting Dropbox')
 
-    container.querySelector<HTMLButtonElement>('.m-sheet-host button[aria-label="Close"]')!.click()
+    shareSheetHost(container)!.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
-    expect(container.querySelector('.m-sheet-host')).toBeNull()
+    expect(container.querySelector('.desktop-share--sheet')).toBeNull()
 
     // The cancelled connect is settled, so a fresh attempt starts clean instead
     // of reporting a stale pending flow.
@@ -794,9 +798,9 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull()
 
     // Leave no pending connect behind for later tests: dismissal settles it.
-    container.querySelector<HTMLButtonElement>('.m-sheet-host button[aria-label="Close"]')!.click()
+    shareSheetHost(container)!.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
-    expect(container.querySelector('.m-sheet-host')).toBeNull()
+    expect(container.querySelector('.desktop-share--sheet')).toBeNull()
   })
 
   test('the hosted sheet cannot be dismissed during an upload', async () => {
@@ -819,24 +823,25 @@ describe('desktop catalogue workbench', () => {
 
     // In flight: the upload is gated on the hung read, so the step is live.
     expect(container.textContent).toContain('Preparing the upload…')
-    expect(container.querySelector('.m-sheet-host button[aria-label="Close"]')).toBeNull()
+    expect(shareSheetHost(container)).not.toBeNull()
+    expect(shareSheetHost(container)?.querySelector('button[aria-label="Close"]')).toBeNull()
 
     // Escape and the scrim are both inert while uploading.
     const esc = new dom.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }) as unknown as Parameters<typeof dom.document.dispatchEvent>[0]
     dom.document.dispatchEvent(esc)
     await settle()
-    expect(container.querySelector('.m-sheet-host')).not.toBeNull()
-    container.querySelector<HTMLElement>('.m-sheet-host .m-scrim')!.click()
+    expect(shareSheetHost(container)).not.toBeNull()
+    shareSheetHost(container)!.querySelector<HTMLElement>('.m-scrim')!.click()
     await settle()
-    expect(container.querySelector('.m-sheet-host')).not.toBeNull()
+    expect(shareSheetHost(container)).not.toBeNull()
 
     // Releasing the read lands the flow in error — and only then is the sheet
     // dismissible again.
     readFileGate!.reject(new Error('halt'))
     readFileGate = null
     await settle()
-    expect(container.querySelector('.m-sheet-host [role="alert"]')).not.toBeNull()
-    expect(container.querySelector('.m-sheet-host button[aria-label="Close"]')).not.toBeNull()
+    expect(shareSheetHost(container)?.querySelector('[role="alert"]')).not.toBeNull()
+    expect(shareSheetHost(container)?.querySelector('button[aria-label="Close"]')).not.toBeNull()
   })
 
   test('navigating history while connecting settles the pending provider connection', async () => {
@@ -855,7 +860,7 @@ describe('desktop catalogue workbench', () => {
     dom.window.history.replaceState(null, '', 'http://localhost/')
     dom.window.dispatchEvent(new dom.Event('popstate'))
     await settle()
-    expect(container.querySelector('.m-sheet-host')).toBeNull()
+    expect(container.querySelector('.desktop-share--sheet')).toBeNull()
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
 
     // The cancelled connect is settled, so a fresh attempt starts clean instead
@@ -870,9 +875,9 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull()
 
     // Leave no pending connect behind for later tests: dismissal settles it.
-    container.querySelector<HTMLButtonElement>('.m-sheet-host button[aria-label="Close"]')!.click()
+    shareSheetHost(container)!.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
-    expect(container.querySelector('.m-sheet-host')).toBeNull()
+    expect(container.querySelector('.desktop-share--sheet')).toBeNull()
   })
 
   test('navigating history during an upload leaves details and the sheet mounted', async () => {
@@ -900,8 +905,8 @@ describe('desktop catalogue workbench', () => {
     await settle()
 
     expect(container.querySelector('[data-screen="local-details"]')).not.toBeNull()
-    expect(container.querySelector('.m-sheet-host')).not.toBeNull()
-    expect(container.querySelector('.m-sheet-host button[aria-label="Close"]')).toBeNull()
+    expect(shareSheetHost(container)).not.toBeNull()
+    expect(shareSheetHost(container)?.querySelector('button[aria-label="Close"]')).toBeNull()
     expect(new URL(dom.window.location.href).searchParams.get('details')).toBe(GALLERY_ID)
 
     // Releasing the read lands the flow in error exactly once — no restart,
@@ -914,7 +919,7 @@ describe('desktop catalogue workbench', () => {
     expect(container.textContent).not.toContain('nothing uploads until you confirm')
 
     // With the upload settled, Back closes details normally.
-    container.querySelector<HTMLButtonElement>('button[aria-label="Back"]')!.click()
+    container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click()
     await settle()
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.admin-page')).not.toBeNull()
@@ -941,7 +946,7 @@ describe('desktop catalogue workbench', () => {
     // a genuine source read failure may flag the source unavailable.
     expect(container.textContent).toContain('The card is not mounted')
     expect(container.textContent).not.toContain('Read just now')
-    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs')
+    expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="unavailable"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(2)
@@ -968,7 +973,7 @@ describe('desktop catalogue workbench', () => {
     // screen and the still-available source is not flagged unavailable.
     expect(container.textContent).toContain('The disk is full')
     expect(container.textContent).not.toContain('Read just now')
-    expect(container.querySelector('.d-head')?.textContent).toContain('2 photographs')
+    expect(container.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs')
     expect(container.querySelector('[data-availability="available"]')).not.toBeNull()
     const saved = JSON.parse(files['catalogue.json']) as { galleries: { itemCount: number }[] }
     expect(saved.galleries[0]?.itemCount).toBe(2)
@@ -1311,7 +1316,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
     await settle()
-    for (const item of ['Gallery details', 'Refresh gallery contents', 'Remove gallery']) {
+    for (const item of ['Gallery settings', 'Refresh gallery contents', 'Remove gallery']) {
       expect(menuItem(container, item)).toBeDefined()
     }
     // Remove confirms inside the sheet before the catalogue entry goes.

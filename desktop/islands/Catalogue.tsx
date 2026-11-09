@@ -1676,10 +1676,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     )
   }
 
-  // The selected record's details: a full-screen local surface mounted in
-  // place of the workbench, with the shared Sheet+ShareFlow hosted alongside
-  // it (Share opens only from Details). The viewer takes precedence when a
-  // photograph is open — Open leaves details first.
+  // The selected record's settings: a Sheet over the workbench — the same
+  // presentation an account gallery's settings gets — with the shared
+  // ShareFlow hosted alongside (Publish opens only from settings). The
+  // viewer takes precedence when a photograph is open — Open leaves the
+  // sheet first.
   const detailsRecord = detailsId && catalogue && accountTier === 'pro' ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
   // A published link exists only when this Mac's own synced row carries the
@@ -1702,40 +1703,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       />
     </Sheet>
   ) : null
-
-  if (detailsRecord) {
-    return (
-      <>
-        <LocalGalleryDetails
-          record={detailsRecord}
-          availability={availability[detailsRecord.id] ?? 'available'}
-          onBack={closeDetails}
-          onOpen={() => {
-            closeDetails()
-            openViewer(detailsRecord.id, 0)
-          }}
-          onOpenAt={(index) => {
-            closeDetails()
-            openViewer(detailsRecord.id, index)
-          }}
-          publishedUrl={detailsPublishedUrl}
-          onShareLink={detailsPublishedUrl ? async () => {
-            const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
-            if (shared === 'shared') return 'Link shared'
-            if (shared === 'cancelled') return null
-            // No system share in the webview — the clipboard keeps the same
-            // contract, and a failed copy leaves the address visible.
-            return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
-          } : undefined}
-          onShare={openShareFromDetails}
-          onRescan={() => rescan(detailsRecord)}
-          onRename={(title) => rename(detailsRecord, title)}
-          onRemove={() => remove(detailsRecord)}
-        />
-        {shareHost}
-      </>
-    )
-  }
 
   const galleries = catalogue.galleries
   // Dedupe at render so whichever feed lands last re-derives the list — a
@@ -2128,6 +2095,35 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         onClose={closeAddSheet}
         onSubmit={addGallerySubmit}
       />
+      {/* A local gallery's settings — the Sheet form, not a full page:
+          whichever card the three-dots came from, settings look the same.
+          The Publish flow (shareHost) stacks on top of it when it opens. */}
+      {detailsRecord ? (
+        <Sheet open onClose={closeDetails} title="Gallery settings">
+          <LocalGalleryDetails
+            record={detailsRecord}
+            availability={availability[detailsRecord.id] ?? 'available'}
+            onOpen={() => {
+              closeDetails()
+              openViewer(detailsRecord.id, 0)
+            }}
+            publishedUrl={detailsPublishedUrl}
+            onShareLink={detailsPublishedUrl ? async () => {
+              const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
+              if (shared === 'shared') return 'Link shared'
+              if (shared === 'cancelled') return null
+              // No system share in the webview — the clipboard keeps the same
+              // contract, and a failed copy leaves the address visible.
+              return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
+            } : undefined}
+            onShare={openShareFromDetails}
+            onRescan={() => rescan(detailsRecord)}
+            onRename={(title) => rename(detailsRecord, title)}
+            onRemove={() => remove(detailsRecord)}
+          />
+        </Sheet>
+      ) : null}
+      {shareHost}
       {cardMenu ? (
         <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}>
           {menuRemove ? (
@@ -2191,7 +2187,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             </>) : cardMenu.kind === 'device' ? (<>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
-              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
+              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}
