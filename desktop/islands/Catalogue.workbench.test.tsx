@@ -661,6 +661,25 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.viewer-stage')).not.toBeNull()
   })
 
+  test('the picker renders the local photographs themselves, not placeholder boxes', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+    ;(row(container, 'Open gallery') as HTMLButtonElement).click()
+    await settle()
+
+    // The position pill opens the picker in browse mode.
+    container.querySelector<HTMLButtonElement>('[data-chrome-position]')!.click()
+    await settle()
+    expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Photo Picker')
+
+    // Local items carry no rendition variants — the cells must fall back
+    // to the asset-scheme original, not the SVG placeholder.
+    const imgs = [...container.querySelectorAll<HTMLImageElement>('.viewer-filmstrip-item img')]
+    expect(imgs.length).toBe(2)
+    for (const img of imgs) expect(img.src).toMatch(/^asset:\/\//)
+  })
+
   test('Reorder from details opens the picker straight into Edit and saves into the catalogue', async () => {
     const container = await mount(true)
     await openCardDetails(container)

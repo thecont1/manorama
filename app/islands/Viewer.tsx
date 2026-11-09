@@ -3087,7 +3087,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             <div class="viewer-filmstrip-track">
               {images.map((image, imageIndex) => {
                 const video = isVideoItem(image)
-                const thumb = image.variants?.[0]?.src ?? image.placeholder
+                // Items without rendition variants render their own
+                // bytes — the rail's rule; the placeholder box is the
+                // last resort, not the default. Videos never put their
+                // file in an <img>, so they keep the poster/placeholder.
+                const thumb = image.variants?.[0]?.src ?? (!video && image.src ? image.src : image.placeholder)
+                // A HEIC with no rendition at all decodes through
+                // HeicImg's libheif path — an encrypted ref uses the same
+                // component via `media`.
+                const heicNoRendition = !video && !image.media && !image.variants?.length && isHeicFilename(image.filename)
                 return <button
                   type="button"
                   class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
@@ -3102,8 +3110,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   }}
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
-                  {!video && image.media
-                    ? <HeicImg src={image.src} preview={thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                  {!video && (image.media || heicNoRendition)
+                    ? <HeicImg src={image.src} preview={heicNoRendition ? null : thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                     : <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />}
                   {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
                 </button>
