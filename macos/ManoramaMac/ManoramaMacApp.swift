@@ -8,11 +8,10 @@ import WebKit
 /// The viewing surface is the shared web Viewer inside a WKWebView, reached
 /// over a narrow bridge.
 ///
-/// Deliberately NOT fullscreen on launch. The Tauri build declares
-/// `"fullscreen": true`, which puts the app in its own macOS Space with no
-/// traffic lights and a menu bar that only appears when the pointer reaches
-/// the top of the screen. A Mac app opens in a window; fullscreen is
-/// something the user asks for with ⌃⌘F.
+/// Fullscreen on launch is deliberate — a kiosk decision, not an accident.
+/// The photographs are the product, and the app gives them the whole
+/// screen with no window chrome in the way. The View menu still offers
+/// Exit Full Screen for the times the user wants the window back.
 @main
 struct ManoramaMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -34,7 +33,6 @@ struct ManoramaMacApp: App {
                 .frame(minWidth: 900, minHeight: 560)
                 .onAppear {
                     delegate.model = model
-                    model.refreshGalleries()
                 }
         }
         .windowToolbarStyle(.unified(showsTitle: false))
@@ -71,9 +69,15 @@ struct NativeCommands: Commands {
     var body: some Commands {
         // Replace the stock "New" item — this app opens folders, not
         // documents.
+        //
+        // The command runs the Library's own add flow: the page picks the
+        // folder, scans it and records it, so there is one catalogue and
+        // one way of adding to it.
         CommandGroup(replacing: .newItem) {
-            Button("Open Folder…") { model.addFolder() }
-                .keyboardShortcut("o", modifiers: .command)
+            Button("Open Folder…") {
+                model.webViewRef?.evaluateJavaScript("window.__manoramaAddGallery && window.__manoramaAddGallery();")
+            }
+            .keyboardShortcut("o", modifiers: .command)
         }
 
         CommandGroup(replacing: .help) {
@@ -83,23 +87,32 @@ struct NativeCommands: Commands {
         }
 
         // Gallery navigation — only meaningful while a gallery is open.
+        //
+        // The arrow key equivalents are ⌥-modified on purpose. The viewer's
+        // own arrow handling is a viewport gesture on the web, and the page
+        // holds the keyboard while a gallery is open, so a bare arrow here
+        // would either shadow the viewer or sit inert in the menu bar
+        // depending on where the focus happened to be. ⌥← and ⌥→ say what
+        // they mean and never collide.
         CommandMenu("Gallery") {
             Button("Next Photograph") { model.step(1, in: model.webViewRef) }
-                .keyboardShortcut(.rightArrow, modifiers: [])
-                .disabled(model.openGallery == nil)
+                .keyboardShortcut(.rightArrow, modifiers: .option)
+                .disabled(!model.isGalleryOpen)
             Button("Previous Photograph") { model.step(-1, in: model.webViewRef) }
-                .keyboardShortcut(.leftArrow, modifiers: [])
-                .disabled(model.openGallery == nil)
+                .keyboardShortcut(.leftArrow, modifiers: .option)
+                .disabled(!model.isGalleryOpen)
             Divider()
             Button("Close Gallery") { model.closeGallery() }
                 .keyboardShortcut(.escape, modifiers: [])
-                .disabled(model.openGallery == nil)
+                .disabled(!model.isGalleryOpen)
         }
 
         CommandGroup(after: .toolbar) {
-            Button("Add Folder…") { model.addFolder() }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-            Button("Refresh") { model.refreshGalleries() }
+            Button("Add Folder…") {
+                model.webViewRef?.evaluateJavaScript("window.__manoramaAddGallery && window.__manoramaAddGallery();")
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Refresh") { model.reloadLibrary() }
                 .keyboardShortcut("r", modifiers: .command)
         }
     }

@@ -5,233 +5,190 @@ import WebKit
 
 /// The app model — the native shell's whole state.
 ///
-/// The web surface is reduced to one thing: the gallery currently open.
-/// Everything else (the list, the picker, the menus, the folder access)
-/// is native.
+/// The shell does not have a library of its own. The Library is the app's
+/// own web surface — the tier line, the vault meter, the pinned strips, the
+/// gallery grid, the local catalogue — and the shell's job is to give it a
+/// real window, a real menu bar, a real Space, and the machine's answers
+/// when it asks for a folder, a private file or a vault key.
+///
+/// What the shell owns is the chrome and the capability. What the page owns
+/// is the Library.
 @MainActor
 final class AppModel: ObservableObject {
-    @Published private(set) var galleries: [LocalGallery] = []
-    @Published var selectedGalleryID: UUID?
-    @Published private(set) var openGallery: LocalGallery?
-    @Published var status: String = "Choose a folder to begin"
+    /// What the shell is doing, in one line.
+    @Published private(set) var status: String = "Opening the library…"
+    /// The committed photograph, as the page reports it.
     @Published private(set) var position: (index: Int, total: Int) = (0, 0)
+    /// Whether a gallery is open.
+    @Published private(set) var isGalleryOpen: Bool = false
+    /// The open gallery's title.
+    @Published private(set) var galleryTitle: String?
+    /// Something the user must be told about.
     @Published var errorMessage: String?
+
+    /// The photographs already reported as unreadable this session — one
+    /// report per photograph, so a retried frame cannot nag.
+    private var reportedFailures: Set<String> = []
 
     let folderStore: FolderStore
     let schemeHandler: LocalSchemeHandler
+    let bridge: NativeBridge
     let coordinator = ViewerCoordinator()
 
+    /// The folders the media handler answers for. The set changes when the
+    /// user picks a folder; the handler asks about it for every photograph
+    /// it serves, so the list is computed once and cached.
+    let grantedRoots = GrantedRoots()
     /// The live webview, so menu commands can drive the viewer.
     @Published var webViewRef: WKWebView?
     /// The host window, so the shell can toggle fullscreen.
     @Published var window: NSWindow?
 
-    /// The token the page uses for the open gallery's folder.
-    private var mediaToken: String?
     /// The bundle's root on disk.
     private let bundleRoot: URL
 
     init(bundleRoot: URL) {
         self.bundleRoot = bundleRoot
-        self.folderStore = FolderStore()
+
+        // `--store <path>` puts the remembered folders somewhere else.
+        // The default location is shared by every instance of the app, so
+        // two running copies overwrite each other's grant list; the
+        // boundary test gives each run its own file.
+        let storeURL: URL? = {
+            let arguments = CommandLine.arguments
+            guard let index = arguments.firstIndex(of: "--store"), index + 1 < arguments.count else { return nil }
+            return URL(fileURLWithPath: arguments[index + 1])
+        }()
+        self.folderStore = FolderStore(fileURL: storeURL)
         self.schemeHandler = LocalSchemeHandler(bundleRoot: bundleRoot)
-
-        coordinator.onReady = { [weak self] in self?.status = "Ready" }
-        coordinator.onPosition = { [weak self] index, _, total in
-            self?.position = (index, total)
+        let roots = grantedRoots
+        // `--config <dir>` puts the app's private documents — the session,
+        // the catalogue, the vault and the picker-approved roots — somewhere
+        // else. The default is shared with the Tauri build, which is what
+        // makes the two shells one app; a test run needs its own copy, or it
+        // writes the user's catalogue.
+        let configDir: URL? = {
+            let arguments = CommandLine.arguments
+            guard let index = arguments.firstIndex(of: "--config"), index + 1 < arguments.count else { return nil }
+            return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
+        }()
+        self.bridge = NativeBridge(folderStore: folderStore, grantedRoots: roots, configDir: configDir)
+        coordinator.bridge = bridge
+        // The media handler answers an absolute path only when it really is
+        // inside a root the user granted. The list is read from the cache
+        // the shell keeps up to date, because the handler asks on every
+        // photograph it serves.
+        schemeHandler.grantedRoots = { roots.all() }
+        bridge.onRootsChanged = { [weak self] in
+            Task { @MainActor in self?.refreshGrantedRoots() }
         }
-        coordinator.onEscape = { [weak self] in self?.closeGallery() }
-    }
+        refreshGrantedRoots()
 
-    // MARK: - Folders
-
-    /// The user picked a folder. Grant it, remember it, and list it.
-    func addFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Add"
-        panel.message = "Choose a folder of photographs to view in place."
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let entry = folderStore.add(folder: url) else {
-            errorMessage = "That folder could not be remembered for access."
-            return
-        }
-        refreshGalleries()
-        status = "Added \(entry.name)"
-    }
-
-    /// Rebuild the gallery list from the remembered folders.
-    ///
-    /// Bookmark resolution stays on the main actor (a stale renewal writes
-    /// the store), but the directory walk runs detached — a card or a large
-    /// folder must never stall the UI between the click and the list.
-    func refreshGalleries() {
-        folderStore.refreshAvailability()
-        let roots = folderStore.availableFolders()
-        Task.detached { [weak self] in
-            var built: [LocalGallery] = []
-            for (entry, root) in roots {
-                let scan = LocalScanner.scan(root: root)
-                guard !scan.items.isEmpty else { continue }
-                built.append(
-                    LocalGallery(
-                        id: entry.id,
-                        title: entry.name,
-                        itemCount: scan.items.count,
-                        sourceKind: LocalGallery.SourceKind(rawValue: entry.sourceKind) ?? .folder
-                    )
-                )
-            }
-            await MainActor.run {
+        // A photograph that could not be served is an error the user must
+        // see. The page only knows it got a 404 and retries; the shell is
+        // the one that has to say so.
+        //
+        // The wording has to be true. A file that is no longer on disk is
+        // the folder's business and the message says so; a file that is
+        // still on disk and could not be opened is the app's own failure,
+        // and the message says that instead of blaming the user's
+        // storage for it. Each photograph is reported once — a viewer
+        // that retries a frame must not produce the same alert again and
+        // again.
+        schemeHandler.onMediaMissing = { [weak self] name, failure in
+            // The scheme handler answers on WebKit's own queue, and the
+            // alert and the status line are SwiftUI state — they are
+            // published from the main actor or not at all.
+            Task { @MainActor in
                 guard let self else { return }
-                self.galleries = built
-                if self.status == "Choose a folder to begin" && !built.isEmpty {
-                    self.status = "\(built.count) folder\(built.count == 1 ? "" : "s")"
+                guard !self.reportedFailures.contains(name) else { return }
+                self.reportedFailures.insert(name)
+                guard self.errorMessage == nil else { return }
+                switch failure {
+                case .gone:
+                    Trace.log("media missing: \(name) — gone")
+                    self.errorMessage = "\(name) is no longer in the folder. It may have been moved, renamed or deleted since the gallery was catalogued."
+                    self.status = "Some photographs are missing"
+                case .unreadable(let reason):
+                    Trace.log("media unreadable: \(name) — \(reason)")
+                    self.errorMessage = "\(name) is still in the folder, but the app could not open it: \(reason)."
+                    self.status = "Some photographs could not be opened"
                 }
             }
         }
-    }
 
-    func removeGallery(_ gallery: LocalGallery) {
-        // Removing the open gallery closes it first — the media scope and
-        // viewer state belong to a folder that no longer exists.
-        if openGallery?.id == gallery.id { closeGallery() }
-        if let entry = folderStore.entries.first(where: { $0.id == gallery.id }) {
-            folderStore.remove(entry)
+        coordinator.onReady = { [weak self] in
+            self?.status = "Library ready"
+            // A test run asks for a folder to be added as the Library comes
+            // up; the app's own add flow does the rest.
+            // A test run asks for a folder to be added. The page runs the
+            // add, not the shell: local galleries are a Visionary feature,
+            // so the add cannot happen before the session says who the
+            // owner is. The shell only raises the flag.
+            if NativeBridge.seededFolder != nil {
+                Trace.log("seeding the folder")
+                self?.webViewRef?.evaluateJavaScript("window.__manoramaSeedRequested = true;")
+            }
         }
-        if selectedGalleryID == gallery.id { selectedGalleryID = nil }
-        refreshGalleries()
+        coordinator.onPosition = { [weak self] index, _, total in
+            Trace.log("position index=\(index) total=\(total)")
+            self?.position = (index, total)
+        }
+        coordinator.onEscape = { [weak self] in Trace.log("escape"); self?.closeGallery() }
+
+        // The page reports the gallery it has open and the photograph it is
+        // on, so the shell's status bar is the shell's own.
+        coordinator.onGalleryState = { [weak self] open, title in
+            self?.isGalleryOpen = open
+            self?.galleryTitle = title
+            if !open { self?.position = (0, 0) }
+        }
     }
 
     // MARK: - The gallery
 
-    /// Open a gallery: grant the media scope, mint a token, and tell the
-    /// page to mount it.
+    /// Recompute the folders the media handler answers for.
     ///
-    /// `resolve` supplies the URL only — `schemeHandler.grant` is what starts
-    /// the security scope, so the matching `release` stays the single
-    /// balanced pair.
-    func open(_ gallery: LocalGallery, in webView: WKWebView?) {
-        guard let webView else { return }
-        guard let entry = folderStore.entries.first(where: { $0.id == gallery.id }),
-              let root = folderStore.resolve(entry) else {
-            errorMessage = "\(gallery.title) is no longer accessible. Open the folder again to restore access."
-            return
-        }
-
-        status = "Reading \(gallery.title)…"
-
-        // The directory walk and per-file metadata reads run detached —
-        // a large folder must not hold the main actor between the click
-        // and the mount. Scope minting, state, and the webview call come
-        // back on the main actor.
-        Task.detached { [weak self] in
-            let scan = LocalScanner.scan(root: root)
-            let dimensions = scan.items.map { Self.pixelDimensions(of: $0.url) ?? (width: 0, height: 0) }
-
-            await MainActor.run {
-                guard let self else { return }
-
-                // Release any previous scope first — two open scopes would
-                // keep two folders readable for no reason.
-                if let token = self.mediaToken { self.schemeHandler.release(token: token) }
-
-                let token = UUID().uuidString
-                self.mediaToken = token
-                self.schemeHandler.grant(token: token, url: root)
-
-                let media = zip(scan.items, dimensions).map { item, dims -> [String: Any] in
-                    let src = "manorama://media/\(token)/\(item.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.id)"
-                    return [
-                        "id": item.id,
-                        "filename": item.name,
-                        "src": src,
-                        "width": dims.width,
-                        "height": dims.height,
-                        "alt": item.name,
-                        // Local files carry no provenance evidence — unchecked is
-                        // reported as absent, never claimed as present.
-                        "c2pa": false,
-                        // The dark aspect box every other manifest ships — the strip
-                        // shows it while the original streams in, keeping frames
-                        // laid out at their true ratio before a byte arrives.
-                        "placeholder": self.placeholder(width: dims.width, height: dims.height),
-                    ]
-                }
-
-                var payload: [String: Any] = [
-                    "slug": gallery.id.uuidString,
-                    "title": gallery.title,
-                    "images": media,
-                    "initialIndex": 0,
-                ]
-                if let truncated = scan.truncated {
-                    payload["truncated"] = truncated
-                }
-
-                self.openGallery = gallery
-                self.selectedGalleryID = gallery.id
-                self.status = scan.truncated
-                    .map { "\(gallery.title) — \(scan.items.count) of \($0) photographs" }
-                    ?? "\(gallery.title) — \(scan.items.count) photographs"
-                self.coordinator.open(payload, in: webView)
-            }
-        }
+    /// Main actor: it reads the folder store's published entries and the
+    /// shell's own record of picker-approved roots.
+    func refreshGrantedRoots() {
+        folderStore.refreshAvailability()
+        let bookmarked = folderStore.grantedRoots()
+        let picked = bridge.savedGalleryRoots().map { URL(fileURLWithPath: $0) }
+        grantedRoots.replace(bookmarked + picked)
     }
 
-    /// One original's pixel dimensions, read from the file's metadata only —
-    /// the viewer needs them to hold the honest-size rule before decode.
-    /// Orientations 5–8 are the quarter-turn transforms: the stored pixels
-    /// are pre-rotation, so the reported frame swaps width and height or a
-    /// portrait original would claim a landscape box.
-    nonisolated private static func pixelDimensions(of url: URL) -> (width: Int, height: Int)? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
-        if let orientation = properties[kCGImagePropertyOrientation] as? Int, (5...8).contains(orientation) {
-            return (height, width)
-        }
-        return (width, height)
+    /// Reload the Library.
+    ///
+    /// The Library owns its own refresh — the account feed, the local
+    /// catalogue and the vault meter each refresh themselves — so the
+    /// native Refresh command reloads the page and lets the Library do it
+    /// its own way.
+    func reloadLibrary() {
+        webViewRef?.reload()
     }
 
-    /// The same dark aspect box `desktop/lib/local-scan.ts` emits for a
-    /// local gallery — real ratio, no pixels, nothing re-encoded.
-    private func placeholder(width: Int, height: Int) -> String {
-        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 \(width) \(height)'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E"
-    }
-
-    /// Leave the gallery and release the folder's scope. Closing is not a
-    /// refresh trigger — the library does not change because a view ended,
-    /// so the Escape path stays a cheap release, not a rescan.
+    /// Leave the gallery and go back to the Library.
     func closeGallery() {
-        if let token = mediaToken {
-            schemeHandler.release(token: token)
-            mediaToken = nil
-        }
-        openGallery = nil
-        // The sidebar selection is the open gesture — leaving it set means
-        // tapping the same row changes nothing and cannot reopen.
-        selectedGalleryID = nil
-        position = (0, 0)
+        webViewRef?.evaluateJavaScript("window.__manoramaCloseGallery && window.__manoramaCloseGallery();")
     }
 
     /// The page asked for the next/previous photograph.
     func step(_ delta: Int, in webView: WKWebView?) {
-        guard let webView, openGallery != nil else { return }
+        guard let webView, isGalleryOpen else { return }
         let total = position.total
         guard total > 0 else { return }
         let next = (position.index + delta + total) % total
-        webView.evaluateJavaScript("window.manoramaNative && window.manoramaNative.goTo(\(next));")
+        webView.evaluateJavaScript("window.__manoramaShell && window.__manoramaShell.goTo(\(next));")
     }
 
+    /// The page asked for a specific photograph.
     func goTo(_ index: Int, in webView: WKWebView?) {
         guard let webView else { return }
-        webView.evaluateJavaScript("window.manoramaNative && window.manoramaNative.goTo(\(index));")
+        webView.evaluateJavaScript("window.__manoramaShell && window.__manoramaShell.goTo(\(index));")
     }
+
+    // MARK: - The window
 
     /// Toggle the host window's fullscreen.
     ///
@@ -240,5 +197,74 @@ final class AppModel: ObservableObject {
     /// reachable by hover, which is the behaviour a Mac user expects.
     func toggleFullScreen() {
         window?.toggleFullScreen(nil)
+    }
+
+    /// Open in its own Space, once.
+    ///
+    /// This is deliberate, not an accident: the photographs are the
+    /// product, and a fullscreen window gives them the whole screen with
+    /// no window chrome competing for attention. The View menu still
+    /// offers Exit Full Screen for the times the user wants the window
+    /// back.
+    func openInFullScreen() {
+        guard !didOpenInFullScreen, let window else { return }
+        didOpenInFullScreen = true
+        // A test run does not get to take over the screen. The kiosk
+        // launch state is still exercised — the suite launches once
+        // without this flag to prove it.
+        if CommandLine.arguments.contains("--windowed") { return }
+        // AppKit will not animate a window into a Space before it is on
+        // screen, so this waits a beat after the window is reported.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            NSApp.activate(ignoringOtherApps: true)
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    /// Whether the window has already been sent to its Space.
+    private var didOpenInFullScreen = false
+
+    // MARK: - The probe
+
+    /// The probe hook: `--eval <expression>` asks the page a question and
+    /// writes the answer to the trace.
+    ///
+    /// The expression is re-asked on a timer rather than once, because the
+    /// page is not ready when the app launches — a probe that asks "how
+    /// many frames are mounted?" before a gallery is open gets zero, and
+    /// a one-shot probe would stop there forever. Re-asking is what lets a
+    /// probe wait for the thing it cares about and then act on it.
+    func startEvalProbe() {
+        let arguments = CommandLine.arguments
+        guard let evalIndex = arguments.firstIndex(of: "--eval"),
+              evalIndex + 1 < arguments.count else { return }
+        ask(arguments[evalIndex + 1])
+    }
+
+    /// Ask the page the probe's question, and come back for the answer
+    /// half a second later.
+    private func ask(_ expression: String) {
+        guard let webView = webViewRef else { return }
+        eval(expression, in: webView)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.ask(expression)
+        }
+    }
+
+    /// Ask the page one question and record the answer.
+    func eval(_ expression: String, in webView: WKWebView?) {
+        guard let webView else {
+            Trace.log("eval \(expression) — no webview")
+            return
+        }
+        webView.evaluateJavaScript(expression) { value, error in
+            if let error {
+                Trace.log("eval \(expression) → error \(error.localizedDescription)")
+            } else if let value {
+                Trace.log("eval \(expression) → \(value)")
+            } else {
+                Trace.log("eval \(expression) → nil")
+            }
+        }
     }
 }

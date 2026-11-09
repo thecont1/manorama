@@ -1,9 +1,12 @@
-# macOS prototype build
+# macOS native shell build
 #
-# The viewer bundle is built by vite (see vite.config.viewer.ts) and copied
-# into the app's Resources as "ViewerBundle". The app serves it over the
-# manorama:// scheme, which is how the WKWebView reaches both the page and
-# the user's originals.
+# The Library bundle is built by vite (see vite.config.desktop-shell.ts) and
+# copied into the app's Resources as "ViewerBundle". The app serves it over
+# the manorama:// scheme, which is how the WKWebView reaches both the page
+# and the user's originals.
+#
+# The bundle is the same one the Tauri shell ships — the app's own Library —
+# with the shell's runtime shim installed in front of it.
 #
 # Usage: scripts/build-macos.sh [debug|release]
 
@@ -16,13 +19,13 @@ APP="macos/ManoramaMac"
 BUILD_DIR="$APP/build"
 BUNDLE_ID="in.thecontrarian.manorama.mac"
 
-echo "==> building the viewer bundle"
-bunx vite build --config vite.config.viewer.ts
+echo "==> building the Library bundle"
+bunx vite build --config vite.config.desktop-shell.ts
 
 echo "==> staging the viewer bundle into the app resources"
 rm -rf "$APP/Resources/ViewerBundle"
 mkdir -p "$APP/Resources/ViewerBundle"
-cp -R desktop-viewer/dist/. "$APP/Resources/ViewerBundle/"
+cp -R desktop/dist/. "$APP/Resources/ViewerBundle/"
 
 echo "==> compiling the Swift app"
 # The app is assembled as a plain .app bundle rather than through an Xcode
@@ -72,6 +75,15 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+echo "==> signing the app bundle"
+# A linker-signed ad-hoc binary has no stable identity: the login Keychain
+# binds each item's ACL to the binary's cdhash, so every rebuild orphans the
+# stored gallery keys and macOS prompts for the keychain password once per
+# key on the next launch. A stable Developer ID signature makes the identity
+# — and therefore the Keychain trust — survive rebuilds.
+IDENTITY="${MACOS_SIGN_IDENTITY:-Developer ID Application: Mahesh Shantaram (373K7W3LKU)}"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP_BUNDLE"
 
 echo "==> done: $APP_BUNDLE"
 echo "    run: open '$APP_BUNDLE'"

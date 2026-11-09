@@ -1,5 +1,33 @@
 import Foundation
 
+/// The folders the media handler answers for.
+///
+/// The set changes when the user picks a folder — rarely. The media
+/// handler asks about it for every photograph it serves — constantly.
+/// So the list is computed once, on the main actor, and read from
+/// whichever thread the request arrived on. Computing it per request meant
+/// re-reading `roots.json` and re-resolving a security-scoped bookmark
+/// for every single image, which is what a photograph gallery should
+/// never be paying for.
+final class GrantedRoots: @unchecked Sendable {
+    private let lock = NSLock()
+    private var roots: [URL] = []
+
+    /// Replace the whole set.
+    func replace(_ next: [URL]) {
+        lock.lock()
+        roots = next
+        lock.unlock()
+    }
+
+    /// The roots as they stand right now.
+    func all() -> [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return roots
+    }
+}
+
 /// The durable record of which folders the user has granted access to.
 ///
 /// Stored as JSON under Application Support, one entry per folder, each
@@ -64,23 +92,34 @@ final class FolderStore: ObservableObject {
     /// Resolve an entry to a live scoped URL.
     ///
     /// Returns nil when the bookmark no longer resolves — the folder moved
-    /// and macOS could not follow it, or the grant was revoked. A bookmark
-    /// that resolves *stale* is renewed on the persisted entry: the moved
-    /// folder keeps working today and stops paying the stale-resolution
-    /// cost on every later launch.
+    /// and macOS could not follow it, or the grant was revoked.
+    ///
+    /// This is a pure read, and it stays one: `resolve` is called from the
+    /// media handler's queue for every photograph the shell serves, so a
+    /// write in here would mutate published state off the main thread.
+    /// Stale bookmarks are renewed by `renewStaleBookmarks()`.
     func resolve(_ entry: Entry) -> URL? {
         guard let data = Data(base64Encoded: entry.bookmark) else { return nil }
-        guard let (url, stale) = ScopedFolder.resolve(data) else { return nil }
-        if stale,
-           let fresh = try? ScopedFolder.makeBookmark(for: url),
-           // The write targets `entries`, not the caller's value copy —
-           // during load() there is no entry yet and the first post-load
-           // resolve performs the renewal instead.
-           let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries[index].bookmark = fresh.base64EncodedString()
-            save()
-        }
+        guard let (url, _) = ScopedFolder.resolve(data) else { return nil }
         return url
+    }
+
+    /// Renew the bookmarks of folders that have moved.
+    ///
+    /// A stale bookmark still resolves — the folder works — but macOS
+    /// charges for resolving it on every later launch. The renewal is a
+    /// write, so it happens here, in one pass, rather than inside `resolve`.
+    func renewStaleBookmarks() {
+        var changed = false
+        for index in entries.indices {
+            guard let data = Data(base64Encoded: entries[index].bookmark),
+                  let (url, stale) = ScopedFolder.resolve(data),
+                  stale,
+                  let fresh = try? ScopedFolder.makeBookmark(for: url) else { continue }
+            entries[index].bookmark = fresh.base64EncodedString()
+            changed = true
+        }
+        if changed { save() }
     }
 
     /// Open a security scope for an entry. The caller must balance it with
@@ -117,6 +156,7 @@ final class FolderStore: ObservableObject {
 
     /// Re-check every entry after a mount change or a rescan.
     func refreshAvailability() {
+        renewStaleBookmarks()
         for index in entries.indices {
             entries[index].isAvailable = resolve(entries[index]) != nil
         }
@@ -127,5 +167,31 @@ final class FolderStore: ObservableObject {
         entries.compactMap { entry in
             resolve(entry).map { (entry, $0) }
         }
+    }
+
+    /// Every granted root, resolved.
+    ///
+    /// The bridge needs this to decide whether a path the page named is one
+    /// the user actually granted. A root that no longer resolves is not
+    /// granted, so it is not listed.
+    func grantedRoots() -> [URL] {
+        entries.compactMap { resolve($0) }
+    }
+
+    /// Take the security scope for a root the user has already chosen.
+    ///
+    /// The path is only a lookup key: the grant is the bookmark, and a path
+    /// that matches no bookmark grants nothing. Returns the scoped URL when
+    /// the root was known.
+    @discardableResult
+    func grantIfKnown(_ path: String) -> URL? {
+        let wanted = URL(fileURLWithPath: path).standardizedFileURL
+        for entry in entries {
+            guard let url = resolve(entry),
+                  url.standardizedFileURL == wanted else { continue }
+            _ = url.startAccessingSecurityScopedResource()
+            return url
+        }
+        return nil
     }
 }

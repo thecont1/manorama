@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
+import { publishAddFolder, publishAddGallery, publishClose, publishNavigation, shellPost } from '../lib/shell'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import EncryptedGallery from '../../app/islands/EncryptedGallery'
@@ -220,6 +221,57 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
+  // The native shell's Gallery menu drives the mounted Viewer through this
+  // handle. The Viewer keeps sole ownership of the index — the handle asks it
+  // to move, it never sets it. Under Tauri there is no shell, so the handle
+  // simply goes unused and the build is unchanged.
+  const navigationRef = useRef<{ goTo(index: number): void } | null>(null)
+  // Tell the native shell what the shell needs to know: whether a gallery is
+  // open, and which photograph it is on. Both calls are no-ops without a
+  // shell, so the Tauri build is unaffected.
+  useEffect(() => {
+    publishNavigation(navigationRef)
+    // The shell's Gallery menu has a Close Gallery item; the page owns
+    // what closing means, so the shell asks the page.
+    publishClose(() => {
+      if (accountViewer) { disposeOpenLease(); setAccountViewer(null) }
+      setViewerState(null)
+    })
+    // The native menu's "Open Folder…" runs the Library's own add flow.
+    publishAddGallery(() => { void addFolder() })
+    publishAddFolder(() => { void addFolder() })
+  })
+
+  useEffect(() => {
+    const open = accountViewer !== null || viewerState !== null
+    shellPost({ type: 'gallery', open, title: accountViewer?.manifest.title })
+  }, [accountViewer, viewerState])
+
+  // Escape leaves the gallery, and only the native shell hears it: the
+  // Tauri build has no shell on the other end, so its behaviour is
+  // unchanged.
+  //
+  // The Viewer consumes Escape for its own overlays — the picker, the
+  // information sheet — so the message goes out only when nothing else
+  // claimed the key. The check waits for the dispatch to finish, because
+  // the listener that claims Escape may run after this one.
+  useEffect(() => {
+    if (!viewerState && !accountViewer) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      queueMicrotask(() => {
+        if (event.defaultPrevented) return
+        shellPost({ type: 'escape' })
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [viewerState, accountViewer])
+
+  // The Library is mounted. The shell needs to know: its own commands drive
+  // the page, and a command sent before this would find nothing to drive.
+  useEffect(() => { shellPost({ type: 'ready' }) }, [])
+
   // The encrypted on-device vault: galleries whose bytes already live in the
   // login-Keychain-locked store, the owner's load policy, and the per-gallery
   // stream-only overrides — the same three surfaces the iOS app carries.
@@ -338,6 +390,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // gates the section, the add flow, and every mount path below. The account
   // read refreshes it on each sync tick, so a downgrade takes effect live.
   const accountTier = session?.tier ?? 'free'
+
+  // A test run asks for a folder to be added. The add waits for the
+  // session, because local galleries are a Visionary feature and the tier
+  // is what says so — an add that ran before the session loaded would be
+  // refused as a free account.
+  useEffect(() => {
+    if (!catalogue || accountTier !== 'pro') return
+    const asked = (window as unknown as { __manoramaSeedRequested?: boolean }).__manoramaSeedRequested
+    if (!asked) return
+    ;(window as unknown as { __manoramaSeedRequested?: boolean }).__manoramaSeedRequested = false
+    void addFolder()
+  }, [catalogue, accountTier, session])
 
   // The vault's persisted preferences and saved index load once; the cap
   // re-applies on every tier change because Free and Visionary resolve
@@ -1394,6 +1458,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       settings: accountViewer.settings,
       plate,
       initialIndex: accountViewer.index,
+      navigationRef,
+      onPositionChange: (position: { index: number }) => {
+        shellPost({ type: 'position', index: position.index, total: accountViewer.manifest.images.length })
+      },
       apiBase: base,
       authToken: session?.token,
       initialEdit: accountViewer.edit ?? false,
@@ -1501,6 +1569,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             plate={plate}
             initialIndex={viewerState?.index ?? 0}
             allowFullscreen={false}
+            navigationRef={navigationRef}
+            onPositionChange={(position: { index: number }) => {
+              shellPost({ type: 'position', index: position.index, total: manifest.images.length })
+            }}
             onReturnToGalleries={() => setViewerState(null)}
           />
         </GalleryShell>
