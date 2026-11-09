@@ -61,18 +61,15 @@ let navRequest: { index: number; serial: number } | null = null
 const root = document.getElementById('app')
 if (!root) throw new Error('viewer root is missing')
 
-/** The gallery currently on the stage, for the shell's status line. */
-let current: OpenPayload | null = null
+/** The gallery currently on the stage, with the settings resolved at open. */
+let current: { payload: OpenPayload; settings: GallerySettings } | null = null
 
-const mount = (payload: OpenPayload) => {
-  current = payload
-  const settings = { ...defaultGallerySettings({
-    slug: payload.slug,
-    title: payload.title ?? '',
-    caption: '',
-    date: '',
-    images: payload.images,
-  }), ...(payload.settings ?? {}) }
+/** Paint the mounted gallery with its resolved settings — used by both
+ *  `open` and `goTo`, and deliberately silent: only `open` may announce
+ *  `ready`, since the shell reads it as a fresh mount. */
+const renderStage = () => {
+  if (!current) return
+  const { payload, settings } = current
 
   render(
     <GalleryShell settings={settings} mediaCount={{ stills: payload.images.length, videos: 0 }}>
@@ -101,6 +98,26 @@ const mount = (payload: OpenPayload) => {
     </GalleryShell>,
     root,
   )
+}
+
+/** Mount a new gallery: resolve its settings once, drop any navigation
+ *  request issued against the previous gallery, then paint and announce
+ *  readiness to the shell. */
+const open = (payload: OpenPayload) => {
+  // A pending request belongs to the gallery it was issued against — a new
+  // mount must not consume it as its first move.
+  navRequest = null
+  current = {
+    payload,
+    settings: { ...defaultGallerySettings({
+      slug: payload.slug,
+      title: payload.title ?? '',
+      caption: '',
+      date: '',
+      images: payload.images,
+    }), ...(payload.settings ?? {}) },
+  }
+  renderStage()
   document.documentElement.setAttribute('data-manorama-viewer-ready', 'true')
   post({ type: 'ready' })
 }
@@ -109,28 +126,32 @@ const mount = (payload: OpenPayload) => {
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return
   if (event.metaKey || event.ctrlKey || event.altKey) return
-  // The Viewer's own Escape handling (closing a sheet) runs first; the
-  // bridge only hears the event that bubbles to the document, so a sheet
-  // that consumed it never reaches here.
-  post({ type: 'escape' })
+  // This listener registered before the Viewer's own key handlers, so
+  // defaultPrevented is not yet set — check it after dispatch completes.
+  // A sheet that consumed the Escape must not also close the gallery.
+  queueMicrotask(() => {
+    if (!event.defaultPrevented) post({ type: 'escape' })
+  })
 })
 
 // The shell drives these. Assigned on `window` so the native side can call
 // them without knowing the bundle's internals.
 Object.assign(window, {
   manoramaNative: {
-    open: (payload: OpenPayload) => mount(payload),
+    open,
     goTo: (index: number) => {
       navSerial += 1
       navRequest = { index, serial: navSerial }
       // A navigation only re-renders the mounted gallery — the serial makes
       // even a repeated index a distinct request the Viewer consumes once.
-      if (current) mount(current)
+      // Re-rendering rather than re-opening keeps the settings object and
+      // skips the ready post the shell reads as a fresh mount.
+      renderStage()
     },
     setTheme: (theme: 'light' | 'dark') => {
       document.documentElement.classList.toggle('light', theme === 'light')
     },
-    currentGallery: () => current?.slug ?? null,
+    currentGallery: () => current?.payload.slug ?? null,
   },
 })
 
