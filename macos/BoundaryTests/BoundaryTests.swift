@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 
 /// A headless exercise of the boundary layers, so the persistence and
 /// media guarantees are proved without a window in the way.
@@ -170,6 +171,56 @@ final class BoundaryTests {
         let prefixed = resolver.resolve(URL(string: "manorama://media/\(token)/sneak/x.jpg")!)
         check("prefix-sharing sibling is refused", isRefusal(prefixed), "got \(prefixed)")
 
+        // --- 3b. The absolute-path form the shell actually serves ---------
+        // The app's own asset URLs address a file by its absolute path —
+        // the catalogue knows where the photograph is. The shell answers
+        // them only when the path really is inside a root the user
+        // granted, and refuses everything else.
+        resolver.grantedRoots = { [fixture] }
+        let absoluteInside = resolver.resolve(
+            URL(string: "manorama://media/local/\(fixture.appendingPathComponent("photo0.jpg").path.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+        )
+        if case .file(let fileURL, let mime) = absoluteInside {
+            check("an absolute path inside a granted root resolves", fileURL.lastPathComponent == "photo0.jpg")
+            check("an absolute path keeps its mime", mime.hasPrefix("image/"), mime)
+        } else {
+            check("an absolute path inside a granted root resolves", false, "got \(absoluteInside)")
+        }
+
+        let absoluteOutside = resolver.resolve(
+            URL(string: "manorama://media/local/\(outsideDir.appendingPathComponent("x.jpg").path.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+        )
+        check("an absolute path outside every granted root is refused",
+              isRefusal(absoluteOutside), "got \(absoluteOutside)")
+
+        let absoluteTraversal = resolver.resolve(
+            URL(string: "manorama://media/local/\(fixture.appendingPathComponent("../../etc/passwd").path.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+        )
+        check("an absolute path cannot traverse out of a granted root",
+              isRefusal(absoluteTraversal), "got \(absoluteTraversal)")
+
+        // A symlink inside the granted root that points out of it. The
+        // absolute form resolves symlinks before it compares, so the link
+        // is caught the same way the token form catches it.
+        let absoluteSymlink = resolver.resolve(
+            URL(string: "manorama://media/local/\(escapeLink.appendingPathComponent("x.jpg").path.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+        )
+        check("an absolute path through an escaping symlink is refused",
+              isRefusal(absoluteSymlink), "got \(absoluteSymlink)")
+
+        // A file inside the granted root that is not there: the URL is
+        // well-formed and permitted, and the file is simply absent. The
+        // read is what fails, and the shell says so.
+        let absoluteMissing = resolver.resolve(
+            URL(string: "manorama://media/local/\(fixture.appendingPathComponent("nope.jpg").path.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+        )
+        if case .file(let fileURL, _) = absoluteMissing {
+            check("an absolute path to a missing file resolves to nothing",
+                  !FileManager.default.fileExists(atPath: fileURL.path))
+        } else {
+            check("an absolute path to a missing file resolves", false, "got \(absoluteMissing)")
+        }
+
         try? FileManager.default.removeItem(at: escapeLink)
         try? FileManager.default.removeItem(at: siblingLink)
         try? FileManager.default.removeItem(at: outsideDir)
@@ -189,7 +240,7 @@ final class BoundaryTests {
         check("ungranted token is refused", isRefusal(ungranted), "got \(ungranted)")
 
         // The bundle prefix.
-        let page = resolver.resolve(URL(string: "manorama://app/index.html")!)
+        let page = resolver.resolve(URL(string: "manorama://localhost/index.html")!)
         if case .file(let fileURL, let mime) = page {
             check("bundle file resolves", fileURL.lastPathComponent == "index.html")
             check("bundle mime is html", mime.hasPrefix("text/html"), mime)
@@ -198,7 +249,7 @@ final class BoundaryTests {
         }
 
         // A traversal out of the bundle root.
-        let bundleEscape = resolver.resolve(URL(string: "manorama://app/../../../etc/passwd")!)
+        let bundleEscape = resolver.resolve(URL(string: "manorama://localhost/../../../etc/passwd")!)
         check("traversal out of the bundle is refused", isRefusal(bundleEscape), "got \(bundleEscape)")
 
         // --- 4. Error recovery ------------------------------------------
@@ -215,6 +266,42 @@ final class BoundaryTests {
         let afterRelease = resolver.resolve(URL(string: "manorama://media/\(token)/photo0.jpg")!)
         check("released token stops resolving", isRefusal(afterRelease), "got \(afterRelease)")
 
+        // --- 5. A stopped task is never answered -------------------------
+        // The proxy answers on the main queue after a URLSession round
+        // trip. WebKit delivers stop on that same queue, so a task the
+        // page abandoned must be silent once its completion lands —
+        // answering it throws and takes the app down. The control task
+        // proves the completion pipeline ran in this window; without it
+        // the stopped task's silence could be a slow network, not the
+        // guard. No network reachability means the check is skipped
+        // rather than failed: the guard cannot be exercised without the
+        // round trip.
+        let handler = LocalSchemeHandler(bundleRoot: bundleRoot)
+        let webView = WKWebView()
+        let apiRequest = URLRequest(url: URL(string: "manorama://localhost/api/galleries")!)
+
+        let control = RecordingSchemeTask(request: apiRequest)
+        handler.webView(webView, start: control)
+        let deadline = Date().addingTimeInterval(15)
+        while !control.answered, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        if !control.answered {
+            print("INFO  api proxy unreachable — stopped-task check skipped")
+        } else {
+            check("proxy answers a live task", control.finished || control.failed)
+
+            let stopped = RecordingSchemeTask(request: apiRequest)
+            handler.webView(webView, start: stopped)
+            handler.webView(webView, stop: stopped)
+            let quietDeadline = Date().addingTimeInterval(10)
+            while Date() < quietDeadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            check("stopped task is never answered", !stopped.answered,
+                  "answered=\(stopped.answerSummary)")
+        }
+
         // --- Summary ----------------------------------------------------
         print(failures == 0 ? "\nALL PASS" : "\n\(failures) FAILURE(S)")
         exit(failures == 0 ? 0 : 1)
@@ -224,4 +311,33 @@ final class BoundaryTests {
         if case .forbidden = resolution { return true }
         return false
     }
+}
+
+/// A `WKURLSchemeTask` that records every answer instead of delivering one.
+///
+/// WebKit's real task object throws when a stopped task is answered — that
+/// throw is the crash this suite's stopped-task check guards. The fake
+/// cannot reproduce the throw itself, but it does prove the handler's own
+/// ordering: a task recorded as stopped receives no response, no data, no
+/// finish, and no failure once its completion lands.
+final class RecordingSchemeTask: NSObject, WKURLSchemeTask {
+    let request: URLRequest
+    private(set) var receivedResponse = false
+    private(set) var receivedData = 0
+    private(set) var finished = false
+    private(set) var failed = false
+
+    init(request: URLRequest) {
+        self.request = request
+    }
+
+    var answered: Bool { receivedResponse || receivedData > 0 || finished || failed }
+    var answerSummary: String {
+        "response=\(receivedResponse) data=\(receivedData) finished=\(finished) failed=\(failed)"
+    }
+
+    func didReceive(_ response: URLResponse) { receivedResponse = true }
+    func didReceive(_ data: Data) { receivedData += data.count }
+    func didFinish() { finished = true }
+    func didFailWithError(_ error: Error) { failed = true }
 }
