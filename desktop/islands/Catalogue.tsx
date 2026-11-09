@@ -1168,6 +1168,30 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     vaultOpenAbortRef.current = abort
     const streamOnly = streamOnlyPolicies[galleryPolicyKey(owner, gallery.slug)] === true
     try {
+      // A complete saved copy is the point of saving it: open straight
+      // from the vault — no manifest fetch, no background fill, zero
+      // bytes over the wire. `open` verifies completeness itself, so a
+      // stale badge falls through to the online path rather than error.
+      if (savedGalleryFor(gallery)) {
+        const lease = await desktopOfflineStore.open({
+          owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined,
+        })
+        if (lease) {
+          if (abort.signal.aborted) { lease.dispose?.(); return }
+          disposeOpenLease()
+          openLeaseRef.current = lease
+          setNotice('Opened from your encrypted vault — no network used.')
+          setAccountViewer({
+            manifest: lease.manifest,
+            settings: lease.settings,
+            index: photoId ? Math.max(0, lease.manifest.images.findIndex((image) => image.id === photoId)) : index,
+            gallery,
+            galleryId: gallery.id,
+            edit,
+          })
+          return
+        }
+      }
       const result = await openGalleryNetworkFirst({
         selection: { owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined },
         fetchOnline: (signal) => fetchAccountGallery(base, owner, gallery.slug, session.token, fetch, signal),

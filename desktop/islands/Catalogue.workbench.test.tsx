@@ -92,6 +92,8 @@ let readFileGate: Gate | null
 let invokeLog: string[]
 let invokeCalls: { command: string; args?: Record<string, unknown> }[]
 let pickedFolder: string | null
+let vaultFiles: Map<string, Uint8Array>
+let vaultKeys: Map<string, string>
 
 const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro') => {
   files = {
@@ -109,17 +111,49 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   invokeLog = []
   invokeCalls = []
   pickedFolder = null
+  vaultFiles = new Map()
+  vaultKeys = new Map()
   ;(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-    invoke: async (command: string, args?: Record<string, unknown>) => {
+    invoke: async (command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }) => {
       invokeLog.push(command)
-      invokeCalls.push({ command, args })
-      if (command === 'read_private_file') return files[String(args?.name)] ?? null
+      invokeCalls.push({ command, args: args as Record<string, unknown> })
+      // The Rust vault seam, replicated in memory: writes carry their path
+      // as request metadata and their record as the raw body; reads answer
+      // raw bytes and an empty body means absent — the same contract the
+      // fill's commit verification relies on.
+      if (command === 'vault_write') {
+        vaultFiles.set(String(options?.headers?.['x-vault-path'] ?? ''), args as Uint8Array)
+        return null
+      }
+      if (command === 'vault_read') {
+        const bytes = vaultFiles.get(String((args as Record<string, unknown>)?.path))
+        return bytes ? bytes.slice().buffer as ArrayBuffer : new ArrayBuffer(0)
+      }
+      if (command === 'vault_move') {
+        const record = args as Record<string, unknown>
+        const from = String(record?.from); const to = String(record?.to)
+        const bytes = vaultFiles.get(from)
+        if (bytes) { vaultFiles.set(to, bytes); vaultFiles.delete(from) }
+        return null
+      }
+      if (command === 'vault_remove') {
+        vaultFiles.delete(String((args as Record<string, unknown>)?.path))
+        return null
+      }
+      if (command === 'vault_list') {
+        return [...vaultFiles.entries()].map(([path, bytes]) => ({ path, bytes: bytes.length }))
+      }
+      if (command === 'vault_key_get') return vaultKeys.get(String((args as Record<string, unknown>)?.name)) ?? null
+      if (command === 'vault_key_set') { vaultKeys.set(String((args as Record<string, unknown>)?.name), String((args as Record<string, unknown>)?.value)); return null }
+      if (command === 'vault_key_remove') { vaultKeys.delete(String((args as Record<string, unknown>)?.name)); return null }
+      const params = args as Record<string, unknown> | undefined
+      if (command === 'read_private_file') return files[String(params?.name)] ?? null
       if (command === 'write_private_file') {
-        files[String(args?.name)] = String(args?.contents)
+        files[String(params?.name)] = String(params?.contents)
         return null
       }
       if (command === 'delete_private_file') {
-        delete files[String(args?.name)]
+        delete files[String(params?.name)]
         return null
       }
       // `pick_gallery_root` — the folder dialog answers whatever the test staged.
@@ -127,7 +161,7 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
       // `plugin:fs|exists` — every saved root is reported mounted.
       if (command === 'plugin:fs|exists') return true
       // `plugin:fs|read_dir` — a virtual directory tree per root.
-      if (command === 'plugin:fs|read_dir') return dirs[String(args?.path)] ?? []
+      if (command === 'plugin:fs|read_dir') return dirs[String(params?.path)] ?? []
       // `plugin:fs|read_file` — bytes; a gate can hold the read open so an
       // upload stays in flight deterministically.
       if (command === 'plugin:fs|read_file') {
@@ -1346,5 +1380,89 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true, undefined, 'free')
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.admin-page')).not.toBeNull()
+  })
+
+  test('a saved gallery opens from the vault — zero bytes over the wire', async () => {
+    // Seed a complete saved copy through the real EncryptedVault: two image
+    // entries plus the metadata entry that `open` verifies against. mount()
+    // cannot be used — it reinstalls the seam and would wipe the seed — so
+    // installTauri runs here and the render below repeats mount's tail.
+    installTauri(true)
+    const { desktopVault } = await import('../lib/vault')
+    const { offlineGalleryId } = await import('../../native/lib/offline-gallery')
+    const owner = 'thecontrarian'
+    const slug = 'saved-album'
+    const vaultGalleryId = await offlineGalleryId({ owner, slug })
+    const still = (id: string) => ({
+      id, filename: `${id}.jpg`, src: `https://media.example/${id}.jpg`,
+      width: 4000, height: 3000, alt: id, c2pa: false,
+      placeholder: 'data:image/svg+xml,%3Csvg/%3E',
+    })
+    const manifest = { slug, title: 'Saved Album', caption: '', date: '', images: [still('img-1'), still('img-2')] }
+    const settings = {
+      title: 'Saved Album', caption: '', date: '', curtainKicker: '', curtainPrompt: '',
+      defaultMode: 'strip', defaultShowCaptions: false, defaultShowArrows: true,
+      imageCaptions: {}, imageAlts: {},
+    }
+    await desktopVault.write(vaultGalleryId, 'thumb:img-1', new Uint8Array(64).fill(7))
+    await desktopVault.write(vaultGalleryId, 'thumb:img-2', new Uint8Array(64).fill(9))
+    await desktopVault.write(vaultGalleryId, 'offline-gallery:metadata:v1', new TextEncoder().encode(JSON.stringify({
+      version: 1, owner, slug, manifest, settings,
+      images: [
+        { id: 'img-1', entryId: 'thumb:img-1', mimeType: 'image/jpeg' },
+        { id: 'img-2', entryId: 'thumb:img-2', mimeType: 'image/jpeg' },
+      ],
+    })))
+    // The lease materializes object URLs — happy-dom may not implement
+    // createObjectURL, and the count is the proof bytes came out of the
+    // vault, so a counting stand-in wraps whatever exists.
+    let blobUrls = 0
+    const priorCreateObjectURL = URL.createObjectURL
+    URL.createObjectURL = ((...args: Parameters<typeof URL.createObjectURL>) => {
+      blobUrls += 1
+      return priorCreateObjectURL ? priorCreateObjectURL(...args) : `blob:vault-${blobUrls}`
+    }) as typeof URL.createObjectURL
+    if (typeof URL.revokeObjectURL !== 'function') URL.revokeObjectURL = () => {}
+
+    const savedSummary = {
+      id: 'gallery-0000-0000-0000-0000000000aa',
+      slug, title: 'Saved Album', sourceUrl: null, caption: '',
+      imageCount: 2, itemCount: 2,
+      images: [{ id: 'img-1', src: 'https://media.example/img-1.jpg', width: 4000, height: 3000, hidden: false }],
+      retention: 'permanent', expiresAt: null, pinnedAt: null, deviceLabel: null, layout: 'compact',
+    }
+    const calls: string[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      calls.push(String(url))
+      const path = String(url)
+      if (path.endsWith('/api/galleries')) return new Response(JSON.stringify({ galleries: [savedSummary] }), { status: 200 })
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = dom.document.createElement('div') as unknown as HTMLElement
+      dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+      render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      await settle()
+
+      // The badge is the saved-copy record surfacing on the card.
+      const card = container.querySelector('[data-gallery-card="saved-album"]')
+      expect(card?.querySelector('.desktop-badge-saved')).not.toBeNull()
+
+      calls.length = 0
+      container.querySelector<HTMLAnchorElement>('a.lib-compact-cover')!.click()
+      await settle()
+
+      // The viewer mounted, vault bytes were materialized as object URLs,
+      // and not one API call — manifest or media — left the device.
+      expect(container.querySelector('.viewer-stage')).not.toBeNull()
+      expect(calls.filter((url) => url.includes('/api/'))).toEqual([])
+      expect(blobUrls).toBeGreaterThan(0)
+    } finally {
+      globals.fetch = defaultFetch
+      URL.createObjectURL = priorCreateObjectURL
+    }
   })
 })
