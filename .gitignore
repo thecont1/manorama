@@ -77,3 +77,7 @@ submission/*.zip
 
 # macOS capture scratch (screenshots, coverage dumps, throwaway probes).
 /.work/macos-capture/
+
+# Native macOS shell — generated viewer bundle + built app
+macos/ManoramaMac/build/
+macos/ManoramaMac/Resources/ViewerBundle/

@@ -15,7 +15,9 @@ type Props = {
 
 const MIB = 1024 * 1024
 
-const formatBytes = (bytes: number): string => {
+/** Shared by the settings card and the Library rail tracker so every surface
+ *  reports the same figure the same way. */
+export const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < MIB) return `${(bytes / 1024).toFixed(1)} KiB`
   if (bytes < 1024 * MIB) return `${(bytes / MIB).toFixed(1)} MiB`

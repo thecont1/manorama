@@ -152,6 +152,7 @@ body.manorama-desktop {
   letter-spacing: .04em;
 }
 .desktop-badge-unavailable { margin: 10px 0 0; color: rgba(240, 188, 92, .88); font-size: 12px; }
+.desktop-badge-saved { margin: 2px 0 0; color: rgba(120, 220, 160, .85); font-size: 11px; letter-spacing: .03em; }
 .desktop-empty { margin: 0; color: rgba(var(--ink), .7); font-size: 13px; }
 
 /* The rail is a row of list items wrapping one control each — a button that
@@ -314,6 +315,23 @@ body.manorama-desktop .admin-rail .account-ad {
 /* The stopwatch is a status icon on desktop (the pin-swap flow is web-only),
    so it takes the help cursor its tooltip explains. */
 body.manorama-desktop .lib-temp-flag[role="img"] { cursor: help; }
+
+/* The rail's vault tracker sits under the account line. When the sponsored
+   slot is suppressed the copyright keeps its bottom anchor — the tracker
+   must not break the `+` sibling rule that pins it. */
+@media (min-width: 860px) {
+  .admin-page--selector .admin-rail .lib-vault-tracker + .admin-copyright { margin-top: auto; }
+}
+body.manorama-desktop .lib-vault-tracker { margin: 0 0 18px; }
+body.manorama-desktop .lib-vault-tracker-label {
+  margin: 0 0 6px;
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), .62);
+}
+body.manorama-desktop .lib-vault-tracker-figures { margin: 6px 0 0; font-size: 12px; color: rgba(var(--ink), .62); line-height: 1.5; }
 
 /* Catalogue sync finishes fast, so the "thermometer" is a short
    indeterminate pulse in the viewer's progress convention — pink on dark,

@@ -711,11 +711,15 @@ export const openGalleryNetworkFirst = async (options: {
   onProgress?: (progress: OfflineCacheProgress) => void
   onItemReady?: (item: OfflineCacheItemReady) => void
   signal?: AbortSignal
+  /** Device shells inject their own key custody — the default reads the
+   *  native SecureStorage store. */
+  openEncryptedSession?: (selection: GallerySelection, compareWith?: string) => Promise<EncryptedClientSession>
 }): Promise<NetworkFirstGallery> => {
   try {
     const gallery = await options.fetchOnline(options.signal)
+    const openSession = options.openEncryptedSession ?? openNativeEncryptedSession
     const encryptedSession = gallery.manifest.images.some((image) => !isVideoItem(image) && image.media?.kind === 'encrypted')
-      ? await openNativeEncryptedSession(options.selection, gallery.manifest.sourceUrl)
+      ? await openSession(options.selection, gallery.manifest.sourceUrl)
       : undefined
     const encryptedResolver = encryptedSession ? new EncryptedMediaResolver(encryptedSession) : undefined
     const cacheFill = options.cachePolicy === 'stream'

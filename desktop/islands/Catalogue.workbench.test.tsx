@@ -293,6 +293,25 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.web-settings')).toBeNull()
   })
 
+  test('the rail carries a live vault tracker — figures and meter', async () => {
+    const container = await mount(true)
+
+    const tracker = container.querySelector('.lib-vault-tracker')
+    expect(tracker).not.toBeNull()
+    // The IPC stub has no vault files, so the honest figure is an empty
+    // vault measured against the default cap it actually enforces.
+    const figures = tracker!.querySelector('.lib-vault-tracker-figures')
+    expect(figures?.textContent).toBe('0 B of 256.0 MiB')
+    const meter = tracker!.querySelector('[role="meter"]')
+    expect(meter?.getAttribute('aria-valuenow')).toBe('0')
+    expect(meter?.getAttribute('aria-valuemax')).toBe(String(256 * 1024 * 1024))
+    expect(meter?.getAttribute('aria-valuetext')).toBe('0 B of 256.0 MiB')
+    // It is rail furniture: it must sit inside the rail, not the card column.
+    expect(container.querySelector('.admin-rail .lib-vault-tracker')).not.toBeNull()
+    const html = container.innerHTML
+    expect(html.indexOf('lib-vault-tracker')).toBeLessThan(html.indexOf('admin-copyright'))
+  })
+
   test('the theme action flips the shared class and key', async () => {
     const container = await mount(true)
     expect(dom.document.documentElement.classList.contains('light')).toBe(false)
