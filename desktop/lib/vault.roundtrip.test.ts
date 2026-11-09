@@ -31,8 +31,16 @@ const installTauri = () => {
     if (win[key] !== undefined) globals[key] = win[key]
   }
   win.__TAURI_INTERNALS__ = {
-    invoke: async (command: string, args?: Record<string, unknown>) => {
-      const path = String(args?.path ?? '')
+    invoke: async (command: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }) => {
+      if (command === 'vault_write') {
+        const target = entryPath(String(options?.headers?.['x-vault-path'] ?? ''))
+        mkdirSync(join(target, '..'), { recursive: true })
+        const { writeFileSync } = await import('node:fs')
+        writeFileSync(target, Buffer.from(args as Uint8Array))
+        return null
+      }
+      const record = args as Record<string, unknown> | undefined
+      const path = String(record?.path ?? '')
       if (command === 'vault_read') {
         try {
           const bytes = readFileSync(entryPath(path))
@@ -41,16 +49,8 @@ const installTauri = () => {
           return new ArrayBuffer(0)
         }
       }
-      if (command === 'vault_write') {
-        const target = entryPath(path)
-        mkdirSync(join(target, '..'), { recursive: true })
-        const bytes = args?.bytes as number[]
-        const { writeFileSync } = await import('node:fs')
-        writeFileSync(target, Buffer.from(bytes))
-        return null
-      }
       if (command === 'vault_move') {
-        renameSync(entryPath(String(args?.from)), entryPath(String(args?.to)))
+        renameSync(entryPath(String(record?.from)), entryPath(String(record?.to)))
         return null
       }
       if (command === 'vault_remove') {
@@ -64,9 +64,9 @@ const installTauri = () => {
           return []
         }
       }
-      if (command === 'vault_key_get') return keychain.get(String(args?.name)) ?? null
-      if (command === 'vault_key_set') { keychain.set(String(args?.name), String(args?.value)); return null }
-      if (command === 'vault_key_remove') { keychain.delete(String(args?.name)); return null }
+      if (command === 'vault_key_get') return keychain.get(String(record?.name)) ?? null
+      if (command === 'vault_key_set') { keychain.set(String(record?.name), String(record?.value)); return null }
+      if (command === 'vault_key_remove') { keychain.delete(String(record?.name)); return null }
       return null
     },
     transformCallback: () => 1,

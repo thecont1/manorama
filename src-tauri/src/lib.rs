@@ -127,6 +127,8 @@ const VAULT_DIR_NAME: &str = "manorama-vault-v1";
 /// addressed by the vault's own names, so only vault keys are ever touched.
 const VAULT_KEYCHAIN_SERVICE: &str = "in.thecontrarian.manorama.vault";
 
+/// The vault's root under the app's own local-data directory — every vault
+/// command resolves renderer paths relative to it and nowhere else.
 fn vault_root(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_local_data_dir()
@@ -152,65 +154,87 @@ fn vault_entry_path(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
 
 /// Raw bytes over IPC, not a JSON number array — a multi-MB record must
 /// cross the webview boundary unchanged, and serde_json would carry it at
-/// four times the size. An absent file answers an empty body.
+/// four times the size. An absent file answers an empty body. The read runs
+/// on a blocking thread: synchronous commands run on the main thread, where
+/// a large file would stall the webview's own event loop.
 #[tauri::command]
-fn vault_read(app: AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
-    let result = match std::fs::read(vault_entry_path(&app, &path)?) {
-        Ok(bytes) => Ok(tauri::ipc::Response::new(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("[vault] read {path} -> MISSING");
-            Ok(tauri::ipc::Response::new(Vec::new()))
+async fn vault_read(app: AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match std::fs::read(vault_entry_path(&app, &path)?) {
+            Ok(bytes) => Ok(tauri::ipc::Response::new(bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(tauri::ipc::Response::new(Vec::new()))
+            }
+            Err(error) => Err(error.to_string()),
         }
-        Err(error) => Err(error.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The ciphertext arrives as the raw request body; the logical path rides in
+/// the `x-vault-path` header so the body stays pure record bytes.
+#[tauri::command]
+async fn vault_write(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = request
+        .headers()
+        .get("x-vault-path")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or_else(|| "vault_write needs the x-vault-path header".to_string())?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("vault_write expects a raw byte body".to_string());
     };
-    match &result {
-        Ok(_) => {}
-        Err(error) => eprintln!("[vault] read {path} -> ERR {error}"),
-    }
-    result
+    let bytes = bytes.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = vault_entry_path(&app, &path)?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&target, &bytes).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Atomic rename inside the vault root — the temp-file commit step that keeps
+/// a half-written record from ever being indexed.
 #[tauri::command]
-fn vault_write(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<(), String> {
-    let target = vault_entry_path(&app, &path)?;
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let len = bytes.len();
-    let result = std::fs::write(&target, &bytes).map_err(|e| e.to_string());
-    if result.is_err() {
-        eprintln!("[vault] write {path} ({len} B) -> ERR {}", result.as_ref().err().unwrap());
-    }
-    result
-}
-
-#[tauri::command]
-fn vault_move(app: AppHandle, from: String, to: String) -> Result<(), String> {
-    let result = std::fs::rename(vault_entry_path(&app, &from)?, vault_entry_path(&app, &to)?)
-        .map_err(|e| e.to_string());
-    if result.is_err() {
-        eprintln!("[vault] move {from} -> {to}: ERR {}", result.as_ref().err().unwrap());
-    }
-    result
+async fn vault_move(app: AppHandle, from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::rename(vault_entry_path(&app, &from)?, vault_entry_path(&app, &to)?)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// "Already missing" is the only absorbed outcome — a delete that could leave
 /// a real file behind must report so purge never claims an unproven removal.
 #[tauri::command]
-fn vault_remove(app: AppHandle, path: String) -> Result<(), String> {
-    match std::fs::remove_file(vault_entry_path(&app, &path)?) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
+async fn vault_remove(app: AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match std::fs::remove_file(vault_entry_path(&app, &path)?) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// One file in the vault walk: the renderer's logical path plus its byte
+/// length, so usage and purge agree on what a file costs.
 #[derive(serde::Serialize)]
 struct VaultFileStat {
     path: String,
     bytes: u64,
 }
 
+/// Recursively collect every file under `dir`, building logical
+/// `manorama-vault-v1/...` paths — a missing root is an empty walk, not an
+/// error, so a fresh vault reports zero files.
 fn walk_vault(dir: &PathBuf, prefix: &str, files: &mut Vec<VaultFileStat>) -> Result<(), String> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -237,70 +261,100 @@ fn walk_vault(dir: &PathBuf, prefix: &str, files: &mut Vec<VaultFileStat>) -> Re
 /// the renderer's `manorama-vault-v1/...` shape — usage accounting and purge
 /// verification read it identically on both shells.
 #[tauri::command]
-fn vault_list(app: AppHandle) -> Result<Vec<VaultFileStat>, String> {
-    let mut files = Vec::new();
-    walk_vault(&vault_root(&app)?, "", &mut files)?;
-    Ok(files)
+async fn vault_list(app: AppHandle) -> Result<Vec<VaultFileStat>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut files = Vec::new();
+        walk_vault(&vault_root(&app)?, "", &mut files)?;
+        Ok(files)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
+
+/// The debug log is a diagnostic aid, not a journal — past this many bytes it
+/// starts over rather than growing without bound.
+const VAULT_LOG_MAX_BYTES: u64 = 512 * 1024;
 
 /// Diagnostic sink for the vault's serialized internals — the renderer cannot
 /// see inside them and the unified log does not capture stderr from an
 /// open-launched app. One file next to the vault root, opened per line.
 #[tauri::command]
-fn vault_log(app: AppHandle, line: String) -> Result<(), String> {
-    use std::io::Write as _;
-    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("vault-debug.log"))
-        .map_err(|e| e.to_string())?;
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    writeln!(file, "{millis} {line}").map_err(|e| e.to_string())
+async fn vault_log(app: AppHandle, line: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Write as _;
+        let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let target = dir.join("vault-debug.log");
+        let oversized = std::fs::metadata(&target)
+            .map(|meta| meta.len() > VAULT_LOG_MAX_BYTES)
+            .unwrap_or(false);
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(!oversized)
+            .truncate(oversized)
+            .open(&target)
+            .map_err(|e| e.to_string())?;
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        if oversized {
+            writeln!(file, "{millis} vault-debug.log rotated past {VAULT_LOG_MAX_BYTES} bytes")
+                .map_err(|e| e.to_string())?;
+        }
+        writeln!(file, "{millis} {line}").map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Build a Keychain entry handle for a vault key name — creation is cheap
+/// and does not touch the keychain until an operation runs on it.
 fn vault_key_entry(name: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(VAULT_KEYCHAIN_SERVICE, name).map_err(|e| e.to_string())
 }
 
+/// Fetch one gallery key. Absent and "could not read" are deliberately
+/// different answers: the vault treats absent as a clean miss but a storage
+/// error must surface, never read back as a deleted key.
 #[tauri::command]
-fn vault_key_get(name: String) -> Result<Option<String>, String> {
-    let result = match vault_key_entry(&name)?.get_password() {
-        Ok(value) => Ok(Some(value)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(error.to_string()),
-    };
-    match &result {
-        Ok(None) => eprintln!("[vault] key_get {name} -> NONE"),
-        Err(error) => eprintln!("[vault] key_get {name} -> ERR {error}"),
-        Ok(Some(_)) => {}
-    }
-    result
+async fn vault_key_get(name: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match vault_key_entry(&name)?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Store one gallery key — the only write the Keychain ever sees from this
+/// app, under the vault's own service.
 #[tauri::command]
-fn vault_key_set(name: String, value: String) -> Result<(), String> {
-    let result = vault_key_entry(&name)?
-        .set_password(&value)
-        .map_err(|e| e.to_string());
-    if result.is_err() {
-        eprintln!("[vault] key_set {name} -> ERR {}", result.as_ref().err().unwrap());
-    }
-    result
+async fn vault_key_set(name: String, value: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        vault_key_entry(&name)?
+            .set_password(&value)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// A key that survives removal must fail loudly — a verified purge depends on
 /// knowing the ciphertext really is unreachable. "Already absent" passes.
 #[tauri::command]
-fn vault_key_remove(name: String) -> Result<(), String> {
-    match vault_key_entry(&name)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
+async fn vault_key_remove(name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match vault_key_entry(&name)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Binds 127.0.0.1 on an ephemeral port and returns the port. Beginning a

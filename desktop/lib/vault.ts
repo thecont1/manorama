@@ -13,9 +13,10 @@ const tauriVaultStorage: VaultStorageProvider = {
     const buffer = await invoke<ArrayBuffer | null>('vault_read', { path })
     return !buffer || buffer.byteLength === 0 ? null : new Uint8Array(buffer)
   },
-  // Uint8Array JSON-serializes as an object, not an array — the Rust
-  // Vec<u8> arg needs a plain number array or the call rejects.
-  write: (path, bytes) => invoke<void>('vault_write', { path, bytes: Array.from(bytes) }),
+  // Multi-megabyte records travel as the raw request body — a JSON number
+  // array would carry each byte four times over. The path rides as request
+  // metadata so the body stays pure ciphertext.
+  write: (path, bytes) => invoke<void>('vault_write', bytes, { headers: { 'x-vault-path': path } }),
   move: (from, to) => invoke<void>('vault_move', { from, to }),
   remove: (path) => invoke<void>('vault_remove', { path }),
   list: async () => (await invoke<VaultFileStat[] | null>('vault_list')) ?? [],
