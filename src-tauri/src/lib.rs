@@ -28,6 +28,9 @@ fn allow_root(app: &AppHandle, dir: &PathBuf) -> Result<(), String> {
 /// shows the folder dialog, and the directory the user picked — never a
 /// path the renderer supplied — is what gets granted. The pick is then
 /// recorded as provenance so launch-time re-grants stay inside it.
+/// Ask the user for a local gallery folder and grant the app persistent
+/// access to it.
+///
 // Async, not sync: a non-async command runs inline in the IPC handler — the
 // main thread on macOS — and blocking_pick_folder would park that thread on
 // a channel while the dialog it queued waits for the same thread. Deadlock.
@@ -277,18 +280,28 @@ const VAULT_LOG_MAX_BYTES: u64 = 512 * 1024;
 
 /// Diagnostic sink for the vault's serialized internals — the renderer cannot
 /// see inside them and the unified log does not capture stderr from an
-/// open-launched app. One file next to the vault root, opened per line.
+/// open-launched app. The file lives inside the vault root so the vault's own
+/// clear flow removes its gallery identifiers with everything else.
 #[tauri::command]
 async fn vault_log(app: AppHandle, line: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         use std::io::Write as _;
-        let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let target = dir.join("vault-debug.log");
+        // The pre-move location outside the vault root still holds identifiers
+        // on older installs — drop it whenever the sink runs.
+        if let Ok(dir) = app.path().app_local_data_dir() {
+            let _ = std::fs::remove_file(dir.join("vault-debug.log"));
+        }
+        let target = vault_root(&app)?.join("vault-debug.log");
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
         let oversized = std::fs::metadata(&target)
             .map(|meta| meta.len() > VAULT_LOG_MAX_BYTES)
             .unwrap_or(false);
+        // truncate() alone grants no access — write(true) is what lets the
+        // oversized branch actually replace the file.
         let mut file = std::fs::OpenOptions::new()
+            .write(true)
             .create(true)
             .append(!oversized)
             .truncate(oversized)
@@ -462,6 +475,8 @@ async fn oauth_loopback_finish(state: tauri::State<'_, LoopbackState>) -> Result
     result
 }
 
+/// The desktop app's entry point — registers every command and starts the
+/// Tauri event loop.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

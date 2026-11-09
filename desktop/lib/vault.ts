@@ -31,6 +31,16 @@ const keychainVaultKeys: VaultKeyProvider = {
   remove: (name) => invoke<void>('vault_key_remove', { name }),
 }
 
+/** Diagnostics are strictly opt-in: the debug file records gallery and entry
+ *  identities, so it exists only while a user (or support) has it enabled to
+ *  chase a failing sync — and a vault clear sweeps it with the records. */
+const VAULT_DIAGNOSTICS_KEY = 'manorama.vault.diagnostics'
+/** Whether vault diagnostics are on — read per event so toggling the flag
+ *  in the webview's storage takes effect without a reload. */
+const diagnosticsEnabled = (): boolean => {
+  try { return localStorage.getItem(VAULT_DIAGNOSTICS_KEY) === '1' } catch { return false }
+}
+
 /** The desktop's encrypted media vault — same record format and crypto as
  *  the iOS one, so the behaviours (LRU cap, crypto-erasure, verified purge)
  *  are shared, not re-implemented. */
@@ -41,6 +51,7 @@ export const desktopVault = new EncryptedVault({
   // Diagnostics ride the debug file, not the JS console — the renderer's
   // serialized internals report which leg of a read/write actually failed.
   diagnose: (event, detail) => {
+    if (!diagnosticsEnabled()) return
     void invoke<void>('vault_log', { line: `${event}${detail ? ` ${detail}` : ''}` }).catch(() => {})
   },
 })
