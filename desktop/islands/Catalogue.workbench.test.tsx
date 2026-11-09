@@ -1465,4 +1465,36 @@ describe('desktop catalogue workbench', () => {
       URL.createObjectURL = priorCreateObjectURL
     }
   })
+
+  test('a pinned account gallery renders its strip in Pinned galleries', async () => {
+    const pinned = {
+      id: 'gallery-0000-0000-0000-0000000000bb',
+      slug: 'tcnwm', title: 'tech . city . night . work . m',
+      sourceUrl: 'https://www.dropbox.com/scl/fo/o1sc4cp1sgfe4pnj7nf', caption: '',
+      imageCount: 3, itemCount: 3,
+      images: [
+        { id: 'a1', filename: 'a1.jpg', src: '/api/dropbox/t/1', width: 4000, height: 3000, hidden: false },
+        { id: 'a2', filename: 'a2.jpg', src: '/api/dropbox/t/2', width: 3000, height: 4000, hidden: false },
+        { id: 'a3', filename: 'a3.jpg', src: '/api/dropbox/t/3', width: 4000, height: 3000, hidden: false },
+      ],
+      retention: 'retained', expiresAt: null, pinnedAt: '2026-11-09T10:38:58.024Z', deviceLabel: null, layout: 'compact',
+    }
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/galleries')) return new Response(JSON.stringify({ galleries: [pinned] }), { status: 200 })
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const section = container.querySelector('#pinned-galleries-title')?.closest('section')
+      expect(section).not.toBeNull()
+      const strip = section!.querySelector('.admin-gallery-strip')
+      expect(strip?.querySelectorAll('.admin-gallery-strip-item').length).toBe(3)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
 })
