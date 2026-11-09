@@ -2208,10 +2208,14 @@ button.lib-card-title {
 
 /* The web strip is a real list of links: the li keeps the shared item
    class so existing selectors and the ::after separators are untouched;
-   the anchor inside only carries layout + focus chrome. */
-.lib-card ul.admin-gallery-strip { list-style: none; margin: 0; padding: 0; }
-.lib-card .admin-gallery-strip-item > :is(a, button) { display: block; height: 100%; margin: 0; padding: 0; border: 0; background: none; text-decoration: none; }
-.lib-card .admin-gallery-strip-item > a:focus-visible { z-index: 1; outline: none; box-shadow: inset 0 0 0 2px rgb(var(--ink)); }
+   the anchor inside only carries layout + focus chrome. The details rail
+   uses the same mechanics with buttons — without the same treatment the
+   img inside resolves height:100% against the button's auto height, falls
+   back to natural size, and the rail shows a cropped slice of the original
+   instead of thumbnails. */
+:is(.lib-card, .d-rail) ul.admin-gallery-strip { list-style: none; margin: 0; padding: 0; }
+:is(.lib-card, .d-rail) .admin-gallery-strip-item > :is(a, button) { display: block; height: 100%; margin: 0; padding: 0; border: 0; background: none; text-decoration: none; }
+:is(.lib-card, .d-rail) .admin-gallery-strip-item > :is(a, button):focus-visible { z-index: 1; outline: none; box-shadow: inset 0 0 0 2px rgb(var(--ink)); }
 
 /* Encrypted-source surfaces. The locked panel replaces the whole gallery
    when this device holds no key: a centred card on the gallery ground,

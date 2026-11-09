@@ -426,3 +426,17 @@ describe('local gallery details (desktop)', () => {
     expect(failing.container.textContent).toContain('The card is not mounted')
   })
 })
+
+describe('the details rail stylesheet contract', () => {
+  // The rail sizes each item through `height:100%` on the img, which only
+  // resolves when the wrapping button is `display:block; height:100%`. That
+  // rule shipped scoped to `.lib-card`, so the details rail's buttons stayed
+  // unsized and every img fell back to natural size — a cropped slice of the
+  // original instead of thumbnails. happy-dom cannot compute styles, so the
+  // contract is asserted on the stylesheet itself, canary-style.
+  test('the strip-item interactive child rule covers the details rail', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs')
+    const css = readFileSync(new URL('../../app/styles.css', import.meta.url).pathname, 'utf8')
+    expect(css).toMatch(/:is\(\.lib-card, \.d-rail\) \.admin-gallery-strip-item > :is\(a, button\) \{[^}]*height: 100%/)
+  })
+})
