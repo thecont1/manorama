@@ -864,6 +864,31 @@ describe('encrypted-source offline materialization', () => {
     lease?.dispose()
   })
 
+  test('a vault lease strips provider media refs — nothing in it can resolve over the network', async () => {
+    const harness = makeHarness()
+    const disposed = { value: false }
+    const materialize = { count: 0 }
+    const store = new EncryptedOfflineGalleryStore({
+      vault: harness.vault, objectUrls: harness.urls,
+      openEncryptedSession: async () => sessionFor([encryptedImage('a'.repeat(64))], firstBytes, disposed, materialize),
+    })
+    const gallery = encryptedGallery('a'.repeat(64))
+    // The variant's ref is what rail cells resolve — it must go too.
+    gallery.manifest.images[0]!.variants = [{
+      width: 800, src: '', format: 'jpeg',
+      media: { kind: 'encrypted', provider: 'mega', sourceKind: 'folder', sourceId: 'AbCdEf12', nodeId: 'node1', previewId: 'pv1' },
+    }]
+    await store.cache(encryptedSelection, gallery)
+    const lease = await store.open(encryptedSelection)
+    const item = lease?.manifest.images[0]!
+    expect(item.src).toBe('blob:offline-1')
+    expect('media' in item).toBe(false)
+    expect(item.variants?.every((variant) => variant.src === 'blob:offline-1' && !('media' in variant))).toBe(true)
+    // The stored manifest keeps its refs — the next fill compares against it.
+    expect((gallery.manifest.images[0] as GalleryImage).media?.kind).toBe('encrypted')
+    lease?.dispose()
+  })
+
   test('contentVersion gates byte reuse under a stable encrypted handle', async () => {
     const harness = makeHarness()
     const firstDispose = { value: false }
