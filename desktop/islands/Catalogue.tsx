@@ -2333,6 +2333,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   controller={createDesktopVaultSettings(() => accountTier)}
                   tier={accountTier}
                   embedded
+                  usageBreakdown={false}
                 />
               </>
             )}

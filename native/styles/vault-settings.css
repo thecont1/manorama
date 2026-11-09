@@ -125,7 +125,34 @@
   border: 1px solid rgba(var(--ink), .24);
   border-radius: 8px;
   padding: 8px 12px;
+  padding-right: 30px;
   font: inherit;
+  cursor: pointer;
+}
+
+.native-vault-cap select:hover:not([disabled]) {
+  border-color: rgba(var(--ink), .45);
+}
+
+.native-vault-cap select:focus-visible {
+  outline: 2px solid #fc0fc0;
+  outline-offset: 1px;
+}
+
+.native-vault-select {
+  position: relative;
+  display: inline-block;
+}
+
+.native-vault-select-caret {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  width: 10px;
+  height: 6px;
+  transform: translateY(-50%);
+  color: rgba(var(--ink), .62);
+  pointer-events: none;
 }
 
 .native-vault-galleries {

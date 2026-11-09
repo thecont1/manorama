@@ -43,6 +43,9 @@ beforeAll(() => {
   previousCancelAnimationFrame = globals.cancelAnimationFrame
   globals.window = dom
   globals.document = dom.document
+  // hono's JSX renderer checks `instanceof SVGElement` for the select
+  // chevron — another global happy-dom keeps on the window.
+  globals.SVGElement = dom.SVGElement
   globals.requestAnimationFrame = ((callback: FrameRequestCallback) => {
     nextFrameId += 1
     frames.push({ id: nextFrameId, callback })
@@ -135,10 +138,10 @@ const makeController = (snapshot?: Partial<VaultSettingsSnapshot>): FakeControll
   }
 }
 
-const mount = (controller: FakeController, tier?: 'free' | 'pro') => {
+const mount = (controller: FakeController, tier?: 'free' | 'pro', props?: { usageBreakdown?: boolean }) => {
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
-  render(<VaultSettings controller={controller} tier={tier} />, container)
+  render(<VaultSettings controller={controller} tier={tier} usageBreakdown={props?.usageBreakdown} />, container)
   return container
 }
 
@@ -161,6 +164,33 @@ describe('VaultSettings island', () => {
     // The bound is described honestly — an upper bound, never reserved space.
     expect(html).toContain('upper bound')
     expect(html).toContain('not reserved space')
+  })
+
+  test('without the usage breakdown the meter alone carries the storage figures', async () => {
+    const container = mount(makeController(), 'free', { usageBreakdown: false })
+    await settle()
+
+    const html = container.innerHTML
+    expect(html).not.toContain('Total on this device')
+    expect(html).not.toContain('Index &')
+    expect(html).not.toContain('Photographs')
+    // The one-line meter still reports used vs cap.
+    expect(html).toContain('Encrypted copies')
+    expect(html).toContain('90.0 MiB of 256.0 MiB')
+    expect(container.querySelector('.native-vault-usage')).toBeNull()
+    expect(container.querySelector('.native-vault-meter')).not.toBeNull()
+  })
+
+  test('each select carries a dropdown affordance', async () => {
+    const container = mount(makeController(), 'free')
+    await settle()
+
+    const selects = container.querySelectorAll('.native-vault-select select')
+    expect(selects.length).toBe(2)
+    for (const select of selects) {
+      const caret = select.parentElement?.querySelector('svg[aria-hidden="true"]')
+      expect(caret).not.toBeNull()
+    }
   })
 
   test('free tier caps at 256 MiB with no unlimited option; pro offers it', async () => {

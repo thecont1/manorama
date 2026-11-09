@@ -365,8 +365,10 @@ The headless harness on its own:
 ```sh
 swiftc -O macos/ManoramaMac/LocalGallery.swift macos/ManoramaMac/FolderStore.swift \
   macos/ManoramaMac/LocalSchemeHandler.swift macos/ManoramaMac/Trace.swift \
+  macos/ManoramaMac/OAuthLoopback.swift macos/ManoramaMac/NativeBridge.swift \
+  macos/ManoramaMac/InvokeReply.swift \
   macos/BoundaryTests/BoundaryTests.swift macos/BoundaryTests/main.swift \
-  -framework AppKit -framework WebKit -o /tmp/manorama-boundary && /tmp/manorama-boundary
+  -framework AppKit -framework WebKit -framework Security -o /tmp/manorama-boundary && /tmp/manorama-boundary
 ```
 
 Screenshots of the prototype are in `/tmp/manorama-mac-shots/`.

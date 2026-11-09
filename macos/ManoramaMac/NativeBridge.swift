@@ -219,9 +219,7 @@ final class NativeBridge {
 
     /// Hand the answer back to the page.
     private func reply(id: Int, ok: Bool, value: Any? = nil, error: String? = nil) {
-        var payload: [String: Any] = ["id": id, "ok": ok]
-        if let value { payload["value"] = value }
-        if let error { payload["error"] = error }
+        let payload = InvokeReplyEncoding.payload(id: id, ok: ok, value: value, error: error)
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
         webView?.evaluateJavaScript("window.__manoramaShellSettle && window.__manoramaShellSettle(\(json));")

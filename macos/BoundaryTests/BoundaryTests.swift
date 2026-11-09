@@ -21,9 +21,9 @@ import WebKit
 ///     crashing.
 ///
 /// Run:
-///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler}.swift \
+///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler,Trace,OAuthLoopback,NativeBridge,InvokeReply}.swift \
 ///     macos/BoundaryTests/{BoundaryTests,main}.swift \
-///     -framework AppKit -framework WebKit -o /tmp/boundary && /tmp/boundary
+///     -framework AppKit -framework WebKit -framework Security -o /tmp/boundary && /tmp/boundary
 final class BoundaryTests {
     /// The entry point — `main` has to be a top-level symbol for the
     /// linker, so the work lives in `run()`.
@@ -326,6 +326,20 @@ final class BoundaryTests {
         check("http capability allows protonvpn.com", NativeCapabilities.isAllowedHttpURL("https://api.protonvpn.com/test") != nil)
         check("http capability refuses non-proton host", NativeCapabilities.isAllowedHttpURL("https://example.com/api") == nil)
         check("http capability refuses plain http proton", NativeCapabilities.isAllowedHttpURL("http://drive-api.proton.me/drive") == nil)
+
+        // The invoke reply contract: a nil result is `value: null`, never an
+        // omitted member — the page's `!== null` purge verification reads an
+        // omitted value (`undefined`) as a surviving vault key.
+        let okReply = InvokeReplyEncoding.payload(id: 7, ok: true, value: nil)
+        check("nil invoke reply carries value null", okReply["value"] is NSNull)
+        let errReply = InvokeReplyEncoding.payload(id: 8, ok: false, error: "x")
+        check("error invoke reply carries no value", errReply["value"] == nil && errReply["error"] as? String == "x")
+        if let replyData = try? JSONSerialization.data(withJSONObject: okReply),
+           let replyJson = String(data: replyData, encoding: .utf8) {
+            check("invoke reply JSON keeps the value member", replyJson.contains("\"value\":null"), replyJson)
+        } else {
+            check("invoke reply JSON keeps the value member", false, "serialization failed")
+        }
 
         let loopback = OAuthLoopbackServer()
         if let port = try? loopback.begin() {

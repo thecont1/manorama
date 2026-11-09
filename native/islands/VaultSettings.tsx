@@ -11,6 +11,9 @@ type Props = {
   onClose?: () => void
   /** Settings embeds the same live storage controls without a second shell. */
   embedded?: boolean
+  /** The Photographs / Index / Total tile row. The meter alone already
+   *  answers "how much is stored" — desktop skips the tiles. */
+  usageBreakdown?: boolean
 }
 
 const MIB = 1024 * 1024
@@ -40,7 +43,7 @@ type PendingAction =
  *  destructive per-gallery / whole-vault purges behind explicit confirmation.
  *  Nothing here touches the server or a provider — every byte lives only on
  *  this device. */
-export default function VaultSettings({ controller, tier, onClose, embedded = false }: Props) {
+export default function VaultSettings({ controller, tier, onClose, embedded = false, usageBreakdown = true }: Props) {
   const isPro = tier === 'pro'
   const [snapshot, setSnapshot] = useState<VaultSettingsSnapshot | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
@@ -127,7 +130,7 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
           ) : null}
         </header>
 
-        {snapshot ? (
+        {snapshot && usageBreakdown ? (
           <dl class="native-vault-usage">
             <div>
               <dt>Photographs</dt>
@@ -142,9 +145,9 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
               <dd>{formatBytes(snapshot.usage.measuredBytes)}</dd>
             </div>
           </dl>
-        ) : (
+        ) : !snapshot ? (
           <p class="native-vault-note">Measuring encrypted storage…</p>
-        )}
+        ) : null}
 
         {snapshot ? (
           <div class="native-vault-summary">
@@ -169,16 +172,19 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
 
         <label class="native-vault-cap">
           <span>Storage limit</span>
-          <select
-            value={currentCapValue}
-            disabled={pending !== null || snapshot === null}
-            onChange={(event: Event) => selectCap((event.currentTarget as HTMLSelectElement).value)}
-          >
-            {capChoices.map((bytes) => (
-              <option key={bytes} value={String(bytes)}>{formatBytes(bytes)}</option>
-            ))}
-            {isPro ? <option value="unlimited">Unlimited</option> : null}
-          </select>
+          <span class="native-vault-select">
+            <select
+              value={currentCapValue}
+              disabled={pending !== null || snapshot === null}
+              onChange={(event: Event) => selectCap((event.currentTarget as HTMLSelectElement).value)}
+            >
+              {capChoices.map((bytes) => (
+                <option key={bytes} value={String(bytes)}>{formatBytes(bytes)}</option>
+              ))}
+              {isPro ? <option value="unlimited">Unlimited</option> : null}
+            </select>
+            <SelectChevron />
+          </span>
         </label>
         <p class="native-vault-note">
           The limit is an upper bound, not reserved space — the vault still needs free disk to write.
@@ -187,14 +193,17 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
 
         <label class="native-vault-cap">
           <span>When opening an online gallery</span>
-          <select
-            value={snapshot?.loadPolicy ?? 'vault'}
-            disabled={pending !== null || snapshot === null}
-            onChange={(event: Event) => selectLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}
-          >
-            <option value="vault">Download to encrypted vault (default)</option>
-            <option value="stream">Stream from cloud when needed</option>
-          </select>
+          <span class="native-vault-select">
+            <select
+              value={snapshot?.loadPolicy ?? 'vault'}
+              disabled={pending !== null || snapshot === null}
+              onChange={(event: Event) => selectLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}
+            >
+              <option value="vault">Download to encrypted vault (default)</option>
+              <option value="stream">Stream from cloud when needed</option>
+            </select>
+            <SelectChevron />
+          </span>
         </label>
         <p class="native-vault-note">
           Vault copies are encrypted and app-private: they do not appear in Files or another image viewer.
@@ -270,3 +279,11 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
 
 const sameAction = (a: PendingAction | null, b: PendingAction): boolean =>
   !!a && a.kind === b.kind && (a.kind !== 'purge' || (b.kind === 'purge' && a.galleryId === b.galleryId))
+
+/** The affordance a bare `appearance: none` select lacks: a downward chevron
+ *  pinned inside the control's padding. */
+const SelectChevron = () => (
+  <svg class="native-vault-select-caret" viewBox="0 0 10 6" aria-hidden="true">
+    <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+  </svg>
+)
