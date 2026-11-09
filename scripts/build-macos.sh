@@ -40,6 +40,7 @@ swiftc \
   -framework AppKit \
   -framework SwiftUI \
   -framework WebKit \
+  -framework Security \
   -o "$BUILD_DIR/ManoramaMac" \
   "$APP"/*.swift
 
@@ -49,6 +50,9 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/ManoramaMac" "$APP_BUNDLE/Contents/MacOS/ManoramaMac"
 cp -R "$APP/Resources/ViewerBundle" "$APP_BUNDLE/Contents/Resources/ViewerBundle"
+if [ -f "src-tauri/icons/icon.icns" ]; then
+  cp "src-tauri/icons/icon.icns" "$APP_BUNDLE/Contents/Resources/icon.icns"
+fi
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -59,11 +63,22 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>manorama</string>
   <key>CFBundleExecutable</key><string>ManoramaMac</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+  <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleVersion</key><string>0.3.0</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>in.thecontrarian.manorama.desktop</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>in.thecontrarian.manorama.desktop</string>
+      </array>
+    </dict>
+  </array>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

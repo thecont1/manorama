@@ -59,9 +59,6 @@ final class AppModel: ObservableObject {
             guard let index = arguments.firstIndex(of: "--store"), index + 1 < arguments.count else { return nil }
             return URL(fileURLWithPath: arguments[index + 1])
         }()
-        self.folderStore = FolderStore(fileURL: storeURL)
-        self.schemeHandler = LocalSchemeHandler(bundleRoot: bundleRoot)
-        let roots = grantedRoots
         // `--config <dir>` puts the app's private documents — the session,
         // the catalogue, the vault and the picker-approved roots — somewhere
         // else. The default is shared with the Tauri build, which is what
@@ -72,7 +69,14 @@ final class AppModel: ObservableObject {
             guard let index = arguments.firstIndex(of: "--config"), index + 1 < arguments.count else { return nil }
             return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
         }()
-        self.bridge = NativeBridge(folderStore: folderStore, grantedRoots: roots, configDir: configDir)
+        self.folderStore = FolderStore(fileURL: storeURL, configDir: configDir)
+        self.schemeHandler = LocalSchemeHandler(bundleRoot: bundleRoot)
+        let roots = grantedRoots
+        self.bridge = NativeBridge(
+            folderStore: folderStore,
+            grantedRoots: roots,
+            configDir: configDir
+        )
         coordinator.bridge = bridge
         // The media handler answers an absolute path only when it really is
         // inside a root the user granted. The list is read from the cache
@@ -125,7 +129,7 @@ final class AppModel: ObservableObject {
             // add, not the shell: local galleries are a Visionary feature,
             // so the add cannot happen before the session says who the
             // owner is. The shell only raises the flag.
-            if NativeBridge.seededFolder != nil {
+            if self?.bridge.hasSeededFolder == true {
                 Trace.log("seeding the folder")
                 self?.webViewRef?.evaluateJavaScript("window.__manoramaSeedRequested = true;")
             }
@@ -149,13 +153,22 @@ final class AppModel: ObservableObject {
 
     /// Recompute the folders the media handler answers for.
     ///
-    /// Main actor: it reads the folder store's published entries and the
-    /// shell's own record of picker-approved roots.
+    /// Main actor: it reads the folder store's published entries and
+    /// backfills bookmarks for any reachable picker-approved roots in
+    /// `roots.json` (such as folders picked in the Tauri build).
     func refreshGrantedRoots() {
+        for root in bridge.savedGalleryRoots() {
+            if folderStore.grantIfKnown(root) == nil {
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: root, isDirectory: &isDir), isDir.boolValue {
+                    if let entry = folderStore.add(folder: URL(fileURLWithPath: root)) {
+                        _ = folderStore.startAccess(entry)
+                    }
+                }
+            }
+        }
         folderStore.refreshAvailability()
-        let bookmarked = folderStore.grantedRoots()
-        let picked = bridge.savedGalleryRoots().map { URL(fileURLWithPath: $0) }
-        grantedRoots.replace(bookmarked + picked)
+        grantedRoots.replace(folderStore.grantedRoots())
     }
 
     /// Reload the Library.
@@ -189,6 +202,28 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - The window
+
+    /// Configure the host window to match Tauri's `tauri.conf.json`:
+    /// overlay titlebar (`titlebarAppearsTransparent`, `.fullSizeContentView`,
+    /// `titleVisibility = .hidden`) and `#111312` canvas background.
+    ///
+    /// Note: `configureWindow` is called from `WindowAccessor.updateNSView`,
+    /// so we must not mutate `@Published var window` (which would re-trigger
+    /// `updateNSView` on the next tick in an infinite loop) or call
+    /// `setFrameAutosaveName` (which triggers `windowDidResize` → SwiftUI
+    /// view update → `updateNSView`).
+    func configureWindow(_ window: NSWindow) {
+        if self.window !== window {
+            self.window = window
+        }
+        guard !didConfigureWindow else { return }
+        didConfigureWindow = true
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0, alpha: 1.0)
+        window.isMovableByWindowBackground = false
+    }
+
+    private var didConfigureWindow = false
 
     /// Toggle the host window's fullscreen.
     ///

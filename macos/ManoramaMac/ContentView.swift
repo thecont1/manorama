@@ -17,9 +17,12 @@ import WebKit
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
 
+    /// Matches `src-tauri/tauri.conf.json` `backgroundColor: "#111312"`.
+    private static let canvasColor = Color(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0)
+
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            Self.canvasColor
 
             // The webview mounts with the window, not with the first
             // gallery — the shell's commands need a live view to drive, and
@@ -37,11 +40,11 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottom) {
             if model.isGalleryOpen {
-                statusBar
+                accessibilityStatusReadout
             }
         }
         .background(WindowAccessor { window in
-            model.window = window
+            model.configureWindow(window)
             model.openInFullScreen()
         })
         .alert(
@@ -58,21 +61,27 @@ struct ContentView: View {
         }
     }
 
-    /// A thin native status bar — the shell's own, not the web's.
-    private var statusBar: some View {
+    /// Status and position readout for Accessibility (`AXProbe`, VoiceOver)
+    /// without painting a competing bar over the viewer's `.stage-arrows`.
+    ///
+    /// Note: SwiftUI omits `.opacity(0)` views from the macOS Accessibility
+    /// hierarchy (`kAXChildrenAttribute`). Keeping `.opacity(0.01)` on a
+    /// 1pt-tall transparent strip preserves the `AXStaticText` nodes in the
+    /// native AX tree while leaving the stage visually and interactively
+    /// unobstructed.
+    private var accessibilityStatusReadout: some View {
         HStack(spacing: 12) {
             Text(model.galleryTitle ?? model.status)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.01))
             Spacer()
             if model.position.total > 0 {
                 Text("\(model.position.index + 1) of \(model.position.total)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color.white.opacity(0.01))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(.bar)
+        .frame(height: 1)
+        .allowsHitTesting(false)
     }
 }

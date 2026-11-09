@@ -48,12 +48,17 @@ final class NativeBridge {
     private static let privateFiles: Set<String> = ["session.json", "catalogue.json", "providers.json"]
 
     /// The logical prefix the vault's own paths carry.
-    private static let vaultDirName = "manorama-vault-v1"
+    nonisolated private static let vaultDirName = "manorama-vault-v1"
+
+    /// Maximum size of `vault-debug.log` before rotation — matches `VAULT_LOG_MAX_BYTES` in `src-tauri/src/lib.rs`.
+    nonisolated static let vaultLogMaxBytes = 512 * 1024
 
     /// The label this Mac reports to the account.
     private let deviceLabel: String
     /// The folder a test run hands back instead of asking for one.
     private var seededPickPath: String?
+    /// Whether this launch was seeded with `--seed-folder`.
+    let hasSeededFolder: Bool
 
     /// The cached picker-approved roots, and the lock that guards them.
     private var cachedRoots: [String]?
@@ -62,20 +67,90 @@ final class NativeBridge {
     /// The folders the user has granted, shared with the media handler.
     private let grantedRoots: GrantedRoots
 
-    init(folderStore: FolderStore, grantedRoots: GrantedRoots, configDir: URL? = nil) {
+    /// Ephemeral loopback HTTP server for Google Drive installed-app OAuth.
+    private let oauthLoopback = OAuthLoopbackServer()
+
+    /// Custom-scheme deep links (`in.thecontrarian.manorama.desktop://...`) received by the app.
+    private var currentDeepLinks: [String] = []
+    /// Whether the page has registered a deep-link listener.
+    private var pageReadyForDeepLinks = false
+
+    /// State for `plugin:http|fetch*` (Proton Drive native transport).
+    private struct PendingHttpRequest {
+        let request: URLRequest
+    }
+    private struct StoredHttpResponse {
+        let data: Data
+        var offset: Int
+    }
+    private var nextHttpRid: Int = 1000
+    private var pendingHttpRequests: [Int: PendingHttpRequest] = [:]
+    private var inflightHttpTasks: [Int: Task<(Data, URLResponse), Error>] = [:]
+    private var storedHttpResponses: [Int: StoredHttpResponse] = [:]
+    private static let httpChunkBytes = 256 * 1024
+
+    init(folderStore: FolderStore, grantedRoots: GrantedRoots, configDir: URL? = nil, seededFolder: String? = nil) {
         self.folderStore = folderStore
         self.grantedRoots = grantedRoots
         let resolved = configDir ?? Self.defaultConfigDir()
         self.configDir = resolved
         self.vaultRoot = resolved.appendingPathComponent(Self.vaultDirName, isDirectory: true)
-        self.deviceLabel = Host.current().localizedName ?? "This Mac"
+        self.deviceLabel = Self.resolveDeviceLabel()
 
         // `--seed-folder <path>` both answers the picker and tells the app
-        // to add that folder at launch.
-        let arguments = CommandLine.arguments
-        if let index = arguments.firstIndex(of: "--seed-folder"), index + 1 < arguments.count {
-            seededPickPath = arguments[index + 1]
+        // to add that folder at launch. Bookmark it immediately in the
+        // folder store so the grant is recorded on disk before the page
+        // finishes its async session check.
+        if let seeded = seededFolder ?? ({
+            let arguments = CommandLine.arguments
+            guard let index = arguments.firstIndex(of: "--seed-folder"), index + 1 < arguments.count else { return nil }
+            return arguments[index + 1]
+        }()) {
+            seededPickPath = seeded
+            hasSeededFolder = true
+            let url = URL(fileURLWithPath: seeded)
+            _ = folderStore.add(folder: url)
+            recordGalleryRoot(url.path)
+        } else {
+            hasSeededFolder = false
         }
+    }
+
+    /// Matches `src-tauri/src/lib.rs` `device_label()`:
+    /// `scutil --get ComputerName` → `hostname` (stripping `.local`) → `"This Mac"`.
+    static func resolveDeviceLabel() -> String {
+        func run(_ executable: String, _ args: [String]) -> String? {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = args
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else { return nil }
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                guard let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                      !output.isEmpty else { return nil }
+                return output
+            } catch {
+                return nil
+            }
+        }
+        if let name = run("/usr/sbin/scutil", ["--get", "ComputerName"]) {
+            return name
+        }
+        if let host = run("/bin/hostname", []) {
+            let cleaned = host.hasSuffix(".local")
+                ? String(host.dropLast(".local".count))
+                : host
+            if !cleaned.isEmpty {
+                return cleaned
+            }
+        }
+        return "This Mac"
     }
 
     /// The folder a test run asked to be added, if any.
@@ -91,6 +166,27 @@ final class NativeBridge {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return support.appendingPathComponent("in.thecontrarian.manorama.desktop", isDirectory: true)
+    }
+
+    // MARK: - Deep links
+
+    /// Record and forward a custom-scheme URL opened on the application.
+    func deliverDeepLink(_ urlString: String) {
+        if !currentDeepLinks.contains(urlString) {
+            currentDeepLinks.append(urlString)
+        }
+        guard pageReadyForDeepLinks,
+              let data = try? JSONSerialization.data(withJSONObject: [urlString]),
+              let arrayJson = String(data: data, encoding: .utf8),
+              let singleData = try? JSONSerialization.data(withJSONObject: urlString),
+              let singleJson = String(data: singleData, encoding: .utf8) else { return }
+        let script = """
+        window.__manoramaShellEmit && (
+          window.__manoramaShellEmit("deep-link://new-url", \(arrayJson)),
+          window.__manoramaShellEmit("manorama://deep-link", \(singleJson))
+        );
+        """
+        webView?.evaluateJavaScript(script)
     }
 
     // MARK: - The channel
@@ -160,6 +256,55 @@ final class NativeBridge {
             try registerSavedGalleryRoots()
             return nil
 
+        case "plugin:opener|open_url":
+            guard let raw = args["url"] as? String,
+                  let url = NativeCapabilities.isAllowedOpenerURL(raw) else {
+                throw BridgeError.failed("URL is not allowed by opener capability")
+            }
+            guard NSWorkspace.shared.open(url) else {
+                throw BridgeError.failed("The system browser could not open that URL")
+            }
+            return nil
+
+        case "plugin:deep-link|get_current":
+            pageReadyForDeepLinks = true
+            return currentDeepLinks.isEmpty ? NSNull() : currentDeepLinks
+
+        case "plugin:event|listen":
+            pageReadyForDeepLinks = true
+            return args["handler"] as? Int ?? 0
+        case "plugin:event|unlisten":
+            return nil
+        case "plugin:event|emit", "plugin:event|emit_to":
+            return nil
+
+        case "plugin:window|start_dragging":
+            if let window = webView?.window, let event = NSApp.currentEvent {
+                window.performDrag(with: event)
+            }
+            return nil
+
+        case "oauth_loopback_begin":
+            return Int(try oauthLoopback.begin())
+        case "oauth_loopback_cancel":
+            oauthLoopback.cancel()
+            return nil
+        case "oauth_loopback_finish":
+            return try await oauthLoopback.finish()
+
+        case "plugin:http|fetch":
+            return try httpFetchPrepare(args)
+        case "plugin:http|fetch_send":
+            return try await httpFetchSend(args)
+        case "plugin:http|fetch_read_body":
+            return try httpFetchReadBody(args)
+        case "plugin:http|fetch_cancel":
+            httpFetchCancel(args)
+            return nil
+        case "plugin:http|fetch_cancel_body":
+            httpFetchCancelBody(args)
+            return nil
+
         case "plugin:fs|exists":
             let path = try grantedPath(args)
             return FileManager.default.fileExists(atPath: path.path)
@@ -207,7 +352,7 @@ final class NativeBridge {
             return try await offMain { try self.listVault() }
         case "vault_log":
             let line = args["line"] as? String ?? ""
-            try appendVaultLog(line)
+            try await offMain { try self.appendVaultLog(line) }
             return nil
 
         case "vault_key_get":
@@ -227,7 +372,119 @@ final class NativeBridge {
         }
     }
 
-    // MARK: - Private documents
+    // MARK: - Native HTTP transport (`plugin:http|*`)
+
+    private func httpFetchPrepare(_ args: [String: Any]) throws -> Int {
+        guard let config = args["clientConfig"] as? [String: Any],
+              let rawURL = config["url"] as? String,
+              let url = NativeCapabilities.isAllowedHttpURL(rawURL) else {
+            throw BridgeError.failed("URL is not allowed by http capability scope")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = (config["method"] as? String) ?? "GET"
+        if let timeoutMs = config["connectTimeout"] as? Double, timeoutMs > 0 {
+            request.timeoutInterval = timeoutMs / 1000.0
+        }
+        if let headers = config["headers"] as? [[Any]] {
+            for pair in headers where pair.count >= 2 {
+                if let name = pair[0] as? String, let value = pair[1] as? String {
+                    request.setValue(value, forHTTPHeaderField: name)
+                }
+            }
+        }
+        if let bodyBytes = config["data"] as? [Int] {
+            request.httpBody = Data(bodyBytes.map { UInt8(truncatingIfNeeded: $0) })
+        } else if let bodyBytes = config["data"] as? [UInt8] {
+            request.httpBody = Data(bodyBytes)
+        } else if let encoded = (config["data"] as? [String: Any])?["__bytes"] as? String,
+                  let decoded = Data(base64Encoded: encoded) {
+            request.httpBody = decoded
+        }
+        let rid = nextHttpRid
+        nextHttpRid += 1
+        pendingHttpRequests[rid] = PendingHttpRequest(request: request)
+        return rid
+    }
+
+    private func httpFetchSend(_ args: [String: Any]) async throws -> [String: Any] {
+        guard let rid = args["rid"] as? Int,
+              let pending = pendingHttpRequests.removeValue(forKey: rid) else {
+            throw BridgeError.badArguments("Invalid http request rid")
+        }
+        let task = Task<(Data, URLResponse), Error> {
+            try await URLSession.shared.data(for: pending.request)
+        }
+        inflightHttpTasks[rid] = task
+        defer { inflightHttpTasks.removeValue(forKey: rid) }
+
+        let (data, response) = try await task.value
+        guard let http = response as? HTTPURLResponse else {
+            throw BridgeError.failed("Invalid HTTP response")
+        }
+        var headerPairs: [[String]] = []
+        for (key, value) in http.allHeaderFields {
+            if let k = key as? String, let v = value as? String {
+                headerPairs.append([k, v])
+            }
+        }
+        let responseRid = nextHttpRid
+        nextHttpRid += 1
+        storedHttpResponses[responseRid] = StoredHttpResponse(data: data, offset: 0)
+        return [
+            "status": http.statusCode,
+            "statusText": HTTPURLResponse.localizedString(forStatusCode: http.statusCode),
+            "url": (http.url ?? pending.request.url!).absoluteString,
+            "headers": headerPairs,
+            "rid": responseRid,
+        ]
+    }
+
+    private func httpFetchReadBody(_ args: [String: Any]) throws -> [String: Any] {
+        guard let rid = args["rid"] as? Int,
+              var stored = storedHttpResponses[rid] else {
+            // Already closed or empty: return EOF marker [1].
+            return ["__bytes": Data([1]).base64EncodedString()]
+        }
+        if stored.offset >= stored.data.count {
+            storedHttpResponses.removeValue(forKey: rid)
+            return ["__bytes": Data([1]).base64EncodedString()]
+        }
+        let end = min(stored.offset + Self.httpChunkBytes, stored.data.count)
+        var chunk = Data(stored.data[stored.offset..<end])
+        chunk.append(0) // Trailing 0 indicates a data chunk in @tauri-apps/plugin-http
+        stored.offset = end
+        storedHttpResponses[rid] = stored
+        return ["__bytes": chunk.base64EncodedString()]
+    }
+
+    private func httpFetchCancel(_ args: [String: Any]) {
+        guard let rid = args["rid"] as? Int else { return }
+        pendingHttpRequests.removeValue(forKey: rid)
+        inflightHttpTasks.removeValue(forKey: rid)?.cancel()
+    }
+
+    private func httpFetchCancelBody(_ args: [String: Any]) {
+        guard let rid = args["rid"] as? Int else { return }
+        storedHttpResponses.removeValue(forKey: rid)
+    }
+
+    // MARK: - Private documents & atomic 0600 writer
+
+    /// Atomic write at mode 0600 — shared by private files and `roots.json`,
+    /// matching `write_0600` in `src-tauri/src/private_store.rs`.
+    nonisolated static func write0600(to url: URL, data: Data) throws {
+        let dir = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tmp = dir.appendingPathComponent(".\(url.lastPathComponent).tmp")
+        try data.write(to: tmp, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp.path)
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        } else {
+            try FileManager.default.moveItem(at: tmp, to: url)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
 
     private func privateName(_ args: [String: Any]) throws -> String {
         guard let name = args["name"] as? String, Self.privateFiles.contains(name) else {
@@ -244,16 +501,7 @@ final class NativeBridge {
 
     private func writePrivateFile(_ name: String, contents: String) throws {
         let url = configDir.appendingPathComponent(name)
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        // Write-then-rename, so a crash never leaves half a session behind.
-        let tmp = configDir.appendingPathComponent(".\(name).tmp")
-        try Data(contents.utf8).write(to: tmp, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp.path)
-        if FileManager.default.fileExists(atPath: url.path) {
-            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
-        } else {
-            try FileManager.default.moveItem(at: tmp, to: url)
-        }
+        try Self.write0600(to: url, data: Data(contents.utf8))
     }
 
     private func deletePrivateFile(_ name: String) throws {
@@ -304,17 +552,24 @@ final class NativeBridge {
     /// Security scopes are runtime state and reset when the app restarts, so
     /// every launch has to take them again. The renderer cannot forge an
     /// entry here: the list comes from the picker-approved roots, never from
-    /// the page.
-    private func registerSavedGalleryRoots() throws {
+    /// the page. If a root in `roots.json` was picked in the Tauri shell and
+    /// does not yet have a bookmark in `FolderStore`, backfill one while the
+    /// directory is reachable on disk.
+    func registerSavedGalleryRoots() throws {
         let roots = savedGalleryRoots()
         for root in roots {
-            _ = folderStore.grantIfKnown(root)
+            if folderStore.grantIfKnown(root) == nil {
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: root, isDirectory: &isDir), isDir.boolValue {
+                    if let entry = folderStore.add(folder: URL(fileURLWithPath: root)) {
+                        _ = folderStore.startAccess(entry)
+                    }
+                }
+            }
         }
-        // The grant has to be in place before the page's next call, not
-        // after the shell's refresh lands: the page asks for the folder it
-        // was just told about, and a cache that is a moment behind answers
-        // "outside every folder you have granted".
-        grantedRoots.replace(grantedRoots.all() + roots.map { URL(fileURLWithPath: $0) })
+        // Only live, bookmark-resolved roots enter `grantedRoots` — a vanished
+        // or unmounted directory in `roots.json` does not grant access.
+        grantedRoots.replace(folderStore.grantedRoots())
         onRootsChanged?()
     }
 
@@ -341,21 +596,22 @@ final class NativeBridge {
     /// the media handler answers for.
     var onRootsChanged: (() -> Void)?
 
-    /// Record a picker-approved root.
-    private func recordGalleryRoot(_ root: String) {
+    /// Record a picker-approved root at mode 0600.
+    func recordGalleryRoot(_ root: String) {
         var roots = savedGalleryRoots()
-        guard !roots.contains(root) else { return }
-        roots.append(root)
-        guard let data = try? JSONSerialization.data(withJSONObject: roots) else { return }
-        try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        let url = configDir.appendingPathComponent("roots.json")
-        try? data.write(to: url, options: [.atomic])
-        rootsLock.lock()
-        cachedRoots = roots
-        rootsLock.unlock()
+        if !roots.contains(root) {
+            roots.append(root)
+            if let data = try? JSONSerialization.data(withJSONObject: roots) {
+                let url = configDir.appendingPathComponent("roots.json")
+                try? Self.write0600(to: url, data: data)
+            }
+            rootsLock.lock()
+            cachedRoots = roots
+            rootsLock.unlock()
+        }
         // The page scans the folder it has just picked, so the grant has to
         // be in place now — not when the shell's refresh lands.
-        grantedRoots.replace(grantedRoots.all() + [URL(fileURLWithPath: root)])
+        grantedRoots.replace(folderStore.grantedRoots())
         onRootsChanged?()
     }
 
@@ -367,9 +623,9 @@ final class NativeBridge {
         guard let raw = args["path"] as? String else {
             throw BridgeError.badArguments("a path is required")
         }
-        let url = URL(fileURLWithPath: raw).standardizedFileURL.resolvingSymlinksInPath()
+        let url = URL(fileURLWithPath: raw).resolvingExistingSymlinksInPath()
         for root in grantedRoots.all() {
-            let resolved = root.standardizedFileURL.resolvingSymlinksInPath()
+            let resolved = root.resolvingExistingSymlinksInPath()
             let rootParts = resolved.pathComponents
             let parts = url.pathComponents
             if parts.count >= rootParts.count, parts.starts(with: rootParts) { return url }
@@ -407,14 +663,18 @@ final class NativeBridge {
     ///
     /// The path arrives from the page, so it is never trusted: it must carry
     /// the vault's own prefix and must not climb out of the root.
-    private func vaultPath(_ logical: String) throws -> URL {
+    nonisolated private func vaultPath(_ logical: String) throws -> URL {
         let prefix = "\(Self.vaultDirName)/"
         guard logical.hasPrefix(prefix) else {
             throw BridgeError.failed("that is not a vault path")
         }
         let relative = String(logical.dropFirst(prefix.count))
+        guard !relative.isEmpty, !relative.contains("\\") else {
+            throw BridgeError.failed("that vault path escapes the vault")
+        }
         let components = relative.split(separator: "/", omittingEmptySubsequences: false)
-        guard !components.isEmpty, !components.contains("..") else {
+        guard !components.isEmpty,
+              !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
             throw BridgeError.failed("that vault path escapes the vault")
         }
         let root = vaultRoot.standardizedFileURL.resolvingSymlinksInPath()
@@ -428,7 +688,7 @@ final class NativeBridge {
         return candidate
     }
 
-    private func writeVaultFile(_ url: URL, bytes: Data) throws {
+    nonisolated private func writeVaultFile(_ url: URL, bytes: Data) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try bytes.write(to: url, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
@@ -438,7 +698,7 @@ final class NativeBridge {
     ///
     /// A missing root is an empty walk, not an error — a fresh vault reports
     /// zero files.
-    private func listVault() throws -> [[String: Any]] {
+    nonisolated private func listVault() throws -> [[String: Any]] {
         var files: [[String: Any]] = []
         let root = vaultRoot
         guard FileManager.default.fileExists(atPath: root.path) else { return files }
@@ -459,17 +719,31 @@ final class NativeBridge {
         return files
     }
 
-    private func appendVaultLog(_ line: String) throws {
-        let url = vaultRoot.appendingPathComponent("vault-debug.log")
+    /// Matches `vault_log` in `src-tauri/src/lib.rs`: removes any legacy
+    /// `vault-debug.log` outside the vault root, rotates past 512 KB, and
+    /// keeps mode `0600`.
+    nonisolated func appendVaultLog(_ line: String) throws {
+        let legacy = configDir.appendingPathComponent("vault-debug.log")
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
+        let target = vaultRoot.appendingPathComponent("vault-debug.log")
         try FileManager.default.createDirectory(at: vaultRoot, withIntermediateDirectories: true)
-        let stamp = ISO8601DateFormatter().string(from: Date())
-        let text = "\(stamp) \(line)\n"
-        if let handle = try? FileHandle(forWritingTo: url) {
+        let size = (try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? Int) ?? 0
+        let oversized = size > Self.vaultLogMaxBytes
+        let millis = Int64(Date().timeIntervalSince1970 * 1000)
+        var text = ""
+        if oversized {
+            text += "\(millis) vault-debug.log rotated past \(Self.vaultLogMaxBytes) bytes\n"
+        }
+        text += "\(millis) \(line)\n"
+        if !oversized, let handle = try? FileHandle(forWritingTo: target) {
             handle.seekToEndOfFile()
             handle.write(Data(text.utf8))
             try? handle.close()
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
         } else {
-            try Data(text.utf8).write(to: url, options: [.atomic])
+            try Self.write0600(to: target, data: Data(text.utf8))
         }
     }
 

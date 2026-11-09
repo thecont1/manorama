@@ -95,10 +95,9 @@ final class LocalMediaResolver {
                 for part in components.dropFirst(3) { encoded += "/\(part)" }
                 guard let decoded = encoded.removingPercentEncoding else { return .badURL }
                 let candidate = URL(fileURLWithPath: decoded)
-                    .standardizedFileURL
-                    .resolvingSymlinksInPath()
+                    .resolvingExistingSymlinksInPath()
                 for root in grantedRoots() {
-                    let resolved = root.standardizedFileURL.resolvingSymlinksInPath()
+                    let resolved = root.resolvingExistingSymlinksInPath()
                     let rootParts = resolved.pathComponents
                     let parts = candidate.pathComponents
                     if parts.count >= rootParts.count, parts.starts(with: rootParts) {
@@ -135,10 +134,9 @@ final class LocalMediaResolver {
     private func containedPath(root: URL, relative: String) -> URL? {
         let components = relative.split(separator: "/", omittingEmptySubsequences: false)
         guard !components.contains("..") else { return nil }
-        let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedRoot = root.resolvingExistingSymlinksInPath()
         let candidate = root.appendingPathComponent(relative)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
+            .resolvingExistingSymlinksInPath()
         let rootParts = resolvedRoot.pathComponents
         let candidateParts = candidate.pathComponents
         guard candidateParts.count > rootParts.count,
@@ -519,5 +517,28 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         inflightTasks.remove(taskID)
         stoppedTasks.remove(taskID)
         stoppedTasksLock.unlock()
+    }
+}
+
+extension URL {
+    /// Resolves symlinks in the path even when the leaf file or its immediate
+    /// folder has been deleted (for instance `/tmp/disposable/photo.jpg` after
+    /// `/tmp/disposable` is removed, where `/tmp` -> `/private/tmp` still exists).
+    func resolvingExistingSymlinksInPath() -> URL {
+        let standardized = self.standardizedFileURL
+        if FileManager.default.fileExists(atPath: standardized.path) {
+            return standardized.resolvingSymlinksInPath()
+        }
+        var current = standardized
+        var tail: [String] = []
+        while current.path != "/" && !FileManager.default.fileExists(atPath: current.path) {
+            tail.append(current.lastPathComponent)
+            current = current.deletingLastPathComponent()
+        }
+        var resolved = current.resolvingSymlinksInPath()
+        for component in tail.reversed() {
+            resolved.appendPathComponent(component)
+        }
+        return resolved.standardizedFileURL
     }
 }

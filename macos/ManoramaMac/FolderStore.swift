@@ -57,12 +57,24 @@ final class FolderStore: ObservableObject {
 
     private let fileURL: URL
 
-    init(fileURL: URL? = nil) {
+    init(fileURL: URL? = nil, configDir: URL? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = base.appendingPathComponent("in.thecontrarian.manorama.mac", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        self.fileURL = fileURL ?? dir.appendingPathComponent("folders.json")
+        let defaultDir = configDir ?? base.appendingPathComponent("in.thecontrarian.manorama.desktop", isDirectory: true)
+        try? FileManager.default.createDirectory(at: defaultDir, withIntermediateDirectories: true)
+        let targetURL = fileURL ?? defaultDir.appendingPathComponent("folders.json")
+        self.fileURL = targetURL
+
+        // Migrate legacy `in.thecontrarian.manorama.mac/folders.json` when using the default store location.
+        if fileURL == nil, !FileManager.default.fileExists(atPath: targetURL.path) {
+            let legacyURL = base
+                .appendingPathComponent("in.thecontrarian.manorama.mac", isDirectory: true)
+                .appendingPathComponent("folders.json")
+            if FileManager.default.fileExists(atPath: legacyURL.path) {
+                try? FileManager.default.copyItem(at: legacyURL, to: targetURL)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: targetURL.path)
+            }
+        }
         load()
     }
 
@@ -84,7 +96,16 @@ final class FolderStore: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(entries) else { return }
-        try? data.write(to: fileURL, options: [.atomic])
+        let parent = fileURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let tmp = parent.appendingPathComponent(".\(fileURL.lastPathComponent).tmp")
+        try? data.write(to: tmp, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp.path)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            _ = try? FileManager.default.replaceItemAt(fileURL, withItemAt: tmp)
+        } else {
+            try? FileManager.default.moveItem(at: tmp, to: fileURL)
+        }
     }
 
     // MARK: - Access
@@ -134,8 +155,17 @@ final class FolderStore: ObservableObject {
         return url
     }
 
-    /// Add a folder the user just picked in an `NSOpenPanel`.
+    /// Add a folder the user just picked in an `NSOpenPanel` (or backfilled
+    /// from a picker-provenance root). Deduplicates if the same path is
+    /// already remembered.
     func add(folder url: URL) -> Entry? {
+        let wanted = url.standardizedFileURL
+        for existing in entries {
+            if let resolved = resolve(existing), resolved.standardizedFileURL == wanted {
+                _ = resolved.startAccessingSecurityScopedResource()
+                return existing
+            }
+        }
         guard let bookmark = try? ScopedFolder.makeBookmark(for: url) else { return nil }
         let entry = Entry(
             id: UUID(),

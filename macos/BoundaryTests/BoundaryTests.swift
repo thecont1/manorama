@@ -254,7 +254,19 @@ final class BoundaryTests {
 
         // --- 4. Error recovery ------------------------------------------
         // The folder goes away underneath the app.
+        let resolvedFixtureBeforeDelete = fixture.resolvingSymlinksInPath()
+        resolver.grantedRoots = { [resolvedFixtureBeforeDelete] }
         try? FileManager.default.removeItem(at: fixture)
+        let absoluteAfterFolderDelete = resolver.resolve(
+            URL(string: "manorama://media/local/\(fixture.appendingPathComponent("photo0.jpg").path.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+        )
+        if case .file(let fileURL, _) = absoluteAfterFolderDelete {
+            check("deleted /tmp folder still matches /private/tmp grant so read reports gone (404), not forbidden (403)",
+                  !FileManager.default.fileExists(atPath: fileURL.path))
+        } else {
+            check("deleted /tmp folder still matches /private/tmp grant so read reports gone (404), not forbidden (403)",
+                  false, "got \(absoluteAfterFolderDelete)")
+        }
         let afterDelete = FolderStore(fileURL: storeFile)
         check("folder reported unavailable after deletion",
               afterDelete.entries.first?.isAvailable == false,
@@ -301,6 +313,139 @@ final class BoundaryTests {
             check("stopped task is never answered", !stopped.answered,
                   "answered=\(stopped.answerSummary)")
         }
+
+        // --- 6. Opener & HTTP capability scopes and OAuth loopback ------
+        check("opener allows https URL", NativeCapabilities.isAllowedOpenerURL("https://manorama.xyz/privacy") != nil)
+        check("opener allows localhost:5173 dev URL", NativeCapabilities.isAllowedOpenerURL("http://localhost:5173/.dev-seed/desktop-login") != nil)
+        check("opener allows 127.0.0.1:5173 dev URL", NativeCapabilities.isAllowedOpenerURL("http://127.0.0.1:5173/.dev-seed/desktop-login") != nil)
+        check("opener allows mailto URL", NativeCapabilities.isAllowedOpenerURL("mailto:mahesh@thecontrarian.in?subject=Manorama") != nil)
+        check("opener refuses file URL", NativeCapabilities.isAllowedOpenerURL("file:///etc/passwd") == nil)
+        check("opener refuses arbitrary http URL", NativeCapabilities.isAllowedOpenerURL("http://example.com/") == nil)
+
+        check("http capability allows proton.me", NativeCapabilities.isAllowedHttpURL("https://drive-api.proton.me/drive/urls/abc") != nil)
+        check("http capability allows protonvpn.com", NativeCapabilities.isAllowedHttpURL("https://api.protonvpn.com/test") != nil)
+        check("http capability refuses non-proton host", NativeCapabilities.isAllowedHttpURL("https://example.com/api") == nil)
+        check("http capability refuses plain http proton", NativeCapabilities.isAllowedHttpURL("http://drive-api.proton.me/drive") == nil)
+
+        let loopback = OAuthLoopbackServer()
+        if let port = try? loopback.begin() {
+            check("loopback binds an ephemeral port", port > 0)
+            var finishedTarget: String?
+            var finishedError: Error?
+            let finishDone = DispatchSemaphore(value: 0)
+            Task {
+                do {
+                    finishedTarget = try await loopback.finish(timeout: 5)
+                } catch {
+                    finishedError = error
+                }
+                finishDone.signal()
+            }
+
+            // 1) A stray probe (e.g. /favicon.ico) must receive 400 and NOT consume the listener.
+            if let badURL = URL(string: "http://127.0.0.1:\(port)/favicon.ico") {
+                let badDone = DispatchSemaphore(value: 0)
+                var badStatus = 0
+                URLSession.shared.dataTask(with: badURL) { _, resp, _ in
+                    badStatus = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    badDone.signal()
+                }.resume()
+                _ = badDone.wait(timeout: .now() + 2)
+                check("stray request on loopback gets 400", badStatus == 400, "status=\(badStatus)")
+            }
+
+            // 2) The real OAuth redirect gets 200 and resolves finish() with the target.
+            if let goodURL = URL(string: "http://127.0.0.1:\(port)/?code=abc123&state=xyz789") {
+                let goodDone = DispatchSemaphore(value: 0)
+                var goodStatus = 0
+                URLSession.shared.dataTask(with: goodURL) { _, resp, _ in
+                    goodStatus = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                    goodDone.signal()
+                }.resume()
+                _ = goodDone.wait(timeout: .now() + 2)
+                check("oauth redirect on loopback gets 200", goodStatus == 200, "status=\(goodStatus)")
+            }
+
+            _ = finishDone.wait(timeout: .now() + 3)
+            check("loopback finish returns OAuth request target",
+                  finishedTarget == "/?code=abc123&state=xyz789",
+                  "got \(String(describing: finishedTarget)) err=\(String(describing: finishedError))")
+        } else {
+            check("loopback binds an ephemeral port", false, "begin() threw")
+        }
+
+        // 3) Cancelling an in-flight loopback listener releases finish().
+        if (try? loopback.begin()) != nil {
+            var cancelError: Error?
+            let cancelDone = DispatchSemaphore(value: 0)
+            Task {
+                do {
+                    _ = try await loopback.finish(timeout: 5)
+                } catch {
+                    cancelError = error
+                }
+                cancelDone.signal()
+            }
+            usleep(100_000)
+            loopback.cancel()
+            _ = cancelDone.wait(timeout: .now() + 2)
+            check("cancelled loopback listener rejects finish()", cancelError != nil)
+        }
+
+        // --- 7. Unified provenance, 0600 permissions, and vault_log rotation ---
+        let testConfigDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("manorama-config-\(UUID().uuidString)", isDirectory: true)
+        let tauriPickedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("manorama-tauri-picked-\(UUID().uuidString)", isDirectory: true)
+        let missingPickedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("manorama-missing-picked-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: testConfigDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: tauriPickedDir, withIntermediateDirectories: true)
+
+        // Pre-seed roots.json with one real Tauri-picked directory and one vanished directory.
+        let preseededRoots = [tauriPickedDir.path, missingPickedDir.path]
+        if let rootsData = try? JSONSerialization.data(withJSONObject: preseededRoots) {
+            try? NativeBridge.write0600(to: testConfigDir.appendingPathComponent("roots.json"), data: rootsData)
+        }
+        let rootsPerms = (try? FileManager.default.attributesOfItem(atPath: testConfigDir.appendingPathComponent("roots.json").path)[.posixPermissions] as? Int) ?? 0
+        check("roots.json written at mode 0600", (rootsPerms & 0o777) == 0o600, "perms=\(String(rootsPerms, radix: 8))")
+
+        let bridgeStore = FolderStore(fileURL: testConfigDir.appendingPathComponent("folders.json"), configDir: testConfigDir)
+        let bridgeGranted = GrantedRoots()
+        var adoptedCount = 0
+        var grantedCount = 0
+        var grantedContainsMissing = true
+        MainActor.assumeIsolated {
+            let bridge = NativeBridge(folderStore: bridgeStore, grantedRoots: bridgeGranted, configDir: testConfigDir)
+            try? bridge.registerSavedGalleryRoots()
+            adoptedCount = bridgeStore.entries.count
+            let urls = bridgeGranted.all().map { $0.standardizedFileURL.path }
+            grantedCount = urls.count
+            grantedContainsMissing = urls.contains(missingPickedDir.standardizedFileURL.path)
+
+            // Legacy vault-debug.log cleanup and 512 KB rotation
+            let legacyLog = testConfigDir.appendingPathComponent("vault-debug.log")
+            try? Data("legacy".utf8).write(to: legacyLog)
+            let vaultLog = testConfigDir
+                .appendingPathComponent("manorama-vault-v1", isDirectory: true)
+                .appendingPathComponent("vault-debug.log")
+            try? FileManager.default.createDirectory(at: vaultLog.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let oversizedData = Data(repeating: 0x61, count: NativeBridge.vaultLogMaxBytes + 1024)
+            try? oversizedData.write(to: vaultLog)
+
+            try? bridge.appendVaultLog("after-rotation")
+            check("legacy vault-debug.log outside vault root is removed", !FileManager.default.fileExists(atPath: legacyLog.path))
+            let newLogSize = (try? FileManager.default.attributesOfItem(atPath: vaultLog.path)[.size] as? Int) ?? 0
+            check("oversized vault-debug.log is rotated below cap", newLogSize > 0 && newLogSize < 1024, "size=\(newLogSize)")
+            let logPerms = (try? FileManager.default.attributesOfItem(atPath: vaultLog.path)[.posixPermissions] as? Int) ?? 0
+            check("rotated vault-debug.log has mode 0600", (logPerms & 0o777) == 0o600, "perms=\(String(logPerms, radix: 8))")
+            check("device_label resolves non-empty", !NativeBridge.resolveDeviceLabel().isEmpty)
+        }
+        check("Tauri-picked existing root is adopted into FolderStore", adoptedCount == 1, "adopted=\(adoptedCount)")
+        check("only reachable roots enter GrantedRoots", grantedCount == 1 && !grantedContainsMissing, "granted=\(grantedCount)")
+
+        try? FileManager.default.removeItem(at: testConfigDir)
+        try? FileManager.default.removeItem(at: tauriPickedDir)
 
         // --- Summary ----------------------------------------------------
         print(failures == 0 ? "\nALL PASS" : "\n\(failures) FAILURE(S)")

@@ -237,8 +237,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       if (accountViewer) { disposeOpenLease(); setAccountViewer(null) }
       setViewerState(null)
     })
-    // The native menu's "Open Folder…" runs the Library's own add flow.
-    publishAddGallery(() => { void addFolder() })
+    // The native menu's "Add Gallery…" opens the chooser when signed in;
+    // "Open Folder…" runs the Library's direct folder flow.
+    publishAddGallery(() => {
+      if (session) setAddChooserOpen(true)
+      else void addFolder()
+    })
     publishAddFolder(() => { void addFolder() })
   })
 
