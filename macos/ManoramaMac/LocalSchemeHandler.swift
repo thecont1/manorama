@@ -265,6 +265,11 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The site the shell proxies the API to.
     private static let apiOrigin = URL(string: "https://manorama.xyz")!
 
+    /// When launched with `--config <dir>` (an isolated test run), never
+    /// forward non-GET `/api/device-galleries` mutations to the live server so
+    /// throwaway test `deviceId`s do not pollute the owner's remote feed.
+    private static let isIsolatedTestConfig = CommandLine.arguments.contains("--config")
+
     /// Answer an API call from the shell.
     ///
     /// The page's origin is the shell's own scheme, so the API is reached
@@ -273,6 +278,29 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// deployment. The bearer token travels with the request exactly as the
     /// browser sent it — the shell adds no authority of its own.
     private func proxyAPI(relative: String, request: URLRequest, task: WKURLSchemeTask, taskID: ObjectIdentifier) {
+        if Self.isIsolatedTestConfig,
+           relative.hasPrefix("api/device-galleries"),
+           (request.httpMethod ?? "GET").uppercased() != "GET" {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.wasStopped(taskID) {
+                    self.clearStopped(taskID)
+                    return
+                }
+                defer { self.clearStopped(taskID) }
+                let body = Data("{\"ok\":true}".utf8)
+                if let url = request.url,
+                   let response = HTTPURLResponse(
+                       url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                       headerFields: ["Content-Type": "application/json", "Content-Length": "\(body.count)"]
+                   ) {
+                    task.didReceive(response)
+                    task.didReceive(body)
+                    task.didFinish()
+                }
+            }
+            return
+        }
         guard var upstream = URL(string: relative, relativeTo: Self.apiOrigin) else {
             task.didFailWithError(URLError(.badURL))
             return

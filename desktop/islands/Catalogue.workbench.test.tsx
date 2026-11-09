@@ -1497,4 +1497,44 @@ describe('desktop catalogue workbench', () => {
       globals.fetch = defaultFetch
     }
   })
+
+  test('a synced remote-device Local gallery row exposes ··· → Remove gallery and DELETEs /api/device-galleries/:id', async () => {
+    const remoteRow = {
+      id: 'dddddddd-1111-4222-8333-444444444444',
+      title: 'manorama-boundary-disposable',
+      sourceKind: 'folder',
+      itemCount: 12,
+      deviceId: '99999999-1111-4222-8333-444444444444',
+      deviceLabel: 'Test Runner Mac',
+      updatedAt: '2026-11-09T18:00:00.000Z',
+    }
+    const deleted: string[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string }) => {
+      const path = String(url)
+      if (init?.method === 'DELETE' && path.includes('/api/device-galleries/')) {
+        deleted.push(path)
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      }
+      if (path.endsWith('/api/device-galleries')) return new Response(JSON.stringify({ galleries: [remoteRow] }), { status: 200 })
+      if (path.endsWith('/api/galleries')) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian', tier: 'pro' }), { status: 200 })
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const card = container.querySelector<HTMLElement>(`[data-gallery-card="device:${remoteRow.id}"]`)
+      expect(card).not.toBeNull()
+      card!.querySelector<HTMLButtonElement>(`[aria-label="${remoteRow.title} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Remove gallery')!.click()
+      await settle()
+      menuItem(container, 'Remove gallery')!.click()
+      await settle()
+      expect(deleted).toEqual([`https://manorama.xyz/api/device-galleries/${remoteRow.id}`])
+      expect(container.querySelector(`[data-gallery-card="device:${remoteRow.id}"]`)).toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
 })

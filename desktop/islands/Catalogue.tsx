@@ -30,7 +30,7 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -120,6 +120,7 @@ const externalAnchor = (url: string) => ({
 type CardMenu =
   | { kind: 'account'; gallery: GallerySummary }
   | { kind: 'local'; record: LocalGalleryRecord }
+  | { kind: 'device'; gallery: DeviceGallery }
 
 /* The strip/card helpers the web Library uses — same badges, same temp
  *  wording, so an owner sees one product across the two shells. */
@@ -863,6 +864,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setCardMenu(null)
       setMenuRemove(false)
       await refreshAccountGalleries(session.token)
+      setNotice('Gallery removed')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be removed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeDeviceGalleryConfirmed = async (gallery: DeviceGallery) => {
+    if (!session) return
+    setBusy(true)
+    try {
+      await deleteDeviceGalleryRecord(base, session.token, gallery.id)
+      setDeviceRows((current) => current.filter((row) => row.id !== gallery.id))
+      setCardMenu(null)
+      setMenuRemove(false)
       setNotice('Gallery removed')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That gallery could not be removed')
@@ -1919,9 +1936,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
               <ul class="lib-list">
                 {remoteDeviceGalleries.map((gallery) => (
-                  <li key={`device-${gallery.id}`}><article class="lib-card">
+                  <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
                     <div class="lib-card-head">
                       <span class="lib-card-title">{gallery.title}</span>
+                      <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
                     </div>
                     <p class="lib-card-sub">
                       {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
@@ -2111,12 +2129,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         onSubmit={addGallerySubmit}
       />
       {cardMenu ? (
-        <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}>
+        <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}>
           {menuRemove ? (
             <div class="lib-menu">
-              <p>Remove “{cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}” from manorama?{cardMenu.kind === 'account' && cardMenu.gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(cardMenu.gallery.sourceUrl)}.` : ' The folder on this Mac is untouched.'}</p>
+              <p>Remove “{cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}” from manorama?{cardMenu.kind === 'account' && cardMenu.gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(cardMenu.gallery.sourceUrl)}.` : cardMenu.kind === 'device' ? ` The folder on ${cardMenu.gallery.deviceLabel} is untouched.` : ' The folder on this Mac is untouched.'}</p>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => {
                 if (cardMenu.kind === 'account') void removeGalleryConfirmed(cardMenu.gallery)
+                else if (cardMenu.kind === 'device') void removeDeviceGalleryConfirmed(cardMenu.gallery)
                 else { const record = cardMenu.record; setCardMenu(null); setMenuRemove(false); void remove(record) }
               }}>Remove gallery</button>
               <button type="button" disabled={busy} onClick={() => setMenuRemove(false)}>Cancel</button>
@@ -2168,6 +2187,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               ) : (
                 <button type="button" disabled={busy} onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void saveToVault(g) }}>Save to this Mac</button>
               )}
+              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
+            </>) : cardMenu.kind === 'device' ? (<>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
