@@ -50,32 +50,13 @@ const post = (message: BridgeMessage) => {
  * The command the native menu sends to move the stage.
  *
  * The Viewer owns its index; the native shell does not get to set it
- * directly. So the shell's "go to photograph N" is expressed as the same
- * key sequence a person would press — the page synthesises the keystrokes
- * and the Viewer's own handler moves the stage. That keeps ONE owner of the
- * index, and it means the native path cannot drift from the keyboard path.
+ * directly. So a "go to photograph N" arrives as a serialised navigation
+ * request prop — each serial is consumed exactly once through the Viewer's
+ * own `goTo`, with no synthesised keystrokes and no timers two commands
+ * could interleave.
  */
-const moveTo = (index: number) => {
-  const dispatch = (key: string) => {
-    document.dispatchEvent(new KeyboardEvent('keydown', {
-      key,
-      bubbles: true,
-      cancelable: true,
-    }))
-  }
-  // Home lands on the first photograph; then ArrowRight steps forward.
-  dispatch('Home')
-  let steps = 0
-  const step = () => {
-    if (steps >= index) return
-    steps += 1
-    dispatch('ArrowRight')
-    // The strip advances by viewport, not by one, so a single ArrowRight
-    // may skip frames. Re-issue until the page reports the target index.
-    if (steps < index) window.setTimeout(step, 60)
-  }
-  if (index > 0) window.setTimeout(step, 60)
-}
+let navSerial = 0
+let navRequest: { index: number; serial: number } | null = null
 
 const root = document.getElementById('app')
 if (!root) throw new Error('viewer root is missing')
@@ -106,6 +87,7 @@ const mount = (payload: OpenPayload) => {
         // would put the whole WKWebView into its own space, which is not what
         // a Mac user means by "fullscreen" for an app with a sidebar.
         allowFullscreen={false}
+        navigationRequest={navRequest}
         onPositionChange={(position) => {
           post({
             type: 'position',
@@ -138,7 +120,13 @@ window.addEventListener('keydown', (event) => {
 Object.assign(window, {
   manoramaNative: {
     open: (payload: OpenPayload) => mount(payload),
-    goTo: (index: number) => moveTo(index),
+    goTo: (index: number) => {
+      navSerial += 1
+      navRequest = { index, serial: navSerial }
+      // A navigation only re-renders the mounted gallery — the serial makes
+      // even a repeated index a distinct request the Viewer consumes once.
+      if (current) mount(current)
+    },
     setTheme: (theme: 'light' | 'dark') => {
       document.documentElement.classList.toggle('light', theme === 'light')
     },
