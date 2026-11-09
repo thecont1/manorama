@@ -237,7 +237,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // The mounted viewer's lease on open results: an offline lease's object
   // URLs must not be revoked while the Viewer reads them, and an online
   // encrypted resolver must outlive the background cache fill.
-  const openLeaseRef = useRef<{ dispose?(): void } | null>(null)
+  const openLeaseRef = useRef<{ dispose?(): void; cacheFill?: Promise<unknown> } | null>(null)
   const vaultOpenAbortRef = useRef<AbortController | null>(null)
   const [plate, setPlate] = useState<AdFrame | null>(null)
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
@@ -1181,7 +1181,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         result.dispose?.()
         return
       }
-      openLeaseRef.current?.dispose?.()
+      disposeOpenLease()
       openLeaseRef.current = result
       const fill = result.cacheFill
       if (fill) {
@@ -1281,7 +1281,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     try {
       const lease = await desktopOfflineStore.open({ owner: saved.owner, slug: saved.slug, galleryId: saved.galleryId })
       if (!lease) throw new Error('missing lease')
-      openLeaseRef.current?.dispose?.()
+      disposeOpenLease()
       openLeaseRef.current = lease
       setNotice('Opened from your encrypted vault.')
       setAccountViewer({ manifest: lease.manifest, settings: lease.settings, index: 0 })
@@ -1332,10 +1332,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   /** Releases the mounted viewer's open lease — offline object URLs are
    *  revoked and an online resolver's session disposed, so nothing holds
-   *  decrypted references after the gallery closes or is replaced. */
+   *  decrypted references after the gallery closes or is replaced. A fill
+   *  shares the resolver's session, so while one is in flight disposal
+   *  waits for it to settle — killing the session mid-fill would read back
+   *  as corrupted entries rather than a clean interrupt. */
   const disposeOpenLease = () => {
-    openLeaseRef.current?.dispose?.()
+    const lease = openLeaseRef.current
     openLeaseRef.current = null
+    if (!lease) return
+    const fill = lease.cacheFill
+    if (fill) void fill.catch(() => {}).finally(() => lease.dispose?.())
+    else lease.dispose?.()
   }
 
   /** A stream-only flag belongs to this gallery on this Mac — it cancels
