@@ -324,7 +324,10 @@ final class BoundaryTests {
 
         check("http capability allows proton.me", NativeCapabilities.isAllowedHttpURL("https://drive-api.proton.me/drive/urls/abc") != nil)
         check("http capability allows protonvpn.com", NativeCapabilities.isAllowedHttpURL("https://api.protonvpn.com/test") != nil)
-        check("http capability refuses non-proton host", NativeCapabilities.isAllowedHttpURL("https://example.com/api") == nil)
+        check("http capability allows mega api", NativeCapabilities.isAllowedHttpURL("https://g.api.mega.co.nz/cs?n=abc") != nil)
+        check("http capability allows mega cdn", NativeCapabilities.isAllowedHttpURL("https://gfs206n189.userstorage.mega.co.nz/dl/abc") != nil)
+        check("http capability refuses non-scoped host", NativeCapabilities.isAllowedHttpURL("https://example.com/api") == nil)
+        check("http capability refuses lookalike mega host", NativeCapabilities.isAllowedHttpURL("https://userstorage.mega.co.nz.evil.example/") == nil)
         check("http capability refuses plain http proton", NativeCapabilities.isAllowedHttpURL("http://drive-api.proton.me/drive") == nil)
 
         // The invoke reply contract: a nil result is `value: null`, never an

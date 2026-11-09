@@ -87,6 +87,22 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
       <key>LSItemContentTypes</key><string>public.folder</string>
     </dict>
   </array>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <!-- MEGA's CDN estate is mixed: attribute/preview edges (gfs*.userstorage)
+         still serve TLS ≤1.2 with non-PFS ciphers, which default ATS rejects
+         with -1200 before any bytes move. Scope the exception to exactly the
+         host family that needs it; the modern edges and g.api are unaffected. -->
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>userstorage.mega.co.nz</key>
+      <dict>
+        <key>NSIncludesSubdomains</key><true/>
+        <key>NSExceptionRequiresForwardSecrecy</key><false/>
+        <key>NSExceptionMinimumTLSVersion</key><string>TLSv1.2</string>
+      </dict>
+    </dict>
+  </dict>
 </dict>
 </plist>
 PLIST

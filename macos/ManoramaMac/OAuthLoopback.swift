@@ -30,13 +30,18 @@ enum NativeCapabilities {
     }
 
     /// Matches `src-tauri/capabilities/default.json` `http:default`:
-    /// `https://*.proton.me` and `https://*.protonvpn.com`.
+    /// `https://*.proton.me`, `https://*.protonvpn.com`,
+    /// `https://g.api.mega.co.nz` and `https://*.userstorage.mega.co.nz` —
+    /// the MEGA entries let the native transport reach the ufa attribute
+    /// endpoint, whose answers carry no CORS headers.
     static func isAllowedHttpURL(_ raw: String) -> URL? {
         guard let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased() else { return nil }
         if host == "proton.me" || host.hasSuffix(".proton.me")
-            || host == "protonvpn.com" || host.hasSuffix(".protonvpn.com") {
+            || host == "protonvpn.com" || host.hasSuffix(".protonvpn.com")
+            || host == "g.api.mega.co.nz"
+            || host == "userstorage.mega.co.nz" || host.hasSuffix(".userstorage.mega.co.nz") {
             return url
         }
         return nil

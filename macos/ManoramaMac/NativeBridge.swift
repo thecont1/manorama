@@ -75,10 +75,23 @@ final class NativeBridge {
     /// Whether the page has registered a deep-link listener.
     private var pageReadyForDeepLinks = false
 
-    /// State for `plugin:http|fetch*` (Proton Drive native transport).
+    /// State for `plugin:http|fetch*` (Proton Drive and MEGA native transports).
     private struct PendingHttpRequest {
         let request: URLRequest
+        let allowRedirects: Bool
     }
+    /// Answers `willPerformHTTPRedirection` with nil so a `maxRedirections: 0`
+    /// request sees the 3xx itself — the page's hop validator inspects
+    /// Location headers rather than trusting a followed chain.
+    private final class RedirectRefuser: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+    private let redirectRefuser = RedirectRefuser()
     private struct StoredHttpResponse {
         let data: Data
         var offset: Int
@@ -398,9 +411,10 @@ final class NativeBridge {
                   let decoded = Data(base64Encoded: encoded) {
             request.httpBody = decoded
         }
+        let allowRedirects = (config["maxRedirections"] as? Int) != 0
         let rid = nextHttpRid
         nextHttpRid += 1
-        pendingHttpRequests[rid] = PendingHttpRequest(request: request)
+        pendingHttpRequests[rid] = PendingHttpRequest(request: request, allowRedirects: allowRedirects)
         return rid
     }
 
@@ -409,13 +423,20 @@ final class NativeBridge {
               let pending = pendingHttpRequests.removeValue(forKey: rid) else {
             throw BridgeError.badArguments("Invalid http request rid")
         }
+        let refuser = pending.allowRedirects ? nil : redirectRefuser
         let task = Task<(Data, URLResponse), Error> {
-            try await URLSession.shared.data(for: pending.request)
+            try await URLSession.shared.data(for: pending.request, delegate: refuser)
         }
         inflightHttpTasks[rid] = task
         defer { inflightHttpTasks.removeValue(forKey: rid) }
 
-        let (data, response) = try await task.value
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await task.value
+        } catch {
+            Trace.log("plugin:http|fetch_send \(pending.request.url?.host ?? "?") — \(error.localizedDescription)")
+            throw error
+        }
         guard let http = response as? HTTPURLResponse else {
             throw BridgeError.failed("Invalid HTTP response")
         }

@@ -4,6 +4,7 @@ import { displayedImageDimensions, parseJpegDimensions, parseWebpDimensions } fr
 import { b64Encode, b64uDecode, b64uEncode, cbcDecryptZeroIv, decryptTlvRecords, ecbDecrypt, foldKey, metaMacMatches } from './mega-crypto'
 import { createScanBudget, ScanBudgetExhausted } from './scan-budget'
 import { cbcDecryptClient, ctrDecryptClient, ctrDecryptMetaMacClient } from './mega-decrypt'
+import { capacitorHttpFetch } from './proton-client'
 
 /**
  * Browser/native MEGA client. Share and per-node keys stay in this module's
@@ -618,6 +619,26 @@ export type MegaClientSession = {
 
 type PendingKey = { resolve: (key: Uint8Array) => void; reject: (error?: unknown) => void }
 
+/** The transport a client-side session rides. MEGA's `cs` API and the
+ *  `dl/` CDN paths answer CORS, but the ufa file-attribute endpoint does
+ *  not — a webview fetch there dies as "Load failed" before any bytes
+ *  move, which is what left every keyed MEGA gallery with blank previews
+ *  in the shells. Native transports know nothing of CORS; the Tauri leg
+ *  translates `redirect:'manual'` into the plugin's `maxRedirections: 0`
+ *  so the CDN hop validator still sees each hop rather than the final
+ *  target. Browsers keep plain fetch — same behaviour as always. */
+export const megaTransport = async (): Promise<typeof fetch> => {
+  if (typeof window === 'undefined') return fetch
+  const { Capacitor, CapacitorHttp } = await import('@capacitor/core')
+  if (Capacitor.isNativePlatform()) return capacitorHttpFetch((options) => CapacitorHttp.request(options))
+  if ('__TAURI_INTERNALS__' in window) {
+    const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
+    return ((input: RequestInfo | URL, init?: RequestInit) =>
+      tauriFetch(input, { ...init, maxRedirections: init?.redirect === 'manual' ? 0 : undefined })) as typeof fetch
+  }
+  return fetch
+}
+
 /** The session returns before the share listing resolves: a materialize
  *  that names a known item parks on its key rather than waiting for the
  *  whole share to unwrap. Keys land node-by-node through the notifying
@@ -625,9 +646,10 @@ type PendingKey = { resolve: (key: Uint8Array) => void; reject: (error?: unknown
  *  anything still pending when the listing settles can never arrive and
  *  fails then. Only `scan` output is eligible for manifest submission;
  *  the key map never appears in JSON or URLs. */
-export const openMegaSession = async (input: string, fetchImpl: typeof fetch = fetch): Promise<MegaClientSession> => {
+export const openMegaSession = async (input: string, fetchImpl?: typeof fetch): Promise<MegaClientSession> => {
   const link = extractMegaLink(input)
   if (!link) throw new Error('Use a complete public MEGA folder or collection link')
+  const transport = fetchImpl ?? (await megaTransport())
   const pending = new Map<string, PendingKey[]>()
   const keys = new class extends Map<string, Uint8Array> {
     set(h: string, key: Uint8Array) {
@@ -681,8 +703,8 @@ export const openMegaSession = async (input: string, fetchImpl: typeof fetch = f
     }
   }
   const scan = link.kind === 'collection'
-    ? listAndSettle(listMegaCollection(input, fetchImpl, keys)).then((resolved) => probeCollectionScan(resolved, fetchImpl, closed))
-    : listAndSettle(listMegaFolder(input, fetchImpl, keys)).then((resolved) => probeFolderScan(resolved, fetchImpl, closed))
+    ? listAndSettle(listMegaCollection(input, transport, keys)).then((resolved) => probeCollectionScan(resolved, transport, closed))
+    : listAndSettle(listMegaFolder(input, transport, keys)).then((resolved) => probeFolderScan(resolved, transport, closed))
   const auth = linkAuth(link)
   return {
     sourceUrl: keylessSourceUrl(canonicalMegaUrl(link)),
@@ -691,7 +713,7 @@ export const openMegaSession = async (input: string, fetchImpl: typeof fetch = f
       if (disposed) throw new Error('This MEGA session is closed')
       const nodeKey = await awaitKey(nodeId)
       if (disposed) throw new Error('This MEGA session is closed')
-      const signalFetch = ((url: RequestInfo | URL, init?: RequestInit) => fetchImpl(url, { ...init, signal })) as typeof fetch
+      const signalFetch = ((url: RequestInfo | URL, init?: RequestInit) => transport(url, { ...init, signal })) as typeof fetch
       const response = previewId
         ? await fetchMegaPreview(auth.n, auth.s, previewId, b64uEncode(nodeKey), signalFetch, signal)
         : await fetchMegaFile(auth.n, auth.s, nodeId, b64uEncode(nodeKey), signalFetch, null, signal)
