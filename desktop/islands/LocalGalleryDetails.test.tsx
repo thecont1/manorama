@@ -79,6 +79,7 @@ const mount = (overrides: Partial<Props> = {}) => {
     rescan: 0,
     rename: [] as string[],
     remove: 0,
+    reorder: 0,
   }
   const props: Props = {
     record: overrides.record ?? record(),
@@ -87,6 +88,7 @@ const mount = (overrides: Partial<Props> = {}) => {
     publishedUrl: overrides.publishedUrl ?? null,
     onShareLink: overrides.onShareLink,
     onShare: overrides.onShare ?? (() => { calls.share += 1 }),
+    onReorder: overrides.onReorder === undefined ? undefined : () => { calls.reorder += 1 },
     onRescan: overrides.onRescan
       ? async () => { calls.rescan += 1; await overrides.onRescan?.() }
       : () => { calls.rescan += 1 },
@@ -214,7 +216,9 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain(ROOT_PATH)
     expect(html).not.toContain('/Volumes/')
     expect(html).not.toContain(ITEM_NAME)
-    // No public address, no provider metadata, no vault/offline/copy/reorder UI.
+    // No public address, no provider metadata, no vault/offline/copy UI.
+    // (The default mount wires no onReorder — the row is the container's
+    // decision, covered below.)
     expect(html).not.toContain('manorama.xyz')
     expect(html).not.toContain('Dropbox')
     expect(html).not.toContain('Google Drive')
@@ -224,6 +228,20 @@ describe('local gallery settings panel (desktop)', () => {
     expect(html).not.toContain('Offline')
     expect(html).not.toContain('Vault')
     expect(html).not.toContain('Reorder')
+  })
+
+  test('Reorder photographs renders and emits when the container wires it', async () => {
+    const { container, calls } = mount({ onReorder: () => {} })
+    const reorder = row(container, 'Reorder photographs') as HTMLButtonElement
+    expect(reorder).not.toBeNull()
+    expect(reorder.disabled).toBe(false)
+    reorder.click()
+    await settle()
+    expect(calls.reorder).toBe(1)
+
+    // An unavailable source cannot be arranged — same gate as Open.
+    const { container: off } = mount({ availability: 'unavailable', onReorder: () => {} })
+    expect((row(off, 'Reorder photographs') as HTMLButtonElement).disabled).toBe(true)
   })
 
   test('when the source is unavailable, Open and Share are disabled and the state shows', async () => {

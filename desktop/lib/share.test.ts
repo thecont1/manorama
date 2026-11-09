@@ -77,6 +77,12 @@ describe('uploadFilesFor', () => {
     expect(files.map((f) => f.name)).toEqual(['one.jpg', 'one (2).jpg'])
     expect(files[0]!.path).toBe('/Volumes/CARD/DCIM/one.jpg')
   })
+
+  test('concealed items do not publish — the record order carries through', () => {
+    const files = uploadFilesFor(record({ hidden: ['one.jpg'] }))
+    expect(files.map((f) => f.name)).toEqual(['one.jpg'])
+    expect(files[0]!.path).toBe('/Volumes/CARD/DCIM/sub/one.jpg')
+  })
 })
 
 describe('createGalleryFromShareLink', () => {

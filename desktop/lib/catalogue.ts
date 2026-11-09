@@ -23,7 +23,14 @@ export type LocalGalleryRecord = {
   /** Volume root (e.g. /Volumes/CARD) when the source is a mounted card. */
   mountPoint?: string
   itemCount: number
+  /** The display order — the array order IS the persisted order, like a
+   *  cloud manifest. A rescan merges into it (survivors keep position,
+   *  new files append in scan order) rather than replacing it. */
   items: LocalGalleryItem[]
+  /** Item ids concealed from every surface but Edit mode — the same
+   *  draft a cloud gallery's `hidden` set carries. Optional because
+   *  pre-feature catalogues have no field to read. */
+  hidden?: string[]
   addedAt: string
   lastSeenAt: string
 }
@@ -83,6 +90,7 @@ const parseRecord = (value: unknown): LocalGalleryRecord | null => {
     ...(typeof record.mountPoint === 'string' && record.mountPoint ? { mountPoint: record.mountPoint } : {}),
     itemCount: count,
     items: items as LocalGalleryItem[],
+    ...(Array.isArray(record.hidden) ? { hidden: record.hidden.filter((id): id is string => typeof id === 'string') } : {}),
     addedAt: typeof record.addedAt === 'string' ? record.addedAt : '',
     lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
   }
@@ -106,6 +114,15 @@ export const parseLocalCatalogue = (value: unknown): LocalCatalogue | null => {
     deviceLabel: body.deviceLabel,
     galleries: galleries as LocalGalleryRecord[],
   }
+}
+
+/** The items a surface may show — everything but the concealed set, in
+ *  the record's persisted order. The viewer manifest, the card rail, and
+ *  the publish file list all share this view. */
+export const visibleItemsFor = (record: LocalGalleryRecord): LocalGalleryItem[] => {
+  if (!record.hidden?.length) return record.items
+  const hidden = new Set(record.hidden)
+  return record.items.filter((item) => !hidden.has(item.id))
 }
 
 export const serializeLocalCatalogue = (catalogue: LocalCatalogue): string =>

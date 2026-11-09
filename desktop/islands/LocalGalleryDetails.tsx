@@ -19,6 +19,9 @@ type Props = {
    *  line the surface shows, or null when the owner cancelled. */
   onShareLink?: () => Promise<string | null>
   onShare: () => void
+  /** Opens the viewer's picker straight into Edit mode — the same place
+   *  an account gallery's "Reorder photographs" row lands. */
+  onReorder?: () => void
   onRescan: () => void | Promise<void>
   onRename: (title: string) => void | Promise<void>
   onRemove: () => void | Promise<void>
@@ -48,6 +51,7 @@ export default function LocalGalleryDetails({
   publishedUrl = null,
   onShareLink,
   onShare,
+  onReorder,
   onRescan,
   onRename,
   onRemove,
@@ -155,6 +159,12 @@ export default function LocalGalleryDetails({
         <ActionRow label="Name" value={record.title} onClick={startRename} disabled={locked} />
         <ActionRow label="Refresh gallery contents" onClick={() => void rescan()} disabled={locked} />
       </ActionGroup>
+
+      {onReorder ? (
+        <ActionGroup>
+          <ActionRow label="Reorder photographs" onClick={onReorder} disabled={unavailable || locked} />
+        </ActionGroup>
+      ) : null}
 
       {note ? <p class="m-note" role="status">{note}</p> : null}
 

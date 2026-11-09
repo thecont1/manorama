@@ -177,10 +177,15 @@ type Props = {
    *  back on the photograph (desktop, native) — receives the on-stage
    *  photograph when the draft still shows it, null otherwise. */
   onSaved?: (photoId: string | null) => void
+  /** Overrides the default PATCH persistence — galleries whose order lives
+   *  somewhere other than the Worker manifest (a local catalogue record)
+   *  receive the same draft shape: every item's orderKey, then the hidden
+   *  orderKeys. A rejection lands in the note slot like an API failure. */
+  onSaveOrder?: (order: string[], hidden: string[]) => Promise<void>
 }
 
 export default function PickerEditor({
-  slug, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref, onSaved,
+  slug, galleryId, items, apiBase = '', token, selIndex, frameRef, pan, suppressClickRef, actionsRef, itemHeight, onItemHeight, currentPhotoId, onExit, onDone, doneHref, onSaved, onSaveOrder,
 }: Props) {
   const [session, setSession] = useState<ReorderState<PickerEditItem>>(() => createReorderSession(items))
   // Concealment is a draft like order: nothing is hidden until Save
@@ -281,17 +286,23 @@ export default function PickerEditor({
     setNote(null)
     void (async () => {
       try {
-        const base = apiBase.replace(/\/$/, '')
-        const url = base ? `${base}/api/galleries/${encodeURIComponent(slug)}` : `/api/galleries/${encodeURIComponent(slug)}`
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (token) headers.Authorization = `Bearer ${token}`
-        const response = await fetch(url, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ order: sessionRef.current.items.map((item) => item.orderKey), hidden: [...hiddenRef.current] }),
-        })
-        const payload = await response.json().catch(() => ({})) as { error?: string }
-        if (!response.ok) throw new Error(payload.error || 'That order could not be saved')
+        const order = sessionRef.current.items.map((item) => item.orderKey)
+        const hidden = [...hiddenRef.current]
+        if (onSaveOrder) {
+          await onSaveOrder(order, hidden)
+        } else {
+          const base = apiBase.replace(/\/$/, '')
+          const url = base ? `${base}/api/galleries/${encodeURIComponent(slug)}` : `/api/galleries/${encodeURIComponent(slug)}`
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (token) headers.Authorization = `Bearer ${token}`
+          const response = await fetch(url, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ order, hidden }),
+          })
+          const payload = await response.json().catch(() => ({})) as { error?: string }
+          if (!response.ok) throw new Error(payload.error || 'That order could not be saved')
+        }
         announce('Order saved')
         // Entered from outside the gallery — go back to that screen
         // rather than reloading into a gallery the user never opened.

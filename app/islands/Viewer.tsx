@@ -121,6 +121,14 @@ type Props = {
   /** `?edit=1` — the owner's reorder/hide intent, opening the picker
    *  straight into Edit mode (the retired dashboard overlay's place). */
   initialEdit?: boolean
+  /** A non-API persistence for the picker's Edit mode — local catalogue
+   *  galleries load from the on-device record and save into it, skipping
+   *  the Worker summary/PATCH round-trip entirely. Its presence alone
+   *  unlocks the Edit affordance, independent of the owner panel. */
+  editStore?: {
+    load: () => Promise<PickerEditItem[]>
+    save: (order: string[], hidden: string[]) => Promise<void>
+  }
   /** Device custody forwarded to the owner panel's encrypted refresh —
    *  the web's session store is the default; shells inject their own. */
   keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
@@ -273,7 +281,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -459,6 +467,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // The web owner manages the gallery inline in the popover; everyone
   // else gets the role action only. One column at every width.
   const ownerInline = Boolean(ownerGallery) && !onOpenDetails
+  // The picker's Edit mode unlocks for any gallery with a persistence
+  // path — the owner's API summary, or a shell-provided store (locals).
+  const canEdit = ownerInline || Boolean(editStore)
   const [popoverAnchor, setPopoverAnchor] = useState<Record<string, string | undefined>>({})
   const openSettings = () => {
     previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
@@ -511,7 +522,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     setGridOpen(true)
     // The owner's reorder fetch runs alongside the picker opening so a
     // tap on "Reorder photographs" is a mode flip, not a wait.
-    if (ownerInline) loadEditItems()
+    if (canEdit) loadEditItems()
   }
   // Edit mode's draft lives in the summary — the page's manifest never
   // carries hidden items — fetched once per session, not per open. The
@@ -524,7 +535,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     setEditNote(null)
     void (async () => {
       try {
-        const items = await loadGalleryItems(slug, apiBase, authToken)
+        const items = editStore ? await editStore.load() : await loadGalleryItems(slug, apiBase, authToken)
         setEditItems(items)
         if (editWantedRef.current) {
           editWantedRef.current = false
@@ -3045,6 +3056,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
               onSaved={onEditSaved}
+              onSaveOrder={editStore?.save}
             />
           ) : (
           <>
@@ -3062,8 +3074,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             </div>
             <div class="viewer-picker-actions">
               <PickerSizer value={pickerItemH} onChange={setPickerItemH} />
-              {ownerInline ? (
-                <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
+              {canEdit ? (
+                <PickerEditButton temporary={ownerGallery?.temporary ?? false} loading={editLoading} onBegin={beginEdit} />
               ) : null}
             </div>
             {/* Outside actions so the narrow layout can put it beside the

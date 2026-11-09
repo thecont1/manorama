@@ -6,9 +6,11 @@ import {
   galleryTitleForRoot,
   isDesktopImageName,
   joinPath,
+  mergeRescannedItems,
   placeholderFor,
   scanLocalDirectory,
   toGalleryMediaItem,
+  type LocalGalleryItem,
   type LocalScanEntry,
   type ReadDir,
 } from './local-scan'
@@ -105,6 +107,29 @@ describe('scanLocalDirectory', () => {
     expect(scan.truncated).toBe(MAX_GALLERY_ITEMS + 5)
     // The cap keeps the FIRST items in sort order, not an arbitrary subset.
     expect(scan.items.at(-1)?.id).toBe(`IMG_${String(MAX_GALLERY_ITEMS - 1).padStart(5, '0')}.jpg`)
+  })
+})
+
+describe('mergeRescannedItems', () => {
+  const item = (id: string, name = id.split('/').at(-1)!): LocalGalleryItem => ({ id, name, path: `/root/${id}` })
+
+  test('arranged positions survive a rescan; new files append in scan order', () => {
+    const previous = [item('b.jpg'), item('a.jpg'), item('c.jpg')]
+    const scan = [item('a.jpg'), item('b.jpg'), item('c.jpg'), item('d.jpg')]
+    expect(mergeRescannedItems(scan, previous).map((i) => i.id)).toEqual(['b.jpg', 'a.jpg', 'c.jpg', 'd.jpg'])
+  })
+
+  test('vanished files drop out and fresh item data wins', () => {
+    const previous = [item('gone.jpg'), { ...item('kept.jpg'), width: 100 }]
+    const scan = [{ ...item('kept.jpg'), width: 4000 }]
+    const merged = mergeRescannedItems(scan, previous)
+    expect(merged.map((i) => i.id)).toEqual(['kept.jpg'])
+    expect(merged[0]!.width).toBe(4000)
+  })
+
+  test('a first scan with no prior order is the scan itself', () => {
+    const scan = [item('a.jpg'), item('b.jpg')]
+    expect(mergeRescannedItems(scan, []).map((i) => i.id)).toEqual(['a.jpg', 'b.jpg'])
   })
 })
 

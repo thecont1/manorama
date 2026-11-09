@@ -12,6 +12,7 @@ import { libraryLayout } from '../../packages/core/library-layout'
 import {
   classifyRoot,
   galleryTitleForRoot,
+  mergeRescannedItems,
   scanLocalDirectory,
   toGalleryMediaItem,
   type LocalGalleryItem,
@@ -22,6 +23,7 @@ import {
   probeAllAvailability,
   probeAvailability,
   serializeLocalCatalogue,
+  visibleItemsFor,
   type GalleryAvailability,
   type LocalCatalogue,
   type LocalGalleryRecord,
@@ -46,6 +48,7 @@ import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-i
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
+import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
 import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
@@ -174,7 +177,7 @@ const readCatalogueFile = () => invoke<string | null>('read_private_file', { nam
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
 
-type ViewerState = { galleryId: string; index: number }
+type ViewerState = { galleryId: string; index: number; edit?: boolean }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
 type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; gallery?: GallerySummary; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string; encryptedResolver?: EncryptedMediaResolver | null }
 
@@ -447,9 +450,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void loadVaultLoadPolicy(desktopVaultPersistence).then(setVaultLoadPolicy).catch(() => {})
     void refreshSavedGalleries()
   }, [settingsOpen])
-  const openViewer = (galleryId: string, index: number) => {
+  const openViewer = (galleryId: string, index: number, edit = false) => {
     setPlate(houseAdFrameFor(galleryId))
-    setViewerState({ galleryId, index })
+    setViewerState({ galleryId, index, edit })
   }
   // The share sheet's live state, mirrored in refs so the window-level history
   // listener (registered once, empty deps) sees the CURRENT flow instead of
@@ -973,7 +976,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       const scan = await scanLocalDirectory(record.rootPath, readDirEntries)
       updated = {
         ...record,
-        items: scan.items,
+        // The persisted order is user data — the scan folds into it:
+        // arranged items hold position, new files append in scan order.
+        items: mergeRescannedItems(scan.items, record.items),
         itemCount: scan.truncated ?? scan.items.length,
         lastSeenAt: new Date().toISOString(),
       }
@@ -1575,9 +1580,49 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       title: record.title,
       caption: '',
       date: '',
-      images: record.items.map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
+      images: visibleItemsFor(record).map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
     }
     const settings = defaultGallerySettings(manifest)
+    // The picker's Edit mode for locals: same draft the API editor builds
+    // (every item's orderKey, the hidden keys), persisted into the
+    // catalogue instead of PATCHed to the Worker. orderKey is the item id —
+    // the relative path, stable across rescans.
+    const localEditStore = {
+      load: async (): Promise<PickerEditItem[]> => {
+        const hidden = new Set(record.hidden ?? [])
+        return record.items.map((raw) => {
+          const item = withDims(raw)
+          return {
+            id: item.id,
+            orderKey: item.id,
+            width: item.width && item.width > 0 ? item.width : 1200,
+            height: item.height && item.height > 0 ? item.height : 800,
+            src: assetUrl(item.path),
+            preview: assetUrl(item.path),
+            filename: item.name,
+            label: item.name,
+            hidden: hidden.has(item.id),
+          }
+        })
+      },
+      save: async (order: string[], hidden: string[]) => {
+        if (!catalogue) throw new Error('The catalogue is not loaded')
+        const byId = new Map(record.items.map((item) => [item.id, item]))
+        const ordered = order.map((id) => byId.get(id)).filter((item): item is LocalGalleryItem => Boolean(item))
+        const inOrder = new Set(order)
+        const items = [...ordered, ...record.items.filter((item) => !inOrder.has(item.id))]
+        const next: LocalCatalogue = {
+          ...catalogue,
+          galleries: catalogue.galleries.map((gallery) =>
+            gallery.id === record.id ? { ...gallery, items, hidden: hidden.length ? hidden : undefined } : gallery
+          ),
+        }
+        // Persist first, like rename/rescan — a failed private-store write
+        // surfaces in the editor instead of pretending the order stuck.
+        await writeCatalogueFile(serializeLocalCatalogue(next))
+        setCatalogue(next)
+      },
+    }
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
@@ -1589,12 +1634,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             settings={settings}
             plate={plate}
             initialIndex={viewerState?.index ?? 0}
+            initialEdit={viewerState?.edit ?? false}
+            editStore={localEditStore}
             allowFullscreen={false}
             navigationRef={navigationRef}
             onPositionChange={(position: { index: number }) => {
               shellPost({ type: 'position', index: position.index, total: manifest.images.length })
             }}
             onReturnToGalleries={() => setViewerState(null)}
+            onEditSaved={(photoId: string | null) => {
+              // Entered from the settings sheet — Save lands back on the
+              // Library like the account flow's doneHref. Entered from the
+              // picker it reopens at the saved photograph.
+              if (viewerState?.edit) { setViewerState(null); return }
+              const items = catalogue?.galleries.find((gallery) => gallery.id === record.id)
+                ? visibleItemsFor(catalogue.galleries.find((gallery) => gallery.id === record.id)!)
+                : []
+              const index = photoId ? Math.max(0, items.findIndex((item) => item.id === photoId)) : 0
+              setViewerState({ galleryId: record.id, index })
+            }}
           />
         </GalleryShell>
       </>
@@ -1919,12 +1977,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   return <li key={record.id}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
                     <div class="admin-gallery-strip-frame" onWheel={stripWheel}>
                       <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
-                        {record.items.map((item, index) => (
+                        {visibleItemsFor(record).map((item, index) => (
                           <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
                             <button
                               type="button"
                               disabled={unavailable}
-                              aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
+                              aria-label={`Open ${item.name} — photograph ${index + 1} of ${visibleItemsFor(record).length} in ${record.title}`}
                               onClick={() => openViewer(record.id, index)}
                             >
                               <img
@@ -2117,6 +2175,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
             } : undefined}
             onShare={openShareFromDetails}
+            onReorder={() => {
+              closeDetails()
+              openViewer(detailsRecord.id, 0, true)
+            }}
             onRescan={() => rescan(detailsRecord)}
             onRename={(title) => rename(detailsRecord, title)}
             onRemove={() => remove(detailsRecord)}

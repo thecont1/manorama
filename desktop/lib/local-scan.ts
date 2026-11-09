@@ -129,6 +129,23 @@ export const scanLocalDirectory = async (root: string, readDir: ReadDir): Promis
   return { items: truncated ? collected.slice(0, MAX_GALLERY_ITEMS) : collected, ...(truncated ? { truncated } : {}) }
 }
 
+/**
+ * Fold a fresh scan into the record's existing order — the same contract a
+ * cloud gallery's provider rescan keeps: items the user already arranged
+ * hold their positions, files the scan has never seen append in scan order,
+ * and vanished files drop out. The fresh item objects win so re-detected
+ * dims/paths refresh while positions persist.
+ */
+export const mergeRescannedItems = (
+  scanItems: readonly LocalGalleryItem[],
+  previousItems: readonly LocalGalleryItem[],
+): LocalGalleryItem[] => {
+  const fresh = new Map(scanItems.map((item) => [item.id, item]))
+  const carried = previousItems.filter((item) => fresh.has(item.id)).map((item) => fresh.get(item.id)!)
+  const carriedIds = new Set(carried.map((item) => item.id))
+  return [...carried, ...scanItems.filter((item) => !carriedIds.has(item.id))]
+}
+
 /** Same placeholder tile the dev local-source serves — a dark aspect box,
  *  never a fabricated image. */
 export const placeholderFor = (width: number, height: number): string =>

@@ -607,7 +607,7 @@ describe('desktop catalogue workbench', () => {
     expect(details).not.toBeNull()
     expect(details?.querySelector('.m-owner-panel-title')?.textContent).toBe(TITLE)
     expect(details?.querySelector('.m-owner-panel-head')?.textContent).toContain('2 photographs · Folder on this Mac')
-    for (const label of ['Open gallery', 'Publish', 'Name', 'Refresh gallery contents', 'Remove from Library']) {
+    for (const label of ['Open gallery', 'Publish', 'Name', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(container, label)).not.toBeNull()
     }
 
@@ -623,7 +623,6 @@ describe('desktop catalogue workbench', () => {
     expect(html).not.toContain('Google Drive')
     expect(html).not.toContain('Vault')
     expect(html).not.toContain('Offline')
-    expect(html).not.toContain('Reorder')
   })
 
   test('a deep-linked details id opens details at launch and Back clears the URL', async () => {
@@ -660,6 +659,60 @@ describe('desktop catalogue workbench', () => {
 
     expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
     expect(container.querySelector('.viewer-stage')).not.toBeNull()
+  })
+
+  test('Reorder from details opens the picker straight into Edit and saves into the catalogue', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
+    await settle()
+
+    // The details sheet left and the picker owns the screen in Edit mode —
+    // the items came from the local record, not an API summary.
+    expect(container.querySelector('[data-screen="local-details"]')).toBeNull()
+    expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
+    const cells = [...container.querySelectorAll<HTMLButtonElement>('.viewer-edit-item')]
+    expect(cells.map((cell) => cell.dataset.imageId)).toEqual(['MS201810-Italy0005.jpg', 'MS201810-Italy0100.jpg'])
+
+    // Pick the first photograph up and put it down on the second — a
+    // one-position move, then Save.
+    cells[0]!.click()
+    await settle()
+    ;[...container.querySelectorAll<HTMLButtonElement>('.viewer-edit-item')][1]!.click()
+    await settle()
+    const save = [...container.querySelectorAll<HTMLButtonElement>('.viewer-picker-end')].find((b) => b.textContent?.trim() === 'Save')!
+    save.click()
+    await settle()
+
+    // The catalogue file holds the new order — no API PATCH was attempted.
+    const saved = JSON.parse(files['catalogue.json']!) as { galleries: { items: { id: string }[] }[] }
+    expect(saved.galleries[0]!.items.map((i) => i.id)).toEqual(['MS201810-Italy0100.jpg', 'MS201810-Italy0005.jpg'])
+    // Entered from settings — Save lands back on the Library, not the gallery.
+    expect(container.querySelector('.viewer-stage')).toBeNull()
+    expect(container.querySelector('.admin-page')).not.toBeNull()
+  })
+
+  test('hiding a photograph in Edit mode removes it from the manifest and the rail, not the record', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    await settle()
+    ;(row(container, 'Reorder photographs') as HTMLButtonElement).click()
+    await settle()
+
+    // The per-cell mark hides the photograph — the draft, then Save.
+    container.querySelector<HTMLButtonElement>('[aria-label="Hide MS201810-Italy0005.jpg"]')!.click()
+    await settle()
+    ;[...container.querySelectorAll<HTMLButtonElement>('.viewer-picker-end')].find((b) => b.textContent?.trim() === 'Save')!.click()
+    await settle()
+
+    const saved = JSON.parse(files['catalogue.json']!) as { galleries: { items: { id: string }[]; hidden?: string[] }[] }
+    // The record keeps both files — concealment is a view, not a deletion.
+    expect(saved.galleries[0]!.items).toHaveLength(2)
+    expect(saved.galleries[0]!.hidden).toEqual(['MS201810-Italy0005.jpg'])
+    // The rail shows only what a viewer would see.
+    expect(container.querySelectorAll('.admin-gallery-strip-item')).toHaveLength(1)
+    expect(container.querySelector('.admin-gallery-strip-item img')?.getAttribute('src')).toContain('MS201810-Italy0100.jpg')
   })
 
   test('a rename persists to the catalogue file, syncs, and updates the card', async () => {
