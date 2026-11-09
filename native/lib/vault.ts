@@ -430,11 +430,14 @@ export class EncryptedVault {
         this.diagnose?.('read.miss', `${galleryId}/${entryId} record=${record ? 'ok' : 'absent'} key=${key ? 'ok' : 'absent'} path=${entry.path}`)
         await this.removeEntry(index, entry); await this.saveIndex(index); return undefined
       }
+      let plaintext: Uint8Array
       try {
-        const plaintext = await unpack(record, key.key, galleryId, entryId, this.crypto)
-        if (touch) { entry.lastAccess = this.now(); await this.saveIndex(index) }
-        return plaintext
-      } catch { this.diagnose?.('read.miss.decrypt', `${galleryId}/${entryId} recordBytes=${record.length}`); await this.removeEntry(index, entry); await this.saveIndex(index); return undefined }
+        plaintext = await unpack(record, key.key, galleryId, entryId, this.crypto)
+      } catch {
+        this.diagnose?.('read.miss.decrypt', `${galleryId}/${entryId} recordBytes=${record.length}`); await this.removeEntry(index, entry); await this.saveIndex(index); return undefined
+      }
+      if (touch) { entry.lastAccess = this.now(); await this.saveIndex(index) }
+      return plaintext
     })
   }
   async remove(galleryId: string, entryId: string): Promise<void> { return this.serial(async () => { const index = await this.loadIndex(); const entry = index.entries[entryKey(galleryId, entryId)]; if (entry) await this.removeEntry(index, entry); await this.saveIndex(index) }) }
