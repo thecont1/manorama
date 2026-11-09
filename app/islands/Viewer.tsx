@@ -20,7 +20,6 @@ import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
 import SeededDoodleBackground from './SeededDoodleBackground'
 import { type BackgroundPreference } from '../lib/background-preference'
-import { readStoredTheme } from '../lib/owner-theme'
 import { singlePlatePositionsFor, type AdFrame } from '../lib/adframe'
 import { advanceEasedPosition, clamp, glideEase } from '../lib/sizing'
 import type { FoldLayout, FoldSegment } from '../../packages/core/fold'
@@ -791,12 +790,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   })
   useEffect(() => { modeRef.current = mode }, [mode])
 
-  // The canvas default follows the owner theme — Light in the Library
-  // means a Light canvas, dark keeps the bare Blank default — unless this
-  // gallery carries its own stored choice. SSR can read neither store,
-  // so both resolve on mount.
+  // The canvas default is always Blank — photographs abut edge-to-edge
+  // unless this gallery carries its own stored Light/Dark choice. The
+  // Library theme never picks one: a canvas the viewer did not choose
+  // reads as seams between photos, not as a mount.
   useEffect(() => {
-    setBackground(viewPrefs.background ?? (readStoredTheme(typeof localStorage === 'undefined' ? null : localStorage) === 'light' ? 'light' : 'none'))
+    setBackground(viewPrefs.background ?? 'none')
   }, [slug, viewPrefs])
 
   useEffect(() => {
