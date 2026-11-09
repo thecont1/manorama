@@ -384,3 +384,29 @@ Screenshots of the prototype are in `/tmp/manorama-mac-shots/`.
 - The fullscreen Space and the curtain are now the product's decisions, and the native shell
   matches both. The remaining shell work is the chrome: the real menu bar, the source list, the
   file picker, and the error surface — none of which touches the viewer.
+
+## 10. Status — 2026-11-10: consolidated onto the SwiftUI shell
+
+The owner has decided: the SwiftUI shell **is** the desktop app, App Store bound. What landed:
+
+- **Bundle identity** — the build now signs `in.thecontrarian.manorama.desktop` (the Tauri
+  app's own ID): one app identity going forward, the deep-link scheme and URL name already
+  matched.
+- **App Sandbox on** — `macos/ManoramaMac/ManoramaMac.entitlements`: sandbox, network
+  client+server, user-selected files, app-scope bookmarks. Verified live under the sandbox:
+  keychain reads (legacy `.mac` items resolve under the same Developer ID team), private-file
+  reads, the `plugin:http` native transport, and the fs gate correctly refusing ungranted paths.
+- **Migration shape for the (two) users** — private files move into the container (seed once or
+  re-sign-in); security-scoped bookmarks are signature-bound, so each local folder is re-picked
+  once through the open panel; keychain custody carries over unchanged.
+- **`src-tauri/` is deprecated** — buildable for reference and `desktop-release.yml` notarizes
+  its DMGs, but it receives no fixes and is slated for removal once the sandboxed build has
+  covered a dogfood cycle.
+- **Test harness moved into the container** — `scripts/test-macos-focus.sh` seeds its fixture as
+  an APFS clone under `Data/tmp` (the only place a sandboxed app can always read), and all
+  scratch paths moved out of the now-denied `/tmp`.
+
+What is deliberately not done: real menu bar / source list / file picker chrome (the
+"native goodness" lane from §9), the `src-tauri` deletion itself, App Store Connect record +
+provisioning profile (owner gate in `docs/owner-setup-runbook.md` §Gate 5), and a notarization
+pass for the outside-store Developer ID build.

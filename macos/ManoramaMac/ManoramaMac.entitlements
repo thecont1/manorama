@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required for App Store distribution. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- Outbound: manorama.xyz API, provider APIs/CDNs (Dropbox, Drive, MEGA,
+	     Proton), all via URLSession + WKWebView. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Inbound: the OAuth loopback listener on 127.0.0.1 (oauth_loopback_*). -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+
+	<!-- User-picked local gallery roots via NSOpenPanel. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+
+	<!-- Persist those picks as security-scoped bookmarks so folder access
+	     survives relaunches without re-prompting. -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>

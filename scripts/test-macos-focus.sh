@@ -32,20 +32,36 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 VIEW_DIR="${1:-/Users/home/DEV/websites/thecontrarian.in-original/public/library/originals/ETHIOPIA}"
-DISPOSABLE="${2:-/tmp/manorama-boundary-disposable}"
+DISPOSABLE="${2:-$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/tmp/manorama-boundary-disposable}"
 
 APP="$ROOT/macos/ManoramaMac/build/ManoramaMac.app"
-BUNDLE_ID="in.thecontrarian.manorama.mac"
+BUNDLE_ID="in.thecontrarian.manorama.desktop"
+# The app is sandboxed (App Store posture): a literal /tmp is denied, and a
+# security-scoped bookmark cannot be minted for a path the app was never
+# granted. Its own container is the one place it can always read and write,
+# so every scratch artefact the suite hands it lives in the container tmp.
+CTMP="$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/tmp"
+mkdir -p "$CTMP"
 PROBE="/tmp/focusprobe"
-TRACE="/tmp/manorama-mac-trace.log"
-SHOTS="/tmp/manorama-mac-shots"
-STORE="/tmp/manorama-mac-folders.$$.json"
-CONFIG="/tmp/manorama-mac-config.$$"
+TRACE="$CTMP/manorama-mac-trace.log"
+SHOTS="$CTMP/manorama-mac-shots"
+STORE="$CTMP/manorama-mac-folders.$$.json"
+CONFIG="$CTMP/manorama-mac-config.$$"
+
+# The view-dir is seeded inside the container as an APFS clone: the sandbox
+# grants no access to an arbitrary outside path, but the container is always
+# readable — and the clone keeps the folder's name, which is the title the
+# Library gives the card.
+SEED_DIR="$CTMP/seed-$(basename "$VIEW_DIR")"
+rm -rf "$SEED_DIR"
+cp -Rc "$VIEW_DIR" "$SEED_DIR"
 
 # Where the real app keeps its account. The test borrows the session —
 # the account is what says whether local galleries are allowed — and keeps
-# everything else to itself.
-REAL_CONFIG="$HOME/Library/Application Support/in.thecontrarian.manorama.desktop"
+# everything else to itself. Under the sandbox the live config is in the
+# container; an unsandboxed or Tauri install is the fallback source.
+REAL_CONFIG="$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/Library/Application Support/in.thecontrarian.manorama.desktop"
+[ -f "$REAL_CONFIG/session.json" ] || REAL_CONFIG="$HOME/Library/Application Support/in.thecontrarian.manorama.desktop"
 
 # The title the Library gives a local gallery: the folder's own name.
 TITLE="$(basename "$VIEW_DIR")"
@@ -258,8 +274,8 @@ except Exception: print(0)")
 echo "==> stopping anything already running"
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 
-echo "==> opening $VIEW_DIR"
-launch "$VIEW_DIR"
+echo "==> opening $SEED_DIR (clone of $VIEW_DIR)"
+launch "$SEED_DIR"
 
 echo
 echo "== 1. the shell comes up on the Library =="
@@ -547,7 +563,7 @@ rm -f "$STORE"
 rm -rf "$CONFIG"
 mkdir -p "$CONFIG"
 cp "$REAL_CONFIG/session.json" "$CONFIG/session.json"
-open -n "$APP" --args --seed-folder "$VIEW_DIR" --store "$STORE" --config "$CONFIG" --trace --eval "$JUMP_PROBE" --windowed
+open -n "$APP" --args --seed-folder "$SEED_DIR" --store "$STORE" --config "$CONFIG" --trace --eval "$JUMP_PROBE" --windowed
 wait_for_window 45 || true
 wait_gallery_card 30 >/dev/null
 act
@@ -566,7 +582,7 @@ fi
 echo
 echo "== 12. relaunch keeps the grant =="
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
-launch "$VIEW_DIR" keep
+launch "$SEED_DIR" keep
 wait_gallery_card 20 >/dev/null
 RESTARTED=$(open_gallery)
 note "readout after a relaunch: ${RESTARTED:-none}"
@@ -587,7 +603,7 @@ echo "== 13. the window opens in its own Space =="
 # step uses to stay out of the user's way.
 stop_app || { echo "FATAL: the shell would not quit"; exit 1; }
 EXTRA_ARGS=""
-launch "$VIEW_DIR" keep
+launch "$SEED_DIR" keep
 FULL=$(wait_window 30)
 note "at launch: ${FULL:-no window}"
 case "$FULL" in

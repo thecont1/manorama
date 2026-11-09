@@ -8,7 +8,7 @@ One repository produces three surfaces:
 
 - **Web** — a Cloudflare Worker running Hono/HonoX (TypeScript, TSX islands hydrated client-side). D1 (`DB` binding) is the production store; vite dev and tests use in-memory repositories instead. Media bytes are never persisted: they stream through same-origin proxy routes at view time.
 - **Native** — `native/` builds to a static SPA (`vite.config.native.ts` → `native/dist`), bundled into Capacitor shells for iOS (`ios/`) and Android (`android/`). It boots from bundled assets and its on-device vault — never from the network — and talks to the Worker's `/api/*` over HTTPS for sign-in, gallery manifests, and media.
-- **Desktop** — `desktop/` builds to a static SPA (`vite.config.desktop.ts` → `desktop/dist`) inside a Tauri shell (`src-tauri/`). It is a local-first gallery viewer for folders and cards on disk, with an explicit share flow as the only path by which bytes leave the device.
+- **Desktop** — `desktop/` builds to a static SPA (`vite.config.desktop.ts` → `desktop/dist`) rendered inside the native SwiftUI shell (`macos/`, bundle `in.thecontrarian.manorama.desktop`, built by `scripts/build-macos.sh`). The shell speaks the Tauri invoke protocol back to the page through `desktop-shell/bridge.ts`, so the bundle runs unchanged. It is a local-first gallery viewer for folders and cards on disk, with an explicit share flow as the only path by which bytes leave the device. The legacy Tauri shell (`src-tauri/`) still builds but is deprecated — it no longer receives fixes and is scheduled for removal.
 
 `packages/core` is the shared platform-free heart: `ImageSource`, `GalleryMediaItem`, sizing math, gallery settings, fold geometry, the `AdFrame` contract, device-gallery wire types. It must run unchanged in all three hosts — no Worker bindings, no `window`, no Node built-ins, no Capacitor imports. `app/lib/*.ts` carries thin re-export shims for modules moved there.
 
@@ -173,12 +173,15 @@ The opening surface (`native/islands/GalleryList.tsx`) shows the same icon-orb s
 
 `native/lib/fold.ts` + `packages/core/fold.ts` detect dual-segment devices and drive the Diptych island (two-photo pairs in the fold layout). `native/lib/hdr.ts` reports the shell's HDR claims but trusts nothing it cannot verify — `dynamic-range: high` is treated as untrusted per WebKit #254489. `native/lib/fps-probe.ts` measures delivered frame rate; the only sanctioned 120 Hz lever is `CADisableMinimumFrameDurationOnPhone` in `Info.plist` — no private WebKit `_features`.
 
-## Desktop shell — Tauri (`desktop/` + `src-tauri/`)
+## Desktop shell — SwiftUI (`desktop/` + `desktop-shell/` + `macos/`)
 
-`vite.config.desktop.ts` produces `desktop/dist`, mounted inside a Tauri 2 shell. The desktop app's job is different from the shells': it is a local-first viewer for folders and cards that never copies, moves, or renames a byte.
+`vite.config.desktop.ts` produces `desktop/dist`; `vite.config.desktop-shell.ts` wraps it with the bridge, and `scripts/build-macos.sh` compiles `macos/ManoramaMac/*.swift` and stages the bundle into `ManoramaMac.app` — signed with the Developer ID identity and App Sandbox entitlements (`macos/ManoramaMac/ManoramaMac.entitlements`: sandbox, network client+server, user-selected files, app-scope bookmarks). The desktop app's job is different from the shells': it is a local-first viewer for folders and cards that never copies, moves, or renames a byte.
 
-- **Catalogue** (`desktop/lib/catalogue.ts`, `Catalogue.tsx`): every opened root lives in `catalogue.json` in the app config dir, written by the Rust private-store commands (`src-tauri/src/private_store.rs`) at mode 0600. Paths exist nowhere else — the sync payload type does not contain a path field, so they cannot leak by accident.
-- **Scoped access** (`src-tauri/src/lib.rs`): a directory enters the fs and asset-protocol scopes only through the native folder picker — the grant is the directory the user picked, never a renderer-supplied path, and re-grants on launch stay inside recorded provenance. Local galleries serve originals through `convertFileSrc` in place.
+- **Bridge** (`desktop-shell/bridge.ts` + `macos/ManoramaMac/NativeBridge.swift`): the page still speaks the Tauri protocol — `__TAURI_INTERNALS__.invoke` routes to a `WKScriptMessage` handler implementing every command the bundle calls (vault, private files, `plugin:fs|*`, `plugin:http|*`, `plugin:event|*`, `plugin:opener`, `plugin:window`, OAuth loopback, device label, folder picking). Sandboxed, `plugin:fs` is additionally gated: a path must resolve under a FolderStore security-scope bookmark, which only ever comes from the native folder picker.
+- **Catalogue** (`desktop/lib/catalogue.ts`, `Catalogue.tsx`): every opened root lives in `catalogue.json` in the app config dir, written at mode 0600. Paths exist nowhere else — the sync payload type does not contain a path field, so they cannot leak by accident.
+- **Scoped access** (`FolderStore.swift`): the grant is a security-scoped bookmark minted by the `NSOpenPanel` pick — never a renderer-supplied path — persisted in `folders.json` so re-grants survive launch. Local galleries serve originals through the `in.thecontrarian.manorama.desktop://` scheme handler only after the bookmark resolves and `startAccessingSecurityScopedResource` succeeds. Note: bookmarks are signature-bound — grants made in the pre-sandbox Tauri build do not carry over; the user re-picks each folder once.
+- **Gallery keys** (`desktop/lib/key-store.ts`): gallery keys live in the login Keychain (`manorama.gallery-key.v1.<id>` accounts, service `in.thecontrarian.manorama.vault`), shared by every build from the same Developer ID team — the custody that localStorage could never express.
+- **Legacy Tauri shell** (`src-tauri/`): kept buildable for reference; `desktop-release.yml` still notarizes its DMGs. It shares the same bundle ID and private-file locations, so installs are interchangeable, but new work lands in the SwiftUI shell only.
 - **Sign-in**: system-browser OAuth + deep-link handoff to `in.thecontrarian.manorama.desktop://auth/callback`, exchanged at `/api/auth/desktop/exchange` (see Accounts and sign-in).
 - **Share flow** (`ShareFlow.tsx`, `desktop/lib/share.ts`): the *only* path by which local bytes leave the device. Explicit per-gallery user action opens a confirm gate before the first byte crosses — raw file bytes plus sanitized basenames go to the chosen provider, and the public Manorama URL comes back.
 - **Sync** (`desktop/lib/sync.ts`): gallery-level metadata only — title, source kind, item count, device ID/label — to `device_galleries`. The server re-parses against `parseDeviceGalleryInput` and rejects unknown keys outright, and failures are quiet: sync must never block local viewing.
@@ -228,7 +231,8 @@ Local items stream through `/api/local/file?path=…`, which is confined to dire
 bun run build:native && bunx cap sync     # native SPA → Capacitor shells
 bun run native:open:ios                   # open ios/ in Xcode
 bun run dev:desktop                       # desktop SPA on :5175
-bunx tauri dev                            # Tauri shell around it
+bash scripts/build-macos.sh               # SwiftUI shell (sandboxed, signed)
+bash scripts/test-macos-focus.sh          # boundary/focus suite against the built app
 ```
 
 The iOS project uses SPM — there is no `App.xcworkspace`; build `ios/App/App.xcodeproj` scheme `App` directly. The signing team `373K7W3LKU` is already in `project.pbxproj` (`CODE_SIGN_STYLE = Automatic`); never pass `DEVELOPMENT_TEAM` on the command line — the `TRF3R33X88` suffix visible in the development certificate's CN is the member user ID, not the team.
@@ -251,8 +255,10 @@ The admin, galleries, and quick-add interstitials send `X-Robots-Tag: noindex, n
 | `app/islands/` | `Viewer.tsx` (the stage), `Admin.tsx` (dashboard), `VideoSlide.tsx` |
 | `app/lib/` | Worker-side: provider scanners, `oidc.ts`/`oauth-flow.ts`/`{apple,google,dropbox}-auth.ts`, `identity-repository`, `user-repository`/`gallery-repository`, retention, OG cards, `device-gallery-repository`, `revenuecat-webhook`, `stripe-webhook`. Thin re-export shims for `packages/core` |
 | `native/` | Client-only SPA: `main.tsx` boot; `islands/` (`GalleryList`, `GlobalView`, `Paywall`, `VaultSettings`, `Diptych`); `lib/` (vault, offline-gallery, global-view, billing, ads, session, api, thumbs, local-compute, fold, hdr, fps-probe) |
-| `desktop/` | Tauri SPA: `Catalogue`/`ShareFlow` islands; `lib/` (catalogue, local-scan, share, sync, session, welcome, tauri adapter) |
-| `src-tauri/` | Rust shell: `lib.rs` (scoped grants, deep link, private-store commands), `private_store.rs` |
+| `desktop/` | Desktop SPA: `Catalogue`/`ShareFlow` islands; `lib/` (catalogue, local-scan, share, sync, session, welcome, shell adapter) |
+| `desktop-shell/` | Bridge glue: installs the Tauri-compatible invoke surface over the native `WKScriptMessage` channel |
+| `macos/` | SwiftUI shell: `ManoramaMac/` (`ManoramaMacApp`, `NativeBridge`, `LocalSchemeHandler`, `FolderStore`, `OAuthLoopback`, `Trace`), `BoundaryTests/` harness |
+| `src-tauri/` | Legacy Tauri shell, deprecated — kept buildable for reference, slated for removal |
 | `ios/`, `android/` | Capacitor shells (`ios/App/App.xcodeproj` — SPM, no workspace) |
 | `migrations/` | D1 migrations 0001–0008 |
 | `submission/` | App Store submission evidence, review notes, Connect fields |

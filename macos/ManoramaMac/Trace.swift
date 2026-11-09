@@ -7,7 +7,10 @@ import Foundation
 /// the cause. The file is only written when the app is launched with
 /// `--trace`, so a normal run leaves nothing behind.
 enum Trace {
-    private static let path = "/tmp/manorama-mac-trace.log"
+    // NSTemporaryDirectory() resolves inside the app container when sandboxed
+    // (a literal "/tmp/…" is denied under the App Store sandbox); outside it
+    // it is the per-user tempdir — either way the file stays reachable.
+    private static let path = NSTemporaryDirectory() + "manorama-mac-trace.log"
     private static let enabled = CommandLine.arguments.contains("--trace")
 
     static var isEnabled: Bool { enabled }

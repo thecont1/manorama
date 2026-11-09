@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-debug}"
 APP="macos/ManoramaMac"
 BUILD_DIR="$APP/build"
-BUNDLE_ID="in.thecontrarian.manorama.mac"
+BUNDLE_ID="in.thecontrarian.manorama.desktop"
 
 echo "==> building the Library bundle"
 bunx vite build --config vite.config.desktop-shell.ts
@@ -68,6 +68,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>0.3.0</string>
   <key>CFBundleVersion</key><string>0.3.0</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.photography</string>
+  <!-- Mass-market exemption (5D992): the app encrypts user data at rest but
+       qualifies for the standard exemption, so no per-submission export
+       docs. The annual self-classification report is a separate obligation
+       tracked in docs/owner-setup-runbook.md. -->
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleURLTypes</key>
   <array>
@@ -114,7 +120,8 @@ echo "==> signing the app bundle"
 # key on the next launch. A stable Developer ID signature makes the identity
 # — and therefore the Keychain trust — survive rebuilds.
 IDENTITY="${MACOS_SIGN_IDENTITY:-Developer ID Application: Mahesh Shantaram (373K7W3LKU)}"
-codesign --force --sign "$IDENTITY" --options runtime --timestamp "$APP_BUNDLE"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --entitlements "$APP/ManoramaMac.entitlements" "$APP_BUNDLE"
 
 echo "==> done: $APP_BUNDLE"
 echo "    run: open '$APP_BUNDLE'"
