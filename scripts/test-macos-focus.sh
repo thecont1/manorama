@@ -149,6 +149,22 @@ page_state() {
   grep -o '"cls":"[^"]*"' "$TRACE" 2>/dev/null | tail -1
 }
 
+# Wait for the app to have a window at all.
+#
+# A fixed sleep is the wrong shape here for two reasons. The window
+# animates into its Space after the app is up, and — right after a
+# rebuild — macOS assesses the newly signed bundle on first launch, which
+# takes seconds and is not the app's doing. Poll for the window instead.
+wait_for_window() {
+  local deadline=$((SECONDS + ${1:-45}))
+  while [ $SECONDS -lt $deadline ]; do
+    act
+    if /tmp/focusprobe "$BUNDLE_ID" tree >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
 # The window's own state, once the app has a window to report. A launch
 # into a Space animates, and until it has, the app has no window to ask.
 wait_window() {
@@ -214,10 +230,7 @@ launch() {
   local SEED=""
   [ "${2:-fresh}" != "keep" ] && SEED="--seed-folder $1"
   open -n "$APP" --args $SEED --store "$STORE" --config "$CONFIG" --trace --eval "$PROBE_JS" ${EXTRA_ARGS---windowed}
-  # The window animates into its Space after the app is up.
-  sleep 8
-  act
-  if ! /tmp/focusprobe "$BUNDLE_ID" tree >/dev/null 2>&1; then
+  if ! wait_for_window 45; then
     echo "FATAL: the app did not come up"
     exit 1
   fi
@@ -535,7 +548,7 @@ rm -rf "$CONFIG"
 mkdir -p "$CONFIG"
 cp "$REAL_CONFIG/session.json" "$CONFIG/session.json"
 open -n "$APP" --args --seed-folder "$VIEW_DIR" --store "$STORE" --config "$CONFIG" --trace --eval "$JUMP_PROBE" --windowed
-sleep 8
+wait_for_window 45 || true
 wait_gallery_card 30 >/dev/null
 act
 /tmp/focusprobe "$BUNDLE_ID" pressweb "$TITLE" >/dev/null 2>&1
