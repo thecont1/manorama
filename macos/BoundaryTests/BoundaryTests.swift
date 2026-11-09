@@ -20,7 +20,8 @@ import Foundation
 ///     crashing.
 ///
 /// Run:
-///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler,BoundaryTests}.swift \
+///   swiftc -O macos/ManoramaMac/{LocalGallery,FolderStore,LocalSchemeHandler}.swift \
+///     macos/BoundaryTests/{BoundaryTests,main}.swift \
 ///     -framework AppKit -framework WebKit -o /tmp/boundary && /tmp/boundary
 final class BoundaryTests {
     /// The entry point — `main` has to be a top-level symbol for the
@@ -134,6 +135,45 @@ final class BoundaryTests {
         // Outside the granted root — the traversal guard.
         let escaped = resolver.resolve(URL(string: "manorama://media/\(token)/../../etc/passwd")!)
         check("traversal outside the root is refused", isRefusal(escaped), "got \(escaped)")
+
+        // A legitimate name containing consecutive dots is not a traversal.
+        let dotfile = fixture.appendingPathComponent("photo..5.jpg")
+        try? Data([0xFF, 0xD8]).write(to: dotfile)
+        let dotted = resolver.resolve(URL(string: "manorama://media/\(token)/photo..5.jpg")!)
+        if case .file = dotted {
+            check("a filename with consecutive dots resolves", true)
+        } else {
+            check("a filename with consecutive dots resolves", false, "got \(dotted)")
+        }
+
+        // A symlink inside the root pointing outside it must not serve —
+        // the standardised path keeps the link, so only a resolved check
+        // catches this.
+        let outsideDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("manorama-outside-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        try? Data([0x01]).write(to: outsideDir.appendingPathComponent("x.jpg"))
+        let escapeLink = fixture.appendingPathComponent("escape")
+        try? FileManager.default.createSymbolicLink(at: escapeLink, withDestinationURL: outsideDir)
+        let symlinked = resolver.resolve(URL(string: "manorama://media/\(token)/escape/x.jpg")!)
+        check("escaping symlink is refused", isRefusal(symlinked), "got \(symlinked)")
+
+        // A sibling directory whose name shares the root's prefix must not
+        // satisfy containment — the check is on resolved components, never
+        // a raw string prefix.
+        let sibling = fixture.deletingLastPathComponent()
+            .appendingPathComponent("\(fixture.lastPathComponent)-sibling")
+        try? FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        try? Data([0x01]).write(to: sibling.appendingPathComponent("x.jpg"))
+        let siblingLink = fixture.appendingPathComponent("sneak")
+        try? FileManager.default.createSymbolicLink(at: siblingLink, withDestinationURL: sibling)
+        let prefixed = resolver.resolve(URL(string: "manorama://media/\(token)/sneak/x.jpg")!)
+        check("prefix-sharing sibling is refused", isRefusal(prefixed), "got \(prefixed)")
+
+        try? FileManager.default.removeItem(at: escapeLink)
+        try? FileManager.default.removeItem(at: siblingLink)
+        try? FileManager.default.removeItem(at: outsideDir)
+        try? FileManager.default.removeItem(at: sibling)
 
         // A well-formed path to a file that is not there.
         let missing = resolver.resolve(URL(string: "manorama://media/\(token)/nope.jpg")!)

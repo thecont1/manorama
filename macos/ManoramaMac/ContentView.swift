@@ -89,14 +89,18 @@ struct ContentView: View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
 
+            // The webview mounts with the window, not with the first
+            // gallery — `open` needs a live view to drive, and the shell's
+            // empty state covers it until then.
+            ViewerWebView(
+                schemeHandler: model.schemeHandler,
+                coordinator: model.coordinator,
+                onCreate: { webView in model.webViewRef = webView }
+            )
+            .ignoresSafeArea()
+
             if model.openGallery == nil {
                 emptyState
-            } else {
-                ViewerWebView(
-                    schemeHandler: model.schemeHandler,
-                    coordinator: model.coordinator
-                )
-                .ignoresSafeArea()
             }
         }
         .overlay(alignment: .bottom) {

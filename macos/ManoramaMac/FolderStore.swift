@@ -64,10 +64,22 @@ final class FolderStore: ObservableObject {
     /// Resolve an entry to a live scoped URL.
     ///
     /// Returns nil when the bookmark no longer resolves — the folder moved
-    /// and macOS could not follow it, or the grant was revoked.
+    /// and macOS could not follow it, or the grant was revoked. A bookmark
+    /// that resolves *stale* is renewed on the persisted entry: the moved
+    /// folder keeps working today and stops paying the stale-resolution
+    /// cost on every later launch.
     func resolve(_ entry: Entry) -> URL? {
         guard let data = Data(base64Encoded: entry.bookmark) else { return nil }
-        guard let (url, _) = ScopedFolder.resolve(data) else { return nil }
+        guard let (url, stale) = ScopedFolder.resolve(data) else { return nil }
+        if stale,
+           let fresh = try? ScopedFolder.makeBookmark(for: url),
+           // The write targets `entries`, not the caller's value copy —
+           // during load() there is no entry yet and the first post-load
+           // resolve performs the renewal instead.
+           let index = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[index].bookmark = fresh.base64EncodedString()
+            save()
+        }
         return url
     }
 

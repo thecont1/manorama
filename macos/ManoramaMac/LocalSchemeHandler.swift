@@ -92,14 +92,23 @@ final class LocalMediaResolver {
 
     /// Join a relative path under a root, refusing anything that escapes it.
     ///
-    /// The check is on the *standardised* path, not the string: `..`
-    /// segments are collapsed first, so `%2e%2e` and `../` are caught by
-    /// the same rule, and a symlink is followed by the standardiser.
+    /// The guard is component-wise, not substring-wise: a whole `..`
+    /// component is a traversal and is refused, while a legitimate filename
+    /// like `photo..2.jpg` stays servable. Containment is proven on resolved
+    /// path components — never a raw prefix match, which a sibling like
+    /// `/root-evil` would satisfy — and symlinks are resolved so a link
+    /// inside the root pointing outside it answers forbidden too.
     private func containedPath(root: URL, relative: String) -> URL? {
-        guard !relative.contains("..") else { return nil }
-        let candidate = root.appendingPathComponent(relative).standardizedFileURL
-        let rootPath = root.standardizedFileURL.path
-        guard candidate.path.hasPrefix(rootPath) else { return nil }
+        let components = relative.split(separator: "/", omittingEmptySubsequences: false)
+        guard !components.contains("..") else { return nil }
+        let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = root.appendingPathComponent(relative)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let rootParts = resolvedRoot.pathComponents
+        let candidateParts = candidate.pathComponents
+        guard candidateParts.count > rootParts.count,
+              candidateParts.starts(with: rootParts) else { return nil }
         return candidate
     }
 
@@ -140,6 +149,17 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         let started: Bool
     }
     private var heldScopes: [String: ScopedAccess] = [:]
+
+    /// Tasks whose file read was stopped before it completed — the
+    /// background completion checks this set so a stopped task never
+    /// answers the webview late.
+    private var stoppedTasks: Set<ObjectIdentifier> = []
+    /// Serial queue guarding `stoppedTasks` — WebKit calls start/stop on
+    /// its own queue and the reads complete on a global one.
+    private let stoppedTasksLock = NSLock()
+    /// Where original bytes are read — never the caller's queue, which is
+    /// WebKit's and would stall on a multi-hundred-megabyte file.
+    private let readQueue = DispatchQueue(label: "in.thecontrarian.manorama.media-reads", qos: .userInitiated)
 
     init(bundleRoot: URL) {
         self.resolver = LocalMediaResolver(bundleRoot: bundleRoot)
@@ -199,31 +219,62 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
             urlSchemeTask.didFinish()
 
         case .file(let fileURL, let mimeType):
-            // A vanished file answers 404, so the page can tell "this
-            // photograph is gone" from "this photograph failed to decode".
-            guard let data = try? Data(contentsOf: fileURL) else {
+            // Originals are large and reads belong off WebKit's queue —
+            // mapped so a big file does not sit resident in memory, and
+            // gated on the stop set so a cancelled task never answers late.
+            let taskID = ObjectIdentifier(urlSchemeTask)
+            readQueue.async { [weak self] in
+                guard let self, !self.wasStopped(taskID) else { return }
+                guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
+                    // A vanished file answers 404, so the page can tell
+                    // "this photograph is gone" from "this photograph
+                    // failed to decode".
+                    let response = HTTPURLResponse(
+                        url: url, statusCode: 404, httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Type": "text/plain"]
+                    )!
+                    urlSchemeTask.didReceive(response)
+                    urlSchemeTask.didFinish()
+                    self.clearStopped(taskID)
+                    return
+                }
+                guard !self.wasStopped(taskID) else { return }
                 let response = HTTPURLResponse(
-                    url: url, statusCode: 404, httpVersion: "HTTP/1.1",
-                    headerFields: ["Content-Type": "text/plain"]
+                    url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                    headerFields: [
+                        "Content-Type": mimeType,
+                        "Content-Length": "\(data.count)",
+                        // A rescan must not serve a stale frame.
+                        "Cache-Control": "no-cache",
+                    ]
                 )!
                 urlSchemeTask.didReceive(response)
+                urlSchemeTask.didReceive(data)
                 urlSchemeTask.didFinish()
-                return
+                self.clearStopped(taskID)
             }
-            let response = HTTPURLResponse(
-                url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                headerFields: [
-                    "Content-Type": mimeType,
-                    "Content-Length": "\(data.count)",
-                    // A rescan must not serve a stale frame.
-                    "Cache-Control": "no-cache",
-                ]
-            )!
-            urlSchemeTask.didReceive(response)
-            urlSchemeTask.didReceive(data)
-            urlSchemeTask.didFinish()
         }
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        stoppedTasksLock.lock()
+        stoppedTasks.insert(ObjectIdentifier(urlSchemeTask))
+        stoppedTasksLock.unlock()
+    }
+
+    /// Whether this task's request was stopped before its read completed —
+    /// the entry stays recorded so a late completion still drops out.
+    private func wasStopped(_ taskID: ObjectIdentifier) -> Bool {
+        stoppedTasksLock.lock()
+        defer { stoppedTasksLock.unlock() }
+        return stoppedTasks.contains(taskID)
+    }
+
+    /// Forget a task once it answered — the set only ever holds in-flight
+    /// or stopped tasks, never every task the handler has ever served.
+    private func clearStopped(_ taskID: ObjectIdentifier) {
+        stoppedTasksLock.lock()
+        stoppedTasks.remove(taskID)
+        stoppedTasksLock.unlock()
+    }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import SwiftUI
 import WebKit
 
@@ -63,25 +64,34 @@ final class AppModel: ObservableObject {
     }
 
     /// Rebuild the gallery list from the remembered folders.
+    ///
+    /// Bookmark resolution stays on the main actor (a stale renewal writes
+    /// the store), but the directory walk runs detached — a card or a large
+    /// folder must never stall the UI between the click and the list.
     func refreshGalleries() {
         folderStore.refreshAvailability()
-        var built: [LocalGallery] = []
-        for entry in folderStore.entries {
-            guard let root = folderStore.resolve(entry) else { continue }
-            let items = LocalScanner.scan(root: root)
-            guard !items.isEmpty else { continue }
-            built.append(
-                LocalGallery(
-                    id: entry.id,
-                    title: entry.name,
-                    itemCount: items.count,
-                    sourceKind: LocalGallery.SourceKind(rawValue: entry.sourceKind) ?? .folder
+        let roots = folderStore.availableFolders()
+        Task.detached { [weak self] in
+            var built: [LocalGallery] = []
+            for (entry, root) in roots {
+                let scan = LocalScanner.scan(root: root)
+                guard !scan.items.isEmpty else { continue }
+                built.append(
+                    LocalGallery(
+                        id: entry.id,
+                        title: entry.name,
+                        itemCount: scan.items.count,
+                        sourceKind: LocalGallery.SourceKind(rawValue: entry.sourceKind) ?? .folder
+                    )
                 )
-            )
-        }
-        galleries = built
-        if status == "Choose a folder to begin" && !built.isEmpty {
-            status = "\(built.count) folder\(built.count == 1 ? "" : "s")"
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.galleries = built
+                if self.status == "Choose a folder to begin" && !built.isEmpty {
+                    self.status = "\(built.count) folder\(built.count == 1 ? "" : "s")"
+                }
+            }
         }
     }
 
@@ -97,10 +107,14 @@ final class AppModel: ObservableObject {
 
     /// Open a gallery: grant the media scope, mint a token, and tell the
     /// page to mount it.
+    ///
+    /// `resolve` supplies the URL only — `schemeHandler.grant` is what starts
+    /// the security scope, so the matching `release` stays the single
+    /// balanced pair.
     func open(_ gallery: LocalGallery, in webView: WKWebView?) {
         guard let webView else { return }
         guard let entry = folderStore.entries.first(where: { $0.id == gallery.id }),
-              let root = folderStore.startAccess(entry) else {
+              let root = folderStore.resolve(entry) else {
             errorMessage = "\(gallery.title) is no longer accessible. Open the folder again to restore access."
             return
         }
@@ -113,31 +127,64 @@ final class AppModel: ObservableObject {
         mediaToken = token
         schemeHandler.grant(token: token, url: root)
 
-        let items = LocalScanner.scan(root: root)
-        let media = items.map { item -> [String: Any] in
-            [
+        let scan = LocalScanner.scan(root: root)
+        let media = scan.items.map { item -> [String: Any] in
+            let dims = pixelDimensions(of: item.url) ?? (width: 0, height: 0)
+            let src = "manorama://media/\(token)/\(item.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.id)"
+            return [
                 "id": item.id,
                 "filename": item.name,
-                "src": "manorama://media/\(token)/\(item.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? item.id)",
+                "src": src,
+                "width": dims.width,
+                "height": dims.height,
                 "alt": item.name,
-                "c2pa": true,
+                // Local files carry no provenance evidence — unchecked is
+                // reported as absent, never claimed as present.
+                "c2pa": false,
+                // The dark aspect box every other manifest ships — the strip
+                // shows it while the original streams in, keeping frames
+                // laid out at their true ratio before a byte arrives.
+                "placeholder": placeholder(width: dims.width, height: dims.height),
             ]
         }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "slug": gallery.id.uuidString,
             "title": gallery.title,
             "images": media,
             "initialIndex": 0,
         ]
+        if let truncated = scan.truncated {
+            payload["truncated"] = truncated
+        }
 
         openGallery = gallery
         selectedGalleryID = gallery.id
-        status = "\(gallery.title) — \(items.count) photographs"
+        status = scan.truncated
+            .map { "\(gallery.title) — \(scan.items.count) of \($0) photographs" }
+            ?? "\(gallery.title) — \(scan.items.count) photographs"
         coordinator.open(payload, in: webView)
     }
 
-    /// Leave the gallery and release the folder's scope.
+    /// One original's pixel dimensions, read from the file's metadata only —
+    /// the viewer needs them to hold the honest-size rule before decode.
+    private func pixelDimensions(of url: URL) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return (width, height)
+    }
+
+    /// The same dark aspect box `desktop/lib/local-scan.ts` emits for a
+    /// local gallery — real ratio, no pixels, nothing re-encoded.
+    private func placeholder(width: Int, height: Int) -> String {
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 \(width) \(height)'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E"
+    }
+
+    /// Leave the gallery and release the folder's scope. Closing is not a
+    /// refresh trigger — the library does not change because a view ended,
+    /// so the Escape path stays a cheap release, not a rescan.
     func closeGallery() {
         if let token = mediaToken {
             schemeHandler.release(token: token)
@@ -145,7 +192,6 @@ final class AppModel: ObservableObject {
         }
         openGallery = nil
         position = (0, 0)
-        refreshGalleries()
     }
 
     /// The page asked for the next/previous photograph.

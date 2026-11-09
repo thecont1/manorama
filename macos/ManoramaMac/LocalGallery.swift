@@ -92,18 +92,36 @@ enum LocalScanner {
         return imageExtensions.contains(ext)
     }
 
+    /// The same maximum a desktop scan applies — the constant itself lives
+    /// in `packages/core/imagesource.ts` as `MAX_GALLERY_ITEMS` (1000), and
+    /// this mirror exists because Swift cannot import it. Change one, change
+    /// the other.
+    static let maxGalleryItems = 1000
+
+    /// What a scan found: the items that made the cap, and whether more
+    /// were left out — the same contract `desktop/lib/local-scan.ts`
+    /// reports as `truncated`.
+    struct Result {
+        let items: [Item]
+        /// Uncapped match count, when the cap cut anything.
+        let truncated: Int?
+    }
+
     /// Scan the root and one level of subdirectories.
     ///
     /// Deep enough for `DCIM/<camera>/` layouts on a card, shallow enough
-    /// that picking a large tree never becomes a filesystem crawl.
-    static func scan(root: URL) -> [Item] {
+    /// that picking a large tree never becomes a filesystem crawl. Results
+    /// sort *before* the cap so a truncated scan keeps the same first N —
+    /// capping the collection order would let directory order pick what
+    /// survives.
+    static func scan(root: URL) -> Result {
         var collected: [Item] = []
 
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
-        ) else { return [] }
+        ) else { return Result(items: [], truncated: nil) }
 
         for entry in entries {
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
@@ -136,8 +154,11 @@ enum LocalScanner {
         }
 
         // One deterministic order: relative path, natural collation, so a
-        // rescan preserves positions for surviving files.
-        return collected.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        // rescan preserves positions for surviving files — and the cap cuts
+        // the tail of that order, never an arbitrary subset.
+        let sorted = collected.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+        let truncated = sorted.count > maxGalleryItems ? sorted.count : nil
+        return Result(items: Array(sorted.prefix(maxGalleryItems)), truncated: truncated)
     }
 
     /// A card is a mount under /Volumes that is not the boot volume.

@@ -63,6 +63,9 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
 struct ViewerWebView: NSViewRepresentable {
     let schemeHandler: LocalSchemeHandler
     let coordinator: ViewerCoordinator
+    /// Hands the live webview back to the shell once it exists — the model
+    /// needs it before any gallery opens, or `open` has nothing to drive.
+    var onCreate: ((WKWebView) -> Void)?
     /// The scheme the page is loaded from.
     var startURL: URL { URL(string: "manorama://app/index.html")! }
 
@@ -79,6 +82,11 @@ struct ViewerWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         webView.allowsMagnification = true
         webView.load(URLRequest(url: startURL))
+        // Publishing during makeNSView is a state mutation inside a view
+        // update — defer it one tick so SwiftUI never sees the write.
+        if let onCreate {
+            DispatchQueue.main.async { onCreate(webView) }
+        }
         return webView
     }
 
