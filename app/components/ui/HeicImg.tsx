@@ -23,7 +23,7 @@ type Props = JSX.HTMLAttributes & {
   filename?: string | null
 }
 
-export function HeicImg({ src, preview, media, previewMedia, galleryId, filename, ...rest }: Props) {
+export function HeicImg({ src, preview, media, previewMedia, galleryId, filename, onError, ...rest }: Props) {
   const hasPreview = Boolean(preview || previewMedia)
   // A `preview` string can carry a placeholder-grade stand-in (MEGA writes an
   // SVG data URL into `placeholder`) — never a real rendition when `media`
@@ -32,6 +32,14 @@ export function HeicImg({ src, preview, media, previewMedia, galleryId, filename
   // `previewMedia` rendition exists; unencrypted items keep the old rule.
   const needsDecode = isHeicFilename(filename) && (media ? !previewMedia : !hasPreview)
   const [decoded, setDecoded] = useState<string | null>(null)
+  // A provider that cannot produce a rendition (Dropbox answering
+  // unsupported_file for a whole shared folder is the observed case) must
+  // not strand the cell: the original stands in, browser-scaled. `src`
+  // itself failing still reaches the caller's retry through onError — and
+  // a video's `src` is never an <img> candidate, so posters keep their
+  // blank-retry path.
+  const [previewFailed, setPreviewFailed] = useState(false)
+  const canFallBack = Boolean(src && !/\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(filename ?? ''))
   const [encrypted, setEncrypted] = useState<{ url: string; preview: boolean } | null>(null)
   const hostRef = useRef<HTMLImageElement | null>(null)
   const encryptedRelease = useRef<(() => void) | null>(null)
@@ -100,5 +108,8 @@ export function HeicImg({ src, preview, media, previewMedia, galleryId, filename
   // revoke on replacement or unmount.
   useEffect(() => () => { if (decoded) URL.revokeObjectURL(decoded) }, [decoded])
 
-  return <img ref={hostRef} src={decoded ?? (needsDecode ? undefined : encrypted?.url ?? preview ?? src)} {...rest} />
+  return <img ref={hostRef} src={decoded ?? (needsDecode ? undefined : encrypted?.url ?? (previewFailed ? src : (preview ?? src)))} onError={(event: Event) => {
+    if (!previewFailed && preview && canFallBack) { setPreviewFailed(true); return }
+    onError?.(event)
+  }} {...rest} />
 }

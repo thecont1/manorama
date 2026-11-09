@@ -68,4 +68,15 @@ describe('HeicImg encrypted media', () => {
       clearHeicUrlCache()
     }
   })
+
+  test('a failed rendition falls back to the original src', async () => {
+    const { HeicImg } = await import('./HeicImg')
+    const container = dom.document.createElement('div') as unknown as HTMLElement
+    render(<HeicImg src="https://cdn.example/original.jpg" preview="https://cdn.example/thumb.jpg" filename="a.jpg" alt="" />, container)
+    const img = container.querySelector('img')!
+    expect(img.getAttribute('src')).toBe('https://cdn.example/thumb.jpg')
+    img.dispatchEvent(new dom.Event('error') as unknown as Event)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(img.getAttribute('src')).toBe('https://cdn.example/original.jpg')
+  })
 })

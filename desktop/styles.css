@@ -153,6 +153,9 @@ body.manorama-desktop {
 }
 .desktop-badge-unavailable { margin: 10px 0 0; color: rgba(240, 188, 92, .88); font-size: 12px; }
 .desktop-badge-saved { margin: 2px 0 0; color: rgba(120, 220, 160, .85); font-size: 11px; letter-spacing: .03em; }
+/* Keyless is a custody fact, not an error: the cover is blank because no
+   key lives on this Mac, and opening the gallery is how one arrives. */
+.desktop-badge-keyless { margin: 2px 0 0; color: rgba(240, 188, 92, .88); font-size: 11px; letter-spacing: .03em; }
 .desktop-empty { margin: 0; color: rgba(var(--ink), .7); font-size: 13px; }
 
 /* The rail is a row of list items wrapping one control each — a button that

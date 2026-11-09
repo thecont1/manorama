@@ -227,6 +227,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // Grid entries mint the section's covers from vault thumbnails — object
   // URLs, revoked on the next refresh, never a durable URL to ciphertext.
   const [savedGridGalleries, setSavedGridGalleries] = useState<OfflineGridGallery[]>([])
+  const [keyChecked, setKeyChecked] = useState<ReadonlySet<string>>(new Set())
   const [savedThumbs, setSavedThumbs] = useState<ReadonlyMap<string, string>>(new Map())
   const savedThumbsRef = useRef<ReadonlyMap<string, string>>(new Map())
   const [vaultLoadPolicy, setVaultLoadPolicy] = useState<VaultLoadPolicy | null>(null)
@@ -731,7 +732,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     for (const gallery of accountGalleries ?? []) {
       if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) continue
       void desktopKeyStore().get(gallery.id).then((source) => {
-        if (!live || !source || !gallery.id) return
+        if (!live || !gallery.id) return
+        // A resolved check marks the gallery either way: keyed cards earn
+        // their full link hash, keyless ones settle as locked rather than
+        // staying an unexplained blank cover.
+        setKeyChecked((previous) => previous.has(gallery.id!) ? previous : new Set(previous).add(gallery.id!))
+        if (!source) return
         const hash = galleryHashForSource(source, gallery.id)
         setGalleryHashes((previous) => previous[gallery.id!] === hash ? previous : { ...previous, [gallery.id!]: hash })
       })
@@ -1783,8 +1789,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                                 aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${index + 1} of ${gallery.imageCount}`}
                               >
                                 <HeicImg
-                                  src={previewSrcFor(image)}
-                                  preview={image.variants?.[0]?.src}
+                                  src={image.src || previewSrcFor(image)}
+                                  preview={previewSrcFor(image)}
                                   media={image.media}
                                   previewMedia={image.variants?.[0]?.media}
                                   galleryId={gallery.id}
@@ -1818,6 +1824,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       {savedGalleryFor(gallery) ? <span class="desktop-badge-saved">Saved on this Mac</span> : null}
                       <button type="button" class="lib-card-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
                     </div>
+                    {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
+                      ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
+                      : null}
                     <p class="lib-card-sub">
                       {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
                       {tempWording(gallery)}
@@ -1908,7 +1917,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   const cover = gallery.images.find((image) => !image.hidden)
                   return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
                     <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-                      {cover ? <HeicImg src={previewSrcFor(cover)} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+                      {cover ? <HeicImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
                         const img = event.currentTarget as HTMLImageElement
                         img.classList.add('is-loaded')
                         // The card takes the thumbnail's own size — the image
@@ -1925,6 +1934,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
                       {isLocked(gallery) ? tempFlag(gallery) : null}
                       {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
+                      {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
+                        ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
+                        : null}
                       <p class="lib-card-sub">
                         {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
                         {tempWording(gallery)}
