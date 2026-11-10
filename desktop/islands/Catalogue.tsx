@@ -1890,12 +1890,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const unavailable = state === 'unavailable'
     const cover = visibleItemsFor(record)[0]
     return <li key={record.id} class="lib-compact-card" data-gallery-card={record.id} data-availability={state}>
-      <button
-        type="button"
+      <a
         class="lib-compact-cover"
-        disabled={unavailable}
+        href={`#local-${record.id}`}
+        onClick={(event: MouseEvent) => { event.preventDefault(); if (!unavailable) openViewer(record.id, 0) }}
+        draggable={false}
         aria-label={`${record.title} cover`}
-        onClick={() => openViewer(record.id, 0)}
+        aria-disabled={unavailable ? true : undefined}
       >
         {cover ? (
           <img
@@ -1913,7 +1914,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             }}
           />
         ) : null}
-      </button>
+      </a>
       <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
       <div class="lib-compact-body">
         <button

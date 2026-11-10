@@ -401,7 +401,7 @@ describe('desktop catalogue workbench', () => {
     // first visible original, referenced in place through the asset
     // protocol: no copy, no derivative, no thumbnail.
     const cover = card.querySelector<HTMLElement>('.lib-compact-cover')!
-    expect(cover.tagName).toBe('BUTTON')
+    expect(cover.tagName).toBe('A')
     expect(cover.getAttribute('aria-label')).toBe(`${TITLE} cover`)
     expect(cover.querySelector('img')?.getAttribute('src')).toBe(`asset://localhost${record.items[0].path}`)
 
@@ -1629,7 +1629,7 @@ describe('desktop catalogue workbench', () => {
       expect(card?.querySelector('.desktop-badge-saved')).not.toBeNull()
 
       calls.length = 0
-      container.querySelector<HTMLAnchorElement>('a.lib-compact-cover')!.click()
+      card!.querySelector<HTMLAnchorElement>('a.lib-compact-cover')!.click()
       await settle()
 
       // The viewer mounted, vault bytes were materialized as object URLs,
