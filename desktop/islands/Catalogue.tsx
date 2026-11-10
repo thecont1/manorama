@@ -146,7 +146,7 @@ const tempFlag = (gallery: GallerySummary) => (
 )
 const tempWording = (gallery: GallerySummary) =>
   isLocked(gallery) ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}` : ''
-const pinGlyph = (gallery: GallerySummary) => gallery.pinnedAt
+const pinGlyph = (entry: { pinnedAt?: string | null }) => entry.pinnedAt
   ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span>
   : null
 /** Strips overflow horizontally; a vertical wheel gesture pans them so a
@@ -833,6 +833,32 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setNotice(pinning ? `“${gallery.title || gallery.slug}” pinned` : `“${gallery.title || gallery.slug}” unpinned`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That gallery could not be pinned')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The local pin — same display contract as the account pin (the card moves
+  // between "Pinned galleries" and the compact grid) but persisted into
+  // catalogue.json, not the API: a local record has no server row to PATCH.
+  const toggleLocalPin = async (record: LocalGalleryRecord) => {
+    if (!catalogue) return
+    const pinning = !record.pinnedAt
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    const next: LocalCatalogue = {
+      ...catalogue,
+      galleries: catalogue.galleries.map((gallery) =>
+        gallery.id === record.id ? { ...gallery, pinnedAt: pinning ? new Date().toISOString() : null } : gallery
+      ),
+    }
+    try {
+      await writeCatalogueFile(serializeLocalCatalogue(next))
+      setCatalogue(next)
+      setNotice(pinning ? `“${record.title}” pinned` : `“${record.title}” unpinned`)
+    } catch {
+      setNotice('That gallery could not be pinned')
     } finally {
       setBusy(false)
     }
@@ -1771,17 +1797,32 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // mirroring the web Library's shared layout rule. Pinned rows lead by
   // pinnedAt; everything else collapses to a compact cover card.
   const liveAccountGalleries = accountGalleries ?? []
+  // Locals join the same pinned/compact rule as account galleries — a pin
+  // is a display choice on both kinds. Namespaced slugs keep the two
+  // identity spaces distinct inside the shared layout.
   const accountLayout = libraryLayout(
-    liveAccountGalleries.map((gallery) => ({ slug: gallery.slug, pinnedAt: gallery.pinnedAt })),
+    [
+      ...liveAccountGalleries.map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
+      ...galleries.map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
+    ],
     accountTier,
   )
-  const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [gallery.slug, gallery]))
-  const pinnedAccountGalleries = accountLayout.strips
-    .map((slug) => accountBySlug.get(slug))
-    .filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [`account:${gallery.slug}`, gallery]))
+  const localByCardId = new Map(galleries.map((record) => [`local:${record.id}`, record]))
+  const pinnedStrips = accountLayout.strips
+    .map((key) => {
+      const gallery = accountBySlug.get(key)
+      if (gallery) return { kind: 'account' as const, gallery }
+      const record = localByCardId.get(key)
+      return record ? { kind: 'local' as const, record } : null
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
   const compactAccountGalleries = accountLayout.compact
-    .map((slug) => accountBySlug.get(slug))
+    .map((key) => accountBySlug.get(key))
     .filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const compactLocalGalleries = accountLayout.compact
+    .map((key) => localByCardId.get(key))
+    .filter((record): record is LocalGalleryRecord => Boolean(record))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
 
   // Saved copies are a device fact, not an account fact — a gallery whose
@@ -1795,6 +1836,98 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const temporaryCount = (accountGalleries ?? []).filter((g) => g.retention === 'pipeline').length
   const retainedLimit = accountTier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
+  const localStripCard = (record: LocalGalleryRecord) => {
+    const state = availability[record.id] ?? 'available'
+    const unavailable = state === 'unavailable'
+    return <li key={`local-${record.id}`}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
+      <div class="admin-gallery-strip-frame" onWheel={stripWheel}>
+        <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
+          {visibleItemsFor(record).map((item, index) => (
+            <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
+              <button
+                type="button"
+                disabled={unavailable}
+                aria-label={`Open ${item.name} — photograph ${index + 1} of ${visibleItemsFor(record).length} in ${record.title}`}
+                onClick={() => openViewer(record.id, index)}
+              >
+                <img
+                  src={assetUrl(item.path)}
+                  alt=""
+                  loading="lazy"
+                  draggable={false}
+                  onLoad={(event: Event) => {
+                    const img = event.currentTarget as HTMLImageElement
+                    img.classList.add('is-loaded')
+                    recordDims(item.id, img.naturalWidth, img.naturalHeight)
+                  }}
+                />
+              </button>
+            </li>
+          ))}
+        </ul>
+        {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
+      </div>
+      <div class="lib-card-head">
+        <button
+          type="button"
+          class="lib-card-title"
+          onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
+        >{record.title}{pinGlyph(record)}</button>
+        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+      </div>
+      <p class="lib-card-sub">
+        {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+      </p>
+      {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+    </article></li>
+  }
+
+  // The compact form a local gallery takes while unpinned — a cover card in
+  // the Local section's grid, the same shape account galleries collapse to
+  // in "Your galleries".
+  const localCompactCard = (record: LocalGalleryRecord) => {
+    const state = availability[record.id] ?? 'available'
+    const unavailable = state === 'unavailable'
+    const cover = visibleItemsFor(record)[0]
+    return <li key={record.id} class="lib-compact-card" data-gallery-card={record.id} data-availability={state}>
+      <button
+        type="button"
+        class="lib-compact-cover"
+        disabled={unavailable}
+        aria-label={`${record.title} cover`}
+        onClick={() => openViewer(record.id, 0)}
+      >
+        {cover ? (
+          <img
+            src={assetUrl(cover.path)}
+            alt=""
+            loading="lazy"
+            draggable={false}
+            onLoad={(event: Event) => {
+              const img = event.currentTarget as HTMLImageElement
+              img.classList.add('is-loaded')
+              recordDims(cover.id, img.naturalWidth, img.naturalHeight)
+              // A small original floats at its honest size rather than
+              // upscaling to the card width — invariant 13.
+              if (img.naturalWidth) img.style.maxWidth = `${img.naturalWidth}px`
+            }}
+          />
+        ) : null}
+      </button>
+      <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+      <div class="lib-compact-body">
+        <button
+          type="button"
+          class="lib-card-title"
+          onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
+        >{record.title}{pinGlyph(record)}</button>
+        <p class="lib-card-sub">
+          {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+        </p>
+        {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+      </div>
+    </li>
+  }
 
   return (
     // `data-admin-ready` is the shell's own "catalogue restored" signal: the
@@ -1880,11 +2013,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />All platform rights reserved.</p>
         </aside>
         <section class="gallery-list" aria-labelledby="galleries-heading">
-          {pinnedAccountGalleries.length ? (
+          {pinnedStrips.length ? (
             <section aria-labelledby="pinned-galleries-title">
               <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries</h2>
               <ul class="lib-list">
-                {pinnedAccountGalleries.map((gallery) => {
+                {pinnedStrips.map((entry) => {
+                  if (entry.kind === 'local') return localStripCard(entry.record)
+                  const gallery = entry.gallery
                   const title = gallery.title || gallery.slug
                   const galleryUrl = accountGalleryUrl(gallery)
                   const openCard = (index: number) => (event: MouseEvent) => {
@@ -1955,68 +2090,30 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </ul>
             </section>
           ) : null}
-          {accountTier === 'pro' && (remoteDeviceGalleries.length || galleries.length) ? (
+          {accountTier === 'pro' && (remoteDeviceGalleries.length || compactLocalGalleries.length) ? (
             <section aria-labelledby="local-galleries-title">
               <h2 id="local-galleries-title" class="lib-section-title">Local galleries</h2>
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
-              <ul class="lib-list">
-                {remoteDeviceGalleries.map((gallery) => (
-                  <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
-                    <div class="lib-card-head">
-                      <span class="lib-card-title">{gallery.title}</span>
-                      <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
-                    </div>
-                    <p class="lib-card-sub">
-                      {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
-                    </p>
-                  </article></li>
-                ))}
-                {galleries.map((record) => {
-                  const state = availability[record.id] ?? 'available'
-                  const unavailable = state === 'unavailable'
-                  return <li key={record.id}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
-                    <div class="admin-gallery-strip-frame" onWheel={stripWheel}>
-                      <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
-                        {visibleItemsFor(record).map((item, index) => (
-                          <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
-                            <button
-                              type="button"
-                              disabled={unavailable}
-                              aria-label={`Open ${item.name} — photograph ${index + 1} of ${visibleItemsFor(record).length} in ${record.title}`}
-                              onClick={() => openViewer(record.id, index)}
-                            >
-                              <img
-                                src={assetUrl(item.path)}
-                                alt=""
-                                loading="lazy"
-                                draggable={false}
-                                onLoad={(event: Event) => {
-                                  const img = event.currentTarget as HTMLImageElement
-                                  img.classList.add('is-loaded')
-                                  recordDims(item.id, img.naturalWidth, img.naturalHeight)
-                                }}
-                              />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                      {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
-                    </div>
-                    <div class="lib-card-head">
-                      <button
-                        type="button"
-                        class="lib-card-title"
-                        onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
-                      >{record.title}</button>
-                      <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
-                    </div>
-                    <p class="lib-card-sub">
-                      {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
-                    </p>
-                    {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
-                  </article></li>
-                })}
-              </ul>
+              {remoteDeviceGalleries.length ? (
+                <ul class="lib-list">
+                  {remoteDeviceGalleries.map((gallery) => (
+                    <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
+                      <div class="lib-card-head">
+                        <span class="lib-card-title">{gallery.title}</span>
+                        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+                      </div>
+                      <p class="lib-card-sub">
+                        {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
+                      </p>
+                    </article></li>
+                  ))}
+                </ul>
+              ) : null}
+              {compactLocalGalleries.length ? (
+                <ul class="lib-compact-grid">
+                  {compactLocalGalleries.map(localCompactCard)}
+                </ul>
+              ) : null}
             </section>
           ) : null}
           {compactAccountGalleries.length ? (
@@ -2249,6 +2346,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             </>) : cardMenu.kind === 'device' ? (<>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
+              <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>

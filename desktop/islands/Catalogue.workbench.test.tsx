@@ -323,7 +323,7 @@ describe('desktop catalogue workbench', () => {
     expect(addButton).toBeDefined()
     const html = container.innerHTML
     expect(html.indexOf('admin-rail')).toBeLessThan(html.indexOf('galleries-heading'))
-    expect(html.indexOf('admin-library-heading')).toBeLessThan(html.indexOf('lib-list'))
+    expect(html.indexOf('admin-library-heading')).toBeLessThan(html.indexOf('lib-compact-grid'))
 
     // The gear in the rail's heading opens the shared Settings surface —
     // the old slide-in account drawer is gone, replaced by the web's groups.
@@ -396,17 +396,14 @@ describe('desktop catalogue workbench', () => {
     expect(card.querySelector('.lib-card-sub')?.textContent).toContain('Folder on this Mac')
     expect(card.textContent).not.toContain(ROOT_PATH)
 
-    const strip = card.querySelector('.admin-gallery-strip')!
-    expect(strip.tagName).toBe('UL')
-    const framesInStrip = [...strip.querySelectorAll<HTMLElement>('.admin-gallery-strip-item')]
-    expect(framesInStrip).toHaveLength(2)
-    expect(framesInStrip[0].tagName).toBe('LI')
-    expect(framesInStrip[0].classList.contains('is-active')).toBe(false)
-    expect(framesInStrip[1].classList.contains('is-active')).toBe(false)
-    expect(framesInStrip[1].querySelector('button')?.getAttribute('aria-label')).toBe(`Open MS201810-Italy0100.jpg — photograph 2 of 2 in ${TITLE}`)
-    // Originals are referenced in place through the asset protocol: no copy,
-    // no derivative, no thumbnail.
-    expect(strip.querySelector('img')?.getAttribute('src')).toBe(`asset://localhost${record.items[0].path}`)
+    // Unpinned, the local card is the compact cover form — the same shape
+    // an account gallery collapses to in "Your galleries". The cover is the
+    // first visible original, referenced in place through the asset
+    // protocol: no copy, no derivative, no thumbnail.
+    const cover = card.querySelector<HTMLElement>('.lib-compact-cover')!
+    expect(cover.tagName).toBe('BUTTON')
+    expect(cover.getAttribute('aria-label')).toBe(`${TITLE} cover`)
+    expect(cover.querySelector('img')?.getAttribute('src')).toBe(`asset://localhost${record.items[0].path}`)
 
     // The ··· menu replaces the four v1 icon verbs; Details sits behind it.
     expect(card.querySelector(`[aria-label="${TITLE} actions"]`)).not.toBeNull()
@@ -451,7 +448,7 @@ describe('desktop catalogue workbench', () => {
     try {
       const container = await mount(true)
       // Section order is Pinned → Local galleries → Your galleries; the
-      // account card lands in Your galleries after the local strip.
+      // account card lands in Your galleries after the local cards.
       const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent)
       expect(headings.indexOf('Local galleries')).toBeGreaterThanOrEqual(0)
       expect(headings.indexOf('Local galleries')).toBeLessThan(headings.indexOf('Your galleries'))
@@ -462,7 +459,7 @@ describe('desktop catalogue workbench', () => {
       expect(localSection.textContent).toContain(TITLE)
       expect(accountSection.querySelector('.lib-compact-card .lib-card-title')?.textContent).toBe('kashmir, in winter')
 
-      const card = container.querySelector<HTMLElement>('.lib-compact-card')!
+      const card = accountSection.querySelector<HTMLElement>('.lib-compact-card')!
       expect(card.querySelector('.lib-card-sub')?.textContent).toBe('1 photograph from Dropbox')
       // Server-relative previews arrive rewritten against the API origin.
       expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
@@ -786,9 +783,9 @@ describe('desktop catalogue workbench', () => {
     // The record keeps both files — concealment is a view, not a deletion.
     expect(saved.galleries[0]!.items).toHaveLength(2)
     expect(saved.galleries[0]!.hidden).toEqual(['MS201810-Italy0005.jpg'])
-    // The rail shows only what a viewer would see.
-    expect(container.querySelectorAll('.admin-gallery-strip-item')).toHaveLength(1)
-    expect(container.querySelector('.admin-gallery-strip-item img')?.getAttribute('src')).toContain('MS201810-Italy0100.jpg')
+    // The card's cover shows only what a viewer would see.
+    const card = container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
+    expect(card.querySelector('.lib-compact-cover img')?.getAttribute('src')).toContain('MS201810-Italy0100.jpg')
   })
 
   test('a rename persists to the catalogue file, syncs, and updates the card', async () => {
@@ -1445,7 +1442,7 @@ describe('desktop catalogue workbench', () => {
     const container = await mount(true)
     container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
     await settle()
-    for (const item of ['Gallery settings', 'Refresh gallery contents', 'Remove gallery']) {
+    for (const item of ['Pin gallery', 'Gallery settings', 'Refresh gallery contents', 'Remove gallery']) {
       expect(menuItem(container, item)).toBeDefined()
     }
     // Remove confirms inside the sheet before the catalogue entry goes.
@@ -1453,6 +1450,52 @@ describe('desktop catalogue workbench', () => {
     await settle()
     expect(container.textContent).toContain('The folder on this Mac is untouched')
     expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+  })
+
+  test('a local gallery pins into Pinned galleries and back, persisted in the catalogue', async () => {
+    const calls: { url: string; method?: string }[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string }) => {
+      calls.push({ url: String(url), method: init?.method })
+      return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      // Unpinned, the local is a compact cover card in its own section.
+      expect(container.querySelector('#local-galleries-title')).not.toBeNull()
+      const compact = container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
+      expect(compact.classList.contains('lib-compact-card')).toBe(true)
+
+      container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Pin gallery')!.click()
+      await settle()
+
+      // The pin lands in catalogue.json — the API is never asked; a local
+      // record has no server row to PATCH.
+      const saved = JSON.parse(files['catalogue.json']!) as { galleries: { pinnedAt?: string }[] }
+      expect(saved.galleries[0]!.pinnedAt).toBeTruthy()
+      expect(calls.some((call) => call.url.includes('/pin'))).toBe(false)
+
+      // The card moves to Pinned galleries as a full strip, pin glyph and all.
+      const pinnedSection = container.querySelector<HTMLElement>('[aria-labelledby="pinned-galleries-title"]')!
+      const strip = pinnedSection.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
+      expect(strip.querySelector('.admin-gallery-strip')).not.toBeNull()
+      expect(strip.querySelector('.lib-pin')).not.toBeNull()
+      // With nothing left, the Local section folds away.
+      expect(container.querySelector('#local-galleries-title')).toBeNull()
+
+      strip.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Unpin gallery')!.click()
+      await settle()
+      const unpinned = JSON.parse(files['catalogue.json']!) as { galleries: { pinnedAt?: string | null }[] }
+      expect(unpinned.galleries[0]!.pinnedAt).toBeFalsy()
+      const back = container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
+      expect(back.classList.contains('lib-compact-card')).toBe(true)
+    } finally {
+      globals.fetch = defaultFetch
+    }
   })
 
   test('a Free account sees no Local galleries — the folder choice locks to Visionary', async () => {

@@ -55,6 +55,14 @@ describe('catalogue serialization', () => {
     expect(deserializeLocalCatalogue(JSON.stringify(broken))).toBeNull()
   })
 
+  test('pinnedAt round-trips, and a non-string pin drops out of the parsed record', () => {
+    const pinned = record({ pinnedAt: '2026-11-12T00:00:00.000Z' })
+    const parsed = deserializeLocalCatalogue(serializeLocalCatalogue(catalogue([pinned])))!
+    expect(parsed.galleries[0]!.pinnedAt).toBe('2026-11-12T00:00:00.000Z')
+    const bogus = deserializeLocalCatalogue(JSON.stringify({ ...catalogue([record()]), galleries: [{ ...record(), pinnedAt: 42 }] }))!
+    expect(bogus.galleries[0]!.pinnedAt).toBeUndefined()
+  })
+
   test('the hidden set round-trips and non-string entries drop out', () => {
     const cat = catalogue([record({ hidden: ['DCIM/IMG_2.jpg'] })])
     const parsed = deserializeLocalCatalogue(serializeLocalCatalogue(cat))!

@@ -31,6 +31,11 @@ export type LocalGalleryRecord = {
    *  draft a cloud gallery's `hidden` set carries. Optional because
    *  pre-feature catalogues have no field to read. */
   hidden?: string[]
+  /** Display choice like a cloud gallery's pin — moves the card between
+   *  "Pinned galleries" and the Local section's compact grid. Device-local:
+   *  the sync projection has no slot for it and other devices keep their
+   *  own pinning. */
+  pinnedAt?: string | null
   addedAt: string
   lastSeenAt: string
 }
@@ -91,6 +96,7 @@ const parseRecord = (value: unknown): LocalGalleryRecord | null => {
     itemCount: count,
     items: items as LocalGalleryItem[],
     ...(Array.isArray(record.hidden) ? { hidden: record.hidden.filter((id): id is string => typeof id === 'string') } : {}),
+    ...(typeof record.pinnedAt === 'string' && record.pinnedAt ? { pinnedAt: record.pinnedAt } : {}),
     addedAt: typeof record.addedAt === 'string' ? record.addedAt : '',
     lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
   }
