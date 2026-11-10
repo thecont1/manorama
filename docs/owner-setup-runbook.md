@@ -136,6 +136,15 @@ App-Sandboxed (`macos/ManoramaMac/ManoramaMac.entitlements`). The Tauri shell is
       Tauri-era security-scoped bookmarks do **not** carry over — each local folder gets re-picked
       once through the open panel. Keychain items (vault + gallery keys) are readable unchanged.
       Sign-in state carries over if `session.json` is copied into the container once
+- [ ] **Local-gallery publish providers** — the share lane needs OAuth client IDs baked at
+      build time (`MANORAMA_DESKTOP_*` in `.env.local`; a missing ID renders that provider
+      "Not configured in this build"):
+    - **Dropbox** (reuses `DROPBOX_APP_KEY` as `MANORAMA_DESKTOP_DROPBOX_CLIENT_ID`):
+      in the app console add redirect URI `in.thecontrarian.manorama.desktop://oauth/dropbox`
+      and scopes `files.content.write`, `sharing.write`, `sharing.read`
+    - **Google Drive**: a *Desktop app* OAuth client in Google Cloud Console (loopback
+      `http://127.0.0.1` is auto-allowed, `drive.file` scope) →
+      `MANORAMA_DESKTOP_GOOGLE_CLIENT_ID` + `MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET`
 
 ---
 
