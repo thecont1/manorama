@@ -58,8 +58,10 @@ describe('buildProviderAuthorizeUrl', () => {
 })
 
 describe('redirect uris', () => {
-  test('dropbox uses the custom scheme; drive uses the loopback', () => {
-    expect(providerRedirectUri('dropbox')).toBe('in.thecontrarian.manorama.desktop://oauth/dropbox')
+  test('both providers use the ephemeral loopback redirect', () => {
+    // The browser→LaunchServices custom-scheme hop is where Dropbox
+    // connects silently died — the OS-bound listener is the proven lane.
+    expect(providerRedirectUri('dropbox', 40123)).toBe('http://127.0.0.1:40123')
     expect(providerRedirectUri('drive', 40123)).toBe('http://127.0.0.1:40123')
   })
 })
@@ -78,7 +80,7 @@ describe('parseProviderRedirect', () => {
     })
   })
 
-  test('parses a pasted loopback URL as drive', () => {
+  test('parses a loopback URL as the provider the caller names', () => {
     expect(parseProviderRedirect('http://127.0.0.1:53210/?code=xyz&state=s9')).toEqual({
       provider: 'drive',
       code: 'xyz',
@@ -86,6 +88,13 @@ describe('parseProviderRedirect', () => {
     })
     expect(parseProviderRedirect('http://localhost:53210/?code=xyz&state=s9')).toEqual({
       provider: 'drive',
+      code: 'xyz',
+      state: 's9',
+    })
+    // The loopback carries no provider marker — dropbox completions come
+    // through the same host form and are tagged by the waiting pending.
+    expect(parseProviderRedirect('http://127.0.0.1:53210/?code=xyz&state=s9', 'dropbox')).toEqual({
+      provider: 'dropbox',
       code: 'xyz',
       state: 's9',
     })

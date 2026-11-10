@@ -140,8 +140,11 @@ App-Sandboxed (`macos/ManoramaMac/ManoramaMac.entitlements`). The Tauri shell is
       build time (`MANORAMA_DESKTOP_*` in `.env.local`; a missing ID renders that provider
       "Not configured in this build"):
     - **Dropbox** (reuses `DROPBOX_APP_KEY` as `MANORAMA_DESKTOP_DROPBOX_CLIENT_ID`):
-      in the app console add redirect URI `in.thecontrarian.manorama.desktop://oauth/dropbox`
-      and scopes `files.content.write`, `sharing.write`, `sharing.read`
+      in the app console add redirect URIs `http://127.0.0.1` and `http://localhost`
+      (loopback ports are wildcarded for installed-app flows; the legacy
+      `in.thecontrarian.manorama.desktop://oauth/dropbox` entry can stay as the
+      paste fallback) and scopes `files.content.write`, `sharing.write`,
+      `sharing.read`
     - **Google Drive**: a *Desktop app* OAuth client in Google Cloud Console (loopback
       `http://127.0.0.1` is auto-allowed, `drive.file` scope) →
       `MANORAMA_DESKTOP_GOOGLE_CLIENT_ID` + `MANORAMA_DESKTOP_GOOGLE_CLIENT_SECRET`
