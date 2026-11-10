@@ -65,6 +65,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // One instance, ever — two shells on one container would race the
+        // catalogue, the folder store, the vault key file, and providers.json.
+        // A second launch hands focus to the running app and exits before any
+        // of that state opens.
+        if let bundleId = Bundle.main.bundleIdentifier {
+            let others = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleId)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if let running = others.first {
+                running.unhide()
+                running.activate(options: [.activateAllWindows])
+                NSApp.terminate(nil)
+                return
+            }
+        }
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
