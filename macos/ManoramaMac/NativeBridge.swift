@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 import Security
 import WebKit
 
@@ -687,13 +688,39 @@ final class NativeBridge {
         )
         return entries.map { entry in
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
-            return [
+            var record: [String: Any] = [
                 "name": entry.lastPathComponent,
                 "isDirectory": values?.isDirectory ?? false,
                 "isFile": values?.isRegularFile ?? false,
                 "isSymlink": values?.isSymbolicLink ?? false,
             ]
+            if values?.isRegularFile == true, let dims = Self.imageDimensions(entry) {
+                record["width"] = dims.width
+                record["height"] = dims.height
+            }
+            return record
         }
+    }
+
+    /// The extensions the renderer's scanner picks up — probing anything
+    /// else is wasted ImageIO work on a directory listing.
+    private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "avif", "heic", "heif"]
+
+    /// Displayed pixel dims read from the file's header — ImageIO answers
+    /// without decoding the image, so a directory listing stays cheap.
+    /// Orientations 5–8 swap the pair, the same rule the web bundle's
+    /// `displayedImageDimensions` applies, so the box a frame reserves
+    /// matches what the browser draws.
+    private static func imageDimensions(_ url: URL) -> (width: Int, height: Int)? {
+        guard imageExtensions.contains(url.pathExtension.lowercased()),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+              let width = (properties[kCGImagePropertyPixelWidth as String] as? NSNumber)?.intValue,
+              let height = (properties[kCGImagePropertyPixelHeight as String] as? NSNumber)?.intValue,
+              width > 0, height > 0
+        else { return nil }
+        let orientation = (properties[kCGImagePropertyOrientation as String] as? NSNumber)?.intValue ?? 1
+        return orientation >= 5 ? (height, width) : (width, height)
     }
 
     private func readFile(_ args: [String: Any]) async throws -> [String: Any] {

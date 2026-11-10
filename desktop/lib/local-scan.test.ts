@@ -82,6 +82,28 @@ describe('scanLocalDirectory', () => {
     expect(scan.items.find((item) => item.id === 'DCIM/IMG_2.jpg')?.path).toBe('/card/DCIM/IMG_2.jpg')
   })
 
+  test('carries shell-probed dims onto items, at root and in subdirs', async () => {
+    const entries = tree({
+      '/card': [
+        { name: 'a.jpg', isFile: true, isDirectory: false, width: 3000, height: 2000 },
+        { name: 'no-dims.png', isFile: true, isDirectory: false },
+        { name: 'zero.webp', isFile: true, isDirectory: false, width: 0, height: 0 },
+        subdir('DCIM'),
+      ],
+      '/card/DCIM': [{ name: 'rotated.heic', isFile: true, isDirectory: false, width: 3024, height: 4032 }],
+    })
+    const scan = await scanLocalDirectory('/card', entries)
+    const byId = new Map(scan.items.map((item) => [item.id, item]))
+    // Real dims ride the item into the catalogue, so the picker's matrix
+    // cells match each photograph's aspect instead of the 1200×800 guess.
+    expect(byId.get('a.jpg')).toMatchObject({ width: 3000, height: 2000 })
+    expect(byId.get('DCIM/rotated.heic')).toMatchObject({ width: 3024, height: 4032 })
+    // Absent or zero dims stay absent — the placeholder guess only fills
+    // the render box downstream, never the record.
+    expect(byId.get('no-dims.png')?.width).toBeUndefined()
+    expect(byId.get('zero.webp')?.width).toBeUndefined()
+  })
+
   test('sorts with natural collation across files and subdirs', async () => {
     const entries = tree({
       '/root': [file('IMG_10.jpg'), file('IMG_2.jpg'), file('IMG_1.jpg'), subdir('roll2')],

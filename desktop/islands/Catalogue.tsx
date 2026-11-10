@@ -546,6 +546,36 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       }
       await registerSavedGalleryRoots().catch(() => {})
       const avail = await probeAllAvailability(next.galleries, pathExists)
+      // One-time dims backfill: catalogues scanned before the shell reported
+      // image dims carry nothing but the 1200×800 render guess, and the
+      // picker's matrix cells mis-size off it. Fill only what each record
+      // already references — membership changes stay a manual rescan.
+      for (const record of next.galleries) {
+        if (avail[record.id] !== 'available') continue
+        if (!record.items.some((item) => !(item.width && item.height))) continue
+        try {
+          const scan = await scanLocalDirectory(record.rootPath, readDirEntries)
+          const fresh = new Map(scan.items.map((item) => [item.id, item]))
+          next = {
+            ...next,
+            galleries: next.galleries.map((g) =>
+              g.id === record.id
+                ? {
+                    ...g,
+                    items: g.items.map((item) => {
+                      const seen = fresh.get(item.id)
+                      return seen?.width && seen.height && !(item.width && item.height)
+                        ? { ...item, width: seen.width, height: seen.height }
+                        : item
+                    }),
+                  }
+                : g
+            ),
+          }
+        } catch {
+          // Keep the record — a manual rescan remains the repair path.
+        }
+      }
       if (!active) return
       setCatalogue(next)
       setAvailability(avail)

@@ -39,11 +39,15 @@ export const revealGalleryRoot = async (path: string): Promise<void> =>
   invoke('reveal_gallery_root', { path })
 
 export const readDirEntries = async (dir: string): Promise<LocalScanEntry[]> => {
-  const entries = await readDir(dir)
+  // The native shell adds displayed-pixel dims to image entries — beyond the
+  // plugin's typed shape, so the seam is widened here rather than upstream.
+  const entries = (await readDir(dir)) as ({ name: string; isDirectory: boolean; isFile: boolean } & Pick<LocalScanEntry, 'width' | 'height'>)[]
   return entries.map((entry) => ({
     name: entry.name,
     isDirectory: entry.isDirectory,
     isFile: entry.isFile,
+    ...(typeof entry.width === 'number' && entry.width > 0 ? { width: entry.width } : {}),
+    ...(typeof entry.height === 'number' && entry.height > 0 ? { height: entry.height } : {}),
   }))
 }
 
