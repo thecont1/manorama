@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { Window } from 'happy-dom'
 import { render } from 'hono/jsx/dom'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
+import { hashPassword } from '../lib/library-prefs'
 import Catalogue from './Catalogue'
 
 /**
@@ -95,9 +96,10 @@ let pickedFolder: string | null
 let vaultFiles: Map<string, Uint8Array>
 let vaultKeys: Map<string, string>
 
-const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro') => {
+const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>) => {
   files = {
     'catalogue.json': JSON.stringify({ version: 1, deviceId: DEVICE_ID, deviceLabel: 'This Mac', galleries: [record] }),
+    ...(extraFiles ?? {}),
     ...(signedIn ? { 'session.json': JSON.stringify({ token: 'token', ownerSlug: 'thecontrarian', tier }) } : {}),
     ...(providerTokens ? { 'providers.json': JSON.stringify(providerTokens) } : {}),
   }
@@ -171,6 +173,12 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
         }
         return new ArrayBuffer(8)
       }
+      // The OAuth loopback listener: begin answers a port; finish waits
+      // for the browser callback like the native TcpListener — resolving
+      // it eagerly would race a bogus redirect through completeProviderConnect.
+      if (command === 'oauth_loopback_begin') return 40123
+      if (command === 'oauth_loopback_finish') return new Promise(() => {})
+      if (command === 'oauth_loopback_cancel') return null
       return null
     },
     convertFileSrc: (path: string) => `asset://localhost${path}`,
@@ -179,8 +187,8 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   }
 }
 
-const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro'): Promise<HTMLElement> => {
-  installTauri(signedIn, providerTokens, tier)
+const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>): Promise<HTMLElement> => {
+  installTauri(signedIn, providerTokens, tier, extraFiles)
   // happy-dom's element types are not lib.dom's; the repo's render tests cast at
   // this one boundary so every query below is typed by the DOM library.
   const container = dom.document.createElement('div') as unknown as HTMLElement
@@ -397,7 +405,7 @@ describe('desktop catalogue workbench', () => {
     expect(card.textContent).not.toContain(ROOT_PATH)
 
     // Unpinned, the local card is the compact cover form — the same shape
-    // an account gallery collapses to in "Your galleries". The cover is the
+    // an account gallery collapses to in "Cloud galleries". The cover is the
     // first visible original, referenced in place through the asset
     // protocol: no copy, no derivative, no thumbnail.
     const cover = card.querySelector<HTMLElement>('.lib-compact-cover')!
@@ -447,11 +455,11 @@ describe('desktop catalogue workbench', () => {
     }) as unknown as typeof fetch
     try {
       const container = await mount(true)
-      // Section order is Pinned → Local galleries → Your galleries; the
-      // account card lands in Your galleries after the local cards.
+      // Section order is Pinned → Local galleries → Cloud galleries; the
+      // account card lands in Cloud galleries after the local cards.
       const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent)
       expect(headings.indexOf('Local galleries')).toBeGreaterThanOrEqual(0)
-      expect(headings.indexOf('Local galleries')).toBeLessThan(headings.indexOf('Your galleries'))
+      expect(headings.indexOf('Local galleries')).toBeLessThan(headings.indexOf('Cloud galleries'))
       const localSection = container.querySelector<HTMLElement>('[aria-labelledby="local-galleries-title"]')!
       const accountSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
       expect(localSection).not.toBeNull()
@@ -466,7 +474,7 @@ describe('desktop catalogue workbench', () => {
       // The ··· menu carries the web's full range; Details stays local-only.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
+      for (const item of ['Pin gallery', 'Hide this gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       expect(menuItem(container, 'Open')).toBeUndefined()
@@ -1448,6 +1456,7 @@ describe('desktop catalogue workbench', () => {
     const items = [...container.querySelectorAll<HTMLButtonElement>('.lib-menu button')].map((b) => b.textContent?.trim())
     expect(items).toEqual([
       'Pin gallery',
+      'Hide this gallery',
       'Publish this gallery',
       'Gallery settings',
       'Reorder photographs',
@@ -1534,6 +1543,91 @@ describe('desktop catalogue workbench', () => {
       expect(unpinned.galleries[0]!.pinnedAt).toBeFalsy()
       const back = container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
       expect(back.classList.contains('lib-compact-card')).toBe(true)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a local gallery hides into the collapsed Hidden galleries section and back', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async () => new Response(JSON.stringify({ galleries: [] }), { status: 200 })) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const card = () => container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)
+      const hiddenSection = () => container.querySelector<HTMLElement>('.lib-hidden-section')
+
+      // Visible in the Local section; the Hidden section only exists once
+      // something is hidden.
+      expect(card()).not.toBeNull()
+      expect(hiddenSection()).toBeNull()
+
+      container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Hide this gallery')!.click()
+      await settle()
+
+      // Gone from the Local section, parked in collapsed "Hidden galleries",
+      // and the choice lands in library-prefs.json — not the catalogue.
+      expect(container.querySelector('#local-galleries-title')).toBeNull()
+      expect(hiddenSection()).not.toBeNull()
+      expect(hiddenSection()!.querySelector('.lib-hidden-count')?.textContent).toBe('1')
+      expect(hiddenSection()!.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
+      const prefs = JSON.parse(files['library-prefs.json']!) as { hidden: string[] }
+      expect(prefs.hidden).toEqual([`local:${GALLERY_ID}`])
+      expect(JSON.parse(files['catalogue.json']!).galleries[0].hidden).toBeUndefined()
+
+      // Expanding the section shows the card; its menu swaps to Unhide.
+      hiddenSection()!.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!.click()
+      await settle()
+      expect(hiddenSection()!.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+      container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Unhide gallery')!.click()
+      await settle()
+
+      expect(hiddenSection()).toBeNull()
+      expect(container.querySelector('#local-galleries-title')).not.toBeNull()
+      expect(JSON.parse(files['library-prefs.json']!).hidden).toEqual([])
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a password gate on Hidden galleries asks before the section opens', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async () => new Response(JSON.stringify({ galleries: [] }), { status: 200 })) as unknown as typeof fetch
+    try {
+      const container = await mount(true, undefined, 'pro', {
+        'library-prefs.json': JSON.stringify({
+          version: 1,
+          hidden: [`local:${GALLERY_ID}`],
+          hiddenPassword: { salt: 'aa11', hash: await hashPassword('word', 'aa11') },
+        }),
+      })
+      const toggle = () => container.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!
+      toggle().click()
+      await settle()
+      // The section stays shut until the password clears.
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
+      const passwordField = () => container.querySelector<HTMLInputElement>('.m-sheet input[type="password"]')!
+      expect(passwordField()).not.toBeNull()
+      setInput(passwordField(), 'nope')
+      await settle()
+      sheetButton(container, 'Open')!.click()
+      await settle()
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
+      // The sheet re-renders on the failed attempt — re-query the field.
+      setInput(passwordField(), 'word')
+      await settle()
+      sheetButton(container, 'Open')!.click()
+      await settle()
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+      // Collapsing re-locks — the next open asks again.
+      toggle().click()
+      await settle()
+      toggle().click()
+      await settle()
+      expect(container.querySelector('.m-sheet input[type="password"]')).not.toBeNull()
     } finally {
       globals.fetch = defaultFetch
     }

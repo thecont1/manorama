@@ -7,6 +7,7 @@ import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gall
 import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
 import type { GalleryManifest } from '../../app/lib/imagesource'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../../app/lib/imagesource'
+import { LIBRARY_PREFS_FILE, hashPassword, newPasswordSalt, parseLibraryPrefs, serializeLibraryPrefs, verifyPassword, type LibraryPrefs } from '../lib/library-prefs'
 import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, PIPELINE_LOCK_MESSAGE, expiryCountdownText } from '../../app/lib/gallery-policy'
 import { libraryLayout } from '../../packages/core/library-layout'
 import {
@@ -81,6 +82,7 @@ import {
 } from '../lib/session'
 
 const CATALOGUE_FILE = 'catalogue.json'
+const PREFS_FILE = LIBRARY_PREFS_FILE
 // The catalogue's device label is the owner's own name for the machine
 // (scutil ComputerName → hostname → generic), resolved natively once per
 // launch. Two of the owner's Macs stop reading identically.
@@ -176,6 +178,9 @@ const stripImgRetry = (event: Event) => {
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
+const readPrefsFile = () => invoke<string | null>('read_private_file', { name: PREFS_FILE })
+const writePrefsFile = (contents: string) =>
+  invoke('write_private_file', { name: PREFS_FILE, contents })
 
 type ViewerState = { galleryId: string; index: number; edit?: boolean }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
@@ -321,6 +326,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [shareStep, setShareStep] = useState<ShareStep>('choose')
   const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
   const [cardMenu, setCardMenu] = useState<CardMenu | null>(null)
+  // Hidden galleries — namespaced keys ("account:{slug}", "device:{id}",
+  // "local:{id}") concealed from the pinned/compact sections into the
+  // collapsed "Hidden galleries" section. Device-local display choice,
+  // persisted in library-prefs.json; the optional password gates opening
+  // that section (off by default). Visionary-only surface.
+  const [prefs, setPrefs] = useState<LibraryPrefs>({ version: 1 })
+  const [hiddenOpen, setHiddenOpen] = useState(false)
+  const [hiddenUnlocked, setHiddenUnlocked] = useState(false)
+  const [passwordPrompt, setPasswordPrompt] = useState<'unlock' | 'set' | 'disable' | null>(null)
+  const [passwordDraft, setPasswordDraft] = useState('')
+  const [passwordDraft2, setPasswordDraft2] = useState('')
+  const [passwordNote, setPasswordNote] = useState<string | null>(null)
   // The card menu's own confirmations and sub-surfaces — the web keeps
   // the same range: pin, share, settings, reorder, source, rescan, remove.
   const [menuRemove, setMenuRemove] = useState(false)
@@ -499,6 +516,65 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }, [])
 
+  const hiddenKeys = new Set(prefs.hidden ?? [])
+  const hiddenPasswordSet = Boolean(prefs.hiddenPassword)
+
+  const persistPrefs = async (next: LibraryPrefs) => {
+    setPrefs(next)
+    try {
+      await writePrefsFile(serializeLibraryPrefs(next))
+    } catch {
+      setNotice('Library preferences could not be saved')
+    }
+  }
+
+  const setGalleryHidden = async (key: string, hidden: boolean) => {
+    const next = new Set(hiddenKeys)
+    if (hidden) next.add(key)
+    else next.delete(key)
+    setCardMenu(null)
+    await persistPrefs({ ...prefs, hidden: [...next] })
+  }
+
+  // The Hidden section opens only after the password clears when one is
+  // set; collapsing re-locks it so a screen left open stays screened.
+  const toggleHiddenSection = () => {
+    if (hiddenOpen) {
+      setHiddenOpen(false)
+      setHiddenUnlocked(false)
+      return
+    }
+    if (hiddenPasswordSet && !hiddenUnlocked) {
+      setPasswordPrompt('unlock')
+      setPasswordDraft('')
+      setPasswordNote(null)
+      return
+    }
+    setHiddenOpen(true)
+  }
+
+  const submitPasswordPrompt = async () => {
+    const draft = passwordDraft
+    if (passwordPrompt === 'set') {
+      if (draft.length < 4) { setPasswordNote('At least 4 characters'); return }
+      if (draft !== passwordDraft2) { setPasswordNote('The two entries do not match'); return }
+      const salt = newPasswordSalt()
+      await persistPrefs({ ...prefs, hiddenPassword: { salt, hash: await hashPassword(draft, salt) } })
+      setPasswordPrompt(null)
+      setPasswordDraft(''); setPasswordDraft2('')
+      return
+    }
+    if (!prefs.hiddenPassword) { setPasswordPrompt(null); return }
+    if (!(await verifyPassword(draft, prefs.hiddenPassword))) {
+      setPasswordNote('That password does not match')
+      return
+    }
+    if (passwordPrompt === 'unlock') { setHiddenUnlocked(true); setHiddenOpen(true) }
+    else await persistPrefs({ ...prefs, hiddenPassword: null })
+    setPasswordPrompt(null)
+    setPasswordDraft(''); setPasswordNote(null)
+  }
+
   const runSync = useCallback(
     async (cat: LocalCatalogue, active: DesktopSession | null) => {
       // Free accounts hold their catalogue locally and nothing else — the
@@ -535,6 +611,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       let next: LocalCatalogue
       try {
         next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), deviceLabel)
+        setPrefs(parseLibraryPrefs(await readPrefsFile().catch(() => null)))
       } catch {
         next = newCatalogue(crypto.randomUUID(), deviceLabel)
       }
@@ -1872,7 +1949,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       // surface in "Pinned galleries" after a downgrade even though the
       // Local section is hidden (invariant 12).
       ...(accountTier === 'pro' ? galleries : []).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
-    ],
+    ].filter((entry) => !hiddenKeys.has(entry.slug)),
     accountTier,
   )
   const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [`account:${gallery.slug}`, gallery]))
@@ -1893,12 +1970,21 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     .filter((record): record is LocalGalleryRecord => Boolean(record))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
 
+  // Hidden galleries resolve through the same namespaced keys the layout
+  // uses. A key whose gallery no longer exists stays parked — unhiding a
+  // stale key is harmless and the entry simply doesn't render.
+  const hiddenAccountGalleries = liveAccountGalleries.filter((g) => hiddenKeys.has(`account:${g.slug}`))
+  const hiddenLocalGalleries = galleries.filter((r) => hiddenKeys.has(`local:${r.id}`))
+  const hiddenDeviceGalleries = remoteDeviceGalleries.filter((g) => hiddenKeys.has(`device:${g.id}`))
+  const visibleDeviceGalleries = remoteDeviceGalleries.filter((g) => !hiddenKeys.has(`device:${g.id}`))
+  const hiddenCount = hiddenAccountGalleries.length + hiddenLocalGalleries.length + hiddenDeviceGalleries.length
+
   // Saved copies are a device fact, not an account fact — a gallery whose
   // account row is gone (removed upstream, or the list never landed) still
   // owns its vault copy and still opens from it.
   const savedOnlyGalleries = savedGridGalleries.filter((saved) =>
     !(saved.owner === (ownerSlug ?? session?.ownerSlug) && (accountGalleries ?? []).some((gallery) => gallery.slug === saved.slug)))
-  const accountNote = galleriesFailed || devicesFailed ? 'Your galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
+  const accountNote = galleriesFailed || devicesFailed ? 'Cloud galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
   const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
   const retainedCount = (accountGalleries ?? []).filter((g) => g.retention !== 'pipeline').length
   const temporaryCount = (accountGalleries ?? []).filter((g) => g.retention === 'pipeline').length
@@ -1952,7 +2038,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // The compact form a local gallery takes while unpinned — a cover card in
   // the Local section's grid, the same shape account galleries collapse to
-  // in "Your galleries".
+  // in "Cloud galleries".
   const localCompactCard = (record: LocalGalleryRecord) => {
     const state = availability[record.id] ?? 'available'
     const unavailable = state === 'unavailable'
@@ -1994,6 +2080,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
         </p>
         {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+      </div>
+    </li>
+  }
+
+  const accountCompactCard = (gallery: GallerySummary) => {
+    const title = gallery.title || gallery.slug
+    const galleryUrl = accountGalleryUrl(gallery)
+    const openCard = (event: MouseEvent) => {
+      event.preventDefault()
+      if (event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
+      void openAccountGallery(gallery, 0)
+    }
+    // The cover is the first VISIBLE item — falling back to images[0]
+    // would leak a concealed photograph.
+    const cover = gallery.images.find((image) => !image.hidden)
+    return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+      <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
+        {cover ? <HeicImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+          const img = event.currentTarget as HTMLImageElement
+          img.classList.add('is-loaded')
+          // The card takes the thumbnail's own size — the image always
+          // fills it exactly, and a small rendition never stretches into
+          // mush. Stored dims are the placeholder's shape; the decoded
+          // frame owns the real ratio.
+          if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+          const card = img.closest('.lib-compact-card') as HTMLElement | null
+          if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
+        }} onError={stripImgRetry} /> : null}
+      </a>
+      <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+      <div class="lib-compact-body">
+        <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
+        {isLocked(gallery) ? tempFlag(gallery) : null}
+        {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
+        {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
+          ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
+          : null}
+        <p class="lib-card-sub">
+          {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+          {tempWording(gallery)}
+        </p>
       </div>
     </li>
   }
@@ -2159,13 +2286,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </ul>
             </section>
           ) : null}
-          {accountTier === 'pro' && (remoteDeviceGalleries.length || compactLocalGalleries.length) ? (
+          {accountTier === 'pro' && (visibleDeviceGalleries.length || compactLocalGalleries.length) ? (
             <section aria-labelledby="local-galleries-title">
               <h2 id="local-galleries-title" class="lib-section-title">Local galleries</h2>
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
-              {remoteDeviceGalleries.length ? (
+              {visibleDeviceGalleries.length ? (
                 <ul class="lib-list">
-                  {remoteDeviceGalleries.map((gallery) => (
+                  {visibleDeviceGalleries.map((gallery) => (
                     <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
                       <div class="lib-card-head">
                         <span class="lib-card-title">{gallery.title}</span>
@@ -2187,48 +2314,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           {compactAccountGalleries.length ? (
             <section aria-labelledby="lib-compact-title">
-              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Your galleries</h2>
+              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries</h2>
               <ul class="lib-compact-grid">
-                {compactAccountGalleries.map((gallery) => {
-                  const title = gallery.title || gallery.slug
-                  const galleryUrl = accountGalleryUrl(gallery)
-                  const openCard = (event: MouseEvent) => {
-                    event.preventDefault()
-                    if (event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
-                    void openAccountGallery(gallery, 0)
-                  }
-                  // The cover is the first VISIBLE item — falling back to
-                  // images[0] would leak a concealed photograph.
-                  const cover = gallery.images.find((image) => !image.hidden)
-                  return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-                    <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-                      {cover ? <HeicImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
-                        const img = event.currentTarget as HTMLImageElement
-                        img.classList.add('is-loaded')
-                        // The card takes the thumbnail's own size — the image
-                        // always fills it exactly, and a small rendition never
-                        // stretches into mush. Stored dims are the placeholder's
-                        // shape; the decoded frame owns the real ratio.
-                        if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-                        const card = img.closest('.lib-compact-card') as HTMLElement | null
-                        if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
-                      }} onError={stripImgRetry} /> : null}
-                    </a>
-                    <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
-                    <div class="lib-compact-body">
-                      <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
-                      {isLocked(gallery) ? tempFlag(gallery) : null}
-                      {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
-                      {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
-                        ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
-                        : null}
-                      <p class="lib-card-sub">
-                        {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-                        {tempWording(gallery)}
-                      </p>
-                    </div>
-                  </li>
-                })}
+                {compactAccountGalleries.map(accountCompactCard)}
               </ul>
             </section>
           ) : null}
@@ -2265,6 +2353,44 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   </li>
                 ))}
               </ul>
+            </section>
+          ) : null}
+          {accountTier === 'pro' && hiddenCount ? (
+            <section aria-labelledby="lib-hidden-title" class="lib-hidden-section">
+              <button
+                type="button"
+                id="lib-hidden-title"
+                class="lib-section-title lib-compact-title lib-hidden-toggle"
+                aria-expanded={hiddenOpen}
+                onClick={toggleHiddenSection}
+              >
+                <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
+                Hidden galleries
+                <span class="lib-hidden-count">{hiddenCount}</span>
+              </button>
+              {hiddenOpen ? (
+                <>
+                  <ul class="lib-compact-grid">
+                    {hiddenAccountGalleries.map(accountCompactCard)}
+                    {hiddenLocalGalleries.map(localCompactCard)}
+                  </ul>
+                  {hiddenDeviceGalleries.length ? (
+                    <ul class="lib-list">
+                      {hiddenDeviceGalleries.map((gallery) => (
+                        <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
+                          <div class="lib-card-head">
+                            <span class="lib-card-title">{gallery.title}</span>
+                            <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+                          </div>
+                          <p class="lib-card-sub">
+                            {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
+                          </p>
+                        </article></li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : null}
             </section>
           ) : null}
           {!galleries.length && !accountGalleries?.length && !remoteDeviceGalleries.length ? (
@@ -2372,6 +2498,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {/* The pin moves the card between "Pinned galleries" and the
                   compact list — a display choice, never permanence. */}
               <button type="button" disabled={busy} onClick={() => { void togglePin(cardMenu.gallery) }}>{cardMenu.gallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              {accountTier === 'pro' ? (
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(`account:${cardMenu.gallery.slug}`, !hiddenKeys.has(`account:${cardMenu.gallery.slug}`)) }}>
+                  {hiddenKeys.has(`account:${cardMenu.gallery.slug}`) ? 'Unhide gallery' : 'Hide this gallery'}
+                </button>
+              ) : null}
               <button type="button" onClick={() => { setShareGallery(cardMenu.gallery); setCardMenu(null) }}>Share link</button>
               {/* The gallery's own Settings — the same panel the viewer's
                   Settings popover hosts, so the owner edits in place. */}
@@ -2413,6 +2544,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               )}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : cardMenu.kind === 'device' ? (<>
+              {accountTier === 'pro' ? (
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(`device:${cardMenu.gallery.id}`, !hiddenKeys.has(`device:${cardMenu.gallery.id}`)) }}>
+                  {hiddenKeys.has(`device:${cardMenu.gallery.id}`) ? 'Unhide gallery' : 'Hide this gallery'}
+                </button>
+              ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               {/* The same verbs the account menu carries, in the same order —
@@ -2420,6 +2556,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   Open folder is the local's Open source, and Save is absent
                   because a local is already on this Mac. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              {accountTier === 'pro' ? (
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(`local:${cardMenu.record.id}`, !hiddenKeys.has(`local:${cardMenu.record.id}`)) }}>
+                  {hiddenKeys.has(`local:${cardMenu.record.id}`) ? 'Unhide gallery' : 'Hide this gallery'}
+                </button>
+              ) : null}
               {publishedUrlFor(cardMenu.record) ? (
                 <button type="button" disabled={busy} onClick={() => { void shareLocalLink(cardMenu.record, publishedUrlFor(cardMenu.record)!) }}>Share link</button>
               ) : (
@@ -2445,6 +2586,48 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             </>)}
           </div>
           )}
+        </Sheet>
+      ) : null}
+      {passwordPrompt ? (
+        <Sheet
+          open
+          onClose={() => { setPasswordPrompt(null); setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null) }}
+          title={passwordPrompt === 'set' ? 'Protect hidden galleries' : passwordPrompt === 'disable' ? 'Remove password' : 'Hidden galleries'}
+        >
+          <div class="lib-menu">
+            <p>
+              {passwordPrompt === 'set'
+                ? 'Choose a password. Opening the Hidden galleries section will ask for it.'
+                : passwordPrompt === 'disable'
+                  ? 'Enter the current password to remove protection.'
+                  : 'Enter the hidden-galleries password to open this section.'}
+            </p>
+            <input
+              type="password"
+              class="lib-menu-input"
+              value={passwordDraft}
+              placeholder={passwordPrompt === 'set' ? 'New password' : 'Password'}
+              aria-label={passwordPrompt === 'set' ? 'New password' : 'Password'}
+              onInput={(event: Event) => setPasswordDraft((event.target as HTMLInputElement).value)}
+              onKeyDown={(event: KeyboardEvent) => { if (event.key === 'Enter' && passwordPrompt !== 'set') void submitPasswordPrompt() }}
+            />
+            {passwordPrompt === 'set' ? (
+              <input
+                type="password"
+                class="lib-menu-input"
+                value={passwordDraft2}
+                placeholder="Repeat password"
+                aria-label="Repeat password"
+                onInput={(event: Event) => setPasswordDraft2((event.target as HTMLInputElement).value)}
+                onKeyDown={(event: KeyboardEvent) => { if (event.key === 'Enter') void submitPasswordPrompt() }}
+              />
+            ) : null}
+            {passwordNote ? <p class="m-note" role="alert">{passwordNote}</p> : null}
+            <button type="button" onClick={() => void submitPasswordPrompt()}>
+              {passwordPrompt === 'set' ? 'Set password' : passwordPrompt === 'disable' ? 'Remove password' : 'Open'}
+            </button>
+            <button type="button" onClick={() => { setPasswordPrompt(null); setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null) }}>Cancel</button>
+          </div>
         </Sheet>
       ) : null}
       {shareGallery ? (
@@ -2570,6 +2753,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       <p class="m-note m-panel-note">
                         Sends each local gallery's title and photograph count — never the photographs — so
                         your other devices can list this Mac's folders.
+                      </p>
+                      <ActionRow
+                        label="Hidden galleries"
+                        value={hiddenPasswordSet ? 'Password protected' : 'Open to anyone'}
+                        control={(
+                          <Button
+                            variant="quiet"
+                            onClick={() => {
+                              setPasswordPrompt(hiddenPasswordSet ? 'disable' : 'set')
+                              setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null)
+                            }}
+                          >
+                            {hiddenPasswordSet ? 'Remove password' : 'Set a password'}
+                          </Button>
+                        )}
+                      />
+                      <p class="m-note m-panel-note">
+                        Any gallery's ··· menu can hide it out of the Library. The password gates
+                        opening that section — a screen-privacy barrier, not encryption.
                       </p>
                     </>
                   ) : null}

@@ -46,7 +46,7 @@ final class NativeBridge {
     ///
     /// A fixed allowlist, never a caller-supplied path — the same list the
     /// Tauri build keeps.
-    private static let privateFiles: Set<String> = ["session.json", "catalogue.json", "providers.json"]
+    private static let privateFiles: Set<String> = ["session.json", "catalogue.json", "providers.json", "library-prefs.json"]
 
     /// The logical prefix the vault's own paths carry.
     nonisolated private static let vaultDirName = "manorama-vault-v1"

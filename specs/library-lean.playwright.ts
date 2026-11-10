@@ -40,11 +40,11 @@ test.describe('the lean Library', () => {
     const strips = page.locator('.admin-gallery-strip-frame')
     const cards = page.locator('.lib-compact-card')
     // Nothing spawned is pinned: every lean-* gallery is a compact card
-    // under "Your galleries" — "Pinned galleries" holds only pins (the
+    // under "Cloud galleries" — "Pinned galleries" holds only pins (the
     // pristine fixtures arrive pinned, so assert by prefix).
     await expect(page.locator('.lib-card[data-gallery-card^="lean-"]')).toHaveCount(0)
     await expect(page.locator('.lib-compact-card[data-gallery-card^="lean-"]')).toHaveCount(11)
-    await expect(page.getByRole('heading', { name: 'Your galleries' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cloud galleries' })).toBeVisible()
     const pristineStrips = await strips.count()
 
     // Pin the newest compact card — it becomes a permanent strip, and a
@@ -65,7 +65,7 @@ test.describe('the lean Library', () => {
     await expect(page.locator('.lib-compact-card[data-gallery-card^="lean-"]')).toHaveCount(9)
     await expect(page.getByRole('heading', { name: 'Pinned galleries' })).toBeVisible()
 
-    // Unpin returns the card to "Your galleries" — still permanent for a
+    // Unpin returns the card to "Cloud galleries" — still permanent for a
     // paid account, just no longer a strip.
     await page.locator(`.lib-card[data-gallery-card="${firstSlug}"]`).getByRole('button', { name: /actions$/ }).click()
     await page.getByRole('button', { name: 'Unpin gallery' }).click()
@@ -91,7 +91,7 @@ test.describe('the lean Library', () => {
     await expect(page.locator('.admin-gallery-strip-frame')).toHaveCount(3)
     await expect(page.locator('.lib-compact-card')).toHaveCount(2)
     await expect(page.getByRole('heading', { name: 'Pinned galleries' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Your galleries' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cloud galleries' })).toBeVisible()
 
     // The stopwatch on a temporary card opens the keep/swap sheet — the
     // expiry in days, the Visionary path, and one Swap row per permanent

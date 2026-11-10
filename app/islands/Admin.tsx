@@ -1052,7 +1052,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         })}</ul></section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Your galleries</h2>
+            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries</h2>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
