@@ -1438,18 +1438,59 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
-  test('the local card menu carries details, rescan, and a guarded remove', async () => {
+  test('the local card menu carries the account menu’s relevant verbs and a guarded remove', async () => {
     const container = await mount(true)
     container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
     await settle()
-    for (const item of ['Pin gallery', 'Gallery settings', 'Refresh gallery contents', 'Remove gallery']) {
-      expect(menuItem(container, item)).toBeDefined()
-    }
+    // Same set and order as the account menu — Share link swaps to Publish
+    // until a public slug exists, Open folder is the local Open source, and
+    // Save to this Mac is absent because a local is already on it.
+    const items = [...container.querySelectorAll<HTMLButtonElement>('.lib-menu button')].map((b) => b.textContent?.trim())
+    expect(items).toEqual([
+      'Pin gallery',
+      'Publish this gallery',
+      'Gallery settings',
+      'Reorder photographs',
+      'Open folder',
+      'Refresh gallery contents',
+      'Remove gallery',
+    ])
     // Remove confirms inside the sheet before the catalogue entry goes.
     menuItem(container, 'Remove gallery')!.click()
     await settle()
     expect(container.textContent).toContain('The folder on this Mac is untouched')
     expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+  })
+
+  test('Open folder on a local card asks the bridge to reveal the granted root', async () => {
+    const container = await mount(true)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+    await settle()
+    menuItem(container, 'Open folder')!.click()
+    await settle()
+    const call = invokeCalls.find((c) => c.command === 'reveal_gallery_root')
+    expect(call?.args?.path).toBe(ROOT_PATH)
+    // The menu closed itself; nothing was published, removed, or navigated.
+    expect(container.querySelector('.lib-menu')).toBeNull()
+    expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+  })
+
+  test('Publish this gallery on a local card opens the shared publish sheet', async () => {
+    const container = await mount(true)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+    await settle()
+    menuItem(container, 'Publish this gallery')!.click()
+    await settle()
+    expect(container.querySelector('.desktop-share--sheet')).not.toBeNull()
+  })
+
+  test('Reorder photographs on a local card opens the picker straight into Edit', async () => {
+    const container = await mount(true)
+    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+    await settle()
+    menuItem(container, 'Reorder photographs')!.click()
+    await settle()
+    expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
   })
 
   test('a local gallery pins into Pinned galleries and back, persisted in the catalogue', async () => {

@@ -28,7 +28,7 @@ import {
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from '../lib/catalogue'
-import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
+import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots, revealGalleryRoot } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
@@ -1089,14 +1089,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     resetShare()
   }
 
-  const openShareFromDetails = () => {
-    if (!detailsId) return
-    setShareGalleryId(detailsId)
+  const openShareForGallery = (id: string) => {
+    setShareGalleryId(id)
     setShareStep('choose')
     setShareUploading(false)
     setShareOpen(true)
     shareStepRef.current = 'choose'
     shareUploadingRef.current = false
+  }
+
+  const openShareFromDetails = () => {
+    if (!detailsId) return
+    openShareForGallery(detailsId)
+  }
+
+  /** The card menu's "Open folder" — reveals the gallery's root in Finder
+      through the grant-scoped bridge command. */
+  const revealFolder = async (record: LocalGalleryRecord) => {
+    setCardMenu(null)
+    setMenuRemove(false)
+    try {
+      await revealGalleryRoot(record.rootPath)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That folder could not be opened')
+    }
+  }
+
+  /** The card menu's "Share link" for an already-published local — the
+      same share-or-copy contract the details sheet's link row keeps. */
+  const shareLocalLink = async (record: LocalGalleryRecord, url: string) => {
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    try {
+      const shared = await shareGalleryOnWeb({ title: record.title, caption: '', url })
+      if (shared === 'shared') setNotice('Link shared')
+      else if (shared !== 'cancelled') {
+        setNotice((await copyText(url)) ? 'Link copied — paste it anywhere' : url)
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleShareStep = (step: ShareStep) => {
@@ -1769,11 +1802,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
   // A published link exists only when this Mac's own synced row carries the
   // public slug; the local record id is the device-gallery row id.
-  const publishedRow = detailsRecord ? deviceRows.find((row) => row.id === detailsRecord.id) : undefined
-  const publishedSlug = publishedRow?.publicGallerySlug
-  const detailsPublishedUrl = publishedSlug && (ownerSlug ?? session?.ownerSlug)
-    ? `${base}/${ownerSlug ?? session?.ownerSlug}/${publishedSlug}`
-    : null
+  const publishedUrlFor = (record: LocalGalleryRecord | null): string | null => {
+    if (!record) return null
+    const slug = deviceRows.find((row) => row.id === record.id)?.publicGallerySlug
+    const owner = ownerSlug ?? session?.ownerSlug
+    return slug && owner ? `${base}/${owner}/${slug}` : null
+  }
+  const detailsPublishedUrl = publishedUrlFor(detailsRecord)
   const shareHost = shareOpen && shareRecord ? (
     <Sheet open={shareOpen} onClose={dismissShare} title={`Publish “${shareRecord.title}”`} dismissible={!shareUploading}>
       <ShareFlow
@@ -2347,8 +2382,31 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             </>) : cardMenu.kind === 'device' ? (<>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
+              {/* The same verbs the account menu carries, in the same order —
+                  Share link swaps to Publish until a public slug exists,
+                  Open folder is the local's Open source, and Save is absent
+                  because a local is already on this Mac. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              {publishedUrlFor(cardMenu.record) ? (
+                <button type="button" disabled={busy} onClick={() => { void shareLocalLink(cardMenu.record, publishedUrlFor(cardMenu.record)!) }}>Share link</button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
+                  onClick={() => { const record = cardMenu.record; setCardMenu(null); openShareForGallery(record.id) }}
+                >Publish this gallery</button>
+              )}
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
+              <button
+                type="button"
+                disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
+                onClick={() => { const record = cardMenu.record; setCardMenu(null); openViewer(record.id, 0, true) }}
+              >Reorder photographs</button>
+              <button
+                type="button"
+                disabled={availability[cardMenu.record.id] === 'unavailable'}
+                onClick={() => { void revealFolder(cardMenu.record) }}
+              >Open folder</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}

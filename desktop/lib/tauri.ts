@@ -30,6 +30,14 @@ export const pickGalleryFolder = async (): Promise<string | null> => {
 export const registerSavedGalleryRoots = async (): Promise<void> =>
   invoke('register_saved_gallery_roots')
 
+/**
+ * Opens the gallery's root in Finder. The bridge grants the reveal only
+ * for a path that is — or sits inside — a picker-approved root, so the
+ * renderer cannot point Finder at arbitrary directories.
+ */
+export const revealGalleryRoot = async (path: string): Promise<void> =>
+  invoke('reveal_gallery_root', { path })
+
 export const readDirEntries = async (dir: string): Promise<LocalScanEntry[]> => {
   const entries = await readDir(dir)
   return entries.map((entry) => ({

@@ -277,6 +277,13 @@ final class NativeBridge {
             }
             return nil
 
+        case "reveal_gallery_root":
+            guard let raw = args["path"] as? String, !raw.isEmpty else {
+                throw BridgeError.badArguments("reveal_gallery_root needs path")
+            }
+            try revealGalleryRoot(raw)
+            return nil
+
         case "plugin:deep-link|get_current":
             pageReadyForDeepLinks = true
             return currentDeepLinks.isEmpty ? NSNull() : currentDeepLinks
@@ -590,6 +597,25 @@ final class NativeBridge {
         // or unmounted directory in `roots.json` does not grant access.
         grantedRoots.replace(folderStore.grantedRoots())
         onRootsChanged?()
+    }
+
+    /// Open a granted root in Finder ("Open folder" on a gallery card).
+    ///
+    /// The path must be a picker-granted root or inside one — the same
+    /// boundary the media handler enforces — so the renderer can only ever
+    /// reveal folders the user already granted. Finder does the display;
+    /// the app reads nothing, so no security scope needs taking here.
+    private func revealGalleryRoot(_ raw: String) throws {
+        let wanted = URL(fileURLWithPath: raw).standardizedFileURL
+        let inside = grantedRoots.all().contains { root in
+            let base = root.standardizedFileURL.path
+            let prefix = base.hasSuffix("/") ? base : base + "/"
+            return wanted.path == base || wanted.path.hasPrefix(prefix)
+        }
+        guard inside else { throw BridgeError.failed("That folder is not a granted gallery root") }
+        guard NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: wanted.path) else {
+            throw BridgeError.failed("Finder could not open that folder")
+        }
     }
 
     /// The picker-approved roots, as paths.
