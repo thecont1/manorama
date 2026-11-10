@@ -9,6 +9,7 @@ import {
   probeAllAvailability,
   probeAvailability,
   serializeLocalCatalogue,
+  visibleItemsFor,
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from './catalogue'
@@ -52,6 +53,32 @@ describe('catalogue serialization', () => {
     // would sync counts for sources that can no longer be found.
     const broken = catalogue([record({ rootPath: '' })])
     expect(deserializeLocalCatalogue(JSON.stringify(broken))).toBeNull()
+  })
+
+  test('pinnedAt round-trips, and a non-string pin drops out of the parsed record', () => {
+    const pinned = record({ pinnedAt: '2026-11-12T00:00:00.000Z' })
+    const parsed = deserializeLocalCatalogue(serializeLocalCatalogue(catalogue([pinned])))!
+    expect(parsed.galleries[0]!.pinnedAt).toBe('2026-11-12T00:00:00.000Z')
+    const bogus = deserializeLocalCatalogue(JSON.stringify({ ...catalogue([record()]), galleries: [{ ...record(), pinnedAt: 42 }] }))!
+    expect(bogus.galleries[0]!.pinnedAt).toBeUndefined()
+  })
+
+  test('the hidden set round-trips and non-string entries drop out', () => {
+    const cat = catalogue([record({ hidden: ['DCIM/IMG_2.jpg'] })])
+    const parsed = deserializeLocalCatalogue(serializeLocalCatalogue(cat))!
+    expect(parsed.galleries[0]!.hidden).toEqual(['DCIM/IMG_2.jpg'])
+    const foreign = JSON.parse(serializeLocalCatalogue(cat)) as { galleries: { hidden: unknown[] }[] }
+    foreign.galleries[0]!.hidden = ['DCIM/IMG_2.jpg', 7, null]
+    const reparsed = deserializeLocalCatalogue(JSON.stringify(foreign))!
+    expect(reparsed.galleries[0]!.hidden).toEqual(['DCIM/IMG_2.jpg'])
+  })
+})
+
+describe('visibleItemsFor', () => {
+  test('concealed items leave the view in record order', () => {
+    const gallery = record({ hidden: ['DCIM/IMG_1.jpg'] })
+    expect(visibleItemsFor(gallery).map((item) => item.id)).toEqual(['DCIM/IMG_2.jpg'])
+    expect(visibleItemsFor(record()).map((item) => item.id)).toEqual(['DCIM/IMG_1.jpg', 'DCIM/IMG_2.jpg'])
   })
 })
 

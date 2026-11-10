@@ -5,6 +5,7 @@ import {
   layoutPhotoRows,
   moveHeldItem,
   pickUpItem,
+  pointerTargetIndex,
   putDownItem,
   reorderIsDirty,
   rowStepIndex,
@@ -72,5 +73,24 @@ describe('rowStepIndex', () => {
   test('stays put at the matrix edges', () => {
     expect(rowStepIndex(cells, 0, -1)).toBe(0)
     expect(rowStepIndex(cells, 3, 1)).toBe(3)
+  })
+})
+
+describe('pointerTargetIndex', () => {
+  const rects = [
+    { top: 0, left: 0, right: 100, bottom: 80 },
+    { top: 0, left: 100, right: 240, bottom: 80 },
+    { top: 80, left: 0, right: 150, bottom: 160 },
+  ]
+  test('resolves the cell the point sits inside', () => {
+    expect(pointerTargetIndex(rects, 10, 10)).toBe(0)
+    expect(pointerTargetIndex(rects, 200, 40)).toBe(1)
+    expect(pointerTargetIndex(rects, 149.9, 159.9)).toBe(2)
+    expect(pointerTargetIndex(rects, 100, 0)).toBe(1)
+  })
+  test('returns -1 beyond every cell', () => {
+    expect(pointerTargetIndex(rects, 500, 40)).toBe(-1)
+    expect(pointerTargetIndex(rects, 50, 500)).toBe(-1)
+    expect(pointerTargetIndex([], 10, 10)).toBe(-1)
   })
 })

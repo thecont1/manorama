@@ -15,6 +15,7 @@ import { join } from 'node:path'
 const root = mkdtempSync(join(tmpdir(), 'manorama-vault-test-'))
 const VAULT_ROOT = 'manorama-vault-v1'
 const keychain = new Map<string, string>()
+let missingKeyReply: 'null' | 'undefined' = 'null'
 
 const entryPath = (path: string): string => {
   const relative = path.startsWith(`${VAULT_ROOT}/`) ? path.slice(VAULT_ROOT.length + 1) : null
@@ -64,7 +65,13 @@ const installTauri = () => {
           return []
         }
       }
-      if (command === 'vault_key_get') return keychain.get(String(record?.name)) ?? null
+      if (command === 'vault_key_get') {
+        const value = keychain.get(String(record?.name))
+        // The SwiftUI shell answers a nil result by omitting `value` from the
+        // reply entirely, which the page receives as `undefined`; Tauri
+        // serialises `Ok(None)` as `null`. Both must read as "absent".
+        return value === undefined ? (missingKeyReply === 'undefined' ? undefined : null) : value
+      }
       if (command === 'vault_key_set') { keychain.set(String(record?.name), String(record?.value)); return null }
       if (command === 'vault_key_remove') { keychain.delete(String(record?.name)); return null }
       return null
@@ -97,6 +104,21 @@ describe('desktop vault round-trip through the Tauri seam', () => {
     expect(keychain.size).toBe(0)
     const after = await desktopVault.usage()
     expect(after.measuredBytes).toBeLessThanOrEqual(64)
+  })
+
+  test('a missing-key reply without a value still counts as absent on purge', async () => {
+    const { desktopVault } = await import('./vault')
+    missingKeyReply = 'undefined'
+    try {
+      const galleryId = 'omitted-value-gallery'
+      await desktopVault.write(galleryId, 'entry-0', new Uint8Array(256).fill(5))
+      // clearGallery's verified key removal used to read the omitted reply
+      // value (`undefined`) as a surviving key and fail the whole purge.
+      await desktopVault.clearGallery(galleryId)
+      expect(keychain.size).toBe(0)
+    } finally {
+      missingKeyReply = 'null'
+    }
   })
 
   test('an entry written under a stale index survives a mid-fill read', async () => {

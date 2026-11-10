@@ -24,7 +24,10 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://*.proton.me" },
-        { "url": "https://*.protonvpn.com" }
+        { "url": "https://*.protonvpn.com" },
+        { "url": "https://g.api.mega.co.nz" },
+        { "url": "https://userstorage.mega.co.nz" },
+        { "url": "https://*.userstorage.mega.co.nz" }
       ]
     },
     "core:window:allow-start-dragging"

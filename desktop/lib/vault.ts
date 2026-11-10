@@ -26,7 +26,10 @@ const tauriVaultStorage: VaultStorageProvider = {
  *  through Rust — ciphertext without them is dead bytes, which is what keeps
  *  the vault viewable solely inside this app. */
 const keychainVaultKeys: VaultKeyProvider = {
-  get: (name) => invoke<string | null>('vault_key_get', { name }),
+  // `?? null` keeps the `string | null` contract when a shell answers a
+  // missing key by omitting the reply value: `undefined` must read as
+  // "absent", never as a surviving key.
+  get: async (name) => (await invoke<string | null>('vault_key_get', { name })) ?? null,
   set: (name, value) => invoke<void>('vault_key_set', { name, value }),
   remove: (name) => invoke<void>('vault_key_remove', { name }),
 }

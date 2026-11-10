@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
+import { publishAddFolder, publishAddGallery, publishClose, publishNavigation, shellPost } from '../lib/shell'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
 import EncryptedGallery from '../../app/islands/EncryptedGallery'
@@ -11,6 +12,7 @@ import { libraryLayout } from '../../packages/core/library-layout'
 import {
   classifyRoot,
   galleryTitleForRoot,
+  mergeRescannedItems,
   scanLocalDirectory,
   toGalleryMediaItem,
   type LocalGalleryItem,
@@ -21,15 +23,16 @@ import {
   probeAllAvailability,
   probeAvailability,
   serializeLocalCatalogue,
+  visibleItemsFor,
   type GalleryAvailability,
   type LocalCatalogue,
   type LocalGalleryRecord,
 } from '../lib/catalogue'
-import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots } from '../lib/tauri'
+import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntries, registerSavedGalleryRoots, revealGalleryRoot } from '../lib/tauri'
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -45,6 +48,7 @@ import { SettingsIcon, LinkIcon, SourceIcon } from '../../app/components/admin-i
 import { AddGallerySheet } from '../../app/components/AddGallerySheet'
 import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
+import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
 import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
@@ -119,6 +123,7 @@ const externalAnchor = (url: string) => ({
 type CardMenu =
   | { kind: 'account'; gallery: GallerySummary }
   | { kind: 'local'; record: LocalGalleryRecord }
+  | { kind: 'device'; gallery: DeviceGallery }
 
 /* The strip/card helpers the web Library uses — same badges, same temp
  *  wording, so an owner sees one product across the two shells. */
@@ -141,7 +146,7 @@ const tempFlag = (gallery: GallerySummary) => (
 )
 const tempWording = (gallery: GallerySummary) =>
   isLocked(gallery) ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, Date.now())}` : ''}` : ''
-const pinGlyph = (gallery: GallerySummary) => gallery.pinnedAt
+const pinGlyph = (entry: { pinnedAt?: string | null }) => entry.pinnedAt
   ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span>
   : null
 /** Strips overflow horizontally; a vertical wheel gesture pans them so a
@@ -172,7 +177,7 @@ const readCatalogueFile = () => invoke<string | null>('read_private_file', { nam
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
 
-type ViewerState = { galleryId: string; index: number }
+type ViewerState = { galleryId: string; index: number; edit?: boolean }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
 type AccountViewerState = { manifest: GalleryManifest; settings: GallerySettings; index: number; gallery?: GallerySummary; galleryId?: string; edit?: boolean; encryptedSourceUrl?: string; encryptedResolver?: EncryptedMediaResolver | null }
 
@@ -220,6 +225,61 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [availability, setAvailability] = useState<Record<string, GalleryAvailability>>({})
   const [viewerState, setViewerState] = useState<ViewerState | null>(null)
   const [accountViewer, setAccountViewer] = useState<AccountViewerState | null>(null)
+  // The native shell's Gallery menu drives the mounted Viewer through this
+  // handle. The Viewer keeps sole ownership of the index — the handle asks it
+  // to move, it never sets it. Under Tauri there is no shell, so the handle
+  // simply goes unused and the build is unchanged.
+  const navigationRef = useRef<{ goTo(index: number): void } | null>(null)
+  // Tell the native shell what the shell needs to know: whether a gallery is
+  // open, and which photograph it is on. Both calls are no-ops without a
+  // shell, so the Tauri build is unaffected.
+  useEffect(() => {
+    publishNavigation(navigationRef)
+    // The shell's Gallery menu has a Close Gallery item; the page owns
+    // what closing means, so the shell asks the page.
+    publishClose(() => {
+      if (accountViewer) { disposeOpenLease(); setAccountViewer(null) }
+      setViewerState(null)
+    })
+    // The native menu's "Add Gallery…" opens the chooser when signed in;
+    // "Open Folder…" runs the Library's direct folder flow.
+    publishAddGallery(() => {
+      if (session) setAddChooserOpen(true)
+      else void addFolder()
+    })
+    publishAddFolder(() => { void addFolder() })
+  })
+
+  useEffect(() => {
+    const open = accountViewer !== null || viewerState !== null
+    shellPost({ type: 'gallery', open, title: accountViewer?.manifest.title })
+  }, [accountViewer, viewerState])
+
+  // Escape leaves the gallery, and only the native shell hears it: the
+  // Tauri build has no shell on the other end, so its behaviour is
+  // unchanged.
+  //
+  // The Viewer consumes Escape for its own overlays — the picker, the
+  // information sheet — so the message goes out only when nothing else
+  // claimed the key. The check waits for the dispatch to finish, because
+  // the listener that claims Escape may run after this one.
+  useEffect(() => {
+    if (!viewerState && !accountViewer) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      queueMicrotask(() => {
+        if (event.defaultPrevented) return
+        shellPost({ type: 'escape' })
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [viewerState, accountViewer])
+
+  // The Library is mounted. The shell needs to know: its own commands drive
+  // the page, and a command sent before this would find nothing to drive.
+  useEffect(() => { shellPost({ type: 'ready' }) }, [])
+
   // The encrypted on-device vault: galleries whose bytes already live in the
   // login-Keychain-locked store, the owner's load policy, and the per-gallery
   // stream-only overrides — the same three surfaces the iOS app carries.
@@ -339,6 +399,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // read refreshes it on each sync tick, so a downgrade takes effect live.
   const accountTier = session?.tier ?? 'free'
 
+  // A test run asks for a folder to be added. The add waits for the
+  // session, because local galleries are a Visionary feature and the tier
+  // is what says so — an add that ran before the session loaded would be
+  // refused as a free account.
+  useEffect(() => {
+    if (!catalogue || accountTier !== 'pro') return
+    const asked = (window as unknown as { __manoramaSeedRequested?: boolean }).__manoramaSeedRequested
+    if (!asked) return
+    ;(window as unknown as { __manoramaSeedRequested?: boolean }).__manoramaSeedRequested = false
+    void addFolder()
+  }, [catalogue, accountTier, session])
+
   // The vault's persisted preferences and saved index load once; the cap
   // re-applies on every tier change because Free and Visionary resolve
   // different ceilings for the same stored preference.
@@ -378,9 +450,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     void loadVaultLoadPolicy(desktopVaultPersistence).then(setVaultLoadPolicy).catch(() => {})
     void refreshSavedGalleries()
   }, [settingsOpen])
-  const openViewer = (galleryId: string, index: number) => {
+  const openViewer = (galleryId: string, index: number, edit = false) => {
     setPlate(houseAdFrameFor(galleryId))
-    setViewerState({ galleryId, index })
+    setViewerState({ galleryId, index, edit })
   }
   // The share sheet's live state, mirrored in refs so the window-level history
   // listener (registered once, empty deps) sees the CURRENT flow instead of
@@ -766,6 +838,32 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
+  // The local pin — same display contract as the account pin (the card moves
+  // between "Pinned galleries" and the compact grid) but persisted into
+  // catalogue.json, not the API: a local record has no server row to PATCH.
+  const toggleLocalPin = async (record: LocalGalleryRecord) => {
+    if (!catalogue) return
+    const pinning = !record.pinnedAt
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    const next: LocalCatalogue = {
+      ...catalogue,
+      galleries: catalogue.galleries.map((gallery) =>
+        gallery.id === record.id ? { ...gallery, pinnedAt: pinning ? new Date().toISOString() : null } : gallery
+      ),
+    }
+    try {
+      await writeCatalogueFile(serializeLocalCatalogue(next))
+      setCatalogue(next)
+      setNotice(pinning ? `“${record.title}” pinned` : `“${record.title}” unpinned`)
+    } catch {
+      setNotice('That gallery could not be pinned')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const refreshGallery = async (gallery: GallerySummary) => {
     if (!session || !gallery.sourceUrl) return
     setCardMenu(null)
@@ -795,6 +893,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setCardMenu(null)
       setMenuRemove(false)
       await refreshAccountGalleries(session.token)
+      setNotice('Gallery removed')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be removed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeDeviceGalleryConfirmed = async (gallery: DeviceGallery) => {
+    if (!session) return
+    setBusy(true)
+    try {
+      await deleteDeviceGalleryRecord(base, session.token, gallery.id)
+      setDeviceRows((current) => current.filter((row) => row.id !== gallery.id))
+      setCardMenu(null)
+      setMenuRemove(false)
       setNotice('Gallery removed')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That gallery could not be removed')
@@ -888,7 +1002,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       const scan = await scanLocalDirectory(record.rootPath, readDirEntries)
       updated = {
         ...record,
-        items: scan.items,
+        // The persisted order is user data — the scan folds into it:
+        // arranged items hold position, new files append in scan order.
+        items: mergeRescannedItems(scan.items, record.items),
         itemCount: scan.truncated ?? scan.items.length,
         lastSeenAt: new Date().toISOString(),
       }
@@ -973,14 +1089,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     resetShare()
   }
 
-  const openShareFromDetails = () => {
-    if (!detailsId) return
-    setShareGalleryId(detailsId)
+  const openShareForGallery = (id: string) => {
+    setShareGalleryId(id)
     setShareStep('choose')
     setShareUploading(false)
     setShareOpen(true)
     shareStepRef.current = 'choose'
     shareUploadingRef.current = false
+  }
+
+  const openShareFromDetails = () => {
+    if (!detailsId) return
+    openShareForGallery(detailsId)
+  }
+
+  /** The card menu's "Open folder" — reveals the gallery's root in Finder
+      through the grant-scoped bridge command. */
+  const revealFolder = async (record: LocalGalleryRecord) => {
+    setCardMenu(null)
+    setMenuRemove(false)
+    try {
+      await revealGalleryRoot(record.rootPath)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That folder could not be opened')
+    }
+  }
+
+  /** The card menu's "Share link" for an already-published local — the
+      same share-or-copy contract the details sheet's link row keeps. */
+  const shareLocalLink = async (record: LocalGalleryRecord, url: string) => {
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    try {
+      const shared = await shareGalleryOnWeb({ title: record.title, caption: '', url })
+      if (shared === 'shared') setNotice('Link shared')
+      else if (shared !== 'cancelled') {
+        setNotice((await copyText(url)) ? 'Link copied — paste it anywhere' : url)
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleShareStep = (step: ShareStep) => {
@@ -1394,6 +1543,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       settings: accountViewer.settings,
       plate,
       initialIndex: accountViewer.index,
+      navigationRef,
+      onPositionChange: (position: { index: number }) => {
+        shellPost({ type: 'position', index: position.index, total: accountViewer.manifest.images.length })
+      },
       apiBase: base,
       authToken: session?.token,
       initialEdit: accountViewer.edit ?? false,
@@ -1486,9 +1639,49 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       title: record.title,
       caption: '',
       date: '',
-      images: record.items.map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
+      images: visibleItemsFor(record).map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
     }
     const settings = defaultGallerySettings(manifest)
+    // The picker's Edit mode for locals: same draft the API editor builds
+    // (every item's orderKey, the hidden keys), persisted into the
+    // catalogue instead of PATCHed to the Worker. orderKey is the item id —
+    // the relative path, stable across rescans.
+    const localEditStore = {
+      load: async (): Promise<PickerEditItem[]> => {
+        const hidden = new Set(record.hidden ?? [])
+        return record.items.map((raw) => {
+          const item = withDims(raw)
+          return {
+            id: item.id,
+            orderKey: item.id,
+            width: item.width && item.width > 0 ? item.width : 1200,
+            height: item.height && item.height > 0 ? item.height : 800,
+            src: assetUrl(item.path),
+            preview: assetUrl(item.path),
+            filename: item.name,
+            label: item.name,
+            hidden: hidden.has(item.id),
+          }
+        })
+      },
+      save: async (order: string[], hidden: string[]) => {
+        if (!catalogue) throw new Error('The catalogue is not loaded')
+        const byId = new Map(record.items.map((item) => [item.id, item]))
+        const ordered = order.map((id) => byId.get(id)).filter((item): item is LocalGalleryItem => Boolean(item))
+        const inOrder = new Set(order)
+        const items = [...ordered, ...record.items.filter((item) => !inOrder.has(item.id))]
+        const next: LocalCatalogue = {
+          ...catalogue,
+          galleries: catalogue.galleries.map((gallery) =>
+            gallery.id === record.id ? { ...gallery, items, hidden: hidden.length ? hidden : undefined } : gallery
+          ),
+        }
+        // Persist first, like rename/rescan — a failed private-store write
+        // surfaces in the editor instead of pretending the order stuck.
+        await writeCatalogueFile(serializeLocalCatalogue(next))
+        setCatalogue(next)
+      },
+    }
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
@@ -1500,8 +1693,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             settings={settings}
             plate={plate}
             initialIndex={viewerState?.index ?? 0}
+            initialEdit={viewerState?.edit ?? false}
+            editStore={localEditStore}
             allowFullscreen={false}
+            navigationRef={navigationRef}
+            onPositionChange={(position: { index: number }) => {
+              shellPost({ type: 'position', index: position.index, total: manifest.images.length })
+            }}
             onReturnToGalleries={() => setViewerState(null)}
+            onEditSaved={(photoId: string | null) => {
+              // Entered from the settings sheet — Save lands back on the
+              // Library like the account flow's doneHref. Entered from the
+              // picker it reopens at the saved photograph.
+              if (viewerState?.edit) { setViewerState(null); return }
+              const items = catalogue?.galleries.find((gallery) => gallery.id === record.id)
+                ? visibleItemsFor(catalogue.galleries.find((gallery) => gallery.id === record.id)!)
+                : []
+              const index = photoId ? Math.max(0, items.findIndex((item) => item.id === photoId)) : 0
+              setViewerState({ galleryId: record.id, index })
+            }}
           />
         </GalleryShell>
       </>
@@ -1583,19 +1793,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     )
   }
 
-  // The selected record's details: a full-screen local surface mounted in
-  // place of the workbench, with the shared Sheet+ShareFlow hosted alongside
-  // it (Share opens only from Details). The viewer takes precedence when a
-  // photograph is open — Open leaves details first.
+  // The selected record's settings: a Sheet over the workbench — the same
+  // presentation an account gallery's settings gets — with the shared
+  // ShareFlow hosted alongside (Publish opens only from settings). The
+  // viewer takes precedence when a photograph is open — Open leaves the
+  // sheet first.
   const detailsRecord = detailsId && catalogue && accountTier === 'pro' ? catalogue.galleries.find((g) => g.id === detailsId) ?? null : null
   const shareRecord = shareGalleryId && catalogue ? catalogue.galleries.find((g) => g.id === shareGalleryId) ?? null : null
   // A published link exists only when this Mac's own synced row carries the
   // public slug; the local record id is the device-gallery row id.
-  const publishedRow = detailsRecord ? deviceRows.find((row) => row.id === detailsRecord.id) : undefined
-  const publishedSlug = publishedRow?.publicGallerySlug
-  const detailsPublishedUrl = publishedSlug && (ownerSlug ?? session?.ownerSlug)
-    ? `${base}/${ownerSlug ?? session?.ownerSlug}/${publishedSlug}`
-    : null
+  const publishedUrlFor = (record: LocalGalleryRecord | null): string | null => {
+    if (!record) return null
+    const slug = deviceRows.find((row) => row.id === record.id)?.publicGallerySlug
+    const owner = ownerSlug ?? session?.ownerSlug
+    return slug && owner ? `${base}/${owner}/${slug}` : null
+  }
+  const detailsPublishedUrl = publishedUrlFor(detailsRecord)
   const shareHost = shareOpen && shareRecord ? (
     <Sheet open={shareOpen} onClose={dismissShare} title={`Publish “${shareRecord.title}”`} dismissible={!shareUploading}>
       <ShareFlow
@@ -1610,40 +1823,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </Sheet>
   ) : null
 
-  if (detailsRecord) {
-    return (
-      <>
-        <LocalGalleryDetails
-          record={detailsRecord}
-          availability={availability[detailsRecord.id] ?? 'available'}
-          onBack={closeDetails}
-          onOpen={() => {
-            closeDetails()
-            openViewer(detailsRecord.id, 0)
-          }}
-          onOpenAt={(index) => {
-            closeDetails()
-            openViewer(detailsRecord.id, index)
-          }}
-          publishedUrl={detailsPublishedUrl}
-          onShareLink={detailsPublishedUrl ? async () => {
-            const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
-            if (shared === 'shared') return 'Link shared'
-            if (shared === 'cancelled') return null
-            // No system share in the webview — the clipboard keeps the same
-            // contract, and a failed copy leaves the address visible.
-            return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
-          } : undefined}
-          onShare={openShareFromDetails}
-          onRescan={() => rescan(detailsRecord)}
-          onRename={(title) => rename(detailsRecord, title)}
-          onRemove={() => remove(detailsRecord)}
-        />
-        {shareHost}
-      </>
-    )
-  }
-
   const galleries = catalogue.galleries
   // Dedupe at render so whichever feed lands last re-derives the list — a
   // device row published as a cloud gallery collapses the moment the account
@@ -1653,17 +1832,35 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // mirroring the web Library's shared layout rule. Pinned rows lead by
   // pinnedAt; everything else collapses to a compact cover card.
   const liveAccountGalleries = accountGalleries ?? []
+  // Locals join the same pinned/compact rule as account galleries — a pin
+  // is a display choice on both kinds. Namespaced slugs keep the two
+  // identity spaces distinct inside the shared layout.
   const accountLayout = libraryLayout(
-    liveAccountGalleries.map((gallery) => ({ slug: gallery.slug, pinnedAt: gallery.pinnedAt })),
+    [
+      ...liveAccountGalleries.map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
+      // Free sees no locals anywhere — an ungated pinned local would still
+      // surface in "Pinned galleries" after a downgrade even though the
+      // Local section is hidden (invariant 12).
+      ...(accountTier === 'pro' ? galleries : []).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
+    ],
     accountTier,
   )
-  const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [gallery.slug, gallery]))
-  const pinnedAccountGalleries = accountLayout.strips
-    .map((slug) => accountBySlug.get(slug))
-    .filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [`account:${gallery.slug}`, gallery]))
+  const localByCardId = new Map(galleries.map((record) => [`local:${record.id}`, record]))
+  const pinnedStrips = accountLayout.strips
+    .map((key) => {
+      const gallery = accountBySlug.get(key)
+      if (gallery) return { kind: 'account' as const, gallery }
+      const record = localByCardId.get(key)
+      return record ? { kind: 'local' as const, record } : null
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
   const compactAccountGalleries = accountLayout.compact
-    .map((slug) => accountBySlug.get(slug))
+    .map((key) => accountBySlug.get(key))
     .filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const compactLocalGalleries = accountLayout.compact
+    .map((key) => localByCardId.get(key))
+    .filter((record): record is LocalGalleryRecord => Boolean(record))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
 
   // Saved copies are a device fact, not an account fact — a gallery whose
@@ -1677,6 +1874,99 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const temporaryCount = (accountGalleries ?? []).filter((g) => g.retention === 'pipeline').length
   const retainedLimit = accountTier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
 
+  const localStripCard = (record: LocalGalleryRecord) => {
+    const state = availability[record.id] ?? 'available'
+    const unavailable = state === 'unavailable'
+    return <li key={`local-${record.id}`}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
+      <div class="admin-gallery-strip-frame" onWheel={stripWheel}>
+        <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
+          {visibleItemsFor(record).map((item, index) => (
+            <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
+              <button
+                type="button"
+                disabled={unavailable}
+                aria-label={`Open ${item.name} — photograph ${index + 1} of ${visibleItemsFor(record).length} in ${record.title}`}
+                onClick={() => openViewer(record.id, index)}
+              >
+                <img
+                  src={assetUrl(item.path)}
+                  alt=""
+                  loading="lazy"
+                  draggable={false}
+                  onLoad={(event: Event) => {
+                    const img = event.currentTarget as HTMLImageElement
+                    img.classList.add('is-loaded')
+                    recordDims(item.id, img.naturalWidth, img.naturalHeight)
+                  }}
+                />
+              </button>
+            </li>
+          ))}
+        </ul>
+        {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
+      </div>
+      <div class="lib-card-head">
+        <button
+          type="button"
+          class="lib-card-title"
+          onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
+        >{record.title}{pinGlyph(record)}</button>
+        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+      </div>
+      <p class="lib-card-sub">
+        {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+      </p>
+      {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+    </article></li>
+  }
+
+  // The compact form a local gallery takes while unpinned — a cover card in
+  // the Local section's grid, the same shape account galleries collapse to
+  // in "Your galleries".
+  const localCompactCard = (record: LocalGalleryRecord) => {
+    const state = availability[record.id] ?? 'available'
+    const unavailable = state === 'unavailable'
+    const cover = visibleItemsFor(record)[0]
+    return <li key={record.id} class="lib-compact-card" data-gallery-card={record.id} data-availability={state}>
+      <a
+        class="lib-compact-cover"
+        href={`#local-${record.id}`}
+        onClick={(event: MouseEvent) => { event.preventDefault(); if (!unavailable) openViewer(record.id, 0) }}
+        draggable={false}
+        aria-label={`${record.title} cover`}
+        aria-disabled={unavailable ? true : undefined}
+      >
+        {cover ? (
+          <img
+            src={assetUrl(cover.path)}
+            alt=""
+            loading="lazy"
+            draggable={false}
+            onLoad={(event: Event) => {
+              const img = event.currentTarget as HTMLImageElement
+              img.classList.add('is-loaded')
+              recordDims(cover.id, img.naturalWidth, img.naturalHeight)
+              // A small original floats at its honest size rather than
+              // upscaling to the card width — invariant 13.
+              if (img.naturalWidth) img.style.maxWidth = `${img.naturalWidth}px`
+            }}
+          />
+        ) : null}
+      </a>
+      <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
+      <div class="lib-compact-body">
+        <button
+          type="button"
+          class="lib-card-title"
+          onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
+        >{record.title}{pinGlyph(record)}</button>
+        <p class="lib-card-sub">
+          {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+        </p>
+        {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+      </div>
+    </li>
+  }
 
   return (
     // `data-admin-ready` is the shell's own "catalogue restored" signal: the
@@ -1762,11 +2052,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <p class="admin-copyright">© 2026 Mahesh Shantaram.<br />All platform rights reserved.</p>
         </aside>
         <section class="gallery-list" aria-labelledby="galleries-heading">
-          {pinnedAccountGalleries.length ? (
+          {pinnedStrips.length ? (
             <section aria-labelledby="pinned-galleries-title">
               <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries</h2>
               <ul class="lib-list">
-                {pinnedAccountGalleries.map((gallery) => {
+                {pinnedStrips.map((entry) => {
+                  if (entry.kind === 'local') return localStripCard(entry.record)
+                  const gallery = entry.gallery
                   const title = gallery.title || gallery.slug
                   const galleryUrl = accountGalleryUrl(gallery)
                   const openCard = (index: number) => (event: MouseEvent) => {
@@ -1837,67 +2129,30 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </ul>
             </section>
           ) : null}
-          {accountTier === 'pro' && (remoteDeviceGalleries.length || galleries.length) ? (
+          {accountTier === 'pro' && (remoteDeviceGalleries.length || compactLocalGalleries.length) ? (
             <section aria-labelledby="local-galleries-title">
               <h2 id="local-galleries-title" class="lib-section-title">Local galleries</h2>
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
-              <ul class="lib-list">
-                {remoteDeviceGalleries.map((gallery) => (
-                  <li key={`device-${gallery.id}`}><article class="lib-card">
-                    <div class="lib-card-head">
-                      <span class="lib-card-title">{gallery.title}</span>
-                    </div>
-                    <p class="lib-card-sub">
-                      {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
-                    </p>
-                  </article></li>
-                ))}
-                {galleries.map((record) => {
-                  const state = availability[record.id] ?? 'available'
-                  const unavailable = state === 'unavailable'
-                  return <li key={record.id}><article class="lib-card" data-gallery-card={record.id} data-availability={state}>
-                    <div class="admin-gallery-strip-frame" onWheel={stripWheel}>
-                      <ul class="admin-gallery-strip" aria-label={`${record.title} photographs`}>
-                        {record.items.map((item, index) => (
-                          <li class="admin-gallery-strip-item" key={item.id} data-image-id={item.id}>
-                            <button
-                              type="button"
-                              disabled={unavailable}
-                              aria-label={`Open ${item.name} — photograph ${index + 1} of ${record.items.length} in ${record.title}`}
-                              onClick={() => openViewer(record.id, index)}
-                            >
-                              <img
-                                src={assetUrl(item.path)}
-                                alt=""
-                                loading="lazy"
-                                draggable={false}
-                                onLoad={(event: Event) => {
-                                  const img = event.currentTarget as HTMLImageElement
-                                  img.classList.add('is-loaded')
-                                  recordDims(item.id, img.naturalWidth, img.naturalHeight)
-                                }}
-                              />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                      {record.items.length === 0 ? <p class="desktop-empty">No photos found — rescan after adding files.</p> : null}
-                    </div>
-                    <div class="lib-card-head">
-                      <button
-                        type="button"
-                        class="lib-card-title"
-                        onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
-                      >{record.title}</button>
-                      <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
-                    </div>
-                    <p class="lib-card-sub">
-                      {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
-                    </p>
-                    {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
-                  </article></li>
-                })}
-              </ul>
+              {remoteDeviceGalleries.length ? (
+                <ul class="lib-list">
+                  {remoteDeviceGalleries.map((gallery) => (
+                    <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
+                      <div class="lib-card-head">
+                        <span class="lib-card-title">{gallery.title}</span>
+                        <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+                      </div>
+                      <p class="lib-card-sub">
+                        {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
+                      </p>
+                    </article></li>
+                  ))}
+                </ul>
+              ) : null}
+              {compactLocalGalleries.length ? (
+                <ul class="lib-compact-grid">
+                  {compactLocalGalleries.map(localCompactCard)}
+                </ul>
+              ) : null}
             </section>
           ) : null}
           {compactAccountGalleries.length ? (
@@ -2034,13 +2289,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         onClose={closeAddSheet}
         onSubmit={addGallerySubmit}
       />
+      {/* A local gallery's settings — the Sheet form, not a full page:
+          whichever card the three-dots came from, settings look the same.
+          The Publish flow (shareHost) stacks on top of it when it opens. */}
+      {detailsRecord ? (
+        <Sheet open onClose={closeDetails} title="Gallery settings">
+          <LocalGalleryDetails
+            record={detailsRecord}
+            availability={availability[detailsRecord.id] ?? 'available'}
+            onOpen={() => {
+              closeDetails()
+              openViewer(detailsRecord.id, 0)
+            }}
+            publishedUrl={detailsPublishedUrl}
+            onShareLink={detailsPublishedUrl ? async () => {
+              const shared = await shareGalleryOnWeb({ title: detailsRecord.title, caption: '', url: detailsPublishedUrl })
+              if (shared === 'shared') return 'Link shared'
+              if (shared === 'cancelled') return null
+              // No system share in the webview — the clipboard keeps the same
+              // contract, and a failed copy leaves the address visible.
+              return (await copyText(detailsPublishedUrl)) ? 'Link copied — paste it anywhere' : detailsPublishedUrl
+            } : undefined}
+            onShare={openShareFromDetails}
+            onReorder={() => {
+              closeDetails()
+              openViewer(detailsRecord.id, 0, true)
+            }}
+            onRescan={() => rescan(detailsRecord)}
+            onRename={(title) => rename(detailsRecord, title)}
+            onRemove={() => remove(detailsRecord)}
+          />
+        </Sheet>
+      ) : null}
+      {shareHost}
       {cardMenu ? (
-        <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}>
+        <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}>
           {menuRemove ? (
             <div class="lib-menu">
-              <p>Remove “{cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.record.title}” from manorama?{cardMenu.kind === 'account' && cardMenu.gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(cardMenu.gallery.sourceUrl)}.` : ' The folder on this Mac is untouched.'}</p>
+              <p>Remove “{cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}” from manorama?{cardMenu.kind === 'account' && cardMenu.gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(cardMenu.gallery.sourceUrl)}.` : cardMenu.kind === 'device' ? ` The folder on ${cardMenu.gallery.deviceLabel} is untouched.` : ' The folder on this Mac is untouched.'}</p>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => {
                 if (cardMenu.kind === 'account') void removeGalleryConfirmed(cardMenu.gallery)
+                else if (cardMenu.kind === 'device') void removeDeviceGalleryConfirmed(cardMenu.gallery)
                 else { const record = cardMenu.record; setCardMenu(null); setMenuRemove(false); void remove(record) }
               }}>Remove gallery</button>
               <button type="button" disabled={busy} onClick={() => setMenuRemove(false)}>Cancel</button>
@@ -2093,8 +2382,34 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 <button type="button" disabled={busy} onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void saveToVault(g) }}>Save to this Mac</button>
               )}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
+            </>) : cardMenu.kind === 'device' ? (<>
+              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
-              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery details</button>
+              {/* The same verbs the account menu carries, in the same order —
+                  Share link swaps to Publish until a public slug exists,
+                  Open folder is the local's Open source, and Save is absent
+                  because a local is already on this Mac. */}
+              <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              {publishedUrlFor(cardMenu.record) ? (
+                <button type="button" disabled={busy} onClick={() => { void shareLocalLink(cardMenu.record, publishedUrlFor(cardMenu.record)!) }}>Share link</button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
+                  onClick={() => { const record = cardMenu.record; setCardMenu(null); openShareForGallery(record.id) }}
+                >Publish this gallery</button>
+              )}
+              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
+              <button
+                type="button"
+                disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
+                onClick={() => { const record = cardMenu.record; setCardMenu(null); openViewer(record.id, 0, true) }}
+              >Reorder photographs</button>
+              <button
+                type="button"
+                disabled={availability[cardMenu.record.id] === 'unavailable'}
+                onClick={() => { void revealFolder(cardMenu.record) }}
+              >Open folder</button>
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}
@@ -2236,6 +2551,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   controller={createDesktopVaultSettings(() => accountTier)}
                   tier={accountTier}
                   embedded
+                  usageBreakdown={false}
                 />
               </>
             )}

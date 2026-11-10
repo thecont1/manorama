@@ -4,16 +4,24 @@ import WebKit
 
 /// The native macOS shell.
 ///
-/// The chrome is native: a real sidebar, real menus, real window buttons.
-/// The viewing surface is the shared web Viewer inside a WKWebView, reached
-/// over a narrow bridge.
+/// The chrome is native: real menus, real window buttons, real Space.
+/// The viewing surface is the shared web Library + Viewer inside a WKWebView,
+/// reached over a narrow bridge.
 ///
-/// Deliberately NOT fullscreen on launch. The Tauri build declares
-/// `"fullscreen": true`, which puts the app in its own macOS Space with no
-/// traffic lights and a menu bar that only appears when the pointer reaches
-/// the top of the screen. A Mac app opens in a window; fullscreen is
-/// something the user asks for with ⌃⌘F.
+/// Fullscreen on launch is deliberate — a kiosk decision, not an accident.
+/// The photographs are the product, and the app gives them the whole
+/// screen with no window chrome in the way. The View menu still offers
+/// Exit Full Screen for the times the user wants the window back.
 @main
+enum ManoramaMacMain {
+    static func main() {
+        // Prevent AppKit from treating CLI test flags (e.g. `--trace --eval <js>`)
+        // as document paths to open when URL/document types are declared in Info.plist.
+        UserDefaults.standard.set("NO", forKey: "NSTreatUnknownArgumentsAsOpen")
+        ManoramaMacApp.main()
+    }
+}
+
 struct ManoramaMacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model: AppModel
@@ -31,28 +39,81 @@ struct ManoramaMacApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 900, minHeight: 560)
+                .frame(minWidth: 760, minHeight: 520)
                 .onAppear {
                     delegate.model = model
-                    model.refreshGalleries()
+                    for url in delegate.pendingOpenURLs {
+                        model.bridge.deliverDeepLink(url)
+                    }
+                    delegate.pendingOpenURLs.removeAll()
                 }
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1280, height: 840)
-        .commands { NativeCommands(model: model) }
+        .commands {
+            NativeCommands(model: model)
+        }
     }
 }
 
-/// Keeps the app alive when the last window closes — a Mac app with one
-/// window should stay in the Dock and the menu bar.
+/// Keeps the app alive when the last window closes and routes custom-scheme
+/// deep links (`in.thecontrarian.manorama.desktop://...`) to the active window.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var model: AppModel?
+    var pendingOpenURLs: [String] = []
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let window = model?.window ?? NSApp.windows.first {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            window.makeKeyAndOrderFront(nil)
+        }
+        return true
+    }
+
+    @MainActor
+    func application(_ application: NSApplication, open urls: [URL]) {
+        deliverURLs(urls.map(\.absoluteString))
+    }
+
+    @MainActor @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue else { return }
+        deliverURLs([urlString])
+    }
+
+    @MainActor
+    private func deliverURLs(_ urls: [String]) {
+        NSApp.activate(ignoringOtherApps: true)
+        if let window = model?.window ?? NSApp.windows.first {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            window.makeKeyAndOrderFront(nil)
+        }
+        for urlString in urls where urlString.contains("://") {
+            if let model = self.model {
+                model.bridge.deliverDeepLink(urlString)
+            } else if !pendingOpenURLs.contains(urlString) {
+                pendingOpenURLs.append(urlString)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -62,18 +123,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// The native menu bar.
 ///
-/// These are the commands a Mac user expects and the Tauri shell does not
-/// have: ⌘O to open a folder, ⌘1–⌘9 to jump to a gallery, ⌃⌘F for
-/// fullscreen, and a View menu for the gallery navigation.
+/// These are the commands a Mac user expects: ⌘O to open a folder, ⌃⌘F for
+/// fullscreen, and a Gallery menu for stepping or closing an open gallery.
 struct NativeCommands: Commands {
     @ObservedObject var model: AppModel
 
     var body: some Commands {
         // Replace the stock "New" item — this app opens folders, not
         // documents.
+        //
+        // The command runs the Library's own add flow: the page picks the
+        // folder, scans it and records it, so there is one catalogue and
+        // one way of adding to it.
         CommandGroup(replacing: .newItem) {
-            Button("Open Folder…") { model.addFolder() }
-                .keyboardShortcut("o", modifiers: .command)
+            Button("Open Folder…") {
+                model.webViewRef?.evaluateJavaScript("window.__manoramaAddFolder && window.__manoramaAddFolder();")
+            }
+            .keyboardShortcut("o", modifiers: .command)
         }
 
         CommandGroup(replacing: .help) {
@@ -83,23 +149,38 @@ struct NativeCommands: Commands {
         }
 
         // Gallery navigation — only meaningful while a gallery is open.
+        //
+        // The arrow key equivalents are ⌥-modified on purpose. The viewer's
+        // own arrow handling is a viewport gesture on the web, and the page
+        // holds the keyboard while a gallery is open, so a bare arrow here
+        // would either shadow the viewer or sit inert in the menu bar
+        // depending on where the focus happened to be. ⌥← and ⌥→ say what
+        // they mean and never collide.
+        //
+        // Deliberately no bare `.escape` shortcut on "Close Gallery": a menu
+        // key equivalent with bare Escape is intercepted by AppKit BEFORE the
+        // WKWebView sees `keyDown`, which would prevent the Viewer from
+        // dismissing its own overlays (Info sheet, Settings popover, Picker)
+        // with Escape first. When the page does not consume Escape,
+        // `Catalogue.tsx` posts `{ type: 'escape' }` which calls `closeGallery()`.
         CommandMenu("Gallery") {
             Button("Next Photograph") { model.step(1, in: model.webViewRef) }
-                .keyboardShortcut(.rightArrow, modifiers: [])
-                .disabled(model.openGallery == nil)
+                .keyboardShortcut(.rightArrow, modifiers: .option)
+                .disabled(!model.isGalleryOpen)
             Button("Previous Photograph") { model.step(-1, in: model.webViewRef) }
-                .keyboardShortcut(.leftArrow, modifiers: [])
-                .disabled(model.openGallery == nil)
+                .keyboardShortcut(.leftArrow, modifiers: .option)
+                .disabled(!model.isGalleryOpen)
             Divider()
             Button("Close Gallery") { model.closeGallery() }
-                .keyboardShortcut(.escape, modifiers: [])
-                .disabled(model.openGallery == nil)
+                .disabled(!model.isGalleryOpen)
         }
 
         CommandGroup(after: .toolbar) {
-            Button("Add Folder…") { model.addFolder() }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-            Button("Refresh") { model.refreshGalleries() }
+            Button("Add Gallery…") {
+                model.webViewRef?.evaluateJavaScript("window.__manoramaAddGallery && window.__manoramaAddGallery();")
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Refresh") { model.reloadLibrary() }
                 .keyboardShortcut("r", modifiers: .command)
         }
     }

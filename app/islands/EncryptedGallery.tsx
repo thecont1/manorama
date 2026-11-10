@@ -17,7 +17,7 @@ type Props = Parameters<typeof Viewer>[0] & {
   legacySourceUrl?: string
   /** Device shells pass a durable store — an app is not a tab, so custody
    *  survives a relaunch. The web keeps the default session-scoped store. */
-  keyStore?: WebGalleryKeyStore
+  keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
 }
 type MigrationState = { verifiedDevices: number; keyRetired: boolean; note: string }
 type ClientManifest = Pick<EncryptedClientSession, 'provider' | 'sourceUrl'> & EncryptedListing

@@ -1,4 +1,4 @@
-import { deviceGalleryInput, type LocalCatalogue, type LocalGalleryRecord } from './catalogue'
+import { deviceGalleryInput, visibleItemsFor, type LocalCatalogue, type LocalGalleryRecord } from './catalogue'
 import { baseName } from './local-scan'
 import { normalizeApiBase } from './session'
 import type { ReadFileBytes, UploadFile, UploadProgress, UploadProvider } from './providers/types'
@@ -63,10 +63,12 @@ export const dedupeUploadNames = (names: readonly string[]): string[] => {
 }
 
 /** The album projection handed to the provider — basenames for the folder,
- *  paths only for the local `readFile`. */
+ *  paths only for the local `readFile`. Concealed items don't publish, the
+ *  same way a cloud gallery's hidden photos stay out of its manifest. */
 export const uploadFilesFor = (record: LocalGalleryRecord): UploadFile[] => {
-  const names = dedupeUploadNames(record.items.map((item) => sanitizeUploadName(item.name)))
-  return record.items.map((item, index) => ({ name: names[index]!, path: item.path }))
+  const visible = visibleItemsFor(record)
+  const names = dedupeUploadNames(visible.map((item) => sanitizeUploadName(item.name)))
+  return visible.map((item, index) => ({ name: names[index]!, path: item.path }))
 }
 
 // --- The Worker wiring -------------------------------------------------------

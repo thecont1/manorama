@@ -229,7 +229,10 @@ export const createManoramaApi = () => {
     // androidScheme; it is the same trust class as the capacitor:// and tauri://
     // shell origins — API calls authenticate with an explicit bearer token, so
     // allowing it grants nothing an ambient-cookie origin could exploit.
-    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost' || origin === 'https://localhost') allowed = true
+    // manorama://localhost is the SwiftUI shell's origin: the native Mac shell
+    // serves the app's own bundle from there and calls this API with the same
+    // explicit bearer token.
+    if (origin === 'capacitor://localhost' || origin === 'tauri://localhost' || origin === 'manorama://localhost' || origin === 'https://localhost') allowed = true
     if (origin) {
       try {
         const url = new URL(origin)

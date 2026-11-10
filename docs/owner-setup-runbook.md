@@ -118,6 +118,25 @@ localization**, or it will not return in sandbox even with the agreement active
 - [ ] `bun` and `node` current; `bun install` clean in the repo
 - [ ] A real gallery on `manorama.xyz` bookmarked as the demo for #38
 
+## Gate 5 — The macOS app (~20 min, desktop is the SwiftUI shell now)
+
+The desktop app is `macos/` — the SwiftUI shell, signed `in.thecontrarian.manorama.desktop`,
+App-Sandboxed (`macos/ManoramaMac/ManoramaMac.entitlements`). The Tauri shell is deprecated.
+
+- [ ] **Apple Distribution certificate** ("3rd Party Mac Developer Application") + a Mac App
+      Store **provisioning profile** for `in.thecontrarian.manorama.desktop` — Developer ID
+      signs outside-store builds but is not accepted for App Store upload
+- [ ] **App record** in App Store Connect for the macOS bundle ID (can share the iOS record's
+      family or stand alone — decide the SKU early)
+- [ ] **Export compliance**: the app encrypts user data at rest but ships under the mass-market
+      exemption (5D992), so the plist declares `ITSAppUsesNonExemptEncryption=false`. The annual
+      **BIS self-classification report** (January) is still an owner obligation — put it on the
+      calendar; missing it is how accounts get flagged a year later
+- [ ] **First-run migration**: sandboxing moves the app's private files into its container and
+      Tauri-era security-scoped bookmarks do **not** carry over — each local folder gets re-picked
+      once through the open panel. Keychain items (vault + gallery keys) are readable unchanged.
+      Sign-in state carries over if `session.json` is copied into the container once
+
 ---
 
 ## Daily rhythm, Tue 22 → Wed 30

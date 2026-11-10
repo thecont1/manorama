@@ -2,171 +2,86 @@ import AppKit
 import SwiftUI
 import WebKit
 
-/// The shell's layout: a native sidebar listing the galleries, and the
-/// viewer surface beside it.
+/// The shell's layout: the app's own Library, filling the window, with the
+/// shell's chrome around it.
 ///
-/// This is the part the Tauri build cannot have — a real `List` with real
-/// selection, real keyboard navigation, real row menus, and a real
-/// `NavigationSplitView` that collapses.
+/// There is no native sidebar, and that is the point. The Library is where
+/// the account, the tier, the vault meter, the pinned galleries, the ad slot
+/// and the local catalogue live; a second, native list of folders beside it
+/// would deliver nothing the Library does not already deliver, and would
+/// hide the services that do.
+///
+/// What the shell adds is what a web page cannot have: a real window, a
+/// real menu bar, a real Space, and the machine's answers when the Library
+/// asks for a folder or a vault key.
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    /// Matches `src-tauri/tauri.conf.json` `backgroundColor: "#111312"`.
+    private static let canvasColor = Color(red: 0x11 / 255.0, green: 0x13 / 255.0, blue: 0x12 / 255.0)
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detail
-        }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    model.addFolder()
-                } label: {
-                    Label("Open Folder", systemImage: "folder.badge.plus")
-                }
-                .help("Open a folder of photographs (⌘O)")
-            }
-        }
-    }
-
-    // MARK: - Sidebar
-
-    private var sidebar: some View {
-        List(selection: $model.selectedGalleryID) {
-            Section {
-                if model.galleries.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("No folders yet")
-                            .font(.headline)
-                        Text("Open a folder of photographs to view them in place. Nothing is copied or uploaded.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Open Folder…") { model.addFolder() }
-                            .controlSize(.large)
-                    }
-                    .padding(.vertical, 8)
-                    .listRowSeparator(.hidden)
-                } else {
-                    ForEach(model.galleries) { gallery in
-                        GalleryRow(gallery: gallery)
-                            .tag(gallery.id)
-                            .contextMenu {
-                                Button("Refresh") { model.refreshGalleries() }
-                                Button("Reveal in Finder") { reveal(gallery) }
-                                Divider()
-                                Button("Remove Folder", role: .destructive) {
-                                    model.removeGallery(gallery)
-                                }
-                            }
-                    }
-                }
-            } header: {
-                Text("Library")
-            }
-        }
-        .listStyle(.sidebar)
-        .onChange(of: model.selectedGalleryID) { newValue in
-            guard let newValue,
-                  let gallery = model.galleries.first(where: { $0.id == newValue })
-            else { return }
-            model.open(gallery, in: model.webViewRef)
-        }
-    }
-
-    private func reveal(_ gallery: LocalGallery) {
-        guard let entry = model.folderStore.entries.first(where: { $0.id == gallery.id }),
-              let root = model.folderStore.resolve(entry) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([root])
-    }
-
-    // MARK: - Detail
-
-    @ViewBuilder
-    private var detail: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            Self.canvasColor
 
             // The webview mounts with the window, not with the first
-            // gallery — `open` needs a live view to drive, and the shell's
-            // empty state covers it until then.
+            // gallery — the shell's commands need a live view to drive, and
+            // the Library mounts on its own.
             ViewerWebView(
                 schemeHandler: model.schemeHandler,
                 coordinator: model.coordinator,
-                onCreate: { webView in model.webViewRef = webView }
+                onCreate: { webView in
+                    model.webViewRef = webView
+                    model.bridge.webView = webView
+                    model.startEvalProbe()
+                }
             )
             .ignoresSafeArea()
-
-            if model.openGallery == nil {
-                emptyState
-            }
         }
         .overlay(alignment: .bottom) {
-            if model.openGallery != nil {
-                statusBar
+            if model.isGalleryOpen {
+                accessibilityStatusReadout
             }
         }
         .background(WindowAccessor { window in
-            model.window = window
+            model.configureWindow(window)
+            model.openInFullScreen()
         })
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 42, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("No gallery open")
-                .font(.title3)
-            Text("Choose a folder, then pick a gallery from the sidebar.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { model.errorMessage != nil },
+                set: { if !$0 { model.errorMessage = nil } }
+            ),
+            presenting: model.errorMessage
+        ) { _ in
+            Button("OK") { model.errorMessage = nil }
+        } message: { message in
+            Text(message)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The webview stays mounted underneath (its last frame is still
-        // live) — the state must paint opaquely over it and swallow the
-        // clicks, not let them reach the page.
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    /// A thin native status bar — the shell's own, not the web's.
-    private var statusBar: some View {
+    /// Status and position readout for Accessibility (`AXProbe`, VoiceOver)
+    /// without painting a competing bar over the viewer's `.stage-arrows`.
+    ///
+    /// Note: SwiftUI omits `.opacity(0)` views from the macOS Accessibility
+    /// hierarchy (`kAXChildrenAttribute`). Keeping `.opacity(0.01)` on a
+    /// 1pt-tall transparent strip preserves the `AXStaticText` nodes in the
+    /// native AX tree while leaving the stage visually and interactively
+    /// unobstructed.
+    private var accessibilityStatusReadout: some View {
         HStack(spacing: 12) {
-            Text(model.status)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text(model.galleryTitle ?? model.status)
+                .font(.caption2)
+                .foregroundStyle(Color.white.opacity(0.01))
             Spacer()
             if model.position.total > 0 {
                 Text("\(model.position.index + 1) of \(model.position.total)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color.white.opacity(0.01))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(.bar)
-    }
-}
-
-/// One row in the sidebar.
-private struct GalleryRow: View {
-    let gallery: LocalGallery
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: gallery.sourceKind == .card ? "externaldrive" : "folder")
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(gallery.title)
-                    .lineLimit(1)
-                Text("\(gallery.itemCount) photograph\(gallery.itemCount == 1 ? "" : "s") · \(gallery.sourceKind.label)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 2)
+        .frame(height: 1)
+        .allowsHitTesting(false)
     }
 }

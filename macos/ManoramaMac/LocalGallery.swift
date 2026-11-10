@@ -26,7 +26,6 @@ struct ScopedFolder: Identifiable, Hashable {
     /// caller should re-save the fresh one so the next launch is quiet.
     static func resolve(_ bookmark: Data) -> (url: URL, stale: Bool)? {
         var stale = false
-        var error: Unmanaged<CFError>?
         guard let url = try? URL(
             resolvingBookmarkData: bookmark,
             options: [.withSecurityScope],

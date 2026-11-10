@@ -60,11 +60,19 @@ type Props = {
    *  frame instead of the first photograph. Applied once; later navigation
    *  belongs to the viewer. */
   initialIndex?: number
-  /** A native shell's "go to photograph N": the serial distinguishes repeated
-   *  commands to the same index, so every request lands exactly once through
-   *  `goTo` — the index's single owner — with no synthesised keystrokes and
-   *  no timers two commands could interleave. */
-  navigationRequest?: { index: number; serial: number } | null
+  /** A native shell's handle on the stage: it asks the Viewer to move, it
+   *  never sets the index.
+   *
+   *  This is a handle rather than a request prop on purpose. A request
+   *  prop can only be delivered by re-rendering, and the DOM renderer
+   *  this bundle uses replaces the container's children rather than
+   *  diffing them — so a re-render destroys the Viewer and mounts a new
+   *  one. The fresh viewer starts at its first frame with an unmeasured
+   *  strip, and the strip's scroll then settles on the last frame
+   *  instead of the one that was asked for. A handle asks the mounted
+   *  Viewer to move, so the strip keeps its measurements and the
+   *  commanded photograph sticks. */
+  navigationRef?: { current: { goTo(index: number): void } | null }
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
   /** Reports the committed photograph (never an ad plate or the end card):
@@ -113,9 +121,17 @@ type Props = {
   /** `?edit=1` — the owner's reorder/hide intent, opening the picker
    *  straight into Edit mode (the retired dashboard overlay's place). */
   initialEdit?: boolean
+  /** A non-API persistence for the picker's Edit mode — local catalogue
+   *  galleries load from the on-device record and save into it, skipping
+   *  the Worker summary/PATCH round-trip entirely. Its presence alone
+   *  unlocks the Edit affordance, independent of the owner panel. */
+  editStore?: {
+    load: () => Promise<PickerEditItem[]>
+    save: (order: string[], hidden: string[]) => Promise<void>
+  }
   /** Device custody forwarded to the owner panel's encrypted refresh —
    *  the web's session store is the default; shells inject their own. */
-  keyStore?: WebGalleryKeyStore
+  keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
   /** The link the panel's Share row copies — defaults to this origin's
    *  address, which a tauri:// shell must override. */
   shareHref?: string
@@ -265,7 +281,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRequest = null, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -451,6 +467,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // The web owner manages the gallery inline in the popover; everyone
   // else gets the role action only. One column at every width.
   const ownerInline = Boolean(ownerGallery) && !onOpenDetails
+  // The picker's Edit mode unlocks for any gallery with a persistence
+  // path — the owner's API summary, or a shell-provided store (locals).
+  const canEdit = ownerInline || Boolean(editStore)
   const [popoverAnchor, setPopoverAnchor] = useState<Record<string, string | undefined>>({})
   const openSettings = () => {
     previousFocusRef.current = displayButtonRef.current ?? (document.activeElement as HTMLElement | null)
@@ -503,7 +522,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     setGridOpen(true)
     // The owner's reorder fetch runs alongside the picker opening so a
     // tap on "Reorder photographs" is a mode flip, not a wait.
-    if (ownerInline) loadEditItems()
+    if (canEdit) loadEditItems()
   }
   // Edit mode's draft lives in the summary — the page's manifest never
   // carries hidden items — fetched once per session, not per open. The
@@ -516,7 +535,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     setEditNote(null)
     void (async () => {
       try {
-        const items = await loadGalleryItems(slug, apiBase, authToken)
+        const items = editStore ? await editStore.load() : await loadGalleryItems(slug, apiBase, authToken)
         setEditItems(items)
         if (editWantedRef.current) {
           editWantedRef.current = false
@@ -1419,6 +1438,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       entered()
       return
     }
+    // The class is the page's "a gallery is open and the veil has lifted"
+    // flag, and nothing takes it off again. Inside a page that mounts more
+    // than one gallery — the desktop shell's Library does — a second gallery
+    // would inherit the first one's flag and count as entered before its
+    // veil had lifted. The flag comes off until this gallery says otherwise.
+    document.body.classList.remove('gallery-entered')
+    setGalleryEntered(false)
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
@@ -1530,15 +1556,27 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
   }
 
-  // A native navigation command lands instantly — the same path Home/End
-  // take — and each serial is consumed exactly once, so two commands can
-  // never pile up a timer queue between them.
-  const navSerialRef = useRef(0)
+  // The native shell's handle on the stage.
+  //
+  // The Viewer keeps sole ownership of the index: the handle asks it to
+  // move, it never sets it. `instant` matches what Home and End already
+  // do, so a jump lands without the single-image mode's fade sequence.
+  //
+  // The handle is refreshed on every render so it always holds the
+  // current `goTo` — it closes over the mode and the index, and a stale
+  // closure would move from the wrong place. It is not cleared between
+  // renders: a shell may call it at any moment, and a gap in which the
+  // handle is null is a command that goes nowhere. Only unmounting
+  // clears it.
   useEffect(() => {
-    if (!navigationRequest || navigationRequest.serial === navSerialRef.current) return
-    navSerialRef.current = navigationRequest.serial
-    goTo(navigationRequest.index, true)
-  }, [navigationRequest])
+    if (!navigationRef) return
+    navigationRef.current = {
+      goTo: (nextIndex: number) => goTo(nextIndex, true),
+    }
+  })
+  useEffect(() => () => {
+    if (navigationRef) navigationRef.current = null
+  }, [])
 
   // Enter-at-frame: instant and pre-paint, so the curtain dissolves onto the
   // tapped photograph rather than the strip travelling to it in view.
@@ -3017,7 +3055,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onExit={exitEdit}
               onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
-              onSaved={onEditSaved}
+              onSaved={(photoId) => {
+                // A store-backed save does not reload the page the way the
+                // API flow does — the cached edit list must invalidate or
+                // the next Reorder opens on the pre-save order, unchanged
+                // viewer key notwithstanding.
+                setEditItems(null)
+                onEditSaved?.(photoId)
+              }}
+              onSaveOrder={editStore?.save}
             />
           ) : (
           <>
@@ -3035,8 +3081,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             </div>
             <div class="viewer-picker-actions">
               <PickerSizer value={pickerItemH} onChange={setPickerItemH} />
-              {ownerInline ? (
-                <PickerEditButton temporary={ownerGallery!.temporary} loading={editLoading} onBegin={beginEdit} />
+              {canEdit ? (
+                <PickerEditButton temporary={ownerGallery?.temporary ?? false} loading={editLoading} onBegin={beginEdit} />
               ) : null}
             </div>
             {/* Outside actions so the narrow layout can put it beside the
@@ -3048,7 +3094,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             <div class="viewer-filmstrip-track">
               {images.map((image, imageIndex) => {
                 const video = isVideoItem(image)
-                const thumb = image.variants?.[0]?.src ?? image.placeholder
+                // Items without rendition variants render their own
+                // bytes — the rail's rule; the placeholder box is the
+                // last resort, not the default. Videos never put their
+                // file in an <img>, so they keep the poster/placeholder.
+                const thumb = image.variants?.[0]?.src ?? (!video && image.src ? image.src : image.placeholder)
+                // A HEIC with no rendition at all decodes through
+                // HeicImg's libheif path — an encrypted ref uses the same
+                // component via `media`.
+                const heicNoRendition = !video && !image.media && !image.variants?.length && isHeicFilename(image.filename)
                 return <button
                   type="button"
                   class={`viewer-filmstrip-item ${imageIndex === gridSel ? 'is-active' : ''}`}
@@ -3063,8 +3117,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
                   }}
                   onClick={() => selectFilmstripImage(imageIndex)}
                 >
-                  {!video && image.media
-                    ? <HeicImg src={image.src} preview={thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
+                  {!video && (image.media || heicNoRendition)
+                    ? <HeicImg src={image.src} preview={heicNoRendition ? null : thumb} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={galleryId} filename={image.filename} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />
                     : <img src={thumb} loading="lazy" alt="" draggable={false} style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => (event.currentTarget as HTMLImageElement).classList.add('is-loaded')} />}
                   {video ? <span class="viewer-filmstrip-badge">▶{formatDuration(image.durationSeconds) ? ` ${formatDuration(image.durationSeconds)}` : ''}</span> : null}
                 </button>

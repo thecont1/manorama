@@ -1,9 +1,12 @@
-# macOS prototype build
+# macOS native shell build
 #
-# The viewer bundle is built by vite (see vite.config.viewer.ts) and copied
-# into the app's Resources as "ViewerBundle". The app serves it over the
-# manorama:// scheme, which is how the WKWebView reaches both the page and
-# the user's originals.
+# The Library bundle is built by vite (see vite.config.desktop-shell.ts) and
+# copied into the app's Resources as "ViewerBundle". The app serves it over
+# the manorama:// scheme, which is how the WKWebView reaches both the page
+# and the user's originals.
+#
+# The bundle is the same one the Tauri shell ships — the app's own Library —
+# with the shell's runtime shim installed in front of it.
 #
 # Usage: scripts/build-macos.sh [debug|release]
 
@@ -14,15 +17,15 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-debug}"
 APP="macos/ManoramaMac"
 BUILD_DIR="$APP/build"
-BUNDLE_ID="in.thecontrarian.manorama.mac"
+BUNDLE_ID="in.thecontrarian.manorama.desktop"
 
-echo "==> building the viewer bundle"
-bunx vite build --config vite.config.viewer.ts
+echo "==> building the Library bundle"
+bunx vite build --config vite.config.desktop-shell.ts
 
 echo "==> staging the viewer bundle into the app resources"
 rm -rf "$APP/Resources/ViewerBundle"
 mkdir -p "$APP/Resources/ViewerBundle"
-cp -R desktop-viewer/dist/. "$APP/Resources/ViewerBundle/"
+cp -R desktop/dist/. "$APP/Resources/ViewerBundle/"
 
 echo "==> compiling the Swift app"
 # The app is assembled as a plain .app bundle rather than through an Xcode
@@ -37,6 +40,7 @@ swiftc \
   -framework AppKit \
   -framework SwiftUI \
   -framework WebKit \
+  -framework Security \
   -o "$BUILD_DIR/ManoramaMac" \
   "$APP"/*.swift
 
@@ -46,6 +50,9 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 cp "$BUILD_DIR/ManoramaMac" "$APP_BUNDLE/Contents/MacOS/ManoramaMac"
 cp -R "$APP/Resources/ViewerBundle" "$APP_BUNDLE/Contents/Resources/ViewerBundle"
+if [ -f "src-tauri/icons/icon.icns" ]; then
+  cp "src-tauri/icons/icon.icns" "$APP_BUNDLE/Contents/Resources/icon.icns"
+fi
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -56,11 +63,28 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>manorama</string>
   <key>CFBundleExecutable</key><string>ManoramaMac</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+  <key>CFBundleIconFile</key><string>icon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleVersion</key><string>0.3.0</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.photography</string>
+  <!-- Mass-market exemption (5D992): the app encrypts user data at rest but
+       qualifies for the standard exemption, so no per-submission export
+       docs. The annual self-classification report is a separate obligation
+       tracked in docs/owner-setup-runbook.md. -->
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>in.thecontrarian.manorama.desktop</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>in.thecontrarian.manorama.desktop</string>
+      </array>
+    </dict>
+  </array>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
@@ -69,9 +93,35 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
       <key>LSItemContentTypes</key><string>public.folder</string>
     </dict>
   </array>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <!-- MEGA's CDN estate is mixed: attribute/preview edges (gfs*.userstorage)
+         still serve TLS ≤1.2 with non-PFS ciphers, which default ATS rejects
+         with -1200 before any bytes move. Scope the exception to exactly the
+         host family that needs it; the modern edges and g.api are unaffected. -->
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>userstorage.mega.co.nz</key>
+      <dict>
+        <key>NSIncludesSubdomains</key><true/>
+        <key>NSExceptionRequiresForwardSecrecy</key><false/>
+        <key>NSExceptionMinimumTLSVersion</key><string>TLSv1.2</string>
+      </dict>
+    </dict>
+  </dict>
 </dict>
 </plist>
 PLIST
+
+echo "==> signing the app bundle"
+# A linker-signed ad-hoc binary has no stable identity: the login Keychain
+# binds each item's ACL to the binary's cdhash, so every rebuild orphans the
+# stored gallery keys and macOS prompts for the keychain password once per
+# key on the next launch. A stable Developer ID signature makes the identity
+# — and therefore the Keychain trust — survive rebuilds.
+IDENTITY="${MACOS_SIGN_IDENTITY:-Developer ID Application: Mahesh Shantaram (373K7W3LKU)}"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --entitlements "$APP/ManoramaMac.entitlements" "$APP_BUNDLE"
 
 echo "==> done: $APP_BUNDLE"
 echo "    run: open '$APP_BUNDLE'"

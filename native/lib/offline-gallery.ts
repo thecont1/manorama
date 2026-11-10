@@ -587,10 +587,18 @@ export class EncryptedOfflineGalleryStore implements OfflineGalleryStore {
         images: metadata.value.manifest.images.map((image) => {
           const src = localById.get(image.id)
           if (!src) throw new Error('Offline gallery cache is incomplete')
+          // Provider media refs must not survive into the lease: any resolver
+          // that sees one materializes it over the network, which a saved
+          // copy promised not to need. The stored manifest keeps its refs
+          // verbatim — fills compare unchangedness against it.
+          const { media: _media, ...rest } = image as GalleryMediaItem & { media?: unknown }
           return {
-            ...image,
+            ...rest,
             src,
-            variants: image.variants?.map((variant) => ({ ...variant, src })),
+            variants: image.variants?.map((variant) => {
+              const { media: _variantMedia, ...vrest } = variant
+              return { ...vrest, src }
+            }),
           }
         }),
       }

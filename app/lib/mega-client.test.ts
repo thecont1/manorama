@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { MAX_GALLERY_ITEMS } from './imagesource'
 import { aesDecryptBlock, aesEncryptBlock, b64uDecode, b64uEncode, cbcDecryptZeroIv, ctrCrypt, decryptTlvRecords, ecbDecrypt, expandKey, foldKey, metaMac, verifyMegaMac } from './mega-crypto'
-import { extractMegaFolder, extractMegaLink, fetchMegaFile, fetchMegaPreview, openMegaSession, scanMegaCollection, scanMegaFolder } from './mega-client'
+import { extractMegaFolder, extractMegaLink, fetchMegaFile, fetchMegaPreview, megaTransport, openMegaSession, scanMegaCollection, scanMegaFolder } from './mega-client'
 
 const hex = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
@@ -818,5 +818,44 @@ describe('CDN host allowlist', () => {
     const fah = b64uEncode(new Uint8Array(8).fill(7))
     await expect(fetchMegaPreview(FOLDER_HANDLE, undefined, fah, b64Key, impl as typeof fetch)).rejects.toThrow('allowed download host')
     expect(cdnCalls).toHaveLength(0)
+  })
+})
+
+describe('megaTransport', () => {
+  // This file runs without the DOM preload — `window` is undefined, so the
+  // shell branch is reached by defining the global the checks read.
+  const glob = globalThis as { window?: { __TAURI_INTERNALS__?: unknown } }
+
+  afterAll(() => {
+    delete glob.window
+    // mock.module is process-global — restore the real plugin binding so a
+    // sibling file never sees this stub.
+    mock.restore()
+  })
+
+  test('rides the native http plugin under a shell and translates manual redirects', async () => {
+    const inits: Array<Record<string, unknown>> = []
+    mock.module('@tauri-apps/plugin-http', () => ({
+      fetch: async (_input: unknown, init?: Record<string, unknown>) => {
+        inits.push(init ?? {})
+        return new Response('ok')
+      },
+    }))
+    glob.window = { __TAURI_INTERNALS__: {} }
+    try {
+      const transport = await megaTransport()
+      await transport('https://gfs262n001.userstorage.mega.co.nz/dl/x', { redirect: 'manual' })
+      await transport('https://g.api.mega.co.nz/cs')
+      expect(inits[0].maxRedirections).toBe(0)
+      expect(inits[1].maxRedirections).toBeUndefined()
+    } finally {
+      delete glob.window
+    }
+  })
+
+  test('keeps plain fetch outside a shell', async () => {
+    delete glob.window
+    const transport = await megaTransport()
+    expect(transport).toBe(fetch)
   })
 })

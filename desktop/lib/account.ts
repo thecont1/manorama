@@ -326,6 +326,23 @@ export const deleteAccountGallery = async (
   if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be removed')
 }
 
+/** DELETE {apiBase}/api/device-galleries/{id} — removes a synced device
+ *  gallery row from the account feed; a 404 means the row is already gone. */
+export const deleteDeviceGalleryRecord = async (
+  apiBase: string,
+  token: string,
+  id: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/device-galleries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  if (response.status === 404) return
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be removed')
+}
+
 /** A synced record earns its own card only while nothing else already
  *  represents it: this Mac's catalogue renders its own records as local
  *  galleries, and a folder published as a cloud gallery collapses into that
