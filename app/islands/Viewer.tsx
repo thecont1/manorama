@@ -3055,7 +3055,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onExit={exitEdit}
               onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
-              onSaved={onEditSaved}
+              onSaved={(photoId) => {
+                // A store-backed save does not reload the page the way the
+                // API flow does — the cached edit list must invalidate or
+                // the next Reorder opens on the pre-save order, unchanged
+                // viewer key notwithstanding.
+                setEditItems(null)
+                onEditSaved?.(photoId)
+              }}
               onSaveOrder={editStore?.save}
             />
           ) : (

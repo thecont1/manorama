@@ -34,6 +34,12 @@ ROOT="$(pwd)"
 VIEW_DIR="${1:-/Users/home/DEV/websites/thecontrarian.in-original/public/library/originals/ETHIOPIA}"
 DISPOSABLE="${2:-$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/tmp/manorama-boundary-disposable}"
 
+if [ ! -d "$VIEW_DIR" ]; then
+  echo "FATAL: view-dir does not exist: $VIEW_DIR" >&2
+  echo "       pass a folder of photographs as the first argument" >&2
+  exit 1
+fi
+
 APP="$ROOT/macos/ManoramaMac/build/ManoramaMac.app"
 BUNDLE_ID="in.thecontrarian.manorama.desktop"
 # The app is sandboxed (App Store posture): a literal /tmp is denied, and a

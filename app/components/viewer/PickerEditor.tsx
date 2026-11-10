@@ -391,6 +391,10 @@ export default function PickerEditor({
   const onFramePointerDown = (event: PointerEvent) => {
     const cell = (event.target as HTMLElement | null)?.closest?.('[data-grid-item]') as HTMLElement | null
     if (cell?.dataset.imageId && event.button === 0 && !saving) {
+      // A new gesture on a cell clears any suppression a release-off-cell
+      // left standing — otherwise this press's click gets eaten by a
+      // stale flag and the tap does nothing.
+      suppressClickRef.current = false
       dragRef.current = {
         pointerId: event.pointerId,
         pointerType: event.pointerType || 'mouse',

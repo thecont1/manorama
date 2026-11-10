@@ -22,13 +22,13 @@ import Foundation
 ///   focusprobe <bundleId> focus
 ///   focusprobe <bundleId> readout
 ///   focusprobe <bundleId> tree
-///   focusprobe <bundleId> key <virtualKeyCode> [repeat]
+///   focusprobe <bundleId> key <virtualKeyCode> [repeat] [alt] [cmd]
 ///   focusprobe <bundleId> click <x> <y>
 ///   focusprobe <bundleId> press <Menu> <Item>
 
 let bundleId = CommandLine.arguments.count >= 2
     ? CommandLine.arguments[1]
-    : "in.thecontrarian.manorama.mac"
+    : "in.thecontrarian.manorama.desktop"
 let command = CommandLine.arguments.count >= 3 ? CommandLine.arguments[2] : "focus"
 
 guard AXIsProcessTrusted() else {

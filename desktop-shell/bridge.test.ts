@@ -167,3 +167,81 @@ describe('desktop-shell bridge Tauri runtime emulation', () => {
     expect(await textPromise).toBe('{"ok":true}')
   })
 })
+
+describe('desktop-shell bridge API proxy and asset URLs', () => {
+  const globals = globalThis as unknown as Record<string, unknown>
+  let calls: { input: RequestInfo | URL; init?: RequestInit }[]
+  let previousWindow: unknown
+  let previousDocument: unknown
+
+  beforeEach(() => {
+    calls = []
+    previousWindow = globals.window
+    previousDocument = globals.document
+    const dom = new HappyWindow({ url: 'manorama://localhost/index.html' })
+    // happy-dom gives a custom scheme an opaque ("null") origin where
+    // WebKit reports the registered scheme's real one — the proxy builds
+    // its rewritten URL off this, so the test overrides it to what the
+    // shell actually answers.
+    Object.defineProperty(dom.location, 'origin', { value: 'manorama://localhost' })
+    // The fetch spy must be in place before install — the bridge binds
+    // whatever it finds on the window as its outer transport.
+    ;(dom as unknown as { fetch: unknown }).fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input, init })
+      return Promise.resolve(new Response('{}'))
+    }
+    globals.window = dom
+    globals.document = dom.document
+    installShellBridge(dom as unknown as Window)
+  })
+
+  afterEach(() => {
+    globals.window = previousWindow
+    globals.document = previousDocument
+  })
+
+  const sentUrl = (call: { input: RequestInfo | URL }) =>
+    call.input instanceof Request ? call.input.url : String(call.input)
+
+  test('convertFileSrc percent-encodes spaces, #, and % inside the path', () => {
+    const src = window.__TAURI_INTERNALS__!.convertFileSrc('/Users/me/Pics/a b#c%d.jpg')
+    expect(src).toBe('manorama://media/local/%2FUsers%2Fme%2FPics%2Fa%20b%23c%25d.jpg')
+  })
+
+  test('an API call is rewritten onto the shell origin, query included', async () => {
+    await window.fetch('https://manorama.xyz/api/galleries?page=2')
+    expect(sentUrl(calls[0]!)).toBe('manorama://localhost/api/galleries?page=2')
+    await window.fetch('https://www.manorama.xyz/api/account')
+    expect(sentUrl(calls[1]!)).toBe('manorama://localhost/api/account')
+  })
+
+  test('a GET Request keeps its method, headers, and signal through the rewrite', async () => {
+    const request = new Request('https://manorama.xyz/api/me', {
+      headers: { authorization: 'Bearer tok', 'x-app': 'desktop' },
+    })
+    await window.fetch(request)
+    const sent = calls[0]!.input as Request
+    expect(sent).toBeInstanceOf(Request)
+    expect(sent.url).toBe('manorama://localhost/api/me')
+    expect(sent.method).toBe('GET')
+    expect(sent.headers.get('authorization')).toBe('Bearer tok')
+    expect(sent.headers.get('x-app')).toBe('desktop')
+    expect(sent.signal).toBeInstanceOf(AbortSignal)
+    expect(sent.signal.aborted).toBe(false)
+  })
+
+  test('a non-API host passes through untouched', async () => {
+    await window.fetch('https://example.com/api/x')
+    expect(sentUrl(calls[0]!)).toBe('https://example.com/api/x')
+  })
+
+  test('init options travel with the rewritten target', async () => {
+    await window.fetch('https://manorama.xyz/api/galleries', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(sentUrl(calls[0]!)).toBe('manorama://localhost/api/galleries')
+    expect(calls[0]!.init?.method).toBe('POST')
+  })
+})

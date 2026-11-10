@@ -1838,7 +1838,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const accountLayout = libraryLayout(
     [
       ...liveAccountGalleries.map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
-      ...galleries.map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
+      // Free sees no locals anywhere — an ungated pinned local would still
+      // surface in "Pinned galleries" after a downgrade even though the
+      // Local section is hidden (invariant 12).
+      ...(accountTier === 'pro' ? galleries : []).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
     ],
     accountTier,
   )

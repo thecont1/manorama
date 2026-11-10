@@ -47,7 +47,7 @@ let actions: { current: PickerEditActions | null }
 let exited: number
 let dones: number
 
-const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?: string } = {}) => {
+const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?: string; onSaveOrder?: (order: string[], hidden: string[]) => Promise<void> } = {}) => {
   actions = { current: null }
   exited = 0
   dones = 0
@@ -69,6 +69,7 @@ const mounted = (over: { items?: PickerEditItem[]; selIndex?: number; doneHref?:
         onExit={() => { exited += 1 }}
         onDone={() => { dones += 1 }}
         doneHref={over.doneHref}
+        onSaveOrder={over.onSaveOrder}
       />,
       container as unknown as HTMLElement,
     )
@@ -86,6 +87,29 @@ const key = (value: string) => {
 const saveButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Save' || b.textContent === 'Saving…')!
 const cancelButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')
 const settle = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); flushSync(() => {}) }
+
+// happy-dom does no layout — the drag's hit test reads live rects, so the
+// cells get synthetic boxes and the frame a stage-sized one for the edge
+// scroller's bounds. Returns the restore for the prototype swap.
+const stubRects = (boxes: Record<string, { left: number; top: number; width: number; height: number }>) => {
+  const original = dom.window.HTMLElement.prototype.getBoundingClientRect
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    const el = this as HTMLElement
+    const box = (el.dataset?.imageId ? boxes[el.dataset.imageId] : undefined)
+      ?? (el.classList?.contains('viewer-filmstrip-frame') ? { left: 0, top: 0, width: 900, height: 600 } : undefined)
+    if (box) {
+      return { ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) } as DOMRect
+    }
+    return original.call(this)
+  } as unknown as typeof dom.window.HTMLElement.prototype.getBoundingClientRect
+  return () => { dom.window.HTMLElement.prototype.getBoundingClientRect = original }
+}
+
+const pointer = (type: string, target: Element, x: number, y: number, pointerType = 'mouse') => {
+  const event = new dom.Event(type, { bubbles: true })
+  Object.assign(event, { pointerId: 1, pointerType, button: 0, clientX: x, clientY: y })
+  target.dispatchEvent(event as unknown as Event)
+}
 
 describe('the picker Edit mode', () => {
   test('a HEIC cell carries the format badge', () => {
@@ -283,6 +307,101 @@ describe('loadGalleryItems', () => {
       media: { kind: 'encrypted', provider: 'mega', nodeId: 'node-m1' },
       previewMedia: { kind: 'encrypted', provider: 'mega', nodeId: 'node-m1', previewId: 'prev-m1' },
     })
+  })
+})
+
+describe('the picker Edit mode pointer drag', () => {
+  const grid = {
+    a: { left: 0, top: 0, width: 200, height: 150 },
+    b: { left: 200, top: 0, width: 200, height: 150 },
+    c: { left: 400, top: 0, width: 200, height: 150 },
+    d: { left: 600, top: 0, width: 200, height: 150 },
+  }
+
+  test('onSaveOrder receives the draft order and hidden keys; a rejection lands in the note slot', async () => {
+    const saves: { order: string[]; hidden: string[] }[] = []
+    let fail = true
+    const root = mounted({
+      onSaveOrder: async (order, hidden) => {
+        if (fail) throw new Error('store is read-only')
+        saves.push({ order, hidden })
+      },
+    })
+    const button = (index: number) => cells(root)[index].querySelector('button')!
+    flushSync(() => button(0).click())
+    flushSync(() => button(2).click())
+    expect(order(root)).toEqual(['b', 'c', 'a', 'd'])
+
+    flushSync(() => saveButton(root).click())
+    await settle()
+    expect(saves).toEqual([])
+    expect(root.querySelector('.viewer-edit-alert')?.textContent).toContain('store is read-only')
+    expect(saveButton(root).hasAttribute('disabled')).toBe(false)
+
+    fail = false
+    flushSync(() => saveButton(root).click())
+    await settle()
+    expect(saves).toEqual([{ order: ['ref-b', 'ref-c', 'ref-a', 'ref-d'], hidden: ['ref-b'] }])
+  })
+
+  test('Escape during a drag restores the photograph to its start index', async () => {
+    const root = mounted()
+    const restore = stubRects(grid)
+    try {
+      const frame = root.querySelector('.viewer-filmstrip-frame')!
+      ;(frame as unknown as { setPointerCapture: () => void }).setPointerCapture = () => {}
+      pointer('pointerdown', root.querySelector('[data-image-id="a"]')!, 50, 75)
+      pointer('pointermove', frame, 300, 75)
+      await settle()
+      expect(root.querySelector('.viewer-edit-ghost')).not.toBeNull()
+      pointer('pointermove', frame, 700, 75)
+      await settle()
+      expect(order(root)).toEqual(['b', 'c', 'd', 'a'])
+      expect(key('Escape')).toBe(true)
+      await settle()
+      expect(order(root)).toEqual(['a', 'b', 'c', 'd'])
+      expect(root.querySelector('.viewer-edit-ghost')).toBeNull()
+    } finally { restore() }
+  })
+
+  test('a mouse move beyond 6px starts the drag; a touch holds for 350ms or an early move cancels', async () => {
+    const root = mounted()
+    const restore = stubRects(grid)
+    try {
+      const frame = root.querySelector('.viewer-filmstrip-frame')!
+      ;(frame as unknown as { setPointerCapture: () => void }).setPointerCapture = () => {}
+      const cellA = root.querySelector('[data-image-id="a"]')!
+
+      // 4px is still a click; crossing the threshold makes it a drag.
+      pointer('pointerdown', cellA, 50, 75)
+      pointer('pointermove', frame, 54, 75)
+      await settle()
+      expect(root.querySelector('.viewer-edit-ghost')).toBeNull()
+      pointer('pointermove', frame, 57, 75)
+      await settle()
+      expect(root.querySelector('.viewer-edit-ghost')).not.toBeNull()
+      pointer('pointerup', frame, 57, 75)
+      await settle()
+      expect(order(root)).toEqual(['a', 'b', 'c', 'd'])
+
+      // A touch that moves before the hold elapses is a scroll — the
+      // candidate is cancelled and its timer never fires.
+      pointer('pointerdown', cellA, 50, 75, 'touch')
+      pointer('pointermove', frame, 65, 75, 'touch')
+      await new Promise((resolve) => setTimeout(resolve, 420))
+      flushSync(() => {})
+      expect(root.querySelector('.viewer-edit-ghost')).toBeNull()
+      pointer('pointerup', frame, 65, 75, 'touch')
+
+      // Held still past the hold the touch activates with no move at all.
+      pointer('pointerdown', cellA, 50, 75, 'touch')
+      await new Promise((resolve) => setTimeout(resolve, 420))
+      flushSync(() => {})
+      expect(root.querySelector('.viewer-edit-ghost')).not.toBeNull()
+      pointer('pointercancel', frame, 50, 75, 'touch')
+      await settle()
+      expect(root.querySelector('.viewer-edit-ghost')).toBeNull()
+    } finally { restore() }
   })
 })
 

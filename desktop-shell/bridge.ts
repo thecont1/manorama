@@ -255,7 +255,9 @@ const throughTheShell = (input: RequestInfo | URL, _init?: RequestInit): Request
   }
   if (url.protocol !== 'https:' || !API_HOSTS.includes(url.hostname)) return input
   const proxied = new URL(`${window.location.origin}${url.pathname}${url.search}`)
-  if (input instanceof Request && input.method !== 'GET') {
+  // Rebuild on every method, not just writes — a GET Request's headers,
+  // signal and credentials vanish when the proxy answers with a bare URL.
+  if (input instanceof Request) {
     return new Request(proxied, input)
   }
   return proxied

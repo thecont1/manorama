@@ -91,9 +91,13 @@ final class LocalMediaResolver {
             // root the user actually granted.
             if components[1] == "local" {
                 guard components.count >= 3 else { return .badURL }
-                var encoded = String(components[2])
-                for part in components.dropFirst(3) { encoded += "/\(part)" }
-                guard let decoded = encoded.removingPercentEncoding else { return .badURL }
+                // `url.path` arrives already decoded — joining it and
+                // removingPercentEncoding again decodes twice, corrupting a
+                // filename that legitimately contains "%". Decode once,
+                // from the raw percent-encoded path.
+                guard let encodedPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+                      encodedPath.hasPrefix("/local/") else { return .badURL }
+                guard let decoded = String(encodedPath.dropFirst("/local/".count)).removingPercentEncoding else { return .badURL }
                 let candidate = URL(fileURLWithPath: decoded)
                     .resolvingExistingSymlinksInPath()
                 for root in grantedRoots() {
@@ -265,6 +269,11 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The site the shell proxies the API to.
     private static let apiOrigin = URL(string: "https://manorama.xyz")!
 
+    /// One ephemeral session for every proxied API call — creating a
+    /// URLSession per request discards its connection pool and pays the
+    /// setup cost on each photograph-adjacent API round-trip.
+    private static let apiSession = URLSession(configuration: .ephemeral)
+
     /// When launched with `--config <dir>` (an isolated test run), never
     /// forward non-GET `/api/device-galleries` mutations to the live server so
     /// throwaway test `deviceId`s do not pollute the owner's remote feed.
@@ -301,7 +310,18 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
             }
             return
         }
-        guard var upstream = URL(string: relative, relativeTo: Self.apiOrigin) else {
+        // The upstream keeps the request's raw percent-encoded path and its
+        // query — `relative` is the decoded path, which the isolated-test
+        // guard above evaluates, but a decoded re-encoding would not be the
+        // URL the page actually asked for.
+        let requestPath = request.url.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath
+        }.map { $0.hasPrefix("/") ? String($0.dropFirst()) : $0 } ?? relative
+        var target = requestPath
+        if let query = request.url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedQuery }) {
+            target += "?\(query)"
+        }
+        guard var upstream = URL(string: target, relativeTo: Self.apiOrigin) else {
             task.didFailWithError(URLError(.badURL))
             return
         }
@@ -316,8 +336,7 @@ final class LocalSchemeHandler: NSObject, WKURLSchemeHandler {
         // The upstream must see the site it is, not the shell's scheme.
         outgoing.setValue(Self.apiOrigin.absoluteString, forHTTPHeaderField: "Origin")
 
-        let session = URLSession(configuration: .ephemeral)
-        session.dataTask(with: outgoing) { [weak self] data, response, error in
+        Self.apiSession.dataTask(with: outgoing) { [weak self] data, response, error in
             guard let self else { return }
             // WebKit delivers stop on the main queue — the stopped check
             // and every response call join it there, so a stop can never

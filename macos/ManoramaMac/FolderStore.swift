@@ -143,15 +143,24 @@ final class FolderStore: ObservableObject {
         if changed { save() }
     }
 
-    /// Open a security scope for an entry. The caller must balance it with
-    /// `stopAccessingSecurityScopedResource()`.
+    /// Entries with a scope already opened this process. `startAccessing`
+    /// consumes a kernel resource and must be balanced; re-taking a scope
+    /// on every launch, remount, and dedupe check stacks unbalanced starts
+    /// on the same root, so the open set is tracked per entry instead.
+    private var openScopes: Set<UUID> = []
+
+    /// Open a security scope for an entry — once, not per call. The caller
+    /// must balance a granted scope with `stopAccessingSecurityScopedResource()`.
     ///
     /// `startAccessing` returning false is not fatal — an unsandboxed app
     /// already has access to a user-chosen path, and the system reports
     /// false when no scope is needed.
     func startAccess(_ entry: Entry) -> URL? {
         guard let url = resolve(entry) else { return nil }
-        _ = url.startAccessingSecurityScopedResource()
+        if openScopes.contains(entry.id) { return url }
+        if url.startAccessingSecurityScopedResource() {
+            openScopes.insert(entry.id)
+        }
         return url
     }
 
@@ -162,7 +171,7 @@ final class FolderStore: ObservableObject {
         let wanted = url.standardizedFileURL
         for existing in entries {
             if let resolved = resolve(existing), resolved.standardizedFileURL == wanted {
-                _ = resolved.startAccessingSecurityScopedResource()
+                _ = startAccess(existing)
                 return existing
             }
         }
@@ -219,7 +228,7 @@ final class FolderStore: ObservableObject {
         for entry in entries {
             guard let url = resolve(entry),
                   url.standardizedFileURL == wanted else { continue }
-            _ = url.startAccessingSecurityScopedResource()
+            _ = startAccess(entry)
             return url
         }
         return nil
