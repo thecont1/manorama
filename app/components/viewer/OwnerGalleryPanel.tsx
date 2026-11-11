@@ -70,6 +70,13 @@ export type OwnerGalleryPanelProps = {
   keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
   /** The link the Share row copies — defaults to this origin's address. */
   shareHref?: string
+  /** Set when the link would open locked — a keyless encrypted address.
+   *  The row stays visible but refuses the copy, so a broken link never
+   *  reports "Link copied". */
+  shareDisabled?: boolean
+  /** Why sharing is off — shown beneath the row, the same explanation
+   *  the quick-share sheet gives. */
+  shareNote?: string
   /** Post-rename continuation — defaults to redirecting to the new
    *  address at the same photograph. */
   onRenamed?: (slug: string) => void
@@ -122,6 +129,8 @@ export default function OwnerGalleryPanel({
   authToken,
   keyStore,
   shareHref,
+  shareDisabled = false,
+  shareNote,
   onRenamed,
   onRefreshed,
   onRemoved,
@@ -238,7 +247,10 @@ export default function OwnerGalleryPanel({
 
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  /** Writes the share address to the clipboard; a keyless encrypted
+   *  link stays uncopied — the row's note explains the locked open. */
   const copyShareLink = () => {
+    if (shareDisabled) return
     void (async () => {
       try {
         await navigator.clipboard.writeText(shareHref ?? `${window.location.origin}/${owner}/${slug}`)
@@ -341,8 +353,10 @@ export default function OwnerGalleryPanel({
           label={linkCopied ? 'Link copied' : GALLERY_ROWS.share.label}
           icon={GALLERY_ROWS.share.icon()}
           onClick={copyShareLink}
+          disabled={shareDisabled}
         />
       </ActionGroup>
+      {shareDisabled && shareNote ? <p class="m-note" role="alert">{shareNote}</p> : null}
       <ActionGroup>
         {editing === 'name' ? editBlock('Name', (
           <input class="m-input" type="text" aria-label="Name" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />

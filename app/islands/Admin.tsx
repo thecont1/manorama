@@ -1037,6 +1037,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 }
               } : undefined}
               onReorder={() => { openGallery(galSettingsGallery, '?edit=1') }}
+              // The share sheet's address: the key fragment rides along
+              // when this tab holds custody, and the row refuses to copy
+              // a keyless link that would only open locked.
+              shareHref={`https://${galleryAddressWithKey(galSettingsGallery)}`}
+              shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
+              shareNote="This tab does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
               currentPhotoId={() => ''}
               onTitleSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, title: next } : item))}
               onCaptionSaved={(next) => setGalleries((previous) => previous.map((item) => item.slug === galSettingsGallery.slug ? { ...item, caption: next } : item))}

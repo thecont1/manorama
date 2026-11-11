@@ -32,9 +32,11 @@ const base: SettingsSheetProps = {
   onOpenShortcuts: () => {},
 }
 
+/** Mounts the sheet into a detached container with the base props. */
 const mounted = (overrides: Partial<SettingsSheetProps> = {}) => {
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
+  /** Re-renders the mounted sheet with prop overrides. */
   const renderSheet = (props: Partial<SettingsSheetProps>) => {
     flushSync(() => {
       render(<SettingsSheet {...base} {...overrides} {...props} />, container as unknown as HTMLElement)
@@ -44,10 +46,14 @@ const mounted = (overrides: Partial<SettingsSheetProps> = {}) => {
   return { root: container as unknown as HTMLElement, renderSheet }
 }
 
+/** The popover's sheet element. */
 const sheet = (root: HTMLElement) => root.querySelector<HTMLElement>('.m-sheet')
+/** The action row whose text carries `label`. */
 const row = (root: HTMLElement, label: string) =>
-  [...root.querySelectorAll<HTMLElement>('.m-actionrow')].find((node) => node.textContent?.includes(label))
+  [...root.querySelectorAll<HTMLElement>(`.m-actionrow`)].find((node) => node.textContent?.includes(label))
+/** Lets hono's async effect re-arm settle between interactions. */
 const settle = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); flushSync(() => {}) }
+/** Dispatches a real Escape at the document — the sheet's own path. */
 const escape = () => dom.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
 
 beforeAll(() => {

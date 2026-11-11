@@ -1806,7 +1806,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }, [gridOpen])
 
   useEffect(() => {
-    if (gridOpen || modalOpen || infoOpen) return
+    if (gridOpen || modalOpen || infoOpen || shortcutsOpen) return
     if (previousFocusRef.current) {
       const target = previousFocusRef.current
       previousFocusRef.current = null
@@ -1819,7 +1819,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
-  }, [gridOpen, modalOpen, infoOpen])
+  }, [gridOpen, modalOpen, infoOpen, shortcutsOpen])
 
   useEffect(() => {
     if (!gridOpen) return
@@ -2034,6 +2034,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // the sheet's own row reaches it from inside Settings instead.
   useEffect(() => {
     if (!magnifierAvailable) return
+    /** Opens the shortcuts sheet on `?` — the same gates as the nav keys. */
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       if (event.defaultPrevented) return
@@ -2379,7 +2380,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }, [modalOpen, infoOpen])
 
   useEffect(() => {
-    if (modalOpen || infoOpen) return
+    if (modalOpen || infoOpen || shortcutsOpen) return
     if (previousFocusRef.current) {
       // The overlay stack restores focus to whatever was focused before
       // the sheet pushed — the rAF lands after that synchronous restore
@@ -2395,7 +2396,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       }
       requestAnimationFrame(() => target.focus({ preventScroll: true }))
     }
-  }, [modalOpen, infoOpen])
+  }, [modalOpen, infoOpen, shortcutsOpen])
 
   // Content Credential checks run through a serial queue: one check in
   // flight keyed by image id, the newest queued request supersedes a
@@ -3163,13 +3164,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onExit={exitEdit}
               onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
-              onSaved={editStore ? (photoId) => {
+              onSaved={editStore || onEditSaved ? (photoId) => {
                 // A store-backed save does not reload the page the way the
                 // API flow does — the cached edit list must invalidate or
                 // the next Reorder opens on the pre-save order, unchanged
-                // viewer key notwithstanding. The API path keeps
-                // PickerEditor's own reload fallback, which is also what
-                // closes the picker after Save.
+                // viewer key notwithstanding. A host with an onEditSaved
+                // continuation takes the callback too — without it the
+                // API path falls through to PickerEditor's own reload,
+                // which inside a shell abandons the mounted viewer. The
+                // plain web keeps that reload fallback, which is also
+                // what closes the picker after Save.
                 setEditItems(null)
                 onEditSaved?.(photoId)
               } : undefined}
@@ -3281,7 +3285,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         />
         <ShortcutsSheet
           open={shortcutsOpen}
-          onClose={() => setShortcutsOpen(false)}
+          onClose={() => { setShortcutsOpen(false); scheduleChromeHide() }}
           magnifierAvailable={magnifierAvailable}
           magnifierActive={magnifierActive}
         />

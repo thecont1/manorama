@@ -2780,6 +2780,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               authToken={session?.token}
               keyStore={desktopKeyStore()}
               shareHref={`${accountGalleryUrl(galSettingsGallery)}${galSettingsGallery.id ? galleryHashes[galSettingsGallery.id] ?? '' : ''}`}
+              shareDisabled={Boolean(galSettingsGallery.manifestVersion === 2 && galSettingsGallery.id && !galleryHashes[galSettingsGallery.id])}
+              shareNote="This device does not hold the key. Open the full gallery link before sharing; a keyless address opens locked."
               onRenamed={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token) }}
               onRefreshed={() => { if (session) void refreshAccountGalleries(session.token) }}
               onRemoved={() => {

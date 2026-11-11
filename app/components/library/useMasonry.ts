@@ -40,6 +40,7 @@ export function useMasonry(listRef: RefObject<HTMLUListElement | null>) {
     /** Coalesces layout requests onto a single animation frame. */
     const schedule = () => {
       if (frame) return
+      /** The frame callback — clears the guard flag, then lays out. */
       const run = () => {
         frame = 0
         layout()

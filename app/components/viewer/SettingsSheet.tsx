@@ -81,13 +81,14 @@ export default function SettingsSheet({
     : background === 'dark' ? 'Black background, space around images'
     : 'White background, space around images'
 
-  // Escape and the scrim share one dismissal path: inside the gallery
-  // page they step back to the view page first; on the view page they
-  // close the popover.
+  /** Escape and the scrim share one dismissal path: inside the gallery
+   *  page they step back to the view page first; on the view page they
+   *  close the popover. */
   const handleClose = () => {
     if (page === 'gallery') setPage('view')
     else onClose()
   }
+  /** The gallery page's Back button — returns to the view page. */
   const goBack = () => setPage('view')
 
   return (

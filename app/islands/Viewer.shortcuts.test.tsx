@@ -14,6 +14,7 @@ import type { GalleryMediaItem } from '../../packages/core/imagesource'
  * typing — a `?` in a caption is punctuation, not a command.
  */
 
+/** Lets hono's async effect re-arm settle between interactions. */
 const settle = async () => {
   await new Promise((resolve) => setTimeout(resolve, 0))
   flushSync(() => {})
@@ -35,6 +36,7 @@ const images: GalleryMediaItem[] = [{
   placeholder: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
 }]
 
+/** Mounts the Viewer with a single image and default settings. */
 const mountViewer = (): HTMLElement => {
   const root = dom.document.createElement('div')
   dom.document.body.appendChild(root)
@@ -50,6 +52,7 @@ const mountViewer = (): HTMLElement => {
   return root as unknown as HTMLElement
 }
 
+/** Dispatches a bubbling keydown — the window listener's event shape. */
 const press = (target: unknown, key: string) => {
   ;(target as { dispatchEvent: (event: unknown) => void }).dispatchEvent(
     new dom.window.KeyboardEvent('keydown', { key, bubbles: true }),

@@ -45,6 +45,7 @@ afterAll(() => {
   globals.fetch = prev.fetch
 })
 
+/** Mounts a node into a detached container for assertions. */
 const mount = (node: Child) => {
   const container = dom.document.createElement('div')
   dom.document.body.appendChild(container)
@@ -60,12 +61,14 @@ const rowLabels = (root: HTMLElement) =>
 
 const BANNED = ['Remove gallery', 'Stream only', 'Manage gallery', 'Source available']
 
+/** Asserts the exact row order and that retired labels stay absent. */
 const expectCanonical = (root: HTMLElement, expected: string[]) => {
   expect(rowLabels(root)).toEqual(expected)
   const text = root.textContent ?? ''
   for (const banned of BANNED) expect(text).not.toContain(banned)
 }
 
+/** A callback the panel requires but the order test never fires. */
 const noop = () => {}
 
 const ownerProps: OwnerGalleryPanelProps = {
