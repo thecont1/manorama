@@ -74,6 +74,18 @@ describe('createAuthFlow validation', () => {
       createAuthFlow({ provider: 'dropbox', intent: 'signin', next: `https://manorama.xyz/${'x'.repeat(2100)}` }),
     ).rejects.toThrow()
   })
+
+  test('the state cookie hash is optional but must be a 43-char base64url digest', async () => {
+    for (const hash of ['short', 'x'.repeat(42), 'x'.repeat(44), `${'x'.repeat(42)}+`, `${'x'.repeat(42)}=`]) {
+      await expect(createAuthFlow({ provider: 'google', intent: 'signin', stateCookieHash: hash })).rejects.toThrow()
+    }
+    const { state } = await createAuthFlow({
+      provider: 'google',
+      intent: 'signin',
+      stateCookieHash: await pkceChallenge(RFC7636_VERIFIER),
+    })
+    expect((await consumeAuthFlow(state))?.stateCookieHash).toBe(RFC7636_CHALLENGE)
+  })
 })
 
 describe('createAuthFlow / consumeAuthFlow on the memory fallback', () => {
@@ -129,6 +141,15 @@ describe('createAuthFlow / consumeAuthFlow on the memory fallback', () => {
     expect(flow?.intent).toBe('link')
     expect(flow?.accountId).toBe('acct_link-me')
     expect(flow?.native).toBe('')
+  })
+
+  test('the browser-binding hash round-trips through the memory fallback', async () => {
+    const stateCookieHash = await pkceChallenge('v'.repeat(50))
+    const { state } = await createAuthFlow({ provider: 'dropbox', intent: 'signin', stateCookieHash })
+    expect((await consumeAuthFlow(state))?.stateCookieHash).toBe(stateCookieHash)
+    // A flow minted without one (a hypothetical server-side consumer) stays undefined.
+    const bare = await createAuthFlow({ provider: 'dropbox', intent: 'signin' })
+    expect((await consumeAuthFlow(bare.state))?.stateCookieHash).toBeUndefined()
   })
 
   test('AUTH_FLOW_TTL_SECONDS is ten minutes', () => {

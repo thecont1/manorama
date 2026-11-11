@@ -7,28 +7,30 @@ import { Hono } from 'hono'
 import { createLocalJWKSet, exportJWK, exportPKCS8, generateKeyPair, SignJWT } from 'jose'
 import type { JWTPayload } from 'jose'
 import { resetAuthFlowStore } from '../../app/lib/auth-flows'
-import { confirmPendingAccount, finishProviderAuth } from '../../app/lib/oauth-flow'
+import { confirmPendingAccount, finishProviderAuth, stateCookieName } from '../../app/lib/oauth-flow'
 import type { OidcDependencies } from '../../app/lib/oidc'
 import { SESSION_COOKIE } from '../../app/lib/session'
 import { TEST_SESSION_SECRET } from '../../app/lib/test-fixtures'
 import googleStartRoute from '../../app/routes/auth/google'
 
 /**
- * FINDING F-03 — the OAuth `state` is a bearer value, not a value bound to the
- * browser that started the flow.
+ * FINDING F-03 — the OAuth `state` was a bearer value, not a value bound to
+ * the browser that started the flow. FIXED.
  *
- * The state row is server-side and single-use, which stops replay by the same
- * client. Nothing ties it to the user-agent: no state cookie is set and the
- * callback compares nothing from the requester. So a callback URL (code +
- * state) that an attacker obtains can be opened in a victim's browser and
- * silently installs a session for the *attacker's* account — classic login
- * CSRF. Everything the victim then does (add a gallery, adopt a library, edit
- * a caption, save to vault) lands in the attacker's account, which the
- * attacker can still sign in to afterwards.
+ * The start route now plants an HttpOnly verifier cookie named for the
+ * state and stores only its SHA-256 on the auth_flows row. The callback
+ * consumes the row first (single-use) and then demands the cookie back —
+ * an attacker-forwarded callback URL opened in a victim's browser dies on
+ * the generic error redirect before any provider call, and no session is
+ * minted. The first-sign-in confirm step carries the same binding inside
+ * the signed pending token, so a forwarded confirm POST fails too.
  *
- * The provider round-trip is the only simulated part: the token endpoint
- * answers with an id_token signed by a locally generated key, and the JWKS
- * resolver is local.
+ * What this file proves now:
+ *   - a cookie-less callback never reaches the provider and mints no session;
+ *   - a callback with a verifier minted for a DIFFERENT flow fails the same way;
+ *   - the victim's existing session is never replaced;
+ *   - the honest same-browser round-trip still signs in;
+ *   - a confirm POST without the verifier creates no account.
  */
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -87,6 +89,7 @@ beforeAll(async () => {
     '0009_user_disabled.sql',
     '0010_session_revocation.sql',
     '0011_last_seen_location.sql',
+    '0018_auth_flow_state_cookie.sql',
   ]) await applyMigration(proxy.env.DB, name)
 }, 20_000)
 
@@ -127,16 +130,22 @@ const env = () => ({
 
 const BASE = 'https://manorama.xyz'
 
-/** The real start route: creates the state row and redirects to Google. */
+/** The real start route: creates the state row, plants the verifier cookie,
+ *  and redirects to Google. Returns what the browser holds. */
 const beginFlow = async () => {
   const app = new Hono()
   app.get('/auth/google', ...googleStartRoute)
   const response = await app.request(`${BASE}/auth/google`, undefined, env())
   expect(response.status).toBe(302)
   const state = new URL(response.headers.get('Location')!).searchParams.get('state')!
-  const row = await proxy!.env.DB.prepare('SELECT nonce FROM auth_flows WHERE state = ?').bind(state)
-    .first<{ nonce: string }>()
-  return { state, nonce: row!.nonce }
+  const cookieHeader = (response.headers.getSetCookie().find((cookie) => cookie.startsWith('manorama_oauth_')) ?? '')
+  expect(cookieHeader).toContain(stateCookieName(state))
+  expect(cookieHeader).toContain('HttpOnly')
+  const row = await proxy!.env.DB.prepare('SELECT nonce, state_cookie_hash FROM auth_flows WHERE state = ?').bind(state)
+    .first<{ nonce: string; state_cookie_hash: string | null }>()
+  // Only the hash is persisted — the verifier itself never touches storage.
+  expect(row!.state_cookie_hash).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  return { state, nonce: row!.nonce, stateCookie: cookieHeader.split(';')[0] }
 }
 
 const callbackApp = (deps: OidcDependencies) => {
@@ -158,31 +167,48 @@ const accountIdFrom = (session: string) => {
   return payload.sub as string
 }
 
-describe('F-03 OAuth state is not browser-bound (login CSRF)', () => {
-  test('a callback URL opened by a cookie-less victim installs the attacker’s account', async () => {
-    // The attacker has an account; the provider subject already maps to it.
+describe('F-03 OAuth state is bound to the browser (login CSRF fixed)', () => {
+  test('a callback URL opened by a cookie-less victim dies before the provider call', async () => {
     await seedAttacker()
 
-    // 1. Attacker's browser starts a flow and completes the provider round-trip.
+    // Attacker's browser starts a flow; the callback URL leaks to a victim.
     const { state, nonce } = await beginFlow()
     const callbackUrl = `${BASE}/auth/google/callback?code=attacker-code&state=${state}`
-    const app = callbackApp(await depsFor(nonce, 'attacker-sub', 'Attacker'))
+    let providerCalls = 0
+    const deps = await depsFor(nonce, 'attacker-sub', 'Attacker')
+    const providerFetch = deps.fetch!
+    deps.fetch = ((...args: Parameters<typeof fetch>) => {
+      providerCalls++
+      return providerFetch(...args)
+    }) as typeof fetch
 
-    // 2. Attacker deliberately does NOT open the callback. The victim does —
-    //    with no Cookie header at all, i.e. a clean browser.
+    const app = callbackApp(deps)
     const victimBrowserRequest = new Request(callbackUrl)
     expect(victimBrowserRequest.headers.get('Cookie')).toBeNull()
 
     const victimResponse = await app.request(callbackUrl, {}, env())
     expect(victimResponse.status).toBe(302)
-
-    const session = sessionCookieFrom(victimResponse)
-    expect(session).not.toBe(`${SESSION_COOKIE}=`)
-    expect(accountIdFrom(session)).toBe('acct_audit_attacker')
-    expect(victimResponse.headers.get('Location')).toBe('/audit-attacker')
+    expect(victimResponse.headers.get('Location')).toBe('/?error=1')
+    // No session was minted — the victim keeps nothing of the attacker's.
+    expect(sessionCookieFrom(victimResponse)).toBe('')
+    expect(providerCalls).toBe(0)
   })
 
-  test('an existing session in the victim’s browser is replaced, not preserved', async () => {
+  test('a verifier minted for a different flow fails just like a missing one', async () => {
+    await seedAttacker()
+    const { state, nonce } = await beginFlow()
+    const { stateCookie: wrongCookie } = await beginFlow() // a second tab's cookie
+
+    const response = await callbackApp(await depsFor(nonce, 'attacker-sub', 'Attacker')).request(
+      `${BASE}/auth/google/callback?code=attacker-code&state=${state}`,
+      { headers: { Cookie: wrongCookie } },
+      env(),
+    )
+    expect(response.headers.get('Location')).toBe('/?error=1')
+    expect(sessionCookieFrom(response)).toBe('')
+  })
+
+  test('an existing session in the victim’s browser is never replaced', async () => {
     await seedAttacker()
 
     const { state, nonce } = await beginFlow()
@@ -193,18 +219,40 @@ describe('F-03 OAuth state is not browser-bound (login CSRF)', () => {
     )
 
     expect(response.status).toBe(302)
-    // Set-Cookie overrides: the browser now holds the attacker's session.
-    expect(accountIdFrom(sessionCookieFrom(response))).toBe('acct_audit_attacker')
+    expect(response.headers.get('Location')).toBe('/?error=1')
+    // No Set-Cookie overrides — the browser still holds only its own session.
+    expect(sessionCookieFrom(response)).toBe('')
   })
 
-  test('the first-sign-in confirm step also needs no cookie from the requester', async () => {
-    const { state, nonce } = await beginFlow()
+  test('the honest same-browser round-trip still signs in', async () => {
+    await seedAttacker()
+
+    const { state, nonce, stateCookie } = await beginFlow()
+    const response = await callbackApp(await depsFor(nonce, 'attacker-sub', 'Attacker')).request(
+      `${BASE}/auth/google/callback?code=attacker-code&state=${state}`,
+      { headers: { Cookie: stateCookie } },
+      env(),
+    )
+
+    expect(response.status).toBe(302)
+    const session = sessionCookieFrom(response)
+    expect(session).not.toBe(`${SESSION_COOKIE}=`)
+    expect(accountIdFrom(session)).toBe('acct_audit_attacker')
+    expect(response.headers.get('Location')).toBe('/audit-attacker')
+  })
+
+  test('a forwarded confirm POST without the verifier creates no account', async () => {
+    const { state, nonce, stateCookie } = await beginFlow()
     const app = callbackApp(await depsFor(nonce, 'new-attacker-sub', 'New Attacker'))
 
-    const pending = await app.request(`${BASE}/auth/google/callback?code=attacker-code&state=${state}`, {}, env())
+    const pending = await app.request(`${BASE}/auth/google/callback?code=attacker-code&state=${state}`,
+      { headers: { Cookie: stateCookie } }, env())
     expect(pending.status).toBe(200)
     const token = /name="token" value="([^"]+)"/.exec(await pending.text())![1]!
 
+    // The attacker forwards the interstitial's token to the victim — but the
+    // verifier cookie was deleted when the callback ran, and the victim's
+    // browser never held it anyway.
     const confirm = await app.request(`${BASE}/auth/confirm-account`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -212,6 +260,30 @@ describe('F-03 OAuth state is not browser-bound (login CSRF)', () => {
     }, env())
 
     expect(confirm.status).toBe(302)
-    expect(sessionCookieFrom(confirm)).not.toBe(`${SESSION_COOKIE}=`)
+    expect(confirm.headers.get('Location')).toBe('/?error=1')
+    expect(sessionCookieFrom(confirm)).toBe('')
+    const row = await proxy!.env.DB.prepare("SELECT account_id FROM auth_identities WHERE provider_subject = 'new-attacker-sub'").first()
+    expect(row).toBeNull()
+  })
+
+  test('the same browser posting its own confirm still creates the account', async () => {
+    const { state, nonce, stateCookie } = await beginFlow()
+    const app = callbackApp(await depsFor(nonce, 'new-attacker-sub', 'New Attacker'))
+
+    const pending = await app.request(`${BASE}/auth/google/callback?code=attacker-code&state=${state}`,
+      { headers: { Cookie: stateCookie } }, env())
+    expect(pending.status).toBe(200)
+    const token = /name="token" value="([^"]+)"/.exec(await pending.text())![1]!
+
+    const confirm = await app.request(`${BASE}/auth/confirm-account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: stateCookie },
+      body: `token=${encodeURIComponent(token)}`,
+    }, env())
+
+    expect(confirm.status).toBe(302)
+    const session = sessionCookieFrom(confirm)
+    expect(session).not.toBe(`${SESSION_COOKIE}=`)
+    expect(accountIdFrom(session)).not.toBe('acct_audit_attacker')
   })
 })

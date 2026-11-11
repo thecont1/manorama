@@ -7,7 +7,9 @@ import type { UserRepositoryEnv } from './user-repository'
  * carries the `state` key; everything the callback needs — nonce, PKCE
  * verifier, native/desktop handoff flavour, post-login destination — sits
  * in `auth_flows` (D1) behind that key. Consuming is a DELETE, so a state
- * can never be replayed, and no OAuth state lives in cookies.
+ * can never be replayed. The one cookie involved is a random verifier the
+ * callback must present back — its hash sits in the row, which is what
+ * binds the flow to the browser that started it.
  */
 
 export const AUTH_FLOW_TTL_SECONDS = 600
@@ -28,6 +30,10 @@ export type AuthFlow = {
   appChallenge?: string
   native: AuthFlowNative
   nextUrl?: string
+  /** SHA-256 of the verifier cookie the start route set — the callback must
+   *  present the cookie, which is how the state stops being a bearer value
+   *  anyone can hand to a victim's browser. */
+  stateCookieHash?: string
 }
 
 export type AuthFlowInput = {
@@ -37,10 +43,14 @@ export type AuthFlowInput = {
   native?: string
   appChallenge?: string
   next?: string
+  stateCookieHash?: string
 }
 
 const PROVIDERS: readonly string[] = ['dropbox', 'google', 'apple']
 const APP_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/
+/** The cookie hash is a base64url SHA-256 — the same shape as a PKCE
+ *  challenge, which is exactly what produces it. */
+const STATE_COOKIE_HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const NEXT_MAX = 2048
 
 const randomHex = (bytes: number) => {
@@ -49,7 +59,7 @@ const randomHex = (bytes: number) => {
   return Array.from(buffer, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-const randomBase64Url = (bytes: number) => {
+export const randomBase64Url = (bytes: number) => {
   const buffer = new Uint8Array(bytes)
   crypto.getRandomValues(buffer)
   return btoa(String.fromCharCode(...buffer))
@@ -90,6 +100,10 @@ const checked = (input: AuthFlowInput) => {
   }
   const next = input.next?.trim() || undefined
   if (next && next.length > NEXT_MAX) throw new Error('Invalid post-sign-in destination')
+  const stateCookieHash = input.stateCookieHash?.trim() || undefined
+  if (stateCookieHash !== undefined && !STATE_COOKIE_HASH_PATTERN.test(stateCookieHash)) {
+    throw new Error('Invalid state cookie hash')
+  }
   return {
     provider: input.provider,
     intent: input.intent,
@@ -97,6 +111,7 @@ const checked = (input: AuthFlowInput) => {
     native: native as AuthFlowNative,
     appChallenge,
     nextUrl: next,
+    stateCookieHash,
   }
 }
 
@@ -116,6 +131,7 @@ type FlowRow = {
   app_challenge: string | null
   native: string
   next_url: string | null
+  state_cookie_hash: string | null
 }
 
 const rowToFlow = (row: FlowRow): AuthFlow => ({
@@ -128,6 +144,7 @@ const rowToFlow = (row: FlowRow): AuthFlow => ({
   ...(row.code_verifier ? { codeVerifier: row.code_verifier } : {}),
   ...(row.app_challenge ? { appChallenge: row.app_challenge } : {}),
   ...(row.next_url ? { nextUrl: row.next_url } : {}),
+  ...(row.state_cookie_hash ? { stateCookieHash: row.state_cookie_hash } : {}),
 })
 
 const purgeMemoryFlows = (nowMs: number) => {
@@ -157,8 +174,8 @@ export const createAuthFlow = async (
       env.DB.prepare("DELETE FROM auth_flows WHERE expires_at <= datetime('now')"),
       env.DB.prepare(
         `INSERT INTO auth_flows
-           (state, provider, intent, account_id, nonce, code_verifier, app_challenge, native, next_url, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))`,
+           (state, provider, intent, account_id, nonce, code_verifier, app_challenge, native, next_url, state_cookie_hash, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))`,
       ).bind(
         state,
         flow.provider,
@@ -169,6 +186,7 @@ export const createAuthFlow = async (
         flow.appChallenge ?? null,
         flow.native,
         flow.nextUrl ?? null,
+        flow.stateCookieHash ?? null,
         `${ttlSeconds >= 0 ? '+' : ''}${ttlSeconds} seconds`,
       ),
     ])
@@ -185,6 +203,7 @@ export const createAuthFlow = async (
       ...(codeVerifier ? { codeVerifier } : {}),
       ...(flow.appChallenge ? { appChallenge: flow.appChallenge } : {}),
       ...(flow.nextUrl ? { nextUrl: flow.nextUrl } : {}),
+      ...(flow.stateCookieHash ? { stateCookieHash: flow.stateCookieHash } : {}),
     })
   }
   return { state, nonce, native: flow.native, ...(codeVerifier ? { codeVerifier } : {}) }
@@ -203,7 +222,7 @@ export const consumeAuthFlow = async (
   if (d1Configured(env)) {
     const row = await env.DB.prepare(
       `DELETE FROM auth_flows WHERE state = ? AND expires_at > datetime('now')
-       RETURNING state, provider, intent, account_id, nonce, code_verifier, app_challenge, native, next_url`,
+       RETURNING state, provider, intent, account_id, nonce, code_verifier, app_challenge, native, next_url, state_cookie_hash`,
     ).bind(state).first<FlowRow>()
     return row ? rowToFlow(row) : null
   }

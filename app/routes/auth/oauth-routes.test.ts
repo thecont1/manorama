@@ -7,10 +7,16 @@ import { Hono } from 'hono'
 import { createLocalJWKSet, exportJWK, exportPKCS8, generateKeyPair, SignJWT } from 'jose'
 import type { JWTPayload } from 'jose'
 import { createManoramaApi } from '../../api'
-import { consumeAuthFlow, createAuthFlow, pkceChallenge, resetAuthFlowStore } from '../../lib/auth-flows'
+import {
+  consumeAuthFlow,
+  createAuthFlow,
+  pkceChallenge,
+  randomBase64Url,
+  resetAuthFlowStore,
+} from '../../lib/auth-flows'
 import { DESKTOP_CALLBACK, verifyDesktopHandoffToken } from '../../lib/desktop-auth'
 import { findAccountByIdentity, listIdentities, linkIdentity, upsertIdentitySignIn } from '../../lib/identity-repository'
-import { finishProviderAuth } from '../../lib/oauth-flow'
+import { finishProviderAuth, stateCookieName } from '../../lib/oauth-flow'
 import type { OidcDependencies } from '../../lib/oidc'
 import {
   createSessionToken,
@@ -124,6 +130,7 @@ beforeAll(async () => {
   await applyMigration(db, '0010_session_revocation.sql')
   await applyMigration(db, '0011_last_seen_location.sql')
   await applyMigration(db, '0016_gallery_hidden.sql')
+  await applyMigration(db, '0018_auth_flow_state_cookie.sql')
 }, 15_000)
 
 afterAll(async () => {
@@ -190,16 +197,45 @@ const callbackApp = (deps: OidcDependencies) => {
 
 const BASE = 'https://manorama.xyz'
 
+/** A flow opened the way the routes open one: with a verifier hash stored
+ *  on the row. Returns the flow plus the Cookie header the same browser
+ *  sends back at the callback. */
+const flowWithCookie = async (
+  input: Parameters<typeof createAuthFlow>[0],
+  flowEnv?: Parameters<typeof createAuthFlow>[1],
+) => {
+  const verifier = randomBase64Url(32)
+  const flow = await createAuthFlow({ ...input, stateCookieHash: await pkceChallenge(verifier) },
+    flowEnv === undefined ? { DB: db() } : flowEnv)
+  return { ...flow, cookie: `${stateCookieName(flow.state)}=${verifier}` }
+}
+
+/** The verifier cookie a real start response planted — what a returning
+ *  browser would send back. */
+const stateCookieFrom = (response: Response) => {
+  const cookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response.headers.get('Set-Cookie') ?? '']
+  return (cookies.find((cookie) => cookie.startsWith('manorama_oauth_')) ?? '').split(';')[0]
+}
+
+/** Merges the state cookie with any session cookie a test already sends. */
+const cookieHeader = (...cookies: Array<string | undefined>) =>
+  cookies.filter((cookie) => cookie && cookie.includes('=')).join('; ')
+
 /** A first-time identity pauses on the confirm page instead of signing in
  *  directly — this drives the form post the page itself would have made
  *  and returns the confirm step's response. */
-const completePending = async (app: Hono, response: Response) => {
+const completePending = async (app: Hono, response: Response, stateCookie?: string) => {
   const html = response.status === 200 ? await response.text() : ''
   const token = /name="token" value="([^"]+)"/.exec(html)?.[1]
   if (!token) return response
   return app.request(`${BASE}/auth/confirm-account`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(stateCookie ? { Cookie: stateCookie } : {}),
+    },
     body: `token=${encodeURIComponent(token)}`,
   }, env())
 }
@@ -310,12 +346,12 @@ describe('callback state handling', () => {
   })
 
   test('a consumed state is single-use — the exchange is never attempted twice', async () => {
-    const { state, nonce } = await createAuthFlow({ provider: 'google', intent: 'signin' }, { DB: db() })
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'google', intent: 'signin' })
     const { calls, deps } = await googleDeps(nonce)
     const app = callbackApp(deps)
-    const first = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env())
+    const first = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, { headers: { Cookie: cookie } }, env())
     expect(first.headers.get('Location')).not.toBe('/?error=1')
-    const second = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env())
+    const second = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, { headers: { Cookie: cookie } }, env())
     expect(second.headers.get('Location')).toBe('/?error=1')
     expect(calls).toHaveLength(1)
   })
@@ -345,17 +381,35 @@ describe('callback state handling', () => {
   })
 
   test('a state minted for one provider cannot be spent on another', async () => {
-    const { state } = await createAuthFlow({ provider: 'dropbox', intent: 'signin' }, { DB: db() })
+    const { state, cookie } = await flowWithCookie({ provider: 'dropbox', intent: 'signin' })
     const { calls, deps } = await googleDeps('nonce-any')
-    const response = await callbackApp(deps).request(`${BASE}/auth/google/callback?code=x&state=${state}`, undefined, env())
+    const response = await callbackApp(deps).request(`${BASE}/auth/google/callback?code=x&state=${state}`, { headers: { Cookie: cookie } }, env())
     expect(response.headers.get('Location')).toBe('/?error=1')
     expect(calls).toHaveLength(0)
   })
 
-  test('a missing session secret fails closed', async () => {
-    const { state, nonce } = await createAuthFlow({ provider: 'google', intent: 'signin' }, { DB: db() })
+  test('a callback from the wrong browser fails before the provider call', async () => {
+    const { state, nonce } = await flowWithCookie({ provider: 'google', intent: 'signin' })
     const { calls, deps } = await googleDeps(nonce)
-    const response = await callbackApp(deps).request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env({ HOST_API_JWT_SECRET: '' }))
+    const app = callbackApp(deps)
+    // No cookie at all, and a cookie minted for a different flow — both
+    // must end on the generic error with the state already consumed.
+    const missing = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env())
+    expect(missing.headers.get('Location')).toBe('/?error=1')
+    expect(calls).toHaveLength(0)
+    const { state: state2, cookie: cookie2 } = await flowWithCookie({ provider: 'google', intent: 'signin' })
+    const { state: otherState, cookie: wrongCookie } = await flowWithCookie({ provider: 'google', intent: 'signin' })
+    expect(state2).not.toBe(otherState)
+    const wrong = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state2}`, { headers: { Cookie: wrongCookie } }, env())
+    expect(wrong.headers.get('Location')).toBe('/?error=1')
+    expect(calls).toHaveLength(0)
+    expect(cookie2).toContain(stateCookieName(state2))
+  })
+
+  test('a missing session secret fails closed', async () => {
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'google', intent: 'signin' })
+    const { calls, deps } = await googleDeps(nonce)
+    const response = await callbackApp(deps).request(`${BASE}/auth/google/callback?code=ok&state=${state}`, { headers: { Cookie: cookie } }, env({ HOST_API_JWT_SECRET: '' }))
     expect(response.headers.get('Location')).toBe('/?error=1')
     expect(calls).toHaveLength(0)
   })
@@ -363,14 +417,14 @@ describe('callback state handling', () => {
 
 describe('google sign-in end to end', () => {
   test('a minted transaction pauses on the confirm page, then signs in and lands on the dashboard', async () => {
-    const { state, nonce } = await createAuthFlow({ provider: 'google', intent: 'signin' }, { DB: db() })
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'google', intent: 'signin' })
     const { calls, deps } = await googleDeps(nonce, { sub: 'google-sub-e2e' })
     const app = callbackApp(deps)
-    const callback = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env())
+    const callback = await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, { headers: { Cookie: cookie } }, env())
     // First time this identity is seen: an interstitial, not a session.
     expect(callback.status).toBe(200)
     expect(callback.headers.get('Set-Cookie') ?? '').not.toContain(SESSION_COOKIE)
-    const response = await completePending(app, callback)
+    const response = await completePending(app, callback, cookie)
     expect(response.status).toBe(302)
     expect(calls).toHaveLength(1)
     expect(calls[0]).toBe('https://oauth2.googleapis.com/token')
@@ -391,31 +445,31 @@ describe('google sign-in end to end', () => {
   })
 
   test('a same-origin next is honoured; a foreign one falls back to the dashboard', async () => {
-    const runSignIn = async (flow: Awaited<ReturnType<typeof createAuthFlow>>, sub: string) => {
+    const runSignIn = async (flow: Awaited<ReturnType<typeof flowWithCookie>>, sub: string) => {
       const { deps } = await googleDeps(flow!.nonce, { sub })
       const app = callbackApp(deps)
-      return completePending(app, await app.request(`${BASE}/auth/google/callback?code=ok&state=${flow!.state}`, undefined, env()))
+      return completePending(app, await app.request(`${BASE}/auth/google/callback?code=ok&state=${flow!.state}`, { headers: { Cookie: flow!.cookie } }, env()), flow!.cookie)
     }
 
-    const same = await createAuthFlow({ provider: 'google', intent: 'signin', next: `${BASE}/come/back` }, { DB: db() })
+    const same = await flowWithCookie({ provider: 'google', intent: 'signin', next: `${BASE}/come/back` })
     const sameResponse = await runSignIn(same, 'google-sub-next1')
     expect(sameResponse.headers.get('Location')).toBe(`${BASE}/come/back`)
 
-    const relative = await createAuthFlow({ provider: 'google', intent: 'signin', next: '/relative/path' }, { DB: db() })
+    const relative = await flowWithCookie({ provider: 'google', intent: 'signin', next: '/relative/path' })
     const relativeResponse = await runSignIn(relative, 'google-sub-next2')
     expect(relativeResponse.headers.get('Location')).toBe('/relative/path')
 
-    const foreign = await createAuthFlow({ provider: 'google', intent: 'signin', next: 'https://evil.example.com/x' }, { DB: db() })
+    const foreign = await flowWithCookie({ provider: 'google', intent: 'signin', next: 'https://evil.example.com/x' })
     const foreignResponse = await runSignIn(foreign, 'google-sub-next3')
     const account = await findAccountByIdentity('google', 'google-sub-next3', { DB: db() })
     expect(foreignResponse.headers.get('Location')).toBe(`/${account!.ownerSlug}`)
   })
 
   test('native=1 mints a session and redirects the handoff to the app scheme', async () => {
-    const { state, nonce } = await createAuthFlow({ provider: 'google', intent: 'signin', native: '1' }, { DB: db() })
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'google', intent: 'signin', native: '1' })
     const { deps } = await googleDeps(nonce, { sub: 'google-sub-native' })
     const app = callbackApp(deps)
-    const response = await completePending(app, await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env()))
+    const response = await completePending(app, await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, { headers: { Cookie: cookie } }, env()), cookie)
     const location = response.headers.get('Location')!
     expect(location).toMatch(/^in\.thecontrarian\.manorama:\/\/auth\/callback\?handoff=/)
     expect(response.headers.get('Set-Cookie')).toContain(SESSION_COOKIE)
@@ -427,13 +481,12 @@ describe('google sign-in end to end', () => {
   test('native=desktop binds the handoff to the app challenge', async () => {
     const verifier = 'd'.repeat(64)
     const appChallenge = await pkceChallenge(verifier)
-    const { state, nonce } = await createAuthFlow(
+    const { state, nonce, cookie } = await flowWithCookie(
       { provider: 'google', intent: 'signin', native: 'desktop', appChallenge },
-      { DB: db() },
     )
     const { deps } = await googleDeps(nonce, { sub: 'google-sub-desktop' })
     const app = callbackApp(deps)
-    const response = await completePending(app, await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env()))
+    const response = await completePending(app, await app.request(`${BASE}/auth/google/callback?code=ok&state=${state}`, { headers: { Cookie: cookie } }, env()), cookie)
     const location = response.headers.get('Location')!
     expect(location).toMatch(new RegExp(`^${DESKTOP_CALLBACK.replace(/[.:]/g, '\\$&')}\\?handoff=`))
     const handoff = decodeURIComponent(location.split('handoff=')[1])
@@ -443,11 +496,11 @@ describe('google sign-in end to end', () => {
   })
 
   test('without D1 the callback answers a no-store 503, not a credential error', async () => {
-    const { state, nonce } = await createAuthFlow({ provider: 'google', intent: 'signin' })
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'google', intent: 'signin' }, {})
     const { deps } = await googleDeps(nonce, { sub: 'google-sub-nodb' })
     const response = await callbackApp(deps).request(
       `${BASE}/auth/google/callback?code=ok&state=${state}`,
-      undefined,
+      { headers: { Cookie: cookie } },
       env({ DB: undefined }),
     )
     expect(response.status).toBe(503)
@@ -480,18 +533,33 @@ describe('dropbox sign-in end to end on the real routes', () => {
     return calls
   }
 
-  test('start-to-callback signs in through a transaction, no OAuth cookies anywhere', async () => {
+  test('start-to-callback signs in through a transaction bound to the browser', async () => {
     const calls = mockDropboxFetch('dbid:E2Edropbox', 'e2e@manorama.xyz')
     const app = realApp()
     try {
       const start = await app.request(`${BASE}/auth/dropbox?next=${encodeURIComponent(`${BASE}/welcome`)}`, undefined, env())
-      const startCookies = start.headers.get('Set-Cookie') ?? ''
-      expect(startCookies).not.toContain('manorama_oauth')
+      // The start plants exactly one cookie: the HttpOnly state verifier.
+      const stateCookie = stateCookieFrom(start)
+      expect(stateCookie).toContain('manorama_oauth_')
+      const setCookie = start.headers.get('Set-Cookie') ?? ''
+      expect(setCookie).toContain('HttpOnly')
+      expect(setCookie).toContain('Secure')
+      expect(setCookie).toContain('SameSite=Lax')
+      expect(setCookie).toContain('Path=/auth')
       const state = new URL(start.headers.get('Location')!).searchParams.get('state')!
-      const callback = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state}`, undefined, env())
+      expect(stateCookie).toContain(stateCookieName(state))
+      // A callback without the cookie — the login-CSRF shape — dies early.
+      const noCookie = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state}`, undefined, env())
+      expect(noCookie.headers.get('Location')).toBe('/?error=1')
+      expect(calls).toHaveLength(0)
+      // The honest browser round-trip carries it back.
+      const start2 = await app.request(`${BASE}/auth/dropbox?next=${encodeURIComponent(`${BASE}/welcome`)}`, undefined, env())
+      const cookie2 = stateCookieFrom(start2)
+      const state2 = new URL(start2.headers.get('Location')!).searchParams.get('state')!
+      const callback = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state2}`, { headers: { Cookie: cookie2 } }, env())
       expect(callback.status).toBe(200)
       expect(callback.headers.get('Set-Cookie') ?? '').not.toContain(SESSION_COOKIE)
-      const signedIn = await completePending(app, callback)
+      const signedIn = await completePending(app, callback, cookie2)
       expect(signedIn.status).toBe(302)
       expect(signedIn.headers.get('Location')).toBe(`${BASE}/welcome`)
       expect(signedIn.headers.get('Set-Cookie')).toContain(SESSION_COOKIE)
@@ -503,7 +571,7 @@ describe('dropbox sign-in end to end on the real routes', () => {
       expect(account?.email).toBe('e2e@manorama.xyz')
       // Replaying the same state fails closed with no further fetches.
       calls.length = 0
-      const replay = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state}`, undefined, env())
+      const replay = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state2}`, { headers: { Cookie: cookie2 } }, env())
       expect(replay.headers.get('Location')).toBe('/?error=1')
       expect(calls).toHaveLength(0)
     } finally {
@@ -519,8 +587,9 @@ describe('dropbox sign-in end to end on the real routes', () => {
       const challenge = await pkceChallenge(verifier)
       const start = await app.request(`${BASE}/auth/dropbox?native=desktop&code_challenge=${challenge}`, undefined, env())
       const state = new URL(start.headers.get('Location')!).searchParams.get('state')!
-      const callback = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state}`, undefined, env())
-      const signedIn = await completePending(app, callback)
+      const stateCookie = stateCookieFrom(start)
+      const callback = await app.request(`${BASE}/auth/dropbox/callback?code=abc&state=${state}`, { headers: { Cookie: stateCookie } }, env())
+      const signedIn = await completePending(app, callback, stateCookie)
       const location = signedIn.headers.get('Location')!
       expect(location).toMatch(new RegExp(`^${DESKTOP_CALLBACK.replace(/[.:]/g, '\\$&')}\\?handoff=`))
       const handoff = decodeURIComponent(location.split('handoff=')[1])
@@ -541,7 +610,7 @@ describe('dropbox sign-in end to end on the real routes', () => {
 
 describe('apple sign-in via form_post', () => {
   test('POST parses the form, takes the one-time user name, and signs in', async () => {
-    const { state, nonce } = await createAuthFlow({ provider: 'apple', intent: 'signin' }, { DB: db() })
+    const { state, nonce, cookie } = await flowWithCookie({ provider: 'apple', intent: 'signin' })
     const { calls, deps } = await appleDeps(nonce, { sub: 'apple-sub-e2e' })
     const body = new URLSearchParams({
       code: 'apple-code-1',
@@ -551,11 +620,11 @@ describe('apple sign-in via form_post', () => {
     const app = callbackApp(deps)
     const callback = await app.request(`${BASE}/auth/apple/callback`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie },
       body: body.toString(),
     }, env())
     expect(callback.status).toBe(200)
-    const response = await completePending(app, callback)
+    const response = await completePending(app, callback, cookie)
     expect(response.status).toBe(302)
     expect(calls).toEqual(['https://appleid.apple.com/auth/token'])
     const account = await findAccountByIdentity('apple', 'apple-sub-e2e', { DB: db() })
@@ -588,14 +657,13 @@ describe('the link flow', () => {
 
   test('a valid session links the provider identity and reports it in the redirect', async () => {
     const user = await seedAccount('dbid:LINKhappy', 'Link Happy')
-    const { state, nonce } = await createAuthFlow(
+    const { state, nonce, cookie } = await flowWithCookie(
       { provider: 'google', intent: 'link', accountId: user.accountId },
-      { DB: db() },
     )
     const { deps } = await googleDeps(nonce, { sub: 'goog-link-happy' })
     const response = await callbackApp(deps).request(
       `${BASE}/auth/google/callback?code=ok&state=${state}`,
-      { headers: { Cookie: await sessionCookie(user.accountId) } },
+      { headers: { Cookie: cookieHeader(await sessionCookie(user.accountId), cookie) } },
       env(),
     )
     expect(response.headers.get('Location')).toBe(`/${user.ownerSlug}?linked=google`)
@@ -608,14 +676,13 @@ describe('the link flow', () => {
   test('a session for a different account fails before the provider is called', async () => {
     const owner = await seedAccount('dbid:LINKowner', 'Link Owner')
     const intruder = await seedAccount('dbid:LINKother', 'Link Other')
-    const { state, nonce } = await createAuthFlow(
+    const { state, nonce, cookie } = await flowWithCookie(
       { provider: 'google', intent: 'link', accountId: owner.accountId },
-      { DB: db() },
     )
     const { calls, deps } = await googleDeps(nonce, { sub: 'goog-link-nope' })
     const response = await callbackApp(deps).request(
       `${BASE}/auth/google/callback?code=ok&state=${state}`,
-      { headers: { Cookie: await sessionCookie(intruder.accountId) } },
+      { headers: { Cookie: cookieHeader(await sessionCookie(intruder.accountId), cookie) } },
       env(),
     )
     expect(response.headers.get('Location')).toBe('/?error=1')
@@ -626,28 +693,30 @@ describe('the link flow', () => {
 
   test('a missing session rejects the link callback', async () => {
     const owner = await seedAccount('dbid:LINKanon', 'Link Anon')
-    const { state, nonce } = await createAuthFlow(
+    const { state, nonce, cookie } = await flowWithCookie(
       { provider: 'google', intent: 'link', accountId: owner.accountId },
-      { DB: db() },
     )
     const { calls, deps } = await googleDeps(nonce, { sub: 'goog-link-anon' })
-    const response = await callbackApp(deps).request(`${BASE}/auth/google/callback?code=ok&state=${state}`, undefined, env())
+    const response = await callbackApp(deps).request(
+      `${BASE}/auth/google/callback?code=ok&state=${state}`,
+      { headers: { Cookie: cookie } },
+      env(),
+    )
     expect(response.headers.get('Location')).toBe('/?error=1')
     expect(calls).toHaveLength(0)
   })
 
   test('a desktop link flow reports ?linked on the desktop scheme', async () => {
     const user = await seedAccount('dbid:LINKmac', 'Link Mac')
-    const { state, nonce } = await createAuthFlow(
+    const { state, nonce, cookie } = await flowWithCookie(
       { provider: 'google', intent: 'link', accountId: user.accountId, native: 'desktop' },
-      { DB: db() },
     )
     const { deps } = await googleDeps(nonce, { sub: 'goog-link-mac' })
     // The handoff pre-binds the account, so the callback needs no session
-    // cookie — same as the iOS scheme twin.
+    // cookie — it still carries the browser verifier back though.
     const response = await callbackApp(deps).request(
       `${BASE}/auth/google/callback?code=ok&state=${state}`,
-      undefined,
+      { headers: { Cookie: cookie } },
       env(),
     )
     expect(response.headers.get('Location')).toBe('in.thecontrarian.manorama.desktop://auth/callback?linked=google')
@@ -659,14 +728,13 @@ describe('the link flow', () => {
     const holder = await seedAccount('dbid:LINKholder', 'Link Holder')
     await linkIdentity(holder.accountId, { provider: 'google', subject: 'goog-taken' }, { DB: db() })
     const aspirant = await seedAccount('dbid:LINKaspirant', 'Link Aspirant')
-    const { state, nonce } = await createAuthFlow(
+    const { state, nonce, cookie } = await flowWithCookie(
       { provider: 'google', intent: 'link', accountId: aspirant.accountId },
-      { DB: db() },
     )
     const { deps } = await googleDeps(nonce, { sub: 'goog-taken' })
     const response = await callbackApp(deps).request(
       `${BASE}/auth/google/callback?code=ok&state=${state}`,
-      { headers: { Cookie: await sessionCookie(aspirant.accountId) } },
+      { headers: { Cookie: cookieHeader(await sessionCookie(aspirant.accountId), cookie) } },
       env(),
     )
     expect(response.headers.get('Location')).toBe(`/${aspirant.ownerSlug}?link=conflict`)
@@ -724,11 +792,11 @@ describe('account identity endpoints', () => {
 
 describe('the first-time-account interstitial', () => {
   const runGoogleCallback = async (sub: string, flowInput: Parameters<typeof createAuthFlow>[0] = { provider: 'google', intent: 'signin' }) => {
-    const flow = await createAuthFlow(flowInput!, { DB: db() })
+    const flow = await flowWithCookie(flowInput!)
     const { deps } = await googleDeps(flow!.nonce, { sub })
     const app = callbackApp(deps)
-    const response = await app.request(`${BASE}/auth/google/callback?code=ok&state=${flow!.state}`, undefined, env())
-    return { app, response }
+    const response = await app.request(`${BASE}/auth/google/callback?code=ok&state=${flow!.state}`, { headers: { Cookie: flow.cookie } }, env())
+    return { app, response, cookie: flow.cookie }
   }
 
   test('a never-seen identity gets the confirm page, not an account', async () => {
@@ -778,7 +846,7 @@ describe('the first-time-account interstitial', () => {
 
   test('a second sign-in after confirming goes straight through', async () => {
     const first = await runGoogleCallback('google-sub-second')
-    const confirmed = await completePending(first.app, first.response)
+    const confirmed = await completePending(first.app, first.response, first.cookie)
     expect(confirmed.status).toBe(302)
     const { response: second } = await runGoogleCallback('google-sub-second')
     expect(second.status).toBe(302)
@@ -786,8 +854,8 @@ describe('the first-time-account interstitial', () => {
   })
 
   test('the admin overview reports the account\u2019s original provider', async () => {
-    const { app, response } = await runGoogleCallback('google-sub-primary')
-    await completePending(app, response)
+    const { app, response, cookie } = await runGoogleCallback('google-sub-primary')
+    await completePending(app, response, cookie)
     const googleAccount = await findAccountByIdentity('google', 'google-sub-primary', { DB: db() })
     await upsertIdentitySignIn({ provider: 'dropbox', subject: 'dbid:PRIMARY', displayName: 'Dbx Primary' }, { DB: db() })
     const dropboxAccount = await findAccountByIdentity('dropbox', 'dbid:PRIMARY', { DB: db() })
