@@ -51,6 +51,8 @@ import { GalleryShareSheet } from '../../app/components/GalleryShareSheet'
 import OwnerGalleryPanel from '../../app/components/viewer/OwnerGalleryPanel'
 import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
+import { useMasonry } from '../../app/components/library/useMasonry'
+import { CompactCoverImg } from '../../app/components/library/CompactCoverImg'
 import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
 import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
 import { desktopKeyStore } from '../lib/key-store'
@@ -305,6 +307,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // encrypted resolver must outlive the background cache fill.
   const openLeaseRef = useRef<{ dispose?(): void; cacheFill?: Promise<unknown> } | null>(null)
   const vaultOpenAbortRef = useRef<AbortController | null>(null)
+  const localGridRef = useRef<HTMLUListElement | null>(null)
+  const accountGridRef = useRef<HTMLUListElement | null>(null)
+  const savedGridRef = useRef<HTMLUListElement | null>(null)
+  const hiddenGridRef = useRef<HTMLUListElement | null>(null)
+  useMasonry(localGridRef)
+  useMasonry(accountGridRef)
+  useMasonry(savedGridRef)
+  useMasonry(hiddenGridRef)
   const [plate, setPlate] = useState<AdFrame | null>(null)
   const [accountAd, setAccountAd] = useState<AdFrame | null>(null)
   const [adsShow, setAdsShow] = useState(true)
@@ -2233,9 +2243,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </article></li>
   }
 
-  // The compact form a local gallery takes while unpinned — a cover card in
-  // the Local section's grid, the same shape account galleries collapse to
-  // in "Cloud galleries".
+  /** The compact form a local gallery takes while unpinned — a cover card
+   *  in the Local section's grid, the same shape account galleries
+   *  collapse to in "Cloud galleries". */
   const localCompactCard = (record: LocalGalleryRecord) => {
     const state = availability[record.id] ?? 'available'
     const unavailable = state === 'unavailable'
@@ -2250,37 +2260,33 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         aria-disabled={unavailable ? true : undefined}
       >
         {cover ? (
-          <img
+          <CompactCoverImg
             src={assetUrl(cover.path)}
-            alt=""
-            loading="lazy"
-            draggable={false}
-            onLoad={(event: Event) => {
-              const img = event.currentTarget as HTMLImageElement
-              img.classList.add('is-loaded')
-              recordDims(cover.id, img.naturalWidth, img.naturalHeight)
-              // A small original floats at its honest size rather than
-              // upscaling to the card width — invariant 13.
-              if (img.naturalWidth) img.style.maxWidth = `${img.naturalWidth}px`
-            }}
+            storedWidth={cover.width}
+            storedHeight={cover.height}
+            onNaturalSize={(width, height) => recordDims(cover.id, width, height)}
           />
         ) : null}
       </a>
-      <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
       <div class="lib-compact-body">
-        <button
-          type="button"
-          class="lib-card-title"
-          onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
-        >{record.title}{pinGlyph(record)}</button>
-        <p class="lib-card-sub">
-          {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
-        </p>
-        {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+        <div class="lib-compact-main">
+          <button
+            type="button"
+            class="lib-card-title"
+            onClick={() => unavailable ? openDetails(record) : openViewer(record.id, 0)}
+          >{record.title}{pinGlyph(record)}</button>
+          <p class="lib-card-sub">
+            {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
+          </p>
+          {unavailable ? <p class="desktop-badge-unavailable">Unavailable — reconnect the source, then rescan.</p> : null}
+        </div>
+        <button type="button" class="lib-card-menu" aria-label={`${record.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'local', record })}>···</button>
       </div>
     </li>
   }
 
+  /** The compact card an account gallery takes in "Cloud galleries" —
+   *  cover, title, status badges and the ··· quick menu. */
   const accountCompactCard = (gallery: GallerySummary) => {
     const title = gallery.title || gallery.slug
     const galleryUrl = accountGalleryUrl(gallery)
@@ -2294,30 +2300,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
       <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-        {cover ? <HeicImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
-          const img = event.currentTarget as HTMLImageElement
-          img.classList.add('is-loaded')
-          // The card takes the thumbnail's own size — the image always
-          // fills it exactly, and a small rendition never stretches into
-          // mush. Stored dims are the placeholder's shape; the decoded
-          // frame owns the real ratio.
-          if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-          const card = img.closest('.lib-compact-card') as HTMLElement | null
-          if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
-        }} onError={stripImgRetry} /> : null}
+        {cover ? <CompactCoverImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} /> : null}
       </a>
-      <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
       <div class="lib-compact-body">
-        <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
-        {isLocked(gallery) ? tempFlag(gallery) : null}
-        {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
-        {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
-          ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
-          : null}
-        <p class="lib-card-sub">
-          {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-          {tempWording(gallery)}
-        </p>
+        <div class="lib-compact-main">
+          <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
+          {isLocked(gallery) ? tempFlag(gallery) : null}
+          {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
+          {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
+            ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
+            : null}
+          <p class="lib-card-sub">
+            {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+            {tempWording(gallery)}
+          </p>
+        </div>
+        <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
       </div>
     </li>
   }
@@ -2504,7 +2502,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 </ul>
               ) : null}
               {compactLocalGalleries.length ? (
-                <ul class="lib-compact-grid">
+                <ul class="lib-compact-grid" ref={localGridRef}>
                   {compactLocalGalleries.map(localCompactCard)}
                 </ul>
               ) : null}
@@ -2513,7 +2511,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {compactAccountGalleries.length ? (
             <section aria-labelledby="lib-compact-title">
               <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactAccountGalleries.length})</span></h2>
-              <ul class="lib-compact-grid">
+              <ul class="lib-compact-grid" ref={accountGridRef}>
                 {compactAccountGalleries.map(accountCompactCard)}
               </ul>
             </section>
@@ -2521,7 +2519,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {savedOnlyGalleries.length ? (
             <section aria-labelledby="lib-saved-title">
               <h2 id="lib-saved-title" class="lib-section-title lib-compact-title">Saved on this Mac <span class="lib-section-count">({savedOnlyGalleries.length})</span></h2>
-              <ul class="lib-compact-grid">
+              <ul class="lib-compact-grid" ref={savedGridRef}>
                 {savedOnlyGalleries.map((saved) => (
                   <li key={`saved-${saved.galleryId}`} class="lib-compact-card" data-gallery-card={`saved:${saved.galleryId}`}>
                     <a
@@ -2532,21 +2530,23 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       aria-label={`${saved.title || saved.slug} cover`}
                     >
                       {savedThumbs.get(saved.galleryId)
-                        ? <img src={savedThumbs.get(saved.galleryId)} alt="" loading="lazy" draggable={false} />
+                        ? <CompactCoverImg src={savedThumbs.get(saved.galleryId)!} />
                         : null}
                     </a>
                     <div class="lib-compact-body">
-                      <a
-                        class="lib-card-title"
-                        href={`#saved-${saved.slug}`}
-                        onClick={(event) => { event.preventDefault(); void openSavedGallery(saved) }}
-                        draggable={false}
-                      >{saved.title || saved.slug}</a>
-                      <p class="desktop-badge-saved">Saved on this Mac</p>
-                      <p class="lib-card-sub">
-                        {saved.frames.length} {saved.frames.length === 1 ? 'photograph' : 'photographs'}
-                      </p>
-                      <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => void removeSavedCopy(saved.galleryId)}>Remove saved copy</button>
+                      <div class="lib-compact-main">
+                        <a
+                          class="lib-card-title"
+                          href={`#saved-${saved.slug}`}
+                          onClick={(event) => { event.preventDefault(); void openSavedGallery(saved) }}
+                          draggable={false}
+                        >{saved.title || saved.slug}</a>
+                        <p class="desktop-badge-saved">Saved on this Mac</p>
+                        <p class="lib-card-sub">
+                          {saved.frames.length} {saved.frames.length === 1 ? 'photograph' : 'photographs'}
+                        </p>
+                        <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => void removeSavedCopy(saved.galleryId)}>Remove saved copy</button>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -2571,7 +2571,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </button>
               {hiddenOpen ? (
                 <>
-                  <ul class="lib-compact-grid">
+                  <ul class="lib-compact-grid" ref={hiddenGridRef}>
                     {hiddenAccountGalleries.map(accountCompactCard)}
                     {hiddenLocalGalleries.map(localCompactCard)}
                   </ul>
