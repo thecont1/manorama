@@ -26,7 +26,6 @@ export default function Footer() {
               {surface.label}
             </a>
           ))}
-          <a href="https://thecontrarian.in">thecontrarian.in</a>
         </nav>
 
         <p class="home-footer-privacy">
@@ -35,8 +34,10 @@ export default function Footer() {
           where they are.
         </p>
 
-        <p class="home-footer-copy">Created by documentary photographer Mahesh Shantaram.</p>
-        <p class="home-footer-copy">© 2026 Mahesh Shantaram. All platform rights reserved.</p>
+        <p class="home-footer-copy">
+          © 2026 Mahesh Shantaram /{' '}
+          <a href="https://thecontrarian.in">thecontrarian.in</a>. All platform rights reserved.
+        </p>
       </div>
     </footer>
   )

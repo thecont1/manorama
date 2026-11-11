@@ -59,7 +59,7 @@ export default function Pricing() {
             </p>
             <p class="home-plan-cta">
               <a class="home-btn" href="/?next=/">
-                Become a Visionary
+                Go Visionary
               </a>
             </p>
           </div>

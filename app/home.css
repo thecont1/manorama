@@ -20,7 +20,11 @@
 :root {
   --home-header-h: 64px;
   --home-measure: 68ch;
-  --home-rhythm: clamp(80px, 11vw, 140px);
+  /* The rhythm between two bands is twice this, so it is kept small: the
+     page reads as one column of content rather than as a stack of
+     separate sections. The tone step between the bands does the
+     separating; the space only has to let the two breathe. */
+  --home-rhythm: clamp(44px, 4.6vw, 76px);
   --home-gap: clamp(24px, 4vw, 64px);
   --home-ink: #f3f0e8;
   --home-ink-soft: #cdc9c0;
@@ -31,6 +35,9 @@
 }
 
 html {
+  /* The sticky header is 64px tall. The scroll offset lives here, once,
+     so a link lands its section directly under the header instead of a
+     header's height below it. */
   scroll-padding-top: var(--home-header-h);
 }
 
@@ -94,7 +101,6 @@ html.home-page body {
 
 .home-band {
   padding-block: var(--home-rhythm);
-  scroll-margin-top: var(--home-header-h);
 }
 
 /* The wide band: the page's one margin pair. Everything that spans the

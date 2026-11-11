@@ -98,6 +98,42 @@ test.describe('the marketing homepage', () => {
     expect(box!.y).toBeLessThan(900)
   })
 
+  test('every menu link scrolls to the section it names', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const links = await page.locator('.home-nav a').all()
+    expect(links.length).toBeGreaterThanOrEqual(4)
+    for (const link of links) {
+      const href = (await link.getAttribute('href')) ?? ''
+      const label = (await link.innerText()).trim()
+      // Start from the top every time, so a link is judged on where it
+      // takes the visitor, not on where the previous one left them.
+      await page.evaluate(() => window.scrollTo(0, 0))
+      await page.waitForTimeout(150)
+      await link.click()
+      await expect
+        .poll(async () => {
+          const box = await page.locator(href).boundingBox()
+          return box ? Math.round(box.y) : -1
+        })
+        .toBeGreaterThanOrEqual(0)
+      const section = await page.locator(href).boundingBox()
+      const header = await page.locator('.home-header').boundingBox()
+      // The section lands under the header, not behind it.
+      expect(section!.y, `${label} → ${href}`).toBeGreaterThanOrEqual(header!.height - 1)
+      expect(section!.y, `${label} → ${href}`).toBeLessThan(header!.height + 120)
+    }
+  })
+
+  test('the phone menu carries every link the desktop navigation does', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await open(page)
+    const desktop = await page.locator('.home-nav a').allTextContents()
+    await page.locator('.home-nav-menu summary').click()
+    const phone = await page.locator('.home-nav-menu-list a').allTextContents()
+    expect(phone).toEqual(desktop)
+  })
+
   test('the keyboard reaches the skip link, the navigation and the sign-in group', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
