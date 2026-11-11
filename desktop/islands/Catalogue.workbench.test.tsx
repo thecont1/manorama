@@ -457,9 +457,11 @@ describe('desktop catalogue workbench', () => {
       const container = await mount(true)
       // Section order is Pinned → Local galleries → Cloud galleries; the
       // account card lands in Cloud galleries after the local cards.
-      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent)
-      expect(headings.indexOf('Local galleries')).toBeGreaterThanOrEqual(0)
-      expect(headings.indexOf('Local galleries')).toBeLessThan(headings.indexOf('Cloud galleries'))
+      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent ?? '')
+      const localHeading = headings.findIndex((text) => text.startsWith('Local galleries'))
+      const cloudHeading = headings.findIndex((text) => text.startsWith('Cloud galleries'))
+      expect(localHeading).toBeGreaterThanOrEqual(0)
+      expect(localHeading).toBeLessThan(cloudHeading)
       const localSection = container.querySelector<HTMLElement>('[aria-labelledby="local-galleries-title"]')!
       const accountSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
       expect(localSection).not.toBeNull()
@@ -1651,7 +1653,7 @@ describe('desktop catalogue workbench', () => {
       // account's other devices.
       expect(container.querySelector('#local-galleries-title')).toBeNull()
       expect(hiddenSection()).not.toBeNull()
-      expect(hiddenSection()!.querySelector('.lib-hidden-count')?.textContent).toBe('1')
+      expect(hiddenSection()!.querySelector('.lib-hidden-count')?.textContent).toBe('(1)')
       expect(hiddenSection()!.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
       const saved = JSON.parse(files['catalogue.json']!) as { galleries: { hiddenAt?: string }[] }
       expect(saved.galleries[0]!.hiddenAt).toBeTruthy()

@@ -2305,7 +2305,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         <section class="gallery-list" aria-labelledby="galleries-heading">
           {pinnedStrips.length ? (
             <section aria-labelledby="pinned-galleries-title">
-              <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries</h2>
+              <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({pinnedStrips.length})</span></h2>
               <ul class="lib-list">
                 {pinnedStrips.map((entry) => {
                   if (entry.kind === 'local') return localStripCard(entry.record)
@@ -2382,7 +2382,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           {accountTier === 'pro' && (visibleDeviceGalleries.length || compactLocalGalleries.length) ? (
             <section aria-labelledby="local-galleries-title">
-              <h2 id="local-galleries-title" class="lib-section-title">Local galleries</h2>
+              <h2 id="local-galleries-title" class="lib-section-title">Local galleries <span class="lib-section-count">({visibleDeviceGalleries.length + compactLocalGalleries.length})</span></h2>
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
               {visibleDeviceGalleries.length ? (
                 <ul class="lib-list">
@@ -2408,7 +2408,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           {compactAccountGalleries.length ? (
             <section aria-labelledby="lib-compact-title">
-              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries</h2>
+              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactAccountGalleries.length})</span></h2>
               <ul class="lib-compact-grid">
                 {compactAccountGalleries.map(accountCompactCard)}
               </ul>
@@ -2416,7 +2416,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           {savedOnlyGalleries.length ? (
             <section aria-labelledby="lib-saved-title">
-              <h2 id="lib-saved-title" class="lib-section-title lib-compact-title">Saved on this Mac</h2>
+              <h2 id="lib-saved-title" class="lib-section-title lib-compact-title">Saved on this Mac <span class="lib-section-count">({savedOnlyGalleries.length})</span></h2>
               <ul class="lib-compact-grid">
                 {savedOnlyGalleries.map((saved) => (
                   <li key={`saved-${saved.galleryId}`} class="lib-compact-card" data-gallery-card={`saved:${saved.galleryId}`}>
@@ -2460,7 +2460,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               >
                 <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
                 Hidden galleries
-                <span class="lib-hidden-count">{hiddenCount}</span>
+                <span class="lib-hidden-count">({hiddenCount})</span>
               </button>
               {hiddenOpen ? (
                 <>

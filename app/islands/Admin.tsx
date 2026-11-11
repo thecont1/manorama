@@ -987,7 +987,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
-          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries</h2>
+          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({stripGalleries.length})</span></h2>
           <p class="lib-section-sub">Pinned galleries show up as strips and download entirely — pinning is a display choice, not permanence.</p>
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
@@ -1054,7 +1054,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         })}</ul></section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries</h2>
+            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactGalleries.length})</span></h2>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}

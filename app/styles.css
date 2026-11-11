@@ -541,7 +541,7 @@ button { color: inherit; }
 /* Literal hexes, not --m-* tokens: under html.light those flip dark and the
    curtain must stay dark-themed regardless of the owner theme. */
 .curtain-count { margin: 28px 0 0; font-size: 14px; color: #b8b4ab; }
-.curtain-prompt { margin: 6px 0 0; font-size: 14px; color: #b8b4ab; }
+.curtain-prompt { margin: 6px 0 0; font-size: 14px; font-weight: 300; color: #98948c; }
 .curtain-status { margin: 10px 0 0; font-size: 14px; color: #f3f0e8; }
 /* The merged mark's swash bleeds ~9.2% of its box past the "m" (the
    offset .brand-mark-wrap compensates on the ops surfaces), so the
@@ -1963,6 +1963,14 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
   font: 600 16px/1 inherit;
   outline: 2px solid rgba(243, 240, 232, .85);
 }
+/* The Library exit rides the curtain's letter column — the logo's ink and
+   the title text share one left edge (curtain padding + the 9.2% swash
+   bleed the copy indents by), so the backlink lands on that same line in
+   veil and raised states alike. */
+.m-chrome--top { padding-left: calc(28px + var(--m-logo-w, 140px) * .092); }
+@media (max-width: 640px) {
+  .m-chrome--top { padding-left: calc(20px + var(--m-logo-w, 140px) * .092); }
+}
 @media (prefers-reduced-motion: reduce) {
   .m-chrome { transition: opacity 200ms ease; transform: none !important; }
 }
@@ -2153,6 +2161,9 @@ button.lib-card-title {
    page itself — "Cloud galleries" and "More galleries" are headings in
    the "Library" voice, not captions. */
 .lib-section-title { margin: 0 0 18px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
+/* The count wears the gallery title's own weight — a heading in the
+   Library voice, not a quieter caption. */
+.lib-section-count { font-weight: 650; }
 .gallery-list section + section { margin-top: clamp(44px, 6vw, 72px); }
 /* The section's one-line contract: permanent, strips, downloaded whole. */
 .lib-section-sub { margin: -10px 0 18px; color: rgba(var(--ink), .55); font-size: 13px; }
