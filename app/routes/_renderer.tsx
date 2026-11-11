@@ -4,7 +4,7 @@ import { Link, Script } from 'honox/server'
 import { pageSecurityHeaders } from '../lib/security-headers'
 import { ogImageType } from '../lib/og-metadata'
 
-export default jsxRenderer(({ children, title, description, ogImage, ownerTheme }, c) => {
+export default jsxRenderer(({ children, title, description, ogImage, ownerTheme, indexable, home }, c) => {
   // import.meta.env is undefined under bun test, which then exercises the
   // production policy — the strict one is what ships.
   const dev = import.meta.env?.DEV === true
@@ -17,7 +17,8 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme 
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-      <meta name="robots" content="noindex, nofollow, noarchive" />
+      {indexable ? null : <meta name="robots" content="noindex, nofollow, noarchive" />}
+      {indexable ? <link rel="canonical" href={`${origin}/`} /> : null}
       <meta name="theme-color" content="#0a0a0a" />
       <link rel="icon" href="/favicon.ico" sizes="any" />
       <link rel="icon" type="image/png" sizes="64x64" href="/manorama_64x64.png" />
@@ -25,6 +26,7 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme 
       <link rel="apple-touch-icon" href="/manorama_256x256.png" />
       {ownerTheme ? <script src="/theme-init.js"></script> : null}
       <Link href="/app/styles.css" rel="stylesheet" />
+      {home ? <Link href="/app/home.css" rel="stylesheet" /> : null}
       <title>{title}</title>
       <meta property="og:site_name" content="manorama" />
       <meta property="og:type" content="website" />
