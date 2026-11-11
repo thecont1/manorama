@@ -18,6 +18,7 @@
     "native",
     "desktop",
     "desktop-shell",
+    "security-audit",
     "vite.config.ts",
     "vite.config.native.ts",
     "vite.config.desktop.ts",
