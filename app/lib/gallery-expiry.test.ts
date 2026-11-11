@@ -10,7 +10,9 @@ import {
   deleteGallery,
   getStoredGallery,
   listExpiredPipelineGalleries,
+  listGalleries,
   resetGalleryStore,
+  setGalleryHidden,
   type ExpiredGalleryKey,
   type GalleryEnv,
 } from './gallery-repository'
@@ -228,6 +230,22 @@ for (const backend of BACKENDS) {
       const live = (await getStoredGallery(OWNER, 'fresh-pipe', env))!
       expect(await deleteExpiredPipelineGallery({ ownerId: OWNER, slug: 'fresh-pipe', expiresAt: live.expiresAt! }, NOW, env)).toBe(false)
       expect(await getStoredGallery(OWNER, 'fresh-pipe', env)).not.toBeNull()
+    }))
+
+    test('hiding round-trips through write, get, and list without touching retention', withBackend(async (env) => {
+      await seedExpiredSet(env)
+      const hidden = await setGalleryHidden(OWNER, 'kept-0', true, env)
+      expect(hidden?.hiddenAt).toBeTruthy()
+      // The persisted read must see the flag — a SELECT list that forgets the
+      // column fails here even though the UPDATE landed.
+      expect((await getStoredGallery(OWNER, 'kept-0', env))?.hiddenAt).toBeTruthy()
+      expect((await getStoredGallery(OWNER, 'kept-0', env))?.retention).toBe('retained')
+      const listed = await listGalleries(OWNER, env)
+      expect(listed.find((gallery) => gallery.slug === 'kept-0')?.hiddenAt).toBeTruthy()
+      expect(listed.find((gallery) => gallery.slug === 'kept-1')?.hiddenAt ?? null).toBeNull()
+      const cleared = await setGalleryHidden(OWNER, 'kept-0', false, env)
+      expect(cleared?.hiddenAt).toBeNull()
+      expect((await getStoredGallery(OWNER, 'kept-0', env))?.hiddenAt).toBeNull()
     }))
 
     test('keyset pages are stable when expiry timestamps collide across owners and slugs', withBackend(async (env) => {

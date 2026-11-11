@@ -104,6 +104,7 @@ const sharedD1Database = async () => {
     await applyMigration(proxy.env.DB, '0014_encrypted_key_retirement.sql')
     // Deletes also clear gallery_keys — same fixture rule as device links.
     await applyMigration(proxy.env.DB, '0015_gallery_key_vault.sql')
+    await applyMigration(proxy.env.DB, '0016_gallery_hidden.sql')
     sharedD1 = { proxy }
   }
   return sharedD1.proxy.env.DB

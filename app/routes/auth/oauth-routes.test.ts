@@ -123,6 +123,7 @@ beforeAll(async () => {
   await applyMigration(db, '0009_user_disabled.sql')
   await applyMigration(db, '0010_session_revocation.sql')
   await applyMigration(db, '0011_last_seen_location.sql')
+  await applyMigration(db, '0016_gallery_hidden.sql')
 }, 15_000)
 
 afterAll(async () => {

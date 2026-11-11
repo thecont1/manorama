@@ -123,7 +123,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, key_retired_at, migration_devices'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, hidden_at, key_retired_at, migration_devices'
 
 type GalleryInsertRow = {
   id: string
