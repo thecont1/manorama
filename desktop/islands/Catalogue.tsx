@@ -2254,8 +2254,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {session ? (
             <p class="admin-library-sub">
               You are a manorama <strong>{accountTier === 'pro' ? 'Visionary' : 'Free User'}</strong> hosting{' '}
-              <strong>{retainedCount}</strong> of {retainedLimit} permanent galleries
-              {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}.
+              <strong>{retainedCount}</strong> of {retainedLimit} Cloud galleries
+              {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}
+              {galleries.length ? <> plus <strong>{galleries.length}</strong> Local {galleries.length === 1 ? 'gallery' : 'galleries'} on this device</> : null}.
               {accountTier === 'free' ? <> <a class="admin-upgrade-link" href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade to Visionary?</a></> : null}
             </p>
           ) : null}
