@@ -1,11 +1,20 @@
 /**
  * The page header: the wordmark, the way in, and the one action.
  *
- * The navigation collapses into a disclosure under 720px. The Pricing link
- * stays visible beside the action at every width, because the price is the
- * one thing a visitor looks for on a phone.
+ * The navigation follows the page: How it works, Features, Pricing, Get
+ * the app, and then the two ways in. Under 720px it collapses into a
+ * disclosure, and the disclosure carries the same list in the same order,
+ * so a phone is not left without the price.
  */
 export default function Header() {
+  const links = [
+    { href: '#how-it-works', label: 'How it works' },
+    { href: '#features', label: 'Features' },
+    { href: '#pricing', label: 'Pricing' },
+    { href: '#get-manorama', label: 'Get the app' },
+    { href: '#start', label: 'Sign in' },
+  ]
+
   return (
     <header class="home-header">
       <a class="home-skip" href="#content">Skip to content</a>
@@ -14,19 +23,20 @@ export default function Header() {
           <img src="/manorama-merged-logo.png" alt="manorama" width={2170} height={725} />
         </a>
         <nav class="home-nav" aria-label="Primary">
-          <a href="#how-it-works">How it works</a>
-          <a href="#features">Features</a>
-          <a href="#pricing">Pricing</a>
-          <a href="#get-manorama">Get the app</a>
-          <a href="#start">Sign in</a>
+          {links.map((link) => (
+            <a key={link.href} href={link.href}>
+              {link.label}
+            </a>
+          ))}
         </nav>
         <details class="home-nav-menu">
           <summary>Menu</summary>
           <div class="home-nav-menu-list">
-            <a href="#how-it-works">How it works</a>
-            <a href="#features">Features</a>
-            <a href="#get-manorama">Get the app</a>
-            <a href="#start">Sign in</a>
+            {links.map((link) => (
+              <a key={link.href} href={link.href}>
+                {link.label}
+              </a>
+            ))}
           </div>
         </details>
         <a class="home-btn" href="#start">Start free</a>

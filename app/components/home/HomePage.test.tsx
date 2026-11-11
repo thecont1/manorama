@@ -155,7 +155,9 @@ describe('the pricing section', () => {
 describe('the footer', () => {
   test('carries the copyright and the privacy notice', () => {
     const html = page()
-    expect(html).toContain('© 2026 Mahesh Shantaram. All platform rights reserved.')
+    expect(html).toContain('© 2026 Mahesh Shantaram /')
+    expect(html).toContain('All platform rights reserved.')
+    expect(html).toContain('href="https://thecontrarian.in"')
     // The two things a visitor can be surprised by, in the words the
     // privacy policy uses: a link is unlisted but not private, and the
     // photographs stay at the source.
@@ -164,8 +166,16 @@ describe('the footer', () => {
     expect(html).toContain('href="/privacy"')
   })
 
-  test('keeps the founder credit', () => {
-    expect(page()).toContain('Created by documentary photographer Mahesh Shantaram.')
+  test('carries nothing else at the bottom of the page', () => {
+    const html = page()
+    const footer = html.slice(html.indexOf('<footer'))
+    // No credit line of its own.
+    expect(footer).not.toContain('Created by documentary photographer')
+    // The site is linked once, from the copyright line, and not from the
+    // link row beside the privacy policy.
+    expect(footer.match(/href="https:\/\/thecontrarian\.in"/g)?.length).toBe(1)
+    const nav = footer.slice(footer.indexOf('<nav'), footer.indexOf('</nav>'))
+    expect(nav).not.toContain('thecontrarian.in')
   })
 })
 
