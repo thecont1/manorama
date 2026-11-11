@@ -311,6 +311,11 @@ export const installShellBridge = (win: Window = window): void => {
   // calls use, wrapped so the app never names the webkit handler.
   win.__MANORAMA_SHELL__ = { post: (msg) => post(msg, win) }
 
+  // Marks the SwiftUI shell for CSS: its window puts the traffic lights
+  // in a real toolbar above the webview, so the Tauri-era insets that
+  // clear an overlay titlebar do not apply here.
+  win.document.documentElement.classList.add('macos-shell')
+
   // Emulate Tauri's `data-tauri-drag-region` attribute so dragging `.desktop-titlebar`
   // or `TopBar` moves the window when the user exits fullscreen into windowed mode.
   win.addEventListener('mousedown', (event: MouseEvent) => {

@@ -90,6 +90,10 @@ describe('desktop-shell bridge Tauri runtime emulation', () => {
     await unlistenLivePromise
   })
 
+  test('marks the document as the SwiftUI shell so CSS can skip Tauri geometry', () => {
+    expect(document.documentElement.classList.contains('macos-shell')).toBe(true)
+  })
+
   test('mousedown on a data-tauri-drag-region element invokes plugin:window|start_dragging', () => {
     document.body.innerHTML = `
       <div class="desktop-titlebar" data-tauri-drag-region>

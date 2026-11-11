@@ -203,9 +203,11 @@ final class AppModel: ObservableObject {
 
     // MARK: - The window
 
-    /// Configure the host window to match Tauri's `tauri.conf.json`:
-    /// overlay titlebar (`titlebarAppearsTransparent`, `.fullSizeContentView`,
-    /// `titleVisibility = .hidden`) and `#111312` canvas background.
+    /// Configure the host window's canvas. Unlike Tauri's `tauri.conf.json`
+    /// (which overlaid a hidden titlebar via `.fullSizeContentView`), the
+    /// unified toolbar keeps the traffic lights in real chrome above the
+    /// webview — the page's top-left corner belongs to the page, which the
+    /// `macos-shell` marker class lets the CSS know.
     ///
     /// Note: `configureWindow` is called from `WindowAccessor.updateNSView`,
     /// so we must not mutate `@Published var window` (which would re-trigger
