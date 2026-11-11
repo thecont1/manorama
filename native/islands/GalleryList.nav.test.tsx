@@ -107,10 +107,35 @@ const restoreLocalStorage = () => {
 
 const rejections: unknown[] = []
 
-const fireBack = async () => {
+/** Waits for a condition the island's own effect chain will satisfy.
+ *
+ *  A fixed number of macrotask turns is a race, not a wait. The back
+ *  decision bumps accountRevision, the re-render has to commit, and
+ *  only then does the effect that re-fetches the account list reach
+ *  `fetch`. How many turns that chain needs depends on how busy the
+ *  machine is, so a fixed count intermittently reads the count before
+ *  the fetch has landed — the decision was right, the wait was short.
+ *
+ *  The deadline keeps the wait honest: when the condition never
+ *  arrives, the caller's own assertion is what reports the failure.
+ */
+const waitUntil = async (condition: () => boolean, timeout = 2000) => {
+  const deadline = Date.now() + timeout
+  while (!condition()) {
+    if (Date.now() > deadline) return false
+    await settle()
+  }
+  return true
+}
+
+const fireBack = async (settled?: () => boolean) => {
   await (App as unknown as { notifyListeners(event: string, data: unknown): Promise<void> })
     .notifyListeners('backButton', {})
   await settle()
+  // The decision's observable effect — the account-list refetch — lands
+  // through a render and an effect. Wait for that signal instead of for
+  // a guessed number of turns.
+  if (settled) await waitUntil(settled)
   // A wrong 'exit' rejects through exitApp a few macrotasks after the
   // listener runs — give it time to land before the assertion reads it.
   await new Promise((r) => setTimeout(r, 25))
@@ -241,7 +266,7 @@ describe('hardware back sees the gallery on the nav stack', () => {
       // it down again via 'return-to-library', not exit.
       expect(container.querySelector('.viewer-stage')).not.toBeNull()
       const listFetches = accountListFetches(urls)
-      await fireBack()
+      await fireBack(() => accountListFetches(urls) > listFetches)
       // 'return-to-library' bumps accountRevision — a fresh account-list
       // fetch is the observable proof; a wrong 'exit' would have thrown
       // through exitApp instead.
@@ -267,7 +292,7 @@ describe('hardware back sees the gallery on the nav stack', () => {
       expect(urls.some((u) => u.includes('/api/gallery/ana/coast'))).toBe(true)
       expect(container.querySelector('.viewer-stage')).not.toBeNull()
       const listFetches = accountListFetches(urls)
-      await fireBack()
+      await fireBack(() => accountListFetches(urls) > listFetches)
       expect(accountListFetches(urls)).toBeGreaterThan(listFetches)
       expect(rejections.length).toBe(rejectedBefore)
       expect(container.querySelector('.viewer-stage')).toBeNull()
