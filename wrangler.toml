@@ -29,8 +29,9 @@ not_found_handling = "404-page"
 
 [observability]
 enabled = true
-# Sample 100% initially; drop to 0.1 once the deployment is stable.
-head_sampling_rate = 1
+# 10%: enough signal for debugging without writing every request's detail
+# into logs an auditor could read provider references out of.
+head_sampling_rate = 0.1
 
 [triggers]
 crons = ["17 3 * * *"]

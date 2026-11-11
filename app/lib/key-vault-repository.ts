@@ -25,7 +25,10 @@ const d1Configured = (env?: KeyVaultEnv): env is KeyVaultEnv & { DB: D1Database 
 
 const runtimeVaults = new Map<string, StoredOwnerVault>()
 const runtimeKeys = new Map<string, StoredGalleryKey>()
-const runtimeKeyId = (ownerId: string, galleryId: string) => `${ownerId}${galleryId}`
+// NUL-separated: a bare join lets one owner id sit as a prefix of another
+// ("ab" before "abc"), and dropOwnerKeyVault's startsWith purge would then
+// delete the neighbour's wrapped keys too.
+const runtimeKeyId = (ownerId: string, galleryId: string) => `${ownerId}\0${galleryId}`
 
 type VaultRow = {
   kdf_salt: string
@@ -111,7 +114,7 @@ export const dropOwnerKeyVault = async (ownerId: string, env?: KeyVaultEnv): Pro
     return
   }
   runtimeVaults.delete(ownerId)
-  for (const key of [...runtimeKeys.keys()]) if (key.startsWith(`${ownerId}`)) runtimeKeys.delete(key)
+  for (const key of [...runtimeKeys.keys()]) if (key.startsWith(`${ownerId}\0`)) runtimeKeys.delete(key)
 }
 
 /** A deleted gallery's wrapped key is dead weight — ciphertext nobody can

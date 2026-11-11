@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { deleteGalleryKey, getGalleryKey, getOwnerVault, putGalleryKey, putOwnerVault } from './key-vault-repository'
+import { deleteGalleryKey, dropOwnerKeyVault, getGalleryKey, getOwnerVault, putGalleryKey, putOwnerVault } from './key-vault-repository'
 
 const OWNER = 'acct-keyvault-test'
 
@@ -26,5 +26,16 @@ describe('key-vault-repository (memory store)', () => {
     await deleteGalleryKey(OWNER, 'gal-1')
     expect(await getGalleryKey(OWNER, 'gal-1')).toBeNull()
     expect((await getGalleryKey('acct-other', 'gal-1'))?.wrappedSource).toBe('other')
+  })
+
+  test('dropping one owner never touches a neighbour whose id shares the prefix', async () => {
+    // Regression for the prefix-purge collision: "ab" deleting its vault
+    // used to sweep "abc"'s wrapped keys because the runtime key joined
+    // the ids with no separator.
+    await putGalleryKey('ab', 'gal-x', { wrappedSource: 'w-ab', nonce: 'n' })
+    await putGalleryKey('abc', 'gal-y', { wrappedSource: 'w-abc', nonce: 'n' })
+    await dropOwnerKeyVault('ab')
+    expect(await getGalleryKey('ab', 'gal-x')).toBeNull()
+    expect((await getGalleryKey('abc', 'gal-y'))?.wrappedSource).toBe('w-abc')
   })
 })
