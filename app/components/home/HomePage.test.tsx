@@ -224,7 +224,7 @@ describe('the copy makes no promise the product does not keep', () => {
       .replace(/<[^>]*>/g, ' ')
       .replace(/&[a-z]+;/g, ' ')
     for (const [pattern, label] of FORBIDDEN) {
-      expect(text.includes(label) && pattern.test(text)).toBe(false)
+      expect(pattern.test(text)).toBe(false)
     }
   })
 

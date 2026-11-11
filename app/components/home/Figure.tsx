@@ -25,7 +25,12 @@ export default function Figure({
   /** The development-only label for a slot with no capture. */
   missingLabel?: string
 }) {
-  if (!asset.src) {
+  // Interim captures stay out of the release build until the owner clears
+  // them: production shows the reserved box; development and tests still
+  // see the picture (import.meta.env is undefined under bun test, which
+  // follows the non-release path — the strict one is what ships).
+  const publishable = asset.src && (asset.status === 'approved' || import.meta.env?.PROD !== true)
+  if (!publishable) {
     return (
       <figure class="home-figure">
         <div

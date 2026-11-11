@@ -32,7 +32,7 @@ export default function GetManorama() {
                 </p>
                 {published ? (
                   <p class="home-tile-blurb">
-                    <a href={surface.href ?? '#start'}>Open manorama</a>
+                    <a href={surface.href ?? surface.url ?? '#start'}>Open manorama</a>
                   </p>
                 ) : null}
               </div>

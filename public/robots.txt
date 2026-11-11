@@ -1,3 +1,14 @@
 User-agent: *
 Allow: /$
+Allow: /home/
+Allow: /fonts/
+Allow: /app/styles.css
+Allow: /app/home.css
+Allow: /static/
+Allow: /assets/
+Allow: /favicon.ico$
+Allow: /manorama-merged-logo.png$
+Allow: /manorama_64x64.png$
+Allow: /manorama_256x256.png$
+Allow: /og-image.png$
 Disallow: /

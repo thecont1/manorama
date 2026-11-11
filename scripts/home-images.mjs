@@ -7,12 +7,13 @@
 //
 //   node scripts/home-images.mjs
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
 
 const require = createRequire(import.meta.url)
 const sharp = require('sharp')
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = `${root}public/home`
 mkdirSync(out, { recursive: true })
 

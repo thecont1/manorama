@@ -14,7 +14,7 @@ export default function AccessRow() {
     <nav class="home-access" aria-label="Where manorama is available">
       <span class="home-access-label">Get it:</span>
       {published.map((surface) => (
-        <a key={surface.id} href={surface.href ?? '#get-manorama'}>
+        <a key={surface.id} href={surface.href ?? surface.url ?? '#get-manorama'}>
           {surface.label}
           <span class="home-access-blurb">: {surface.blurb}</span>
         </a>
