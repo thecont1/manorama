@@ -328,7 +328,7 @@ final class NativeBridge {
             let path = try grantedPath(args)
             return FileManager.default.fileExists(atPath: path.path)
         case "plugin:fs|read_dir":
-            return try readDir(args)
+            return try await readDir(args)
         case "plugin:fs|read_file":
             return try await readFile(args)
 
@@ -679,26 +679,30 @@ final class NativeBridge {
         throw BridgeError.failed("that path is outside every folder you have granted")
     }
 
-    private func readDir(_ args: [String: Any]) throws -> [[String: Any]] {
+    private func readDir(_ args: [String: Any]) async throws -> [[String: Any]] {
         let url = try grantedPath(args)
-        let entries = try FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]
-        )
-        return entries.map { entry in
-            let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
-            var record: [String: Any] = [
-                "name": entry.lastPathComponent,
-                "isDirectory": values?.isDirectory ?? false,
-                "isFile": values?.isRegularFile ?? false,
-                "isSymlink": values?.isSymbolicLink ?? false,
-            ]
-            if values?.isRegularFile == true, let dims = Self.imageDimensions(entry) {
-                record["width"] = dims.width
-                record["height"] = dims.height
+        // Directory enumeration plus a header probe per image is real I/O
+        // — a large folder must not stall the window while it lists.
+        return try await offMain {
+            let entries = try FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            )
+            return entries.map { entry in
+                let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
+                var record: [String: Any] = [
+                    "name": entry.lastPathComponent,
+                    "isDirectory": values?.isDirectory ?? false,
+                    "isFile": values?.isRegularFile ?? false,
+                    "isSymlink": values?.isSymbolicLink ?? false,
+                ]
+                if values?.isRegularFile == true, let dims = Self.imageDimensions(entry) {
+                    record["width"] = dims.width
+                    record["height"] = dims.height
+                }
+                return record
             }
-            return record
         }
     }
 

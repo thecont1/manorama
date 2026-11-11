@@ -69,7 +69,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // catalogue, the folder store, the vault key file, and providers.json.
         // A second launch hands focus to the running app and exits before any
         // of that state opens.
-        if let bundleId = Bundle.main.bundleIdentifier {
+        //
+        // A launch may carry `--bundle-id <id>` to probe a different id
+        // than the bundle's own — the focus-test suite uses one so its
+        // instance coexists with an installed copy instead of handing the
+        // installed app focus and exiting. With no override the check
+        // probes the real bundle id and detects other instances as before.
+        let args = CommandLine.arguments
+        let bundleId: String? = {
+            if let index = args.firstIndex(of: "--bundle-id"), args.indices.contains(index + 1) {
+                return args[index + 1]
+            }
+            return Bundle.main.bundleIdentifier
+        }()
+        if let bundleId {
             let others = NSRunningApplication
                 .runningApplications(withBundleIdentifier: bundleId)
                 .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }

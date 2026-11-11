@@ -251,7 +251,10 @@ launch() {
   # name for the test to choose between.
   local SEED=""
   [ "${2:-fresh}" != "keep" ] && SEED="--seed-folder $1"
-  open -n "$APP" --args $SEED --store "$STORE" --config "$CONFIG" --trace --eval "$PROBE_JS" ${EXTRA_ARGS---windowed}
+  # The suite's instance must coexist with an installed manorama.app —
+  # with the real bundle id the single-instance probe would hand focus to
+  # the installed copy and exit before the window ever came up.
+  open -n "$APP" --args --bundle-id "in.thecontrarian.manorama.desktop.focus-test" $SEED --store "$STORE" --config "$CONFIG" --trace --eval "$PROBE_JS" ${EXTRA_ARGS---windowed}
   if ! wait_for_window 45; then
     echo "FATAL: the app did not come up"
     exit 1

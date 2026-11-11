@@ -39,12 +39,16 @@ describe('syncDeviceGalleries', () => {
     ]
     const { calls, fetcher } = captureFetch(() => new Response('{}', { status: 200 }))
     const result = await syncDeviceGalleries('https://manorama.xyz', 'token-value', catalogue(galleries), fetcher)
-    expect(result).toEqual({ synced: 2, failed: 0 })
-    expect(calls.map((call) => call.url)).toEqual([
+    expect(result).toEqual({ synced: 2, failed: 0, adoptedHidden: [] })
+    // The mirror read lands first — the hidden reconcile needs it before
+    // any PUT writes a stale flag.
+    expect(calls[0]!.url).toBe('https://manorama.xyz/api/device-galleries')
+    const puts = calls.slice(1)
+    expect(puts.map((call) => call.url)).toEqual([
       'https://manorama.xyz/api/device-galleries/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       'https://manorama.xyz/api/device-galleries/bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
     ])
-    for (const call of calls) {
+    for (const call of puts) {
       expect(call.init?.method).toBe('PUT')
       const headers = call.init?.headers as Record<string, string>
       expect(headers.Authorization).toBe('Bearer token-value')
@@ -72,7 +76,36 @@ describe('syncDeviceGalleries', () => {
       return new Response('{}', { status: 200 })
     })
     const result = await syncDeviceGalleries('https://manorama.xyz', 'token', catalogue(galleries), fetcher)
-    expect(result).toEqual({ synced: 1, failed: 2 })
+    expect(result).toEqual({ synced: 1, failed: 2, adoptedHidden: [] })
+  })
+
+  test('a remote-hidden mirror wins over a source record that never chose', async () => {
+    const galleries = [
+      record('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'CARD_A'),
+      record('bbbbbbbb-cccc-4ddd-8eee-ffffffffffff', 'CARD_B'),
+    ]
+    const { calls, fetcher } = captureFetch((url) =>
+      url === 'https://manorama.xyz/api/device-galleries'
+        ? new Response(JSON.stringify({ galleries: [{ id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', hidden: true }] }), { status: 200 })
+        : new Response('{}', { status: 200 }))
+    const result = await syncDeviceGalleries('https://manorama.xyz', 'token', catalogue(galleries), fetcher)
+    expect(result.adoptedHidden).toEqual(['aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'])
+    const adoptedPut = calls.find((call) => call.url.endsWith('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'))!
+    expect(JSON.parse(adoptedPut.init?.body as string).hidden).toBe(true)
+    const otherPut = calls.find((call) => call.url.endsWith('bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'))!
+    expect(JSON.parse(otherPut.init?.body as string).hidden).toBe(false)
+  })
+
+  test('a source record with its own hiddenAt stays authoritative', async () => {
+    const own = { ...record('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'CARD_A'), hiddenAt: '2026-10-02T00:00:00.000Z' }
+    const { calls, fetcher } = captureFetch((url) =>
+      url === 'https://manorama.xyz/api/device-galleries'
+        ? new Response(JSON.stringify({ galleries: [{ id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', hidden: false }] }), { status: 200 })
+        : new Response('{}', { status: 200 }))
+    const result = await syncDeviceGalleries('https://manorama.xyz', 'token', catalogue([own]), fetcher)
+    expect(result.adoptedHidden).toEqual([])
+    const put = calls.find((call) => call.init?.method === 'PUT')!
+    expect(JSON.parse(put.init?.body as string).hidden).toBe(true)
   })
 })
 

@@ -70,13 +70,19 @@ export const providerClientSecret = (provider: UploadProviderId): string =>
 export const providerConfigured = (provider: UploadProviderId, clientId = providerClientId(provider)): boolean =>
   clientId.length > 0
 
-/** Both providers use the ephemeral loopback redirect — the OS hands the
- *  code straight to the app's listener, with no browser→LaunchServices
- *  hop for a custom scheme to die on. The custom
- *  `in.thecontrarian.manorama.desktop://oauth/{provider}` form stays
- *  registered and parseable as the paste/manual fallback. */
-export const providerRedirectUri = (_provider: UploadProviderId, loopbackPort?: number): string =>
-  `http://127.0.0.1:${loopbackPort ?? 0}`
+/** Dropbox registers redirect URIs exactly — an ephemeral loopback port
+ *  can never match a registered URI, so its flow uses the registered
+ *  custom scheme `in.thecontrarian.manorama.desktop://oauth/dropbox` and
+ *  completes through the deep-link handler. Google's installed-app rules
+ *  explicitly allow any loopback port, so Drive keeps the ephemeral
+ *  listener — the OS hands the code straight to the app with no
+ *  browser→LaunchServices hop for a custom scheme to die on. The
+ *  custom-scheme form stays parseable for both providers as the
+ *  paste/manual fallback. */
+export const providerRedirectUri = (provider: UploadProviderId, loopbackPort?: number): string =>
+  provider === 'dropbox'
+    ? 'in.thecontrarian.manorama.desktop://oauth/dropbox'
+    : `http://127.0.0.1:${loopbackPort ?? 0}`
 
 export type ProviderAuthorizeArgs = {
   clientId: string
@@ -343,6 +349,9 @@ type PendingOAuth = {
   state: string
   verifier: string
   redirectUri: string
+  /** Whether this flow owns a parked native loopback listener — cancel
+   *  releases it only when one exists to release. */
+  loopback: boolean
   resolve: () => void
   reject: (error: Error) => void
 }
@@ -420,9 +429,9 @@ export const handleProviderDeepLink = (url: string): boolean => {
 }
 
 export const cancelProviderConnect = (): void => {
-  // The pending flow has a native listener parked in accept() — release it
+  // A loopback flow has a native listener parked in accept() — release it
   // or the thread and port stay held until the server-side timeout.
-  if (pendingOAuth) void invoke('oauth_loopback_cancel').catch(() => {})
+  if (pendingOAuth?.loopback) void invoke('oauth_loopback_cancel').catch(() => {})
   failPending(new Error('The connection was cancelled.'))
 }
 
@@ -447,29 +456,40 @@ export const connectProvider = async (provider: UploadProviderId): Promise<void>
   const state = generateState()
   const verifier = generateVerifier()
   const challenge = await pkceChallenge(verifier)
-  // The installed-app path both providers use: an ephemeral loopback port
-  // owned by a native TcpListener — no scheme registration needed, no
-  // fixed port to collide with, and no browser→OS custom-scheme hop for
-  // the code to get lost on. The custom-scheme redirect stays valid as
-  // the paste/manual fallback through completeProviderConnect.
-  const port = await invoke<number>('oauth_loopback_begin')
+  // Drive's installed-app rules allow any loopback port, so it parks a
+  // native TcpListener — no scheme registration, no fixed port to collide
+  // with, no browser→OS hop for the code to get lost on. Dropbox
+  // registers redirect URIs exactly, so its flow rides the custom scheme
+  // and completes through handleProviderDeepLink instead.
+  const port = provider === 'dropbox' ? undefined : await invoke<number>('oauth_loopback_begin')
   const redirectUri = providerRedirectUri(provider, port)
   const awaitLoopback = () =>
     invoke<string>('oauth_loopback_finish').then((target) => `http://127.0.0.1:${port}${target}`)
   const done = new Promise<void>((resolve, reject) => {
-    pendingOAuth = { provider, state, verifier, redirectUri, resolve, reject }
+    pendingOAuth = { provider, state, verifier, redirectUri, resolve, reject, loopback: port !== undefined }
   })
+  const flow = pendingOAuth
   try {
     await openSystem(buildProviderAuthorizeUrl(provider, { clientId, redirectUri, state, codeChallenge: challenge }))
   } catch (error) {
-    void invoke('oauth_loopback_cancel').catch(() => {})
+    if (port !== undefined) void invoke('oauth_loopback_cancel').catch(() => {})
     failPending(error instanceof Error ? error : new Error('The system browser could not be opened.'))
     return done
   }
-  void awaitLoopback()
-    .then(completeProviderConnect)
-    .catch((error: unknown) =>
-      failPending(error instanceof Error ? error : new Error('The provider connection could not be completed.')),
-    )
+  if (port !== undefined) {
+    void awaitLoopback()
+      .then((target) => {
+        // A stale listener settlement — a cancelled or superseded flow
+        // still resolving — must not touch the flow that owns
+        // pendingOAuth now.
+        if (pendingOAuth === flow) return completeProviderConnect(target)
+        return undefined
+      })
+      .catch((error: unknown) => {
+        if (pendingOAuth === flow) {
+          failPending(error instanceof Error ? error : new Error('The provider connection could not be completed.'))
+        }
+      })
+  }
   return done
 }

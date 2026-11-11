@@ -41,6 +41,10 @@ export type LocalGalleryRecord = {
    *  restores the card exactly where it was — order, pin, and items never
    *  moved. */
   hiddenAt?: string | null
+  /** Stamp of the last dims-backfill attempt — folders whose images never
+   *  yield readable dimensions are not re-probed on every launch; a
+   *  manual rescan always can. */
+  dimsScannedAt?: string | null
   addedAt: string
   lastSeenAt: string
 }
@@ -103,6 +107,7 @@ const parseRecord = (value: unknown): LocalGalleryRecord | null => {
     ...(Array.isArray(record.hidden) ? { hidden: record.hidden.filter((id): id is string => typeof id === 'string') } : {}),
     ...(typeof record.pinnedAt === 'string' && record.pinnedAt ? { pinnedAt: record.pinnedAt } : {}),
     ...(typeof record.hiddenAt === 'string' && record.hiddenAt ? { hiddenAt: record.hiddenAt } : {}),
+    ...(typeof record.dimsScannedAt === 'string' && record.dimsScannedAt ? { dimsScannedAt: record.dimsScannedAt } : {}),
     addedAt: typeof record.addedAt === 'string' ? record.addedAt : '',
     lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
   }

@@ -284,12 +284,27 @@ export type ProtonClientSession = {
   dispose(): void
 }
 
+// The CryptoProxy endpoint is a process-wide singleton — a second open
+// releasing it between the first's modulus-key import and server-identity
+// verification would corrupt the in-flight SRP handshake, so session
+// opens run one at a time through this chain. Opened sessions work
+// concurrently; only the handshake is serialized.
+let protonOpenChain: Promise<unknown> = Promise.resolve()
+
 /** The anonymous URL-access client carries every key inside the SDK
  *  session, so unlike MEGA/Ente there is no per-node key map to feed —
  *  materialize works off whichever uids the caller holds the moment
  *  authURLAccess returns. `fetchImpl` overrides the transport for tests
  *  and harnesses; callers normally leave it to `protonTransport`. */
 export const openProtonSession = async (input: string, fetchImpl?: typeof fetch): Promise<ProtonClientSession> => {
+  const queued = protonOpenChain.then(() => openProtonSessionInner(input, fetchImpl))
+  // A failed open must not poison the chain — the next caller gets a
+  // fresh handshake, not a rejection it never caused.
+  protonOpenChain = queued.then(() => undefined, () => undefined)
+  return queued
+}
+
+const openProtonSessionInner = async (input: string, fetchImpl?: typeof fetch): Promise<ProtonClientSession> => {
   const link = extractProtonLink(input)
   if (!link) throw new Error('Use a complete public Proton Drive link')
   const sourceUrl = keylessSourceUrl(input)

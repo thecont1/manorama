@@ -69,7 +69,8 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
   /** A Proton-backed gallery in a real browser — viewing is app-only, so
    *  the panel explains how rather than offering a form that cannot work. */
   const [appOnly, setAppOnly] = useState(false)
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed' | 'nokey'>('idle')
+  const [shareLink, setShareLink] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [unlockValue, setUnlockValue] = useState('')
   /** A synced wrapped key waiting on the owner's passphrase — the alternative
@@ -257,8 +258,20 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
 
   if (appOnly) {
     const copyShareLink = async () => {
+      // The page URL is the keyless manifest address — the gallery key
+      // travels in the fragment, which lives in the key store or the
+      // original link, never in the address bar after a keyless landing.
+      let keyed = window.location.hash ? window.location.href : null
+      if (!keyed) {
+        const source = await galleryKeys.get(galleryId).catch(() => null)
+        if (source) {
+          keyed = `${window.location.origin}${window.location.pathname}${window.location.search}${galleryHashForSource(source, galleryId)}`
+        }
+      }
+      if (!keyed) { setCopyState('nokey'); return }
+      setShareLink(keyed)
       try {
-        await navigator.clipboard.writeText(window.location.href)
+        await navigator.clipboard.writeText(keyed)
         setCopyState('copied')
       } catch {
         setCopyState('failed')
@@ -277,7 +290,8 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
           <button class="m-btn m-btn--primary" type="submit">Copy gallery link</button>
         </form>
         {copyState === 'copied' ? <p role="status">Link copied — paste it into the app's “A shared cloud link” field.</p> : null}
-        {copyState === 'failed' ? <p role="status">Copy this link into the app: <code>{window.location.href}</code></p> : null}
+        {copyState === 'failed' ? <p role="status">Copy this link into the app: <code>{shareLink}</code></p> : null}
+        {copyState === 'nokey' ? <p role="status">This page does not hold the gallery key — paste the original link you were sent, which carries the key after the # mark.</p> : null}
       </section>
     )
   }

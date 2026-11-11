@@ -204,11 +204,13 @@ describe('a Proton session over a stubbed SDK', () => {
     // A viewer-only open materializes off the authed session alone — the
     // folder walk and dims probes must not fire until a manifest submitter
     // awaits `scan` (a parked probe batch must never starve viewer media).
-    const session = await openSession()
+    // The spy goes up before the open so a walk fired during session-open
+    // would be caught too.
     let listed = false
     const original = protonSessionStub.getRootNode
     protonSessionStub.getRootNode = async () => { listed = true; return original() }
     try {
+      const session = await openSession()
       await session.materialize('with-thumb', true)
       await new Promise((resolve) => setTimeout(resolve, 20))
       expect(listed).toBe(false)

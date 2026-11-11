@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import {
   buildProviderAuthorizeUrl,
   DRIVE_UPLOAD_SCOPE,
@@ -58,10 +58,14 @@ describe('buildProviderAuthorizeUrl', () => {
 })
 
 describe('redirect uris', () => {
-  test('both providers use the ephemeral loopback redirect', () => {
-    // The browser→LaunchServices custom-scheme hop is where Dropbox
-    // connects silently died — the OS-bound listener is the proven lane.
-    expect(providerRedirectUri('dropbox', 40123)).toBe('http://127.0.0.1:40123')
+  test('dropbox uses the registered custom scheme — its console matches URIs exactly', () => {
+    // An ephemeral loopback port can never satisfy Dropbox's exact-match
+    // registration, so the flow rides the scheme the deep-link handler owns.
+    expect(providerRedirectUri('dropbox', 40123)).toBe('in.thecontrarian.manorama.desktop://oauth/dropbox')
+  })
+  test('drive keeps the ephemeral loopback — installed-app rules allow any port', () => {
+    // The OS-bound listener avoids the browser→LaunchServices hop where
+    // connects silently died.
     expect(providerRedirectUri('drive', 40123)).toBe('http://127.0.0.1:40123')
   })
 })
@@ -215,5 +219,50 @@ describe('providerConfigured', () => {
     // The env-driven path agrees with whatever id the build carried in.
     expect(providerConfigured('dropbox')).toBe(providerClientId('dropbox').length > 0)
     expect(providerConfigured('drive')).toBe(providerClientId('drive').length > 0)
+  })
+})
+
+describe('connectProvider ownership', () => {
+  // mock.module is process-global — restore the real bindings so the rest
+  // of the file (and the suite) keeps its own import graph.
+  afterEach(() => mock.restore())
+
+  test('a stale loopback rejection cannot fail a newer connection', async () => {
+    const finishes: Array<{ resolve: (target: string) => void; reject: (error: Error) => void }> = []
+    mock.module('@tauri-apps/api/core', () => ({
+      invoke: (command: string) => {
+        if (command === 'oauth_loopback_begin') return Promise.resolve(40123)
+        if (command === 'oauth_loopback_finish') {
+          return new Promise<string>((resolve, reject) => { finishes.push({ resolve, reject }) })
+        }
+        return Promise.resolve(undefined)
+      },
+    }))
+    mock.module('@tauri-apps/plugin-opener', () => ({ openUrl: () => Promise.resolve() }))
+    process.env.MANORAMA_DESKTOP_GOOGLE_CLIENT_ID = 'test-client-id'
+    const { connectProvider, cancelProviderConnect } = await import('./oauth')
+    const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+    const a = connectProvider('drive')
+    await flush()
+    expect(finishes.length).toBe(1)
+    cancelProviderConnect()
+    await expect(a).rejects.toThrow('cancelled')
+
+    const b = connectProvider('drive')
+    await flush()
+    expect(finishes.length).toBe(2)
+    // The cancelled flow's listener settling late must not reach the
+    // pending flow that took ownership after it.
+    finishes[0]!.reject(new Error('listener died'))
+    await flush()
+    const verdict = await Promise.race([
+      b.then(() => 'resolved', (error: Error) => `rejected:${error.message}`),
+      Promise.resolve('pending'),
+    ])
+    expect(verdict).toBe('pending')
+    // Settle the live flow so nothing leaks past the test.
+    finishes[1]!.reject(new Error('done'))
+    await expect(b).rejects.toThrow('done')
   })
 })

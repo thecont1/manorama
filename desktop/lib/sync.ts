@@ -13,6 +13,10 @@ import { deviceGalleryRequest, type LocalCatalogue, type LocalGalleryRecord } fr
 export type CatalogueSyncResult = {
   synced: number
   failed: number
+  /** Mirror ids whose account-level hidden flag the source record adopted
+   *  — the caller stamps hiddenAt locally so the next sync does not
+   *  re-fight the account. */
+  adoptedHidden: string[]
 }
 
 export const syncDeviceGalleries = async (
@@ -21,9 +25,28 @@ export const syncDeviceGalleries = async (
   catalogue: LocalCatalogue,
   fetcher: typeof fetch = fetch,
 ): Promise<CatalogueSyncResult> => {
-  const result: CatalogueSyncResult = { synced: 0, failed: 0 }
+  const result: CatalogueSyncResult = { synced: 0, failed: 0, adoptedHidden: [] }
+  // A sibling device hides by PATCHing the mirror row directly, so the
+  // account flag is newer than anything an un-patched source record
+  // carries — it must win over this device's stale hidden=false.
+  const remote = await fetcher(`${apiBase.replace(/\/+$/, '')}/api/device-galleries`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+    .then(async (response) =>
+      (response.ok
+        ? ((await response.json()) as { galleries?: Array<{ id: string; hidden?: boolean }> }).galleries ?? []
+        : []))
+    .catch(() => [] as Array<{ id: string; hidden?: boolean }>)
+  const remoteHidden = new Map(remote.map((row) => [row.id, Boolean(row.hidden)]))
   for (const record of catalogue.galleries) {
     const request = deviceGalleryRequest(apiBase, record, catalogue)
+    // A record that never chose to hide defers to the account flag; one
+    // that decided for itself (hiddenAt set, or an explicit unhide that
+    // already PATCHed the mirror) stays authoritative for its own state.
+    if (remoteHidden.get(record.id) && !record.hiddenAt) {
+      request.body = { ...request.body, hidden: true }
+      result.adoptedHidden.push(record.id)
+    }
     try {
       const response = await fetcher(request.url, {
         method: request.method,

@@ -38,7 +38,7 @@ import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
-import { encryptedProviderForUrl, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
+import { encryptedProviderForUrl, encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import type { EncryptedMediaResolver } from '../../app/lib/encrypted-resolver'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
@@ -546,6 +546,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setCardMenu(null)
     setMenuRemove(false)
     setBusy(true)
+    let localOnly = false
     try {
       if (menu.kind === 'account') {
         if (!session) return
@@ -564,10 +565,32 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         }
         await writeCatalogueFile(serializeLocalCatalogue(next))
         setCatalogue(next)
-        if (session) void runSync(next, session)
+        if (session) {
+          // PATCH the mirror row directly so the account flag does not wait
+          // on the full sync; a row that is not synced yet is carried by
+          // the sync PUT. When neither lands, the hide is local-only and
+          // the notice below says so.
+          let mirrored = false
+          try {
+            await setDeviceGalleryHidden(base, session.token, menu.record.id, hidden)
+            mirrored = true
+          } catch {
+            // The mirror row may not exist yet — the sync PUT carries it.
+          }
+          const synced = await runSync(next, session)
+          localOnly = !mirrored && !synced
+        } else {
+          localOnly = true
+        }
       }
       const title = menu.kind === 'account' ? menu.gallery.title || menu.gallery.slug : menu.kind === 'device' ? menu.gallery.title : menu.record.title
-      setNotice(hidden ? `“${title}” hidden — find it under Hidden galleries` : `“${title}” is back in the Library`)
+      setNotice(hidden
+        ? localOnly
+          ? `“${title}” hidden on this Mac — the account sync did not go through; it will retry`
+          : `“${title}” hidden — find it under Hidden galleries`
+        : localOnly
+          ? `“${title}” unhidden on this Mac — the account sync did not go through; it will retry`
+          : `“${title}” is back in the Library`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'That gallery could not be hidden')
     } finally {
@@ -615,27 +638,88 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   }
 
   const runSync = useCallback(
-    async (cat: LocalCatalogue, active: DesktopSession | null) => {
+    async (cat: LocalCatalogue, active: DesktopSession | null): Promise<boolean> => {
       // Free accounts hold their catalogue locally and nothing else — the
       // server refuses the rows anyway, so the sync is skipped outright.
-      if (!active || active.tier !== 'pro') return
+      if (!active || active.tier !== 'pro') return false
       // An emptied catalogue has nothing to publish — reset rather than
       // leave a prior outcome ("Up to date") showing for zero galleries.
-      if (!cat.galleries.length) { setSyncState('idle'); return }
+      if (!cat.galleries.length) { setSyncState('idle'); return true }
       setSyncState('syncing')
       try {
         const result = await syncDeviceGalleries(base, active.token, cat)
         // The sync belongs to the account that started it — signing out or
         // into another account must not inherit its outcome.
-        if (sessionRef.current?.token !== active.token) return
+        if (sessionRef.current?.token !== active.token) return false
         setSyncState(result.failed === 0 ? 'synced' : result.synced === 0 ? 'failed' : 'partial')
+        // A sibling device's explicit hide PATCHes the mirror directly;
+        // when the source record has made no decision of its own, the
+        // account flag wins and the local record adopts it.
+        if (result.adoptedHidden.length) {
+          const adopted = new Set(result.adoptedHidden)
+          const stamp = new Date().toISOString()
+          const current = catalogueRef.current ?? cat
+          const reconciled: LocalCatalogue = {
+            ...current,
+            galleries: current.galleries.map((gallery) =>
+              adopted.has(gallery.id) && !gallery.hiddenAt ? { ...gallery, hiddenAt: stamp } : gallery),
+          }
+          catalogueRef.current = reconciled
+          setCatalogue(reconciled)
+          await writeCatalogueFile(serializeLocalCatalogue(reconciled)).catch(() => {})
+        }
+        return result.failed === 0
       } catch {
-        if (sessionRef.current?.token !== active.token) return
+        if (sessionRef.current?.token !== active.token) return false
         setSyncState('failed')
+        return false
       }
     },
     [base],
   )
+
+  // The dims backfill runs after the Library is up — catalogues scanned
+  // before the shell reported image dims carry nothing but the 1200×800
+  // render guess, and the picker's matrix cells mis-size off it. Each
+  // attempt is stamped on the record so a folder that yields no dims is
+  // not re-probed on every launch; a manual rescan always can. Results
+  // merge into whatever the catalogue holds at merge time — owner edits
+  // made while a folder scans are never overwritten.
+  const backfillDims = async (cat: LocalCatalogue, avail: Record<string, GalleryAvailability>) => {
+    let current = cat
+    for (;;) {
+      const record = current.galleries.find((gallery) =>
+        !gallery.dimsScannedAt
+        && avail[gallery.id] === 'available'
+        && gallery.items.some((item) => !(item.width && item.height)))
+      if (!record) return
+      const stamp = new Date().toISOString()
+      const fresh: Map<string, LocalGalleryItem> = await scanLocalDirectory(record.rootPath, readDirEntries)
+        .then((scan) => new Map(scan.items.map((item) => [item.id, item])))
+        .catch(() => new Map())
+      // A failed scan still stamps the record — repeating it every launch
+      // buys nothing; the manual rescan remains the repair path.
+      const latest = catalogueRef.current ?? current
+      const next: LocalCatalogue = {
+        ...latest,
+        galleries: latest.galleries.map((gallery) =>
+          gallery.id !== record.id ? gallery : {
+            ...gallery,
+            dimsScannedAt: stamp,
+            items: gallery.items.map((item) => {
+              const seen = fresh.get(item.id)
+              return seen?.width && seen.height && !(item.width && item.height)
+                ? { ...item, width: seen.width, height: seen.height }
+                : item
+            }),
+          }),
+      }
+      catalogueRef.current = next
+      setCatalogue(next)
+      await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+      current = next
+    }
+  }
 
   // Launch: restore session + catalogue, re-grant the runtime scopes for
   // every saved root (both scopes reset each launch), then probe which
@@ -657,6 +741,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         // password gate.
         if (parsedPrefs.hidden?.length) {
           let migrated = false
+          // Keys whose migration did not land stay in the file — a missing
+          // session or a failed write would otherwise drop the hide
+          // silently, so they are retried on a later launch.
+          const remaining: string[] = []
           for (const key of parsedPrefs.hidden) {
             const sep = key.indexOf(':')
             const kind = key.slice(0, sep); const id = key.slice(sep + 1)
@@ -666,16 +754,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 record.hiddenAt = new Date().toISOString()
                 migrated = true
               }
-            } else if (kind === 'account' && storedSession) {
-              void setAccountGalleryHidden(base, storedSession.token, id, true).catch(() => {})
-            } else if (kind === 'device' && storedSession) {
-              void setDeviceGalleryHidden(base, storedSession.token, id, true).catch(() => {})
+            } else if (kind === 'account' || kind === 'device') {
+              if (!storedSession) { remaining.push(key); continue }
+              const setter = kind === 'account' ? setAccountGalleryHidden : setDeviceGalleryHidden
+              try {
+                await setter(base, storedSession.token, id, true)
+              } catch {
+                remaining.push(key)
+              }
             }
           }
           if (migrated) await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
-          const cleaned = { ...parsedPrefs, hidden: [] }
+          const cleaned = { ...parsedPrefs, hidden: remaining }
           await writePrefsFile(serializeLibraryPrefs(cleaned)).catch(() => {})
-          parsedPrefs.hidden = []
+          parsedPrefs.hidden = remaining
         }
         setPrefs(parsedPrefs)
       } catch {
@@ -689,40 +781,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       }
       await registerSavedGalleryRoots().catch(() => {})
       const avail = await probeAllAvailability(next.galleries, pathExists)
-      // One-time dims backfill: catalogues scanned before the shell reported
-      // image dims carry nothing but the 1200×800 render guess, and the
-      // picker's matrix cells mis-size off it. Fill only what each record
-      // already references — membership changes stay a manual rescan.
-      for (const record of next.galleries) {
-        if (avail[record.id] !== 'available') continue
-        if (!record.items.some((item) => !(item.width && item.height))) continue
-        try {
-          const scan = await scanLocalDirectory(record.rootPath, readDirEntries)
-          const fresh = new Map(scan.items.map((item) => [item.id, item]))
-          next = {
-            ...next,
-            galleries: next.galleries.map((g) =>
-              g.id === record.id
-                ? {
-                    ...g,
-                    items: g.items.map((item) => {
-                      const seen = fresh.get(item.id)
-                      return seen?.width && seen.height && !(item.width && item.height)
-                        ? { ...item, width: seen.width, height: seen.height }
-                        : item
-                    }),
-                  }
-                : g
-            ),
-          }
-        } catch {
-          // Keep the record — a manual rescan remains the repair path.
-        }
-      }
       if (!active) return
       setCatalogue(next)
       setAvailability(avail)
       await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+      // The dims backfill is deliberately detached — the Library is already
+      // on screen; folder re-scans must never gate first paint.
+      void backfillDims(next, avail)
       // Pin the ref before the sync starts — its result lands only while
       // the same account holds the session.
       if (storedSession) { sessionRef.current = storedSession; void runSync(next, storedSession) }
@@ -904,9 +969,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     const seq = ++addVerifySeq.current
     setAddChecking(true)
     try {
-      if (isEncryptedSourceUrl(url)) {
+      // A manorama gallery link carries the provider share — and the
+      // gallery key — in its # fragment. Decode it locally so the key is
+      // never sent to the scan API; links that are already provider
+      // shares (MEGA's own #key included) open verbatim.
+      const decoded = url.includes('#') ? encryptedSourceFromGalleryHash(url.slice(url.indexOf('#'))) : null
+      const target = decoded ?? url
+      if (isEncryptedSourceUrl(target)) {
         const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
-        const encrypted = await openEncryptedSource(url)
+        const encrypted = await openEncryptedSource(target)
         const { title } = await encrypted.listing
         if (seq !== addVerifySeq.current) { encrypted.dispose(); return }
         addEncryptedSession.current?.dispose()
@@ -916,7 +987,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         setAddName((current) => (current.trim() ? current : title))
         return
       }
-      const result = await scanGalleryLink(base, session.token, url)
+      const result = await scanGalleryLink(base, session.token, url.split('#')[0])
       if (seq !== addVerifySeq.current) return
       if (result.status < 200 || result.status >= 300 || !result.scan) {
         setAddVerifiedTitle(null)
@@ -2074,9 +2145,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // Saved copies are a device fact, not an account fact — a gallery whose
   // account row is gone (removed upstream, or the list never landed) still
-  // owns its vault copy and still opens from it.
-  const savedOnlyGalleries = savedGridGalleries.filter((saved) =>
-    !(saved.owner === (ownerSlug ?? session?.ownerSlug) && (accountGalleries ?? []).some((gallery) => gallery.slug === saved.slug)))
+  // owns its vault copy and still opens from it. While the account list is
+  // still in flight a saved copy's hidden state is unknowable, though —
+  // it stays out of the visible Library until the row lands. A failed
+  // fetch keeps the vault card: offline ownership wins.
+  const savedOnlyGalleries = savedGridGalleries.filter((saved) => {
+    if (saved.owner !== (ownerSlug ?? session?.ownerSlug)) return true
+    if (accountGalleries === null && !galleriesFailed) return false
+    return !(accountGalleries ?? []).some((gallery) => gallery.slug === saved.slug)
+  })
   const accountNote = galleriesFailed || devicesFailed ? 'Cloud galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
   const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
   const retainedCount = (accountGalleries ?? []).filter((g) => g.retention !== 'pipeline').length
@@ -2449,7 +2526,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </ul>
             </section>
           ) : null}
-          {accountTier === 'pro' && hiddenCount ? (
+          {/* Existing hides stay recoverable on any tier — a downgrade
+              must not strand galleries behind a Pro gate that no longer
+              applies. */}
+          {hiddenCount ? (
             <section aria-labelledby="lib-hidden-title" class="lib-hidden-section">
               <button
                 type="button"

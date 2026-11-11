@@ -293,6 +293,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // refs that were still wanted — and evicted originals pointed resolved
   // frames at revoked blob URLs when the user stepped back.
   const resolvedWindowRef = useRef(new Map<string, { reference: MediaReference; preview: boolean }>())
+  // The mode that came from the gallery's own default because no saved
+  // selection existed — distinguished so the prefs write does not freeze
+  // it into a saved selection.
+  const galleryDefaultModeRef = useRef<Mode | null>(null)
   useEffect(() => {
     if (!encryptedResolver) return
     const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number }>()
@@ -818,15 +822,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }, [slug, viewPrefs])
 
   useEffect(() => {
-    writeViewPrefs(slug, { mode })
-  }, [slug, mode])
-
-  useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
     // viewPrefs is memoized per slug and can lag a just-written pref —
     // read it fresh so this refire honors the mode the user picked.
-    setMode(readViewPrefs(slug).mode ?? loaded.defaultMode)
+    const saved = readViewPrefs(slug)
+    const resolved = saved.mode ?? loaded.defaultMode
+    // A gallery default applied because nothing was saved is not a saved
+    // selection — persisting it would freeze the owner's later default
+    // changes out of this device. The write below skips it.
+    galleryDefaultModeRef.current = saved.mode ? null : resolved
+    setMode(resolved)
     setShowArrows(loaded.defaultShowArrows && !coarsePointer())
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
@@ -839,6 +845,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     updateText('[data-curtain-title]', loaded.title)
     updateText('[data-curtain-caption]', loaded.caption)
   }, [slug, initialSettings, viewPrefs])
+
+  useEffect(() => {
+    if (galleryDefaultModeRef.current === mode) return
+    galleryDefaultModeRef.current = null
+    writeViewPrefs(slug, { mode })
+  }, [slug, mode])
 
   useEffect(() => {
     const clearPositionHash = () => {
@@ -1540,20 +1552,40 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const [curtainLibraryShown, setCurtainLibraryShown] = useState(false)
   useEffect(() => {
     if (galleryEntered || !hasCurtainLibrary) return
+    // Touch has no hover idiom — a tap opens the gallery, so the pill would
+    // be unreachable. On a coarse pointer it stays raised while the veil is.
+    if (coarsePointer()) { setCurtainLibraryShown(true); return }
     let hideTimer: number | undefined
+    const focusHeld = () => {
+      const active = document.activeElement
+      if (!active) return false
+      const veil = document.querySelector('[data-veil-chrome]')
+      const curtain = document.querySelector('[data-curtain]')
+      return Boolean((veil && veil.contains(active)) || (curtain && curtain.contains(active)))
+    }
+    const scheduleHide = () => {
+      window.clearTimeout(hideTimer)
+      hideTimer = window.setTimeout(() => { if (!focusHeld()) setCurtainLibraryShown(false) }, 3000)
+    }
     const reveal = () => {
       const curtain = document.querySelector<HTMLElement>('[data-curtain]')
       if (!curtain || curtain.hidden || curtain.classList.contains('fading')) return
       setCurtainLibraryShown(true)
-      window.clearTimeout(hideTimer)
-      hideTimer = window.setTimeout(() => setCurtainLibraryShown(false), 3000)
+      scheduleHide()
+    }
+    const onFocusOut = () => {
+      // activeElement still names the leaving element at focusout — settle
+      // first, then restart the idle clock only when focus left both surfaces.
+      window.setTimeout(() => { if (!focusHeld()) scheduleHide() })
     }
     window.addEventListener('pointermove', reveal, { passive: true })
     window.addEventListener('focusin', reveal)
+    window.addEventListener('focusout', onFocusOut)
     return () => {
       window.clearTimeout(hideTimer)
       window.removeEventListener('pointermove', reveal)
       window.removeEventListener('focusin', reveal)
+      window.removeEventListener('focusout', onFocusOut)
     }
   }, [galleryEntered, hasCurtainLibrary])
 
