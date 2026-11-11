@@ -25,12 +25,13 @@ export default function Figure({
   /** The development-only label for a slot with no capture. */
   missingLabel?: string
 }) {
-  // Interim captures stay out of the release build until the owner clears
-  // them: production shows the reserved box; development and tests still
-  // see the picture (import.meta.env is undefined under bun test, which
-  // follows the non-release path — the strict one is what ships).
-  const publishable = asset.src && (asset.status === 'approved' || import.meta.env?.PROD !== true)
-  if (!publishable) {
+  // A slot with no capture holds its exact ratio as a quiet surface. A slot
+  // WITH a capture ships that capture, whatever its approval status: the
+  // interim pictures are the ones the page was built against, and
+  // `docs/homepage-assets.md` carries the owner's approval as the launch
+  // blocker. Gating them out of the release build would leave the public
+  // homepage with five empty boxes where the photographs should be.
+  if (!asset.src) {
     return (
       <figure class="home-figure">
         <div

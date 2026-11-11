@@ -107,9 +107,8 @@ export type AssetStatus =
   | 'placeholder'
   /**
    * A real capture exists in the repository but the owner has not cleared
-   * it for the public page yet. Outside the release build it renders as
-   * the interim picture; the release build holds the reserved box, and
-   * `docs/homepage-assets.md` lists it as a launch blocker.
+   * it for the public page yet. It ships as the interim picture and is
+   * listed in `docs/homepage-assets.md` as a launch blocker.
    */
   | 'interim'
   /** Cleared by the owner. */
