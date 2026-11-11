@@ -37,7 +37,10 @@ describe('syncDeviceGalleries', () => {
       record('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'CARD_A'),
       record('bbbbbbbb-cccc-4ddd-8eee-ffffffffffff', 'CARD_B'),
     ]
-    const { calls, fetcher } = captureFetch(() => new Response('{}', { status: 200 }))
+    const { calls, fetcher } = captureFetch((url) =>
+      url === 'https://manorama.xyz/api/device-galleries'
+        ? new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+        : new Response('{}', { status: 200 }))
     const result = await syncDeviceGalleries('https://manorama.xyz', 'token-value', catalogue(galleries), fetcher)
     expect(result).toEqual({ synced: 2, failed: 0, adoptedHidden: [] })
     // The mirror read lands first — the hidden reconcile needs it before
@@ -71,6 +74,7 @@ describe('syncDeviceGalleries', () => {
     let n = 0
     const { fetcher } = captureFetch(() => {
       n += 1
+      if (n === 1) return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
       if (n === 2) return new Response('{}', { status: 401 })
       if (n === 3) throw new Error('network down')
       return new Response('{}', { status: 200 })
@@ -94,6 +98,32 @@ describe('syncDeviceGalleries', () => {
     expect(JSON.parse(adoptedPut.init?.body as string).hidden).toBe(true)
     const otherPut = calls.find((call) => call.url.endsWith('bbbbbbbb-cccc-4ddd-8eee-ffffffffffff'))!
     expect(JSON.parse(otherPut.init?.body as string).hidden).toBe(false)
+  })
+
+  test('a failed mirror read aborts before any PUT is sent', async () => {
+    const galleries = [
+      record('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'CARD_A'),
+      record('bbbbbbbb-cccc-4ddd-8eee-ffffffffffff', 'CARD_B'),
+    ]
+    const { calls, fetcher } = captureFetch((url) =>
+      url === 'https://manorama.xyz/api/device-galleries'
+        ? new Response('{}', { status: 500 })
+        : new Response('{}', { status: 200 }))
+    const result = await syncDeviceGalleries('https://manorama.xyz', 'token', catalogue(galleries), fetcher)
+    expect(result).toEqual({ synced: 0, failed: 2, adoptedHidden: [] })
+    // The read was the only request — no PUT went out blind.
+    expect(calls.length).toBe(1)
+  })
+
+  test('a rejected mirror read aborts before any PUT is sent', async () => {
+    const throwing = (async () => {
+      throw new Error('offline')
+    }) as typeof fetch
+    const result = await syncDeviceGalleries(
+      'https://manorama.xyz', 'token',
+      catalogue([record('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', 'CARD_A')]), throwing,
+    )
+    expect(result).toEqual({ synced: 0, failed: 1, adoptedHidden: [] })
   })
 
   test('a source record with its own hiddenAt stays authoritative', async () => {

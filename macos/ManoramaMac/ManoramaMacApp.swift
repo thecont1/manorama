@@ -71,13 +71,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // of that state opens.
         //
         // A launch may carry `--bundle-id <id>` to probe a different id
-        // than the bundle's own — the focus-test suite uses one so its
-        // instance coexists with an installed copy instead of handing the
-        // installed app focus and exiting. With no override the check
-        // probes the real bundle id and detects other instances as before.
+        // than the bundle's own — but only together with isolated
+        // storage (`--store` + `--config`). Without them a fake id would
+        // coexist with the installed app while still sharing the real
+        // container's folders.json et al., so the override is ignored
+        // unless the launch redirected that state. With no effective
+        // override the check probes the real bundle id and detects other
+        // instances as before.
         let args = CommandLine.arguments
         let bundleId: String? = {
-            if let index = args.firstIndex(of: "--bundle-id"), args.indices.contains(index + 1) {
+            let isolated = args.contains("--store") && args.contains("--config")
+            if isolated, let index = args.firstIndex(of: "--bundle-id"), args.indices.contains(index + 1) {
                 return args[index + 1]
             }
             return Bundle.main.bundleIdentifier

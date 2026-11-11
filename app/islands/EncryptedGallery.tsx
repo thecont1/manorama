@@ -258,10 +258,10 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
 
   if (appOnly) {
     const copyShareLink = async () => {
-      // The page URL is the keyless manifest address — the gallery key
-      // travels in the fragment, which lives in the key store or the
-      // original link, never in the address bar after a keyless landing.
-      let keyed = window.location.hash ? window.location.href : null
+      // The page URL only earns the copy when its fragment decodes to a
+      // complete source — an id-only or foreign fragment is just as
+      // keyless as none, so it falls through to the stored key.
+      let keyed = encryptedSourceFromGalleryHash(window.location.hash) ? window.location.href : null
       if (!keyed) {
         const source = await galleryKeys.get(galleryId).catch(() => null)
         if (source) {

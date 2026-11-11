@@ -388,32 +388,47 @@ export const completeProviderConnect = async (url: string): Promise<void> => {
   }
   const pending = pendingOAuth
   if (!pending) throw fail('No provider connection is waiting — start Connect again.')
-  const redirect = parseProviderRedirect(url, pending.provider)
-  if (!redirect) throw fail('That redirect link was not recognized.')
-  if (redirect.provider !== pending.provider) {
-    throw fail('That redirect is for a different provider — start Connect again.')
-  }
-  if ('error' in redirect) {
-    throw fail(`${uploadProviderLabel(pending.provider)} authorization was declined.`)
-  }
-  if (redirect.state !== pending.state) {
-    throw fail('The authorization response did not match this app — start Connect again.')
-  }
   try {
-    const tokens = await exchangeCodeForTokens(pending.provider, {
-      code: redirect.code,
-      codeVerifier: pending.verifier,
-      clientId: providerClientId(pending.provider),
-      clientSecret: providerClientSecret(pending.provider) || undefined,
-      redirectUri: pending.redirectUri,
-    })
-    await storeProviderTokens(pending.provider, tokens)
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error('The provider connection could not be completed.')
-    failPending(err)
-    throw err
+    const redirect = parseProviderRedirect(url, pending.provider)
+    if (!redirect) throw fail('That redirect link was not recognized.')
+    if (redirect.provider !== pending.provider) {
+      throw fail('That redirect is for a different provider — start Connect again.')
+    }
+    if ('error' in redirect) {
+      throw fail(`${uploadProviderLabel(pending.provider)} authorization was declined.`)
+    }
+    if (redirect.state !== pending.state) {
+      throw fail('The authorization response did not match this app — start Connect again.')
+    }
+    try {
+      const tokens = await exchangeCodeForTokens(pending.provider, {
+        code: redirect.code,
+        codeVerifier: pending.verifier,
+        clientId: providerClientId(pending.provider),
+        clientSecret: providerClientSecret(pending.provider) || undefined,
+        redirectUri: pending.redirectUri,
+      })
+      // The exchange can outlive this pending — a cancel cleared it or a
+      // newer connect owns the slot. Storing now would write the dead
+      // flow's credentials; settling would resolve an attempt that never
+      // authorized. Check ownership after every await.
+      if (pendingOAuth !== pending) return
+      await storeProviderTokens(pending.provider, tokens)
+      if (pendingOAuth !== pending) return
+      settlePending()
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('The provider connection could not be completed.')
+      if (pendingOAuth === pending) failPending(err)
+      throw err
+    }
+  } finally {
+    // However this pending was consumed — pasted redirect, deep link,
+    // failed validation or exchange — a loopback flow would leave its
+    // native listener parked in accept() otherwise. The cancel only runs
+    // when nothing newer is pending, so it cannot release a live
+    // connection's listener.
+    if (!pendingOAuth && pending.loopback) void invoke('oauth_loopback_cancel').catch(() => {})
   }
-  settlePending()
 }
 
 /** Deep-link entry point — called by the session.ts router for every URL
@@ -422,6 +437,16 @@ export const completeProviderConnect = async (url: string): Promise<void> => {
  *  pending connect promise). */
 export const handleProviderDeepLink = (url: string): boolean => {
   if (!isProviderDeepLink(url)) return false
+  const pending = pendingOAuth
+  if (!pending) return true
+  // Correlate the redirect with the flow that is waiting before letting
+  // it complete: a stale one — another provider's, or a success carrying
+  // a dead flow's state — is swallowed here rather than consuming the
+  // live pending. A provider error from the current provider still
+  // propagates (error redirects carry no reliable state to match on).
+  const redirect = parseProviderRedirect(url, pending.provider)
+  if (!redirect || redirect.provider !== pending.provider) return true
+  if (!('error' in redirect) && redirect.state !== pending.state) return true
   // completeProviderConnect settles or rejects the pending itself — the
   // catch only swallows the rethrow that the paste path needs.
   void completeProviderConnect(url).catch(() => {})

@@ -40,13 +40,19 @@ if [ ! -d "$VIEW_DIR" ]; then
   exit 1
 fi
 
-APP="$ROOT/macos/ManoramaMac/build/ManoramaMac.app"
-BUNDLE_ID="in.thecontrarian.manorama.desktop"
+APP="$ROOT/macos/ManoramaMac/build-focus-test/ManoramaMac.app"
+# The suite's app is built with its OWN bundle identifier — a startup-arg
+# probe override alone is not enough: `tell application id`, focusprobe,
+# and the single-instance check all resolve the bundle's real
+# CFBundleIdentifier, so only a distinct one keeps every probe aimed at
+# this instance instead of an installed copy. The sandboxed container is
+# keyed to that id too, so all scratch lives under the focus-test one.
+BUNDLE_ID="in.thecontrarian.manorama.desktop.focus-test"
 # The app is sandboxed (App Store posture): a literal /tmp is denied, and a
 # security-scoped bookmark cannot be minted for a path the app was never
 # granted. Its own container is the one place it can always read and write,
 # so every scratch artefact the suite hands it lives in the container tmp.
-CTMP="$HOME/Library/Containers/in.thecontrarian.manorama.desktop/Data/tmp"
+CTMP="$HOME/Library/Containers/$BUNDLE_ID/Data/tmp"
 mkdir -p "$CTMP"
 PROBE="/tmp/focusprobe"
 TRACE="$CTMP/manorama-mac-trace.log"
@@ -81,6 +87,13 @@ if [ ! -x "$PROBE" ] || [ macos/Probes/AXProbe.swift -nt "$PROBE" ]; then
   swiftc -O macos/Probes/AXProbe.swift -framework AppKit -o "$PROBE" || exit 1
   swiftc -O macos/Probes/WindowList.swift -o /tmp/winlist || exit 1
 fi
+
+# The suite's own .app — rebuilt every run so the binary under test always
+# matches the tree — lands outside the shared build directory so a normal
+# build is never clobbered.
+echo "building the focus-test shell ($BUNDLE_ID)"
+MANORAMA_MACOS_BUNDLE_ID="$BUNDLE_ID" MANORAMA_MACOS_BUILD_DIR="$ROOT/macos/ManoramaMac/build-focus-test" \
+  scripts/build-macos.sh >/dev/null || { echo "FATAL: the focus-test build failed"; exit 1; }
 
 PASS=0
 FAIL=0
@@ -204,13 +217,15 @@ wait_window() {
 }
 
 stop_app() {
-  pkill -f "ManoramaMac.app/Contents/MacOS/ManoramaMac" 2>/dev/null
+  # Only the focus-test build is killed — a running installed copy is
+  # what the suite proves it can coexist with.
+  pkill -f "build-focus-test/ManoramaMac.app/Contents/MacOS/ManoramaMac" 2>/dev/null
   # Two instances share one grant list, so a survivor would rewrite the
   # file underneath the test. Wait for the last one to go.
   local n=1
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.5
-    n=$(pgrep -f "ManoramaMac.app/Contents/MacOS/ManoramaMac" | wc -l | tr -d ' ')
+    n=$(pgrep -f "build-focus-test/ManoramaMac.app/Contents/MacOS/ManoramaMac" | wc -l | tr -d ' ')
     [ "$n" = "0" ] && break
   done
   [ "$n" = "0" ]
@@ -252,15 +267,15 @@ launch() {
   local SEED=""
   [ "${2:-fresh}" != "keep" ] && SEED="--seed-folder $1"
   # The suite's instance must coexist with an installed manorama.app —
-  # with the real bundle id the single-instance probe would hand focus to
-  # the installed copy and exit before the window ever came up.
-  open -n "$APP" --args --bundle-id "in.thecontrarian.manorama.desktop.focus-test" $SEED --store "$STORE" --config "$CONFIG" --trace --eval "$PROBE_JS" ${EXTRA_ARGS---windowed}
+  # its real bundle id is the focus-test one, so the single-instance
+  # probe sees no installed copy and every AX call resolves this app.
+  open -n "$APP" --args $SEED --store "$STORE" --config "$CONFIG" --trace --eval "$PROBE_JS" ${EXTRA_ARGS---windowed}
   if ! wait_for_window 45; then
     echo "FATAL: the app did not come up"
     exit 1
   fi
   local n
-  n=$(pgrep -f "ManoramaMac.app/Contents/MacOS/ManoramaMac" | wc -l | tr -d ' ')
+  n=$(pgrep -f "build-focus-test/ManoramaMac.app/Contents/MacOS/ManoramaMac" | wc -l | tr -d ' ')
   if [ "$n" != "1" ]; then
     echo "FATAL: expected exactly one instance, found $n"
     exit 1

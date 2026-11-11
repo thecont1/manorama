@@ -32,11 +32,20 @@ export const syncDeviceGalleries = async (
   const remote = await fetcher(`${apiBase.replace(/\/+$/, '')}/api/device-galleries`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-    .then(async (response) =>
-      (response.ok
-        ? ((await response.json()) as { galleries?: Array<{ id: string; hidden?: boolean }> }).galleries ?? []
-        : []))
-    .catch(() => [] as Array<{ id: string; hidden?: boolean }>)
+    .then(async (response) => {
+      if (!response.ok) return null
+      const body = (await response.json().catch(() => null)) as
+        { galleries?: Array<{ id: string; hidden?: boolean }> } | null
+      return body && Array.isArray(body.galleries) ? body.galleries : null
+    })
+    .catch(() => null)
+  // A read that fails or answers malformed aborts before a single PUT —
+  // writing blind could overwrite an account-level hide this device
+  // cannot see. An answered empty list still proceeds.
+  if (!remote) {
+    result.failed = catalogue.galleries.length
+    return result
+  }
   const remoteHidden = new Map(remote.map((row) => [row.id, Boolean(row.hidden)]))
   for (const record of catalogue.galleries) {
     const request = deviceGalleryRequest(apiBase, record, catalogue)

@@ -81,3 +81,4 @@ submission/*.zip
 # Native macOS shell — generated viewer bundle + built app
 macos/ManoramaMac/build/
 macos/ManoramaMac/Resources/ViewerBundle/
+macos/ManoramaMac/build-focus-test/

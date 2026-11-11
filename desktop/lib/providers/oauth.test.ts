@@ -252,17 +252,17 @@ describe('connectProvider ownership', () => {
     const b = connectProvider('drive')
     await flush()
     expect(finishes.length).toBe(2)
+    let bVerdict = 'pending'
+    void b.then(() => { bVerdict = 'resolved' }, () => { bVerdict = 'rejected' })
     // The cancelled flow's listener settling late must not reach the
     // pending flow that took ownership after it.
     finishes[0]!.reject(new Error('listener died'))
     await flush()
-    const verdict = await Promise.race([
-      b.then(() => 'resolved', (error: Error) => `rejected:${error.message}`),
-      Promise.resolve('pending'),
-    ])
-    expect(verdict).toBe('pending')
+    expect(bVerdict).toBe('pending')
     // Settle the live flow so nothing leaks past the test.
     finishes[1]!.reject(new Error('done'))
     await expect(b).rejects.toThrow('done')
+    await flush()
+    expect(bVerdict).toBe('rejected')
   })
 })

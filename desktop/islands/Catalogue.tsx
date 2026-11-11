@@ -527,12 +527,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const hiddenPasswordSet = Boolean(prefs.hiddenPassword)
 
   const persistPrefs = async (next: LibraryPrefs) => {
-    setPrefs(next)
+    // The write lands before the state does — a failed save must reach
+    // the caller so a password set or removal is not treated as done.
     try {
       await writePrefsFile(serializeLibraryPrefs(next))
-    } catch {
+    } catch (error) {
       setNotice('Library preferences could not be saved')
+      throw error
     }
+    setPrefs(next)
   }
 
   // Hidden galleries are an ACCOUNT-WIDE display choice, unlike the pin's
@@ -621,7 +624,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       if (draft.length < 4) { setPasswordNote('At least 4 characters'); return }
       if (draft !== passwordDraft2) { setPasswordNote('The two entries do not match'); return }
       const salt = newPasswordSalt()
-      await persistPrefs({ ...prefs, hiddenPassword: { salt, hash: await hashPassword(draft, salt) } })
+      try {
+        await persistPrefs({ ...prefs, hiddenPassword: { salt, hash: await hashPassword(draft, salt) } })
+      } catch {
+        setPasswordNote('The password could not be saved')
+        return
+      }
+      // The gate exists now — a section opened while there was no
+      // password must close and relock rather than stay revealed behind
+      // the Settings sheet.
+      setHiddenOpen(false)
+      setHiddenUnlocked(false)
       setPasswordPrompt(null)
       setPasswordDraft(''); setPasswordDraft2('')
       return
@@ -632,7 +645,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       return
     }
     if (passwordPrompt === 'unlock') { setHiddenUnlocked(true); setHiddenOpen(true) }
-    else await persistPrefs({ ...prefs, hiddenPassword: null })
+    else {
+      try {
+        await persistPrefs({ ...prefs, hiddenPassword: null })
+      } catch {
+        setPasswordNote('The password could not be removed')
+        return
+      }
+    }
     setPasswordPrompt(null)
     setPasswordDraft(''); setPasswordNote(null)
   }
@@ -964,17 +984,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setAddChecking(false)
   }
 
+  // A manorama gallery link carries the provider share — and the gallery
+  // key — in its # fragment. The decoded share is the real add target for
+  // every step; the key is used locally only and never enters a request.
+  // Links already provider shares (MEGA's own #key included) open verbatim.
+  const galleryAddTarget = (url: string): string =>
+    url.includes('#') ? (encryptedSourceFromGalleryHash(url.slice(url.indexOf('#'))) ?? url) : url
+
   const verifyAddUrl = async (url: string) => {
     if (!session) return
     const seq = ++addVerifySeq.current
     setAddChecking(true)
     try {
-      // A manorama gallery link carries the provider share — and the
-      // gallery key — in its # fragment. Decode it locally so the key is
-      // never sent to the scan API; links that are already provider
-      // shares (MEGA's own #key included) open verbatim.
-      const decoded = url.includes('#') ? encryptedSourceFromGalleryHash(url.slice(url.indexOf('#'))) : null
-      const target = decoded ?? url
+      const target = galleryAddTarget(url)
       if (isEncryptedSourceUrl(target)) {
         const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
         const encrypted = await openEncryptedSource(target)
@@ -1176,15 +1198,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setAddError(null)
     setBusy(true)
     try {
+      // The same normalization verification applied — for a manorama
+      // link this is the decoded provider share; for anything else it is
+      // the link itself. The fragment stays in device custody and never
+      // enters the request body.
+      const target = galleryAddTarget(url)
       let body: Record<string, unknown> = {
-        url,
+        url: target.split('#')[0],
         ...(input.name ? { title: input.name } : {}),
         ...(input.caption ? { caption: input.caption } : {}),
       }
-      if (isEncryptedSourceUrl(url)) {
+      if (isEncryptedSourceUrl(target)) {
         const encrypted =
           addEncryptedSession.current ??
-          (await (await import('../../app/lib/encrypted-client')).openEncryptedSource(url))
+          (await (await import('../../app/lib/encrypted-client')).openEncryptedSource(target))
         addEncryptedSession.current = encrypted
         const listing = await encrypted.listing
         body = {
@@ -1198,12 +1225,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         }
       }
       const result = await createAccountGallery(base, session.token, body)
-      // The pasted link's fragment is the gallery key — it never reached
-      // the server (the manifest above carries the keyless source). Keep it
+      // The link's fragment is the gallery key — it never reached the
+      // server (the manifest above carries the keyless source). Keep it
       // in this device's custody so the new card opens in-app rather than
       // on a locked web page.
-      if (isEncryptedSourceUrl(url) && result.gallery?.id) {
-        await desktopKeyStore().put(result.gallery.id, url).catch(() => {})
+      if (isEncryptedSourceUrl(target) && result.gallery?.id) {
+        await desktopKeyStore().put(result.gallery.id, target).catch(() => {})
       }
       if (result.status === 409 && result.gallery) {
         await refreshAccountGalleries(session.token)
