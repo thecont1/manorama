@@ -762,7 +762,8 @@ describe('signed-in account area', () => {
       'Keep a copy',
       'Stream only',
     ])
-    expect(policyOptions.map((option) => option.getAttribute('aria-checked'))).toEqual(['true', 'false'])
+    // Stream is the default — bytes only enter the vault on express request.
+    expect(policyOptions.map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true'])
 
     // The picker switch carries its plain-language description.
     const pickerRow = [...container.querySelectorAll('.m-actionrow')]

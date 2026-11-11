@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { Window } from 'happy-dom'
 import { render } from 'hono/jsx/dom'
 import { releaseAllOverlays } from '../../app/lib/overlay-stack'
+import { hashPassword } from '../lib/library-prefs'
 import Catalogue from './Catalogue'
 
 /**
@@ -95,9 +96,10 @@ let pickedFolder: string | null
 let vaultFiles: Map<string, Uint8Array>
 let vaultKeys: Map<string, string>
 
-const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro') => {
+const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>) => {
   files = {
     'catalogue.json': JSON.stringify({ version: 1, deviceId: DEVICE_ID, deviceLabel: 'This Mac', galleries: [record] }),
+    ...(extraFiles ?? {}),
     ...(signedIn ? { 'session.json': JSON.stringify({ token: 'token', ownerSlug: 'thecontrarian', tier }) } : {}),
     ...(providerTokens ? { 'providers.json': JSON.stringify(providerTokens) } : {}),
   }
@@ -171,6 +173,12 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
         }
         return new ArrayBuffer(8)
       }
+      // The OAuth loopback listener: begin answers a port; finish waits
+      // for the browser callback like the native TcpListener — resolving
+      // it eagerly would race a bogus redirect through completeProviderConnect.
+      if (command === 'oauth_loopback_begin') return 40123
+      if (command === 'oauth_loopback_finish') return new Promise(() => {})
+      if (command === 'oauth_loopback_cancel') return null
       return null
     },
     convertFileSrc: (path: string) => `asset://localhost${path}`,
@@ -179,8 +187,8 @@ const installTauri = (signedIn: boolean, providerTokens?: Record<string, unknown
   }
 }
 
-const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro'): Promise<HTMLElement> => {
-  installTauri(signedIn, providerTokens, tier)
+const mount = async (signedIn: boolean, providerTokens?: Record<string, unknown>, tier: 'free' | 'pro' = 'pro', extraFiles?: Record<string, string>): Promise<HTMLElement> => {
+  installTauri(signedIn, providerTokens, tier, extraFiles)
   // happy-dom's element types are not lib.dom's; the repo's render tests cast at
   // this one boundary so every query below is typed by the DOM library.
   const container = dom.document.createElement('div') as unknown as HTMLElement
@@ -397,7 +405,7 @@ describe('desktop catalogue workbench', () => {
     expect(card.textContent).not.toContain(ROOT_PATH)
 
     // Unpinned, the local card is the compact cover form — the same shape
-    // an account gallery collapses to in "Your galleries". The cover is the
+    // an account gallery collapses to in "Cloud galleries". The cover is the
     // first visible original, referenced in place through the asset
     // protocol: no copy, no derivative, no thumbnail.
     const cover = card.querySelector<HTMLElement>('.lib-compact-cover')!
@@ -447,11 +455,13 @@ describe('desktop catalogue workbench', () => {
     }) as unknown as typeof fetch
     try {
       const container = await mount(true)
-      // Section order is Pinned → Local galleries → Your galleries; the
-      // account card lands in Your galleries after the local cards.
-      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent)
-      expect(headings.indexOf('Local galleries')).toBeGreaterThanOrEqual(0)
-      expect(headings.indexOf('Local galleries')).toBeLessThan(headings.indexOf('Your galleries'))
+      // Section order is Pinned → Local galleries → Cloud galleries; the
+      // account card lands in Cloud galleries after the local cards.
+      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent ?? '')
+      const localHeading = headings.findIndex((text) => text.startsWith('Local galleries'))
+      const cloudHeading = headings.findIndex((text) => text.startsWith('Cloud galleries'))
+      expect(localHeading).toBeGreaterThanOrEqual(0)
+      expect(localHeading).toBeLessThan(cloudHeading)
       const localSection = container.querySelector<HTMLElement>('[aria-labelledby="local-galleries-title"]')!
       const accountSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
       expect(localSection).not.toBeNull()
@@ -466,7 +476,7 @@ describe('desktop catalogue workbench', () => {
       // The ··· menu carries the web's full range; Details stays local-only.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
+      for (const item of ['Pin gallery', 'Hide this gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
         expect(menuItem(container, item)).toBeDefined()
       }
       expect(menuItem(container, 'Open')).toBeUndefined()
@@ -579,6 +589,78 @@ describe('desktop catalogue workbench', () => {
       const container = await mount(true)
       expect(container.querySelector('.desktop-toast-stack .admin-toast')?.textContent).toContain('could not be loaded')
       expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a Proton-backed gallery open failure stays in-app — the web can never open it', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            id: '2b5dee85-7a75-4c48-93ec-ea1869361480', manifestVersion: 2,
+            slug: 'guinea', title: 'guinea', caption: '', date: '',
+            imageCount: 40, sourceUrl: 'https://drive.proton.me/urls/15C18NM2P0',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      // The manifest fetch and every other call fail — the same state that
+      // used to bounce the user into a browser tab that could not render.
+      return new Response('down', { status: 500 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const title = [...container.querySelectorAll<HTMLElement>('.lib-card-title')]
+        .find((el) => el.textContent === 'guinea')!
+      title.click()
+      await settle()
+      expect(invokeCalls.some((call) => call.command === 'plugin:opener|open_url')).toBe(false)
+      const notes = [...container.querySelectorAll('.desktop-toast-stack .admin-toast')].map((el) => el.textContent)
+      expect(notes.some((text) => text?.includes('not saved on this Mac'))).toBe(true)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed MEGA gallery open hands the browser the key-bearing link', async () => {
+    const megaSource = 'https://mega.nz/folder/AbCdEfGh#keymaterial'
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            id: 'mega-gallery-id', manifestVersion: 2,
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://mega.nz/folder/AbCdEfGh',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response('down', { status: 500 })
+    }) as unknown as typeof fetch
+    try {
+      installTauri(true)
+      // The device holds the key — the fallback link must carry the
+      // custody fragment so the browser opens the gallery, not a lock.
+      vaultKeys.set('manorama.gallery-key.v1.mega-gallery-id', megaSource)
+      const container = dom.document.createElement('div') as unknown as HTMLElement
+      dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+      render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      await settle()
+      const title = [...container.querySelectorAll<HTMLElement>('.lib-card-title')]
+        .find((el) => el.textContent === 'kashmir, in winter')!
+      title.click()
+      await settle()
+      const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
+      expect(String(opener?.args?.url)).toContain('https://manorama.xyz/thecontrarian/kashmir#source=')
+      expect(String(opener?.args?.url)).toContain(encodeURIComponent(megaSource))
     } finally {
       globals.fetch = defaultFetch
     }
@@ -1274,11 +1356,13 @@ describe('desktop catalogue workbench', () => {
     // The device group carries the real catalogue state.
     expect(screen.textContent).toContain('Sync now')
     expect(screen.textContent).toContain('title and photograph count')
-    // The plan group names the tiers and all three gallery counts.
+    // The plan group names the tier and the three gallery counts; Temporary
+    // galleries are a Free-tier concept and stay off a Visionary sheet.
     expect(screen.textContent).toContain('Visionary')
-    expect(screen.textContent).toContain('Permanent galleries')
-    expect(screen.textContent).toContain('Temporary galleries')
+    expect(screen.textContent).toContain('Cloud galleries')
+    expect(screen.textContent).toContain('Hidden galleries')
     expect(screen.textContent).toContain('Local galleries')
+    expect(screen.textContent).not.toContain('Temporary galleries')
     // The byline is gone — the About group carries a plain copyright notice.
     expect(screen.textContent).toContain('© 2026 Mahesh Shantaram / thecontrarian.in')
     // Sync feedback appears while the sync runs and reports its outcome —
@@ -1448,6 +1532,7 @@ describe('desktop catalogue workbench', () => {
     const items = [...container.querySelectorAll<HTMLButtonElement>('.lib-menu button')].map((b) => b.textContent?.trim())
     expect(items).toEqual([
       'Pin gallery',
+      'Hide this gallery',
       'Publish this gallery',
       'Gallery settings',
       'Reorder photographs',
@@ -1534,6 +1619,144 @@ describe('desktop catalogue workbench', () => {
       expect(unpinned.galleries[0]!.pinnedAt).toBeFalsy()
       const back = container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)!
       expect(back.classList.contains('lib-compact-card')).toBe(true)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a local gallery hides into the collapsed Hidden galleries section and back', async () => {
+    const puts: { url: string; body: { hidden?: boolean } }[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      if (String(url).includes('/api/device-galleries') && init?.method === 'PUT') {
+        puts.push({ url: String(url), body: JSON.parse(init.body ?? '{}') })
+      }
+      return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const card = () => container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)
+      const hiddenSection = () => container.querySelector<HTMLElement>('.lib-hidden-section')
+
+      // Visible in the Local section; the Hidden section only exists once
+      // something is hidden.
+      expect(card()).not.toBeNull()
+      expect(hiddenSection()).toBeNull()
+
+      container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Hide this gallery')!.click()
+      await settle()
+
+      // Gone from the Local section, parked in collapsed "Hidden galleries",
+      // and the flag lands on the record so the sync carries it to the
+      // account's other devices.
+      expect(container.querySelector('#local-galleries-title')).toBeNull()
+      expect(hiddenSection()).not.toBeNull()
+      expect(hiddenSection()!.querySelector('.lib-hidden-count')?.textContent).toBe('(1)')
+      expect(hiddenSection()!.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
+      const saved = JSON.parse(files['catalogue.json']!) as { galleries: { hiddenAt?: string }[] }
+      expect(saved.galleries[0]!.hiddenAt).toBeTruthy()
+      expect(puts.some((put) => put.body.hidden === true)).toBe(true)
+
+      // Expanding the section shows the card; its menu swaps to Unhide.
+      hiddenSection()!.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!.click()
+      await settle()
+      expect(hiddenSection()!.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+      container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Unhide gallery')!.click()
+      await settle()
+
+      expect(hiddenSection()).toBeNull()
+      expect(container.querySelector('#local-galleries-title')).not.toBeNull()
+      expect(JSON.parse(files['catalogue.json']!).galleries[0].hiddenAt).toBeFalsy()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('an account gallery hide PATCHes the server flag and the card drops out of Cloud galleries', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    let kashmirHidden = false
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url: String(url), method: init?.method, body: init?.body })
+      if (String(url).includes('/api/galleries/kashmir/hide')) {
+        kashmirHidden = JSON.parse(init?.body ?? '{}').hidden === true
+      }
+      if (String(url).endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({ galleries: [{
+          id: 'g1', manifestVersion: 1, slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+          imageCount: 1, mediaCount: { stills: 1, videos: 0, hidden: 0 },
+          sourceUrl: 'https://www.dropbox.com/scl/fo/x', createdAt: '2026-10-01T00:00:00.000Z',
+          retention: 'retained', expiresAt: null, pinnedAt: null, hiddenAt: kashmirHidden ? '2026-11-09T00:00:00.000Z' : null,
+          images: [{ id: 'a', ref: undefined, filename: 'a.jpg', src: '/img/a.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/a-sm.jpg', width: 400, format: 'image/jpeg' }] }],
+        }] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const accountSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
+      expect(accountSection.querySelector(`[data-gallery-card="kashmir"]`)).not.toBeNull()
+
+      accountSection.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Hide this gallery')!.click()
+      await settle()
+
+      // The PATCH went to the server; the refetch landed the flag and the
+      // card moved to Hidden galleries.
+      const hide = calls.find((call) => call.url.includes('/api/galleries/kashmir/hide'))
+      expect(hide?.method).toBe('PATCH')
+      expect(JSON.parse(hide?.body ?? '{}').hidden).toBe(true)
+      const hiddenSection = container.querySelector<HTMLElement>('.lib-hidden-section')!
+      expect(hiddenSection).not.toBeNull()
+      hiddenSection.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!.click()
+      await settle()
+      expect(hiddenSection.querySelector(`[data-gallery-card="kashmir"]`)).not.toBeNull()
+      expect(container.querySelector('[aria-labelledby="lib-compact-title"] [data-gallery-card="kashmir"]')).toBeNull()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a password gate on Hidden galleries asks before the section opens', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async () => new Response(JSON.stringify({ galleries: [] }), { status: 200 })) as unknown as typeof fetch
+    try {
+      const container = await mount(true, undefined, 'pro', {
+        'library-prefs.json': JSON.stringify({
+          version: 1,
+          hidden: [`local:${GALLERY_ID}`],
+          hiddenPassword: { salt: 'aa11', hash: await hashPassword('word', 'aa11') },
+        }),
+      })
+      const toggle = () => container.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!
+      toggle().click()
+      await settle()
+      // The section stays shut until the password clears.
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
+      const passwordField = () => container.querySelector<HTMLInputElement>('.m-sheet input[type="password"]')!
+      expect(passwordField()).not.toBeNull()
+      setInput(passwordField(), 'nope')
+      await settle()
+      sheetButton(container, 'Open')!.click()
+      await settle()
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
+      // The sheet re-renders on the failed attempt — re-query the field.
+      setInput(passwordField(), 'word')
+      await settle()
+      sheetButton(container, 'Open')!.click()
+      await settle()
+      expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
+      // Collapsing re-locks — the next open asks again.
+      toggle().click()
+      await settle()
+      toggle().click()
+      await settle()
+      expect(container.querySelector('.m-sheet input[type="password"]')).not.toBeNull()
     } finally {
       globals.fetch = defaultFetch
     }

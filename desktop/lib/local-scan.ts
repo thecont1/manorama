@@ -34,11 +34,14 @@ export const isDesktopImageName = (name: string): boolean =>
   !name.startsWith('.') && DESKTOP_IMAGE_EXTENSIONS.has(lowerExtension(name))
 
 /** A flattened dir-entry the scanner understands — mirrors what
- *  `@tauri-apps/plugin-fs` `readDir` returns. */
+ *  `@tauri-apps/plugin-fs` `readDir` returns, plus the displayed-pixel
+ *  dims the shell reads from image headers while it lists. */
 export type LocalScanEntry = {
   name: string
   isDirectory: boolean
   isFile: boolean
+  width?: number
+  height?: number
 }
 
 export type ReadDir = (dir: string) => Promise<LocalScanEntry[]>
@@ -91,12 +94,17 @@ export const classifyRoot = (root: string): { sourceKind: 'folder' | 'card'; mou
   return { sourceKind: 'folder' }
 }
 
+const entryDims = (entry: LocalScanEntry): { width?: number; height?: number } =>
+  entry.width && entry.height && entry.width > 0 && entry.height > 0
+    ? { width: entry.width, height: entry.height }
+    : {}
+
 const collectImages = async (dir: string, prefix: string, readDir: ReadDir, out: LocalGalleryItem[]) => {
   const entries = await readDir(dir)
   for (const entry of entries) {
     if (!entry.isFile || !isDesktopImageName(entry.name)) continue
     const id = prefix ? `${prefix}/${entry.name}` : entry.name
-    out.push({ id, name: entry.name, path: joinPath(dir, entry.name) })
+    out.push({ id, name: entry.name, path: joinPath(dir, entry.name), ...entryDims(entry) })
   }
 }
 
@@ -110,7 +118,7 @@ export const scanLocalDirectory = async (root: string, readDir: ReadDir): Promis
   const collected: LocalGalleryItem[] = []
   for (const entry of entries) {
     if (entry.isFile && isDesktopImageName(entry.name)) {
-      collected.push({ id: entry.name, name: entry.name, path: joinPath(root, entry.name) })
+      collected.push({ id: entry.name, name: entry.name, path: joinPath(root, entry.name), ...entryDims(entry) })
     }
   }
   const subdirs = entries

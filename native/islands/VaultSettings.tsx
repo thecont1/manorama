@@ -195,12 +195,12 @@ export default function VaultSettings({ controller, tier, onClose, embedded = fa
           <span>When opening an online gallery</span>
           <span class="native-vault-select">
             <select
-              value={snapshot?.loadPolicy ?? 'vault'}
+              value={snapshot?.loadPolicy ?? 'stream'}
               disabled={pending !== null || snapshot === null}
               onChange={(event: Event) => selectLoadPolicy((event.currentTarget as HTMLSelectElement).value as VaultLoadPolicy)}
             >
-              <option value="vault">Download to encrypted vault (default)</option>
-              <option value="stream">Stream from cloud when needed</option>
+              <option value="vault">Download to encrypted vault</option>
+              <option value="stream">Stream from cloud when needed (default)</option>
             </select>
             <SelectChevron />
           </span>

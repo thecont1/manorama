@@ -172,6 +172,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [shareSlug, setShareSlug] = useState<string | null>(null)
   const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
   const [menuSlug, setMenuSlug] = useState<string | null>(null)
+  const [hiddenOpen, setHiddenOpen] = useState(false)
   const [galSettingsSlug, setGalSettingsSlug] = useState<string | null>(null)
   // The Free pin cap: when every permanent slot is taken, pinning opens a
   // chooser between the pinned galleries and the plan instead of a refusal.
@@ -844,6 +845,29 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     }
   }
 
+  /** Clears the account-wide concealment — the same flag every device's
+   *  Library honors, so an unhidden gallery returns to the normal layout
+   *  everywhere at once. */
+  const unhideGallery = async (gallery: GallerySummary) => {
+    setBusy(true)
+    setMenuSlug(null)
+    try {
+      const response = await fetch(`/api/galleries/${encodeURIComponent(gallery.slug)}/hide`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hidden: false }),
+      })
+      const payload = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(payload.error || 'That gallery could not be unhidden')
+      await refetchLibrary()
+      announce(`“${gallery.title || gallery.slug}” is back in the Library`)
+    } catch (error) {
+      announce(error instanceof Error ? error.message : 'That gallery could not be unhidden')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** The stopwatch popover's permanence calls: promote into a free slot,
    *  or swap position and expiry with a named permanent gallery. */
   const keepGallery = async (temp: GallerySummary, withSlug?: string) => {
@@ -899,10 +923,56 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // Which galleries earn a rail and which collapse to a row is decided by
   // the shared layout rule, recomputed here so a PATCH response carrying a
   // full summary or a missing `layout` field never changes the shape.
-  const layout = libraryLayout(liveGalleries, tier)
+  // A hidden gallery opens by link but never lists — concealment is
+  // account-wide, so the web Library honors the same flag the desktops set.
+  const layout = libraryLayout(liveGalleries.filter((gallery) => !gallery.hiddenAt), tier)
   const bySlug = new Map(liveGalleries.map((gallery) => [gallery.slug, gallery]))
   const stripGalleries = layout.strips.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
+  const hiddenGalleries = liveGalleries.filter((gallery) => gallery.hiddenAt)
+
+  // One card shape for every gallery list — the compact grid and the
+  // recoverable Hidden section both render it.
+  const compactCard = (gallery: GallerySummary) => {
+    const title = gallery.title || gallery.slug
+    const locked = isLocked(gallery)
+    // One visible cover item is all the card needs — a state
+    // summary carrying more never leaks past the render slice.
+    const cover = gallery.images.find((image) => !image.hidden)
+    return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+      <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
+        {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+          const img = event.currentTarget as HTMLImageElement
+          img.classList.add('is-loaded')
+          // The card takes the thumbnail's own size — the image
+          // always fills it exactly, and a small rendition never
+          // stretches into mush. Stored dims are the placeholder's
+          // shape; the decoded frame owns the real ratio.
+          if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+          const card = img.closest('.lib-compact-card') as HTMLElement | null
+          if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
+        }} /> : null}
+      </a>
+      <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
+      <div class="lib-compact-body">
+        <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+        {locked ? (
+          <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
+          </button>
+        ) : null}
+        <p class="lib-card-sub">
+          {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+          {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
+        </p>
+      </div>
+      {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
+        <p>Remove “{title}” from manorama?{gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(gallery.sourceUrl)}.` : ''}</p>
+        <button type="button" disabled={busy} onClick={() => void removeGallery(gallery)}>Remove gallery</button>
+        <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
+      </div> : null}
+    </li>
+  }
   const pinnedCount = liveGalleries.filter((gallery) => gallery.pinnedAt).length
   const retainedCount = liveGalleries.filter((gallery) => gallery.retention !== 'pipeline').length
   const retainedLimit = tier === 'pro' ? PAID_RETAINED_LIMIT : FREE_RETAINED_LIMIT
@@ -985,7 +1055,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
       </aside>
       <section class="gallery-list" aria-labelledby="galleries-heading">
         {stripGalleries.length ? <section aria-labelledby="lib-strips-title">
-          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries</h2>
+          <h2 id="lib-strips-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({stripGalleries.length})</span></h2>
           <p class="lib-section-sub">Pinned galleries show up as strips and download entirely — pinning is a display choice, not permanence.</p>
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
@@ -1052,50 +1122,32 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         })}</ul></section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Your galleries</h2>
+            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactGalleries.length})</span></h2>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
-            <ul class="lib-compact-grid">{compactGalleries.map((gallery) => {
-              const title = gallery.title || gallery.slug
-              const locked = isLocked(gallery)
-              // One visible cover item is all the card needs — a state
-              // summary carrying more never leaks past the render slice.
-              const cover = gallery.images.find((image) => !image.hidden)
-              return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-                <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-                  {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
-                    const img = event.currentTarget as HTMLImageElement
-                    img.classList.add('is-loaded')
-                    // The card takes the thumbnail's own size — the image
-                    // always fills it exactly, and a small rendition never
-                    // stretches into mush. Stored dims are the placeholder's
-                    // shape; the decoded frame owns the real ratio.
-                    if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-                    const card = img.closest('.lib-compact-card') as HTMLElement | null
-                    if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
-                  }} /> : null}
-                </a>
-                <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
-                <div class="lib-compact-body">
-                  <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
-                  {locked ? (
-                    <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
-                      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
-                    </button>
-                  ) : null}
-                  <p class="lib-card-sub">
-                    {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-                    {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
-                  </p>
-                </div>
-                {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
-                  <p>Remove “{title}” from manorama?{gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(gallery.sourceUrl)}.` : ''}</p>
-                  <button type="button" disabled={busy} onClick={() => void removeGallery(gallery)}>Remove gallery</button>
-                  <button type="button" disabled={busy} onClick={() => setRemoveSlug(null)}>Cancel</button>
-                </div> : null}
-              </li>
-            })}</ul>
+            <ul class="lib-compact-grid">{compactGalleries.map(compactCard)}</ul>
+          </section>
+        ) : null}
+        {/* Concealed galleries stay reachable — the flag is account-wide,
+            so a gallery hidden on a device can be restored from the
+            browser too. Collapsed by default: hidden means out of sight,
+            not gone. */}
+        {hiddenGalleries.length ? (
+          <section aria-labelledby="lib-hidden-title" class="lib-hidden-section">
+            <button
+              type="button"
+              id="lib-hidden-title"
+              class="lib-section-title lib-compact-title lib-hidden-toggle"
+              aria-expanded={hiddenOpen}
+              onClick={() => setHiddenOpen((open) => !open)}
+            >
+              <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
+              Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length})</span>
+            </button>
+            {hiddenOpen ? (
+              <ul class="lib-compact-grid">{hiddenGalleries.map(compactCard)}</ul>
+            ) : null}
           </section>
         ) : null}
         {!liveGalleries.length ? (
@@ -1160,6 +1212,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                 title={isLocked(menuGallery) ? PIPELINE_LOCK_MESSAGE : undefined}
                 onClick={() => { void refreshGallery(menuGallery); setMenuSlug(null) }}
               >Refresh gallery contents</button>
+            ) : null}
+            {menuGallery.hiddenAt ? (
+              <button type="button" disabled={busy} onClick={() => { void unhideGallery(menuGallery) }}>Unhide gallery</button>
             ) : null}
             <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => { setRemoveSlug(menuGallery.slug); setMenuSlug(null) }}>Remove gallery</button>
           </div>

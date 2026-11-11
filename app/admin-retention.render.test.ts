@@ -128,9 +128,9 @@ describe('the dashboard renders retention state', () => {
     expect(html).not.toContain('admin-gallery-editor-label')
     expect(html).not.toContain('Photo Editor')
     // The pipeline gallery is a compact row now — a cover under the
-    // "Your galleries" section, not a rail of items.
+    // "Cloud galleries" section, not a rail of items.
     expect(html).toContain('data-gallery-card="locked"')
-    expect(html).toContain('Your galleries')
+    expect(html).toContain('Cloud galleries')
     expect(html).not.toContain('aria-label="Locked photographs"')
     expect(html).not.toContain('aria-label="Reorder Locked images"')
   })
@@ -345,7 +345,7 @@ describe('the lean library layout', () => {
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(4)
     expect((html.match(/lib-compact-card/g) ?? []).length).toBe(8)
     expect(html).toContain('Pinned galleries')
-    expect(html).toContain('Your galleries')
+    expect(html).toContain('Cloud galleries')
     expect(html).not.toContain('More galleries')
   })
 
@@ -368,10 +368,10 @@ describe('the lean library layout', () => {
       }
     })
     // Free: the three pinned retained galleries strip; both pipelines
-    // are compact cards under "Your galleries".
+    // are compact cards under "Cloud galleries".
     expect((html.match(/admin-gallery-strip-frame/g) ?? []).length).toBe(3)
     expect((html.match(/lib-compact-card/g) ?? []).length).toBe(2)
-    expect(html).toContain('Your galleries')
+    expect(html).toContain('Cloud galleries')
     expect(html).toContain('data-retention="pipeline"')
   })
 

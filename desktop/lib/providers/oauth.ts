@@ -10,13 +10,12 @@ import { uploadProviderLabel, type UploadProviderId } from './types'
  * back (in `providers.json` via the private-store commands) are used ONLY
  * for provider API calls. The Manorama session token never rides along.
  *
- * Redirect paths differ by provider:
- *  - Dropbox supports custom schemes, so it redirects to
- *    `in.thecontrarian.manorama.desktop://oauth/dropbox` — the same scheme
- *    sign-in already registers.
- *  - Google's installed-app clients only allow the loopback form, so the
- *    app binds `http://127.0.0.1:<port>` in Rust (the `oauth_loopback_*`
- *    commands) and the browser delivers the code there directly.
+ * Redirect path is shared by provider: the app binds
+ * `http://127.0.0.1:<port>` through the `oauth_loopback_*` commands and
+ * the browser delivers the code there directly — no browser→LaunchServices
+ * custom-scheme handoff to lose. The
+ * `in.thecontrarian.manorama.desktop://oauth/{provider}` scheme stays
+ * registered and parseable as the paste/manual fallback.
  *
  * Both flows share the state+nonce+PKCE binding kept in `pendingOAuth`:
  * single-use, in memory, and bound to the provider that opened it — this
@@ -71,6 +70,15 @@ export const providerClientSecret = (provider: UploadProviderId): string =>
 export const providerConfigured = (provider: UploadProviderId, clientId = providerClientId(provider)): boolean =>
   clientId.length > 0
 
+/** Dropbox registers redirect URIs exactly — an ephemeral loopback port
+ *  can never match a registered URI, so its flow uses the registered
+ *  custom scheme `in.thecontrarian.manorama.desktop://oauth/dropbox` and
+ *  completes through the deep-link handler. Google's installed-app rules
+ *  explicitly allow any loopback port, so Drive keeps the ephemeral
+ *  listener — the OS hands the code straight to the app with no
+ *  browser→LaunchServices hop for a custom scheme to die on. The
+ *  custom-scheme form stays parseable for both providers as the
+ *  paste/manual fallback. */
 export const providerRedirectUri = (provider: UploadProviderId, loopbackPort?: number): string =>
   provider === 'dropbox'
     ? 'in.thecontrarian.manorama.desktop://oauth/dropbox'
@@ -127,7 +135,7 @@ const isLoopbackHost = (url: URL): boolean =>
  * provider-bound code+state. Anything else is null, and a provider error
  * response keeps the provider tag so the UI can say WHICH flow declined.
  */
-export const parseProviderRedirect = (input: string): ProviderRedirect | null => {
+export const parseProviderRedirect = (input: string, loopbackProvider: UploadProviderId = 'drive'): ProviderRedirect | null => {
   let parsed: URL
   try {
     parsed = new URL(input.trim())
@@ -138,8 +146,9 @@ export const parseProviderRedirect = (input: string): ProviderRedirect | null =>
   if (parsed.protocol === DESKTOP_SCHEME && parsed.hostname === 'oauth') {
     provider = OAUTH_PATH_PROVIDERS[parsed.pathname] ?? null
   } else if (isLoopbackHost(parsed)) {
-    // Installed-app Google clients only allow the loopback redirect.
-    provider = 'drive'
+    // A loopback redirect carries no provider marker — it belongs to
+    // whichever connection is waiting, so the caller names it.
+    provider = loopbackProvider
   }
   if (!provider) return null
   const providerError = parsed.searchParams.get('error')?.trim()
@@ -340,6 +349,9 @@ type PendingOAuth = {
   state: string
   verifier: string
   redirectUri: string
+  /** Whether this flow owns a parked native loopback listener — cancel
+   *  releases it only when one exists to release. */
+  loopback: boolean
   resolve: () => void
   reject: (error: Error) => void
 }
@@ -376,32 +388,47 @@ export const completeProviderConnect = async (url: string): Promise<void> => {
   }
   const pending = pendingOAuth
   if (!pending) throw fail('No provider connection is waiting — start Connect again.')
-  const redirect = parseProviderRedirect(url)
-  if (!redirect) throw fail('That redirect link was not recognized.')
-  if (redirect.provider !== pending.provider) {
-    throw fail('That redirect is for a different provider — start Connect again.')
-  }
-  if ('error' in redirect) {
-    throw fail(`${uploadProviderLabel(pending.provider)} authorization was declined.`)
-  }
-  if (redirect.state !== pending.state) {
-    throw fail('The authorization response did not match this app — start Connect again.')
-  }
   try {
-    const tokens = await exchangeCodeForTokens(pending.provider, {
-      code: redirect.code,
-      codeVerifier: pending.verifier,
-      clientId: providerClientId(pending.provider),
-      clientSecret: providerClientSecret(pending.provider) || undefined,
-      redirectUri: pending.redirectUri,
-    })
-    await storeProviderTokens(pending.provider, tokens)
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error('The provider connection could not be completed.')
-    failPending(err)
-    throw err
+    const redirect = parseProviderRedirect(url, pending.provider)
+    if (!redirect) throw fail('That redirect link was not recognized.')
+    if (redirect.provider !== pending.provider) {
+      throw fail('That redirect is for a different provider — start Connect again.')
+    }
+    if ('error' in redirect) {
+      throw fail(`${uploadProviderLabel(pending.provider)} authorization was declined.`)
+    }
+    if (redirect.state !== pending.state) {
+      throw fail('The authorization response did not match this app — start Connect again.')
+    }
+    try {
+      const tokens = await exchangeCodeForTokens(pending.provider, {
+        code: redirect.code,
+        codeVerifier: pending.verifier,
+        clientId: providerClientId(pending.provider),
+        clientSecret: providerClientSecret(pending.provider) || undefined,
+        redirectUri: pending.redirectUri,
+      })
+      // The exchange can outlive this pending — a cancel cleared it or a
+      // newer connect owns the slot. Storing now would write the dead
+      // flow's credentials; settling would resolve an attempt that never
+      // authorized. Check ownership after every await.
+      if (pendingOAuth !== pending) return
+      await storeProviderTokens(pending.provider, tokens)
+      if (pendingOAuth !== pending) return
+      settlePending()
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('The provider connection could not be completed.')
+      if (pendingOAuth === pending) failPending(err)
+      throw err
+    }
+  } finally {
+    // However this pending was consumed — pasted redirect, deep link,
+    // failed validation or exchange — a loopback flow would leave its
+    // native listener parked in accept() otherwise. The cancel only runs
+    // when nothing newer is pending, so it cannot release a live
+    // connection's listener.
+    if (!pendingOAuth && pending.loopback) void invoke('oauth_loopback_cancel').catch(() => {})
   }
-  settlePending()
 }
 
 /** Deep-link entry point — called by the session.ts router for every URL
@@ -410,6 +437,16 @@ export const completeProviderConnect = async (url: string): Promise<void> => {
  *  pending connect promise). */
 export const handleProviderDeepLink = (url: string): boolean => {
   if (!isProviderDeepLink(url)) return false
+  const pending = pendingOAuth
+  if (!pending) return true
+  // Correlate the redirect with the flow that is waiting before letting
+  // it complete: a stale one — another provider's, or a success carrying
+  // a dead flow's state — is swallowed here rather than consuming the
+  // live pending. A provider error from the current provider still
+  // propagates (error redirects carry no reliable state to match on).
+  const redirect = parseProviderRedirect(url, pending.provider)
+  if (!redirect || redirect.provider !== pending.provider) return true
+  if (!('error' in redirect) && redirect.state !== pending.state) return true
   // completeProviderConnect settles or rejects the pending itself — the
   // catch only swallows the rethrow that the paste path needs.
   void completeProviderConnect(url).catch(() => {})
@@ -417,9 +454,9 @@ export const handleProviderDeepLink = (url: string): boolean => {
 }
 
 export const cancelProviderConnect = (): void => {
-  // A Drive flow also has a Rust listener parked in accept() — release it
+  // A loopback flow has a native listener parked in accept() — release it
   // or the thread and port stay held until the server-side timeout.
-  if (pendingOAuth?.provider === 'drive') void invoke('oauth_loopback_cancel').catch(() => {})
+  if (pendingOAuth?.loopback) void invoke('oauth_loopback_cancel').catch(() => {})
   failPending(new Error('The connection was cancelled.'))
 }
 
@@ -428,10 +465,10 @@ const openSystem = async (url: string): Promise<void> =>
 
 /**
  * Opens the provider's authorize page in the SYSTEM browser and resolves
- * once tokens are stored. For Drive the completion arrives on the Rust
- * loopback listener; for Dropbox on the custom-scheme deep link routed
- * through `handleProviderDeepLink`. Either path can also be completed by
- * pasting the redirect into `completeProviderConnect`.
+ * once tokens are stored. The completion arrives on the native loopback
+ * listener for either provider; a redirect can also be completed by
+ * pasting it into `completeProviderConnect` — including the custom-scheme
+ * form, which stays registered as a fallback path.
  */
 export const connectProvider = async (provider: UploadProviderId): Promise<void> => {
   const clientId = providerClientId(provider)
@@ -444,35 +481,40 @@ export const connectProvider = async (provider: UploadProviderId): Promise<void>
   const state = generateState()
   const verifier = generateVerifier()
   const challenge = await pkceChallenge(verifier)
-  let redirectUri: string
-  let awaitLoopback: (() => Promise<string>) | null = null
-  if (provider === 'drive') {
-    // Google's recommended installed-app path: an ephemeral loopback port
-    // owned by a Rust TcpListener — no scheme registration needed and no
-    // fixed port to collide with.
-    const port = await invoke<number>('oauth_loopback_begin')
-    redirectUri = `http://127.0.0.1:${port}`
-    awaitLoopback = () =>
-      invoke<string>('oauth_loopback_finish').then((target) => `http://127.0.0.1:${port}${target}`)
-  } else {
-    redirectUri = providerRedirectUri('dropbox')
-  }
+  // Drive's installed-app rules allow any loopback port, so it parks a
+  // native TcpListener — no scheme registration, no fixed port to collide
+  // with, no browser→OS hop for the code to get lost on. Dropbox
+  // registers redirect URIs exactly, so its flow rides the custom scheme
+  // and completes through handleProviderDeepLink instead.
+  const port = provider === 'dropbox' ? undefined : await invoke<number>('oauth_loopback_begin')
+  const redirectUri = providerRedirectUri(provider, port)
+  const awaitLoopback = () =>
+    invoke<string>('oauth_loopback_finish').then((target) => `http://127.0.0.1:${port}${target}`)
   const done = new Promise<void>((resolve, reject) => {
-    pendingOAuth = { provider, state, verifier, redirectUri, resolve, reject }
+    pendingOAuth = { provider, state, verifier, redirectUri, resolve, reject, loopback: port !== undefined }
   })
+  const flow = pendingOAuth
   try {
     await openSystem(buildProviderAuthorizeUrl(provider, { clientId, redirectUri, state, codeChallenge: challenge }))
   } catch (error) {
-    if (provider === 'drive') void invoke('oauth_loopback_cancel').catch(() => {})
+    if (port !== undefined) void invoke('oauth_loopback_cancel').catch(() => {})
     failPending(error instanceof Error ? error : new Error('The system browser could not be opened.'))
     return done
   }
-  if (awaitLoopback) {
+  if (port !== undefined) {
     void awaitLoopback()
-      .then(completeProviderConnect)
-      .catch((error: unknown) =>
-        failPending(error instanceof Error ? error : new Error('The provider connection could not be completed.')),
-      )
+      .then((target) => {
+        // A stale listener settlement — a cancelled or superseded flow
+        // still resolving — must not touch the flow that owns
+        // pendingOAuth now.
+        if (pendingOAuth === flow) return completeProviderConnect(target)
+        return undefined
+      })
+      .catch((error: unknown) => {
+        if (pendingOAuth === flow) {
+          failPending(error instanceof Error ? error : new Error('The provider connection could not be completed.'))
+        }
+      })
   }
   return done
 }

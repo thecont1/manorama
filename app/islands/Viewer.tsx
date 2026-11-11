@@ -293,6 +293,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // refs that were still wanted — and evicted originals pointed resolved
   // frames at revoked blob URLs when the user stepped back.
   const resolvedWindowRef = useRef(new Map<string, { reference: MediaReference; preview: boolean }>())
+  // The mode that came from the gallery's own default because no saved
+  // selection existed — distinguished so the prefs write does not freeze
+  // it into a saved selection.
+  const galleryDefaultModeRef = useRef<Mode | null>(null)
   useEffect(() => {
     if (!encryptedResolver) return
     const desired = new Map<string, { image: GalleryMediaItem; reference: MediaReference; preview: boolean; variantIndex: number }>()
@@ -814,17 +818,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // Library theme never picks one: a canvas the viewer did not choose
   // reads as seams between photos, not as a mount.
   useEffect(() => {
-    setBackground(viewPrefs.background ?? 'none')
+    setBackground(readViewPrefs(slug).background ?? 'none')
   }, [slug, viewPrefs])
-
-  useEffect(() => {
-    writeViewPrefs(slug, { mode })
-  }, [slug, mode])
 
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
-    setMode(viewPrefs.mode ?? loaded.defaultMode)
+    // viewPrefs is memoized per slug and can lag a just-written pref —
+    // read it fresh so this refire honors the mode the user picked.
+    const saved = readViewPrefs(slug)
+    const resolved = saved.mode ?? loaded.defaultMode
+    // A gallery default applied because nothing was saved is not a saved
+    // selection — persisting it would freeze the owner's later default
+    // changes out of this device. The write below skips it.
+    galleryDefaultModeRef.current = saved.mode ? null : resolved
+    setMode(resolved)
     setShowArrows(loaded.defaultShowArrows && !coarsePointer())
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
@@ -837,6 +845,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     updateText('[data-curtain-title]', loaded.title)
     updateText('[data-curtain-caption]', loaded.caption)
   }, [slug, initialSettings, viewPrefs])
+
+  useEffect(() => {
+    if (galleryDefaultModeRef.current === mode) return
+    galleryDefaultModeRef.current = null
+    writeViewPrefs(slug, { mode })
+  }, [slug, mode])
 
   useEffect(() => {
     const clearPositionHash = () => {
@@ -1526,6 +1540,54 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (finishTimer) window.clearTimeout(finishTimer)
     }
   }, [])
+
+  // While the curtain is down the raised chrome's Library exit must still
+  // exist — otherwise the veil is a dead end for anyone who followed a
+  // link and wants back. The curtain clone wakes on pointer movement or
+  // focus (a keyboard Tab reaches the curtain first) and tucks away on
+  // the same 3s idle clock the chrome uses; galleryEntered unmounts it so
+  // the real chrome takes over without a seam.
+  const curtainLibraryHref = viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined
+  const hasCurtainLibrary = Boolean(onReturnToGalleries || curtainLibraryHref)
+  const [curtainLibraryShown, setCurtainLibraryShown] = useState(false)
+  useEffect(() => {
+    if (galleryEntered || !hasCurtainLibrary) return
+    // Touch has no hover idiom — a tap opens the gallery, so the pill would
+    // be unreachable. On a coarse pointer it stays raised while the veil is.
+    if (coarsePointer()) { setCurtainLibraryShown(true); return }
+    let hideTimer: number | undefined
+    const focusHeld = () => {
+      const active = document.activeElement
+      if (!active) return false
+      const veil = document.querySelector('[data-veil-chrome]')
+      const curtain = document.querySelector('[data-curtain]')
+      return Boolean((veil && veil.contains(active)) || (curtain && curtain.contains(active)))
+    }
+    const scheduleHide = () => {
+      window.clearTimeout(hideTimer)
+      hideTimer = window.setTimeout(() => { if (!focusHeld()) setCurtainLibraryShown(false) }, 3000)
+    }
+    const reveal = () => {
+      const curtain = document.querySelector<HTMLElement>('[data-curtain]')
+      if (!curtain || curtain.hidden || curtain.classList.contains('fading')) return
+      setCurtainLibraryShown(true)
+      scheduleHide()
+    }
+    const onFocusOut = () => {
+      // activeElement still names the leaving element at focusout — settle
+      // first, then restart the idle clock only when focus left both surfaces.
+      window.setTimeout(() => { if (!focusHeld()) scheduleHide() })
+    }
+    window.addEventListener('pointermove', reveal, { passive: true })
+    window.addEventListener('focusin', reveal)
+    window.addEventListener('focusout', onFocusOut)
+    return () => {
+      window.clearTimeout(hideTimer)
+      window.removeEventListener('pointermove', reveal)
+      window.removeEventListener('focusin', reveal)
+      window.removeEventListener('focusout', onFocusOut)
+    }
+  }, [galleryEntered, hasCurtainLibrary])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -3002,6 +3064,28 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           ) : null}
         </div>
       </div>
+
+      {/* The curtain's own Library exit — identical chrome chrome, awake
+          while the veil is down and unmounted the moment it lifts. The
+          bar stays pointer-transparent; only the pill is clickable. */}
+      {!galleryEntered && hasCurtainLibrary ? (
+        <header
+          class={`m-chrome m-chrome--top ${curtainLibraryShown && !suspended ? 'is-visible' : ''}`}
+          inert={curtainLibraryShown && !suspended ? undefined : true}
+          aria-hidden={curtainLibraryShown && !suspended ? undefined : 'true'}
+          data-veil-chrome
+        >
+          {curtainLibraryHref ? (
+            <a class="m-chrome-pill" href={curtainLibraryHref} data-chrome-library onClick={(event) => event.stopPropagation()}>
+              <span aria-hidden="true">‹</span> Library
+            </a>
+          ) : (
+            <button type="button" class="m-chrome-pill" data-chrome-library onClick={(event) => { event.stopPropagation(); onReturnToGalleries?.() }}>
+              <span aria-hidden="true">‹</span> Library
+            </button>
+          )}
+        </header>
+      ) : null}
 
       <ViewerChrome
         visible={chromeVisible && !suspended}

@@ -45,6 +45,8 @@ beforeAll(async () => {
   await applyMigration(db, '0012_gallery_pinned.sql')
   await applyMigration(db, '0013_gallery_identity_and_manifest_version.sql')
   await applyMigration(db, '0014_encrypted_key_retirement.sql')
+  await applyMigration(db, '0016_gallery_hidden.sql')
+  await applyMigration(db, '0017_device_gallery_hidden.sql')
 }, 15_000)
 
 afterAll(async () => {
@@ -454,6 +456,7 @@ describe('device catalogue storage failures', () => {
       expect(leftover).toBeNull()
     } finally {
       await applyMigration(db, '0007_device_galleries.sql')
+      await applyMigration(db, '0017_device_gallery_hidden.sql')
     }
   })
 })

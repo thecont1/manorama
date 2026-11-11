@@ -63,6 +63,7 @@ beforeAll(async () => {
   // pinned_at joins the gallery row shape — the snapshot below compares
   // whole rows, so the column must exist on both sides of the rehearsal.
   await applyMigration(db, '0012_gallery_pinned.sql')
+  await applyMigration(db, '0016_gallery_hidden.sql')
   await db.prepare(
     `INSERT INTO users (dropbox_account_id, owner_slug, display_name, email, tier, created_at, updated_at, billing_event_timestamp_ms, billing_event_id)
      VALUES (?, ?, ?, ?, 'pro', ?, ?, ?, ?)`,
@@ -89,6 +90,7 @@ beforeAll(async () => {
   // Gallery deletes clear device_galleries links — the table is part of
   // the real schema, so the fixture carries it too.
   await applyMigration(db, '0007_device_galleries.sql')
+  await applyMigration(db, '0017_device_gallery_hidden.sql')
 }, 15_000)
 
 afterAll(async () => {

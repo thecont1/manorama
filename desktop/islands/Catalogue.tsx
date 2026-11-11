@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { publishAddFolder, publishAddGallery, publishClose, publishNavigation, shellPost } from '../lib/shell'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
@@ -7,6 +7,7 @@ import { defaultGallerySettings, type GallerySettings } from '../../app/lib/gall
 import { houseAdFrameFor, type AdFrame } from '../../app/lib/adframe'
 import type { GalleryManifest } from '../../app/lib/imagesource'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../../app/lib/imagesource'
+import { LIBRARY_PREFS_FILE, hashPassword, newPasswordSalt, parseLibraryPrefs, serializeLibraryPrefs, verifyPassword, type LibraryPrefs } from '../lib/library-prefs'
 import { FREE_RETAINED_LIMIT, PAID_RETAINED_LIMIT, PIPELINE_LOCK_MESSAGE, expiryCountdownText } from '../../app/lib/gallery-policy'
 import { libraryLayout } from '../../packages/core/library-layout'
 import {
@@ -32,12 +33,12 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
-import { galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
+import { encryptedProviderForUrl, encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import type { EncryptedMediaResolver } from '../../app/lib/encrypted-resolver'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
@@ -81,6 +82,7 @@ import {
 } from '../lib/session'
 
 const CATALOGUE_FILE = 'catalogue.json'
+const PREFS_FILE = LIBRARY_PREFS_FILE
 // The catalogue's device label is the owner's own name for the machine
 // (scutil ComputerName → hostname → generic), resolved natively once per
 // launch. Two of the owner's Macs stop reading identically.
@@ -176,6 +178,9 @@ const stripImgRetry = (event: Event) => {
 const readCatalogueFile = () => invoke<string | null>('read_private_file', { name: CATALOGUE_FILE })
 const writeCatalogueFile = (contents: string) =>
   invoke('write_private_file', { name: CATALOGUE_FILE, contents })
+const readPrefsFile = () => invoke<string | null>('read_private_file', { name: PREFS_FILE })
+const writePrefsFile = (contents: string) =>
+  invoke('write_private_file', { name: PREFS_FILE, contents })
 
 type ViewerState = { galleryId: string; index: number; edit?: boolean }
 /** A fetched cloud manifest riding the same Viewer the local records use. */
@@ -312,6 +317,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [ownerSlug, setOwnerSlug] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Toasts retire themselves — a stale confirmation ("…is back in the
+  // Library") sitting on screen reads as the result of whatever the user
+  // taps next.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 5000)
+    return () => clearTimeout(timer)
+  }, [notice])
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [pasteUrl, setPasteUrl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -321,6 +334,18 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [shareStep, setShareStep] = useState<ShareStep>('choose')
   const [detailsId, setDetailsId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('details'))
   const [cardMenu, setCardMenu] = useState<CardMenu | null>(null)
+  // Hidden galleries — namespaced keys ("account:{slug}", "device:{id}",
+  // "local:{id}") concealed from the pinned/compact sections into the
+  // collapsed "Hidden galleries" section. Device-local display choice,
+  // persisted in library-prefs.json; the optional password gates opening
+  // that section (off by default). Visionary-only surface.
+  const [prefs, setPrefs] = useState<LibraryPrefs>({ version: 1 })
+  const [hiddenOpen, setHiddenOpen] = useState(false)
+  const [hiddenUnlocked, setHiddenUnlocked] = useState(false)
+  const [passwordPrompt, setPasswordPrompt] = useState<'unlock' | 'set' | 'disable' | null>(null)
+  const [passwordDraft, setPasswordDraft] = useState('')
+  const [passwordDraft2, setPasswordDraft2] = useState('')
+  const [passwordNote, setPasswordNote] = useState<string | null>(null)
   // The card menu's own confirmations and sub-surfaces — the web keeps
   // the same range: pin, share, settings, reorder, source, rescan, remove.
   const [menuRemove, setMenuRemove] = useState(false)
@@ -499,28 +524,222 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }, [])
 
+  const hiddenPasswordSet = Boolean(prefs.hiddenPassword)
+
+  const persistPrefs = async (next: LibraryPrefs) => {
+    // The write lands before the state does — a failed save must reach
+    // the caller so a password set or removal is not treated as done.
+    try {
+      await writePrefsFile(serializeLibraryPrefs(next))
+    } catch (error) {
+      setNotice('Library preferences could not be saved')
+      throw error
+    }
+    setPrefs(next)
+  }
+
+  // Hidden galleries are an ACCOUNT-WIDE display choice, unlike the pin's
+  // per-device one: cloud galleries PATCH hidden_at on the row, device
+  // mirrors PATCH hidden on the synced row, and locals write hiddenAt into
+  // the catalogue so the flag rides the next sync. The only device-local
+  // piece is the optional password — it gates opening the section here,
+  // not whether other devices honor the hide.
+  const setGalleryHidden = async (menu: CardMenu, hidden: boolean) => {
+    const hiding = hidden ? new Date().toISOString() : null
+    setCardMenu(null)
+    setMenuRemove(false)
+    setBusy(true)
+    let localOnly = false
+    try {
+      if (menu.kind === 'account') {
+        if (!session) return
+        await setAccountGalleryHidden(base, session.token, menu.gallery.slug, hidden)
+        await refreshAccountGalleries(session.token)
+      } else if (menu.kind === 'device') {
+        if (!session) return
+        await setDeviceGalleryHidden(base, session.token, menu.gallery.id, hidden)
+        setDeviceRows((current) => current.map((row) => (row.id === menu.gallery.id ? { ...row, hidden } : row)))
+      } else {
+        if (!catalogue) return
+        const next: LocalCatalogue = {
+          ...catalogue,
+          galleries: catalogue.galleries.map((gallery) =>
+            gallery.id === menu.record.id ? { ...gallery, hiddenAt: hiding } : gallery),
+        }
+        await writeCatalogueFile(serializeLocalCatalogue(next))
+        setCatalogue(next)
+        if (session) {
+          // PATCH the mirror row directly so the account flag does not wait
+          // on the full sync; a row that is not synced yet is carried by
+          // the sync PUT. When neither lands, the hide is local-only and
+          // the notice below says so.
+          let mirrored = false
+          try {
+            await setDeviceGalleryHidden(base, session.token, menu.record.id, hidden)
+            mirrored = true
+          } catch {
+            // The mirror row may not exist yet — the sync PUT carries it.
+          }
+          const synced = await runSync(next, session)
+          localOnly = !mirrored && !synced
+        } else {
+          localOnly = true
+        }
+      }
+      const title = menu.kind === 'account' ? menu.gallery.title || menu.gallery.slug : menu.kind === 'device' ? menu.gallery.title : menu.record.title
+      setNotice(hidden
+        ? localOnly
+          ? `“${title}” hidden on this Mac — the account sync did not go through; it will retry`
+          : `“${title}” hidden — find it under Hidden galleries`
+        : localOnly
+          ? `“${title}” unhidden on this Mac — the account sync did not go through; it will retry`
+          : `“${title}” is back in the Library`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be hidden')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The Hidden section opens only after the password clears when one is
+  // set; collapsing re-locks it so a screen left open stays screened.
+  const toggleHiddenSection = () => {
+    if (hiddenOpen) {
+      setHiddenOpen(false)
+      setHiddenUnlocked(false)
+      return
+    }
+    if (hiddenPasswordSet && !hiddenUnlocked) {
+      setPasswordPrompt('unlock')
+      setPasswordDraft('')
+      setPasswordNote(null)
+      return
+    }
+    setHiddenOpen(true)
+  }
+
+  const submitPasswordPrompt = async () => {
+    const draft = passwordDraft
+    if (passwordPrompt === 'set') {
+      if (draft.length < 4) { setPasswordNote('At least 4 characters'); return }
+      if (draft !== passwordDraft2) { setPasswordNote('The two entries do not match'); return }
+      const salt = newPasswordSalt()
+      try {
+        await persistPrefs({ ...prefs, hiddenPassword: { salt, hash: await hashPassword(draft, salt) } })
+      } catch {
+        setPasswordNote('The password could not be saved')
+        return
+      }
+      // The gate exists now — a section opened while there was no
+      // password must close and relock rather than stay revealed behind
+      // the Settings sheet.
+      setHiddenOpen(false)
+      setHiddenUnlocked(false)
+      setPasswordPrompt(null)
+      setPasswordDraft(''); setPasswordDraft2('')
+      return
+    }
+    if (!prefs.hiddenPassword) { setPasswordPrompt(null); return }
+    if (!(await verifyPassword(draft, prefs.hiddenPassword))) {
+      setPasswordNote('That password does not match')
+      return
+    }
+    if (passwordPrompt === 'unlock') { setHiddenUnlocked(true); setHiddenOpen(true) }
+    else {
+      try {
+        await persistPrefs({ ...prefs, hiddenPassword: null })
+      } catch {
+        setPasswordNote('The password could not be removed')
+        return
+      }
+    }
+    setPasswordPrompt(null)
+    setPasswordDraft(''); setPasswordNote(null)
+  }
+
   const runSync = useCallback(
-    async (cat: LocalCatalogue, active: DesktopSession | null) => {
+    async (cat: LocalCatalogue, active: DesktopSession | null): Promise<boolean> => {
       // Free accounts hold their catalogue locally and nothing else — the
       // server refuses the rows anyway, so the sync is skipped outright.
-      if (!active || active.tier !== 'pro') return
+      if (!active || active.tier !== 'pro') return false
       // An emptied catalogue has nothing to publish — reset rather than
       // leave a prior outcome ("Up to date") showing for zero galleries.
-      if (!cat.galleries.length) { setSyncState('idle'); return }
+      if (!cat.galleries.length) { setSyncState('idle'); return true }
       setSyncState('syncing')
       try {
         const result = await syncDeviceGalleries(base, active.token, cat)
         // The sync belongs to the account that started it — signing out or
         // into another account must not inherit its outcome.
-        if (sessionRef.current?.token !== active.token) return
+        if (sessionRef.current?.token !== active.token) return false
         setSyncState(result.failed === 0 ? 'synced' : result.synced === 0 ? 'failed' : 'partial')
+        // A sibling device's explicit hide PATCHes the mirror directly;
+        // when the source record has made no decision of its own, the
+        // account flag wins and the local record adopts it.
+        if (result.adoptedHidden.length) {
+          const adopted = new Set(result.adoptedHidden)
+          const stamp = new Date().toISOString()
+          const current = catalogueRef.current ?? cat
+          const reconciled: LocalCatalogue = {
+            ...current,
+            galleries: current.galleries.map((gallery) =>
+              adopted.has(gallery.id) && !gallery.hiddenAt ? { ...gallery, hiddenAt: stamp } : gallery),
+          }
+          catalogueRef.current = reconciled
+          setCatalogue(reconciled)
+          await writeCatalogueFile(serializeLocalCatalogue(reconciled)).catch(() => {})
+        }
+        return result.failed === 0
       } catch {
-        if (sessionRef.current?.token !== active.token) return
+        if (sessionRef.current?.token !== active.token) return false
         setSyncState('failed')
+        return false
       }
     },
     [base],
   )
+
+  // The dims backfill runs after the Library is up — catalogues scanned
+  // before the shell reported image dims carry nothing but the 1200×800
+  // render guess, and the picker's matrix cells mis-size off it. Each
+  // attempt is stamped on the record so a folder that yields no dims is
+  // not re-probed on every launch; a manual rescan always can. Results
+  // merge into whatever the catalogue holds at merge time — owner edits
+  // made while a folder scans are never overwritten.
+  const backfillDims = async (cat: LocalCatalogue, avail: Record<string, GalleryAvailability>) => {
+    let current = cat
+    for (;;) {
+      const record = current.galleries.find((gallery) =>
+        !gallery.dimsScannedAt
+        && avail[gallery.id] === 'available'
+        && gallery.items.some((item) => !(item.width && item.height)))
+      if (!record) return
+      const stamp = new Date().toISOString()
+      const fresh: Map<string, LocalGalleryItem> = await scanLocalDirectory(record.rootPath, readDirEntries)
+        .then((scan) => new Map(scan.items.map((item) => [item.id, item])))
+        .catch(() => new Map())
+      // A failed scan still stamps the record — repeating it every launch
+      // buys nothing; the manual rescan remains the repair path.
+      const latest = catalogueRef.current ?? current
+      const next: LocalCatalogue = {
+        ...latest,
+        galleries: latest.galleries.map((gallery) =>
+          gallery.id !== record.id ? gallery : {
+            ...gallery,
+            dimsScannedAt: stamp,
+            items: gallery.items.map((item) => {
+              const seen = fresh.get(item.id)
+              return seen?.width && seen.height && !(item.width && item.height)
+                ? { ...item, width: seen.width, height: seen.height }
+                : item
+            }),
+          }),
+      }
+      catalogueRef.current = next
+      setCatalogue(next)
+      await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+      current = next
+    }
+  }
 
   // Launch: restore session + catalogue, re-grant the runtime scopes for
   // every saved root (both scopes reset each launch), then probe which
@@ -535,6 +754,42 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       let next: LocalCatalogue
       try {
         next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), deviceLabel)
+        const parsedPrefs = parseLibraryPrefs(await readPrefsFile().catch(() => null))
+        // The first Hidden galleries build parked hides in this file, device
+        // — local. The account-wide flags live elsewhere now: migrate each
+        // parked key once, then write the file back holding only the
+        // password gate.
+        if (parsedPrefs.hidden?.length) {
+          let migrated = false
+          // Keys whose migration did not land stay in the file — a missing
+          // session or a failed write would otherwise drop the hide
+          // silently, so they are retried on a later launch.
+          const remaining: string[] = []
+          for (const key of parsedPrefs.hidden) {
+            const sep = key.indexOf(':')
+            const kind = key.slice(0, sep); const id = key.slice(sep + 1)
+            if (kind === 'local') {
+              const record = next.galleries.find((gallery) => gallery.id === id)
+              if (record && !record.hiddenAt) {
+                record.hiddenAt = new Date().toISOString()
+                migrated = true
+              }
+            } else if (kind === 'account' || kind === 'device') {
+              if (!storedSession) { remaining.push(key); continue }
+              const setter = kind === 'account' ? setAccountGalleryHidden : setDeviceGalleryHidden
+              try {
+                await setter(base, storedSession.token, id, true)
+              } catch {
+                remaining.push(key)
+              }
+            }
+          }
+          if (migrated) await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+          const cleaned = { ...parsedPrefs, hidden: remaining }
+          await writePrefsFile(serializeLibraryPrefs(cleaned)).catch(() => {})
+          parsedPrefs.hidden = remaining
+        }
+        setPrefs(parsedPrefs)
       } catch {
         next = newCatalogue(crypto.randomUUID(), deviceLabel)
       }
@@ -550,6 +805,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       setCatalogue(next)
       setAvailability(avail)
       await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+      // The dims backfill is deliberately detached — the Library is already
+      // on screen; folder re-scans must never gate first paint.
+      void backfillDims(next, avail)
       // Pin the ref before the sync starts — its result lands only while
       // the same account holds the session.
       if (storedSession) { sessionRef.current = storedSession; void runSync(next, storedSession) }
@@ -726,14 +984,22 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setAddChecking(false)
   }
 
+  // A manorama gallery link carries the provider share — and the gallery
+  // key — in its # fragment. The decoded share is the real add target for
+  // every step; the key is used locally only and never enters a request.
+  // Links already provider shares (MEGA's own #key included) open verbatim.
+  const galleryAddTarget = (url: string): string =>
+    url.includes('#') ? (encryptedSourceFromGalleryHash(url.slice(url.indexOf('#'))) ?? url) : url
+
   const verifyAddUrl = async (url: string) => {
     if (!session) return
     const seq = ++addVerifySeq.current
     setAddChecking(true)
     try {
-      if (isEncryptedSourceUrl(url)) {
+      const target = galleryAddTarget(url)
+      if (isEncryptedSourceUrl(target)) {
         const { openEncryptedSource } = await import('../../app/lib/encrypted-client')
-        const encrypted = await openEncryptedSource(url)
+        const encrypted = await openEncryptedSource(target)
         const { title } = await encrypted.listing
         if (seq !== addVerifySeq.current) { encrypted.dispose(); return }
         addEncryptedSession.current?.dispose()
@@ -743,7 +1009,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         setAddName((current) => (current.trim() ? current : title))
         return
       }
-      const result = await scanGalleryLink(base, session.token, url)
+      const result = await scanGalleryLink(base, session.token, url.split('#')[0])
       if (seq !== addVerifySeq.current) return
       if (result.status < 200 || result.status >= 300 || !result.scan) {
         setAddVerifiedTitle(null)
@@ -932,15 +1198,20 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setAddError(null)
     setBusy(true)
     try {
+      // The same normalization verification applied — for a manorama
+      // link this is the decoded provider share; for anything else it is
+      // the link itself. The fragment stays in device custody and never
+      // enters the request body.
+      const target = galleryAddTarget(url)
       let body: Record<string, unknown> = {
-        url,
+        url: target.split('#')[0],
         ...(input.name ? { title: input.name } : {}),
         ...(input.caption ? { caption: input.caption } : {}),
       }
-      if (isEncryptedSourceUrl(url)) {
+      if (isEncryptedSourceUrl(target)) {
         const encrypted =
           addEncryptedSession.current ??
-          (await (await import('../../app/lib/encrypted-client')).openEncryptedSource(url))
+          (await (await import('../../app/lib/encrypted-client')).openEncryptedSource(target))
         addEncryptedSession.current = encrypted
         const listing = await encrypted.listing
         body = {
@@ -954,12 +1225,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         }
       }
       const result = await createAccountGallery(base, session.token, body)
-      // The pasted link's fragment is the gallery key — it never reached
-      // the server (the manifest above carries the keyless source). Keep it
+      // The link's fragment is the gallery key — it never reached the
+      // server (the manifest above carries the keyless source). Keep it
       // in this device's custody so the new card opens in-app rather than
       // on a locked web page.
-      if (isEncryptedSourceUrl(url) && result.gallery?.id) {
-        await desktopKeyStore().put(result.gallery.id, url).catch(() => {})
+      if (isEncryptedSourceUrl(target) && result.gallery?.id) {
+        await desktopKeyStore().put(result.gallery.id, target).catch(() => {})
       }
       if (result.status === 409 && result.gallery) {
         await refreshAccountGalleries(session.token)
@@ -1351,7 +1622,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         selection: { owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined },
         fetchOnline: (signal) => fetchAccountGallery(base, owner, gallery.slug, session.token, fetch, signal),
         store: desktopOfflineStore,
-        cachePolicy: streamOnly ? 'stream' : vaultLoadPolicy ?? 'vault',
+        cachePolicy: streamOnly ? 'stream' : vaultLoadPolicy ?? 'stream',
         onProgress: (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
         signal: abort.signal,
         openEncryptedSession: openDesktopEncryptedSession,
@@ -1395,19 +1666,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       })
     } catch (error) {
       if (abort.signal.aborted) return
-      if (error instanceof OfflineGalleryUnavailableError) {
-        // Nothing saved on this Mac and the fetch failed — say why, then
-        // hand the URL to the browser as the last resort it has always been.
-        setNotice('This gallery is not saved on this Mac — connect to open it here.')
-        openExternal(url)
-        return
-      }
-      if (error instanceof EncryptedSourceLockedError || error instanceof EncryptedSourceMismatchError) {
-        // The device holds no usable key — the island's unlock form opens
-        // the gallery in place rather than a browser tab that misreports
-        // the app as a stranger.
+      const sourceProvider = gallery.sourceUrl ? encryptedProviderForUrl(gallery.sourceUrl) : null
+      // A failed open for an encrypted source has two honest surfaces:
+      // the island's unlock form in place, or the browser fallback
+      // carrying the custody fragment so the key rides the link. A Proton
+      // gallery can never render in a browser, so for it the island — or
+      // a plain notice when even the manifest is unreachable — is all
+      // there is to offer.
+      const mountEncryptedIsland = async (): Promise<boolean> => {
         try {
           const { manifest, settings } = await fetchAccountGallery(base, owner, gallery.slug, session.token)
+          if (abort.signal.aborted) return true
           setAccountViewer({
             manifest,
             settings,
@@ -1415,14 +1684,35 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             gallery,
             galleryId: gallery.id,
             edit,
-            encryptedSourceUrl: gallery.sourceUrl ? keylessSourceUrl(gallery.sourceUrl) : undefined,
+            encryptedSourceUrl: gallery.sourceUrl && sourceProvider ? keylessSourceUrl(gallery.sourceUrl) : undefined,
           })
+          return true
         } catch {
-          openExternal(url)
+          return false
+        }
+      }
+      const externalUrl = sourceProvider && gallery.id ? `${url}${galleryHashes[gallery.id] ?? ''}` : url
+      if (error instanceof OfflineGalleryUnavailableError) {
+        // Nothing saved on this Mac and the fetch failed — say why, then
+        // hand the URL to the browser as the last resort it has always been.
+        setNotice('This gallery is not saved on this Mac — connect to open it here.')
+        if (sourceProvider === 'proton') { await mountEncryptedIsland(); return }
+        openExternal(externalUrl)
+        return
+      }
+      if (error instanceof EncryptedSourceLockedError || error instanceof EncryptedSourceMismatchError || sourceProvider === 'proton') {
+        // The device holds no usable key — or a Proton gallery failed some
+        // other way. The island's unlock form opens the gallery in place
+        // rather than a browser tab that misreports the app as a stranger
+        // (for Proton, a tab that could never open the source at all).
+        const mounted = await mountEncryptedIsland()
+        if (!mounted) {
+          if (sourceProvider === 'proton') setNotice('This gallery is not saved on this Mac — connect to open it here.')
+          else openExternal(externalUrl)
         }
         return
       }
-      openExternal(url)
+      openExternal(externalUrl)
     }
   }
 
@@ -1534,6 +1824,68 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     await saveGalleryStreamOnly(next, desktopVaultPersistence).catch(() => {})
   }
 
+  // The local viewer's manifest/settings/edit store must keep stable
+  // identities across island renders: the shared Viewer re-reads
+  // defaultMode whenever `settings` changes identity, so an inline rebuild
+  // would snap every mode choice back to strip on the next unrelated
+  // render. Rebuild only when the catalogue or the open target moves.
+  const localViewerBundle = useMemo(() => {
+    if (!viewerState || !catalogue || accountTier !== 'pro') return null
+    const record = catalogue.galleries.find((gallery) => gallery.id === viewerState.galleryId)
+    if (!record) return null
+    const withDims = (item: LocalGalleryItem): LocalGalleryItem => {
+      const dims = dimsRef.current.get(item.id)
+      return dims ? { ...item, width: dims.w, height: dims.h } : item
+    }
+    const manifest: GalleryManifest = {
+      slug: record.id,
+      title: record.title,
+      caption: '',
+      date: '',
+      images: visibleItemsFor(record).map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
+    }
+    // The picker's Edit mode for locals: same draft the API editor builds
+    // (every item's orderKey, the hidden keys), persisted into the
+    // catalogue instead of PATCHed to the Worker. orderKey is the item id —
+    // the relative path, stable across rescans.
+    const localEditStore = {
+      load: async (): Promise<PickerEditItem[]> => {
+        const hidden = new Set(record.hidden ?? [])
+        return record.items.map((raw) => {
+          const item = withDims(raw)
+          return {
+            id: item.id,
+            orderKey: item.id,
+            width: item.width && item.width > 0 ? item.width : 1200,
+            height: item.height && item.height > 0 ? item.height : 800,
+            src: assetUrl(item.path),
+            preview: assetUrl(item.path),
+            filename: item.name,
+            label: item.name,
+            hidden: hidden.has(item.id),
+          }
+        })
+      },
+      save: async (order: string[], hidden: string[]) => {
+        const byId = new Map(record.items.map((item) => [item.id, item]))
+        const ordered = order.map((id) => byId.get(id)).filter((item): item is LocalGalleryItem => Boolean(item))
+        const inOrder = new Set(order)
+        const items = [...ordered, ...record.items.filter((item) => !inOrder.has(item.id))]
+        const next: LocalCatalogue = {
+          ...catalogue,
+          galleries: catalogue.galleries.map((gallery) =>
+            gallery.id === record.id ? { ...gallery, items, hidden: hidden.length ? hidden : undefined } : gallery
+          ),
+        }
+        // Persist first, like rename/rescan — a failed private-store write
+        // surfaces in the editor instead of pretending the order stuck.
+        await writeCatalogueFile(serializeLocalCatalogue(next))
+        setCatalogue(next)
+      },
+    }
+    return { record, manifest, settings: defaultGallerySettings(manifest), localEditStore }
+  }, [catalogue, viewerState?.galleryId, accountTier])
+
   if (accountViewer) {
     const summary = accountViewer.gallery
     const viewerProps = {
@@ -1625,63 +1977,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // Full-screen viewing: the shared Viewer, fed by manifest items pointing
   // at convertFileSrc URLs. The viewer heals guessed dims to the real
   // natural size on load — nothing is upscaled or re-encoded.
-  const viewableRecord = viewerState && catalogue && accountTier === 'pro'
-    ? catalogue.galleries.find((g) => g.id === viewerState.galleryId)
-    : undefined
-  if (viewableRecord && availability[viewableRecord.id] !== 'unavailable') {
-    const record = viewableRecord
-    const withDims = (item: LocalGalleryItem): LocalGalleryItem => {
-      const dims = dimsRef.current.get(item.id)
-      return dims ? { ...item, width: dims.w, height: dims.h } : item
-    }
-    const manifest: GalleryManifest = {
-      slug: record.id,
-      title: record.title,
-      caption: '',
-      date: '',
-      images: visibleItemsFor(record).map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
-    }
-    const settings = defaultGallerySettings(manifest)
-    // The picker's Edit mode for locals: same draft the API editor builds
-    // (every item's orderKey, the hidden keys), persisted into the
-    // catalogue instead of PATCHed to the Worker. orderKey is the item id —
-    // the relative path, stable across rescans.
-    const localEditStore = {
-      load: async (): Promise<PickerEditItem[]> => {
-        const hidden = new Set(record.hidden ?? [])
-        return record.items.map((raw) => {
-          const item = withDims(raw)
-          return {
-            id: item.id,
-            orderKey: item.id,
-            width: item.width && item.width > 0 ? item.width : 1200,
-            height: item.height && item.height > 0 ? item.height : 800,
-            src: assetUrl(item.path),
-            preview: assetUrl(item.path),
-            filename: item.name,
-            label: item.name,
-            hidden: hidden.has(item.id),
-          }
-        })
-      },
-      save: async (order: string[], hidden: string[]) => {
-        if (!catalogue) throw new Error('The catalogue is not loaded')
-        const byId = new Map(record.items.map((item) => [item.id, item]))
-        const ordered = order.map((id) => byId.get(id)).filter((item): item is LocalGalleryItem => Boolean(item))
-        const inOrder = new Set(order)
-        const items = [...ordered, ...record.items.filter((item) => !inOrder.has(item.id))]
-        const next: LocalCatalogue = {
-          ...catalogue,
-          galleries: catalogue.galleries.map((gallery) =>
-            gallery.id === record.id ? { ...gallery, items, hidden: hidden.length ? hidden : undefined } : gallery
-          ),
-        }
-        // Persist first, like rename/rescan — a failed private-store write
-        // surfaces in the editor instead of pretending the order stuck.
-        await writeCatalogueFile(serializeLocalCatalogue(next))
-        setCatalogue(next)
-      },
-    }
+  if (localViewerBundle && availability[localViewerBundle.record.id] !== 'unavailable') {
+    const { record, manifest, settings, localEditStore } = localViewerBundle
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
@@ -1689,6 +1986,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <Viewer
             key={`${record.id}:${viewerState?.index ?? 0}`}
             slug={record.id}
+            galleryTitle={record.title}
             images={manifest.images}
             settings={settings}
             plate={plate}
@@ -1837,11 +2135,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // identity spaces distinct inside the shared layout.
   const accountLayout = libraryLayout(
     [
-      ...liveAccountGalleries.map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
+      ...liveAccountGalleries.filter((gallery) => !gallery.hiddenAt).map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
       // Free sees no locals anywhere — an ungated pinned local would still
       // surface in "Pinned galleries" after a downgrade even though the
       // Local section is hidden (invariant 12).
-      ...(accountTier === 'pro' ? galleries : []).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
+      ...(accountTier === 'pro' ? galleries : []).filter((record) => !record.hiddenAt).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
     ],
     accountTier,
   )
@@ -1863,12 +2161,27 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     .filter((record): record is LocalGalleryRecord => Boolean(record))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
 
+  // Hidden galleries gather below — the flag is a field on each kind's
+  // record (server row, synced mirror row, catalogue record), not a list
+  // kept on this device.
+  const hiddenAccountGalleries = liveAccountGalleries.filter((g) => g.hiddenAt)
+  const hiddenLocalGalleries = galleries.filter((r) => r.hiddenAt)
+  const hiddenDeviceGalleries = remoteDeviceGalleries.filter((g) => g.hidden)
+  const visibleDeviceGalleries = remoteDeviceGalleries.filter((g) => !g.hidden)
+  const hiddenCount = hiddenAccountGalleries.length + hiddenLocalGalleries.length + hiddenDeviceGalleries.length
+
   // Saved copies are a device fact, not an account fact — a gallery whose
   // account row is gone (removed upstream, or the list never landed) still
-  // owns its vault copy and still opens from it.
-  const savedOnlyGalleries = savedGridGalleries.filter((saved) =>
-    !(saved.owner === (ownerSlug ?? session?.ownerSlug) && (accountGalleries ?? []).some((gallery) => gallery.slug === saved.slug)))
-  const accountNote = galleriesFailed || devicesFailed ? 'Your galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
+  // owns its vault copy and still opens from it. While the account list is
+  // still in flight a saved copy's hidden state is unknowable, though —
+  // it stays out of the visible Library until the row lands. A failed
+  // fetch keeps the vault card: offline ownership wins.
+  const savedOnlyGalleries = savedGridGalleries.filter((saved) => {
+    if (saved.owner !== (ownerSlug ?? session?.ownerSlug)) return true
+    if (accountGalleries === null && !galleriesFailed) return false
+    return !(accountGalleries ?? []).some((gallery) => gallery.slug === saved.slug)
+  })
+  const accountNote = galleriesFailed || devicesFailed ? 'Cloud galleries could not be loaded — this Mac’s catalogue is unaffected.' : null
   const slugNote = slugFailed ? 'Gallery links may open at an older account address — the saved URL name could not be refreshed.' : null
   const retainedCount = (accountGalleries ?? []).filter((g) => g.retention !== 'pipeline').length
   const temporaryCount = (accountGalleries ?? []).filter((g) => g.retention === 'pipeline').length
@@ -1922,7 +2235,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
 
   // The compact form a local gallery takes while unpinned — a cover card in
   // the Local section's grid, the same shape account galleries collapse to
-  // in "Your galleries".
+  // in "Cloud galleries".
   const localCompactCard = (record: LocalGalleryRecord) => {
     const state = availability[record.id] ?? 'available'
     const unavailable = state === 'unavailable'
@@ -1968,6 +2281,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </li>
   }
 
+  const accountCompactCard = (gallery: GallerySummary) => {
+    const title = gallery.title || gallery.slug
+    const galleryUrl = accountGalleryUrl(gallery)
+    const openCard = (event: MouseEvent) => {
+      event.preventDefault()
+      if (event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
+      void openAccountGallery(gallery, 0)
+    }
+    // The cover is the first VISIBLE item — falling back to images[0]
+    // would leak a concealed photograph.
+    const cover = gallery.images.find((image) => !image.hidden)
+    return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
+      <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
+        {cover ? <HeicImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
+          const img = event.currentTarget as HTMLImageElement
+          img.classList.add('is-loaded')
+          // The card takes the thumbnail's own size — the image always
+          // fills it exactly, and a small rendition never stretches into
+          // mush. Stored dims are the placeholder's shape; the decoded
+          // frame owns the real ratio.
+          if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+          const card = img.closest('.lib-compact-card') as HTMLElement | null
+          if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
+        }} onError={stripImgRetry} /> : null}
+      </a>
+      <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
+      <div class="lib-compact-body">
+        <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
+        {isLocked(gallery) ? tempFlag(gallery) : null}
+        {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
+        {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
+          ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
+          : null}
+        <p class="lib-card-sub">
+          {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+          {tempWording(gallery)}
+        </p>
+      </div>
+    </li>
+  }
+
   return (
     // `data-admin-ready` is the shell's own "catalogue restored" signal: the
     // island renders nothing above until the private files have been read, so
@@ -2004,8 +2358,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           {session ? (
             <p class="admin-library-sub">
               You are a manorama <strong>{accountTier === 'pro' ? 'Visionary' : 'Free User'}</strong> hosting{' '}
-              <strong>{retainedCount}</strong> of {retainedLimit} permanent galleries
-              {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}.
+              <strong>{retainedCount}</strong> of {retainedLimit} Cloud galleries
+              {temporaryCount ? <> and <strong>{temporaryCount}</strong> temporary {temporaryCount === 1 ? 'gallery' : 'galleries'}</> : null}
+              {galleries.length ? <> plus <strong>{galleries.length}</strong> Local {galleries.length === 1 ? 'gallery' : 'galleries'} on this device</> : null}.
               {accountTier === 'free' ? <> <a class="admin-upgrade-link" href="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade">Upgrade to Visionary?</a></> : null}
             </p>
           ) : null}
@@ -2054,7 +2409,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         <section class="gallery-list" aria-labelledby="galleries-heading">
           {pinnedStrips.length ? (
             <section aria-labelledby="pinned-galleries-title">
-              <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries</h2>
+              <h2 id="pinned-galleries-title" class="lib-section-title">Pinned galleries <span class="lib-section-count">({pinnedStrips.length})</span></h2>
               <ul class="lib-list">
                 {pinnedStrips.map((entry) => {
                   if (entry.kind === 'local') return localStripCard(entry.record)
@@ -2129,13 +2484,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               </ul>
             </section>
           ) : null}
-          {accountTier === 'pro' && (remoteDeviceGalleries.length || compactLocalGalleries.length) ? (
+          {accountTier === 'pro' && (visibleDeviceGalleries.length || compactLocalGalleries.length) ? (
             <section aria-labelledby="local-galleries-title">
-              <h2 id="local-galleries-title" class="lib-section-title">Local galleries</h2>
+              <h2 id="local-galleries-title" class="lib-section-title">Local galleries <span class="lib-section-count">({visibleDeviceGalleries.length + compactLocalGalleries.length})</span></h2>
               <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
-              {remoteDeviceGalleries.length ? (
+              {visibleDeviceGalleries.length ? (
                 <ul class="lib-list">
-                  {remoteDeviceGalleries.map((gallery) => (
+                  {visibleDeviceGalleries.map((gallery) => (
                     <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
                       <div class="lib-card-head">
                         <span class="lib-card-title">{gallery.title}</span>
@@ -2157,54 +2512,15 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           {compactAccountGalleries.length ? (
             <section aria-labelledby="lib-compact-title">
-              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Your galleries</h2>
+              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactAccountGalleries.length})</span></h2>
               <ul class="lib-compact-grid">
-                {compactAccountGalleries.map((gallery) => {
-                  const title = gallery.title || gallery.slug
-                  const galleryUrl = accountGalleryUrl(gallery)
-                  const openCard = (event: MouseEvent) => {
-                    event.preventDefault()
-                    if (event.metaKey || event.ctrlKey) { openExternal(galleryUrl); return }
-                    void openAccountGallery(gallery, 0)
-                  }
-                  // The cover is the first VISIBLE item — falling back to
-                  // images[0] would leak a concealed photograph.
-                  const cover = gallery.images.find((image) => !image.hidden)
-                  return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-                    <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
-                      {cover ? <HeicImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable={false} style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
-                        const img = event.currentTarget as HTMLImageElement
-                        img.classList.add('is-loaded')
-                        // The card takes the thumbnail's own size — the image
-                        // always fills it exactly, and a small rendition never
-                        // stretches into mush. Stored dims are the placeholder's
-                        // shape; the decoded frame owns the real ratio.
-                        if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-                        const card = img.closest('.lib-compact-card') as HTMLElement | null
-                        if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
-                      }} onError={stripImgRetry} /> : null}
-                    </a>
-                    <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'account', gallery })}>···</button>
-                    <div class="lib-compact-body">
-                      <a class="lib-card-title" href={galleryUrl} onClick={openCard} draggable={false}>{title}{pinGlyph(gallery)}</a>
-                      {isLocked(gallery) ? tempFlag(gallery) : null}
-                      {savedGalleryFor(gallery) ? <p class="desktop-badge-saved">Saved on this Mac</p> : null}
-                      {gallery.id && keyChecked.has(gallery.id) && !galleryHashes[gallery.id] && gallery.manifestVersion === 2
-                        ? <p class="desktop-badge-keyless">Locked — the key is not on this Mac</p>
-                        : null}
-                      <p class="lib-card-sub">
-                        {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-                        {tempWording(gallery)}
-                      </p>
-                    </div>
-                  </li>
-                })}
+                {compactAccountGalleries.map(accountCompactCard)}
               </ul>
             </section>
           ) : null}
           {savedOnlyGalleries.length ? (
             <section aria-labelledby="lib-saved-title">
-              <h2 id="lib-saved-title" class="lib-section-title lib-compact-title">Saved on this Mac</h2>
+              <h2 id="lib-saved-title" class="lib-section-title lib-compact-title">Saved on this Mac <span class="lib-section-count">({savedOnlyGalleries.length})</span></h2>
               <ul class="lib-compact-grid">
                 {savedOnlyGalleries.map((saved) => (
                   <li key={`saved-${saved.galleryId}`} class="lib-compact-card" data-gallery-card={`saved:${saved.galleryId}`}>
@@ -2235,6 +2551,47 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   </li>
                 ))}
               </ul>
+            </section>
+          ) : null}
+          {/* Existing hides stay recoverable on any tier — a downgrade
+              must not strand galleries behind a Pro gate that no longer
+              applies. */}
+          {hiddenCount ? (
+            <section aria-labelledby="lib-hidden-title" class="lib-hidden-section">
+              <button
+                type="button"
+                id="lib-hidden-title"
+                class="lib-section-title lib-compact-title lib-hidden-toggle"
+                aria-expanded={hiddenOpen}
+                onClick={toggleHiddenSection}
+              >
+                <span class="lib-hidden-chevron" aria-hidden="true">{hiddenOpen ? '▾' : '▸'}</span>
+                Hidden galleries
+                <span class="lib-hidden-count">({hiddenCount})</span>
+              </button>
+              {hiddenOpen ? (
+                <>
+                  <ul class="lib-compact-grid">
+                    {hiddenAccountGalleries.map(accountCompactCard)}
+                    {hiddenLocalGalleries.map(localCompactCard)}
+                  </ul>
+                  {hiddenDeviceGalleries.length ? (
+                    <ul class="lib-list">
+                      {hiddenDeviceGalleries.map((gallery) => (
+                        <li key={`device-${gallery.id}`}><article class="lib-card" data-gallery-card={`device:${gallery.id}`}>
+                          <div class="lib-card-head">
+                            <span class="lib-card-title">{gallery.title}</span>
+                            <button type="button" class="lib-card-menu" aria-label={`${gallery.title} actions`} aria-haspopup="dialog" onClick={() => setCardMenu({ kind: 'device', gallery })}>···</button>
+                          </div>
+                          <p class="lib-card-sub">
+                            {gallery.itemCount} {gallery.itemCount === 1 ? 'photograph' : 'photographs'} · {gallery.deviceLabel} · synced — open it on that device
+                          </p>
+                        </article></li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : null}
             </section>
           ) : null}
           {!galleries.length && !accountGalleries?.length && !remoteDeviceGalleries.length ? (
@@ -2342,6 +2699,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {/* The pin moves the card between "Pinned galleries" and the
                   compact list — a display choice, never permanence. */}
               <button type="button" disabled={busy} onClick={() => { void togglePin(cardMenu.gallery) }}>{cardMenu.gallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              {accountTier === 'pro' ? (
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hiddenAt) }}>
+                  {cardMenu.gallery.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
+                </button>
+              ) : null}
               <button type="button" onClick={() => { setShareGallery(cardMenu.gallery); setCardMenu(null) }}>Share link</button>
               {/* The gallery's own Settings — the same panel the viewer's
                   Settings popover hosts, so the owner edits in place. */}
@@ -2383,6 +2745,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               )}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : cardMenu.kind === 'device' ? (<>
+              {accountTier === 'pro' ? (
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hidden) }}>
+                  {cardMenu.gallery.hidden ? 'Unhide gallery' : 'Hide this gallery'}
+                </button>
+              ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               {/* The same verbs the account menu carries, in the same order —
@@ -2390,6 +2757,11 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   Open folder is the local's Open source, and Save is absent
                   because a local is already on this Mac. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
+              {accountTier === 'pro' ? (
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.record.hiddenAt) }}>
+                  {cardMenu.record.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
+                </button>
+              ) : null}
               {publishedUrlFor(cardMenu.record) ? (
                 <button type="button" disabled={busy} onClick={() => { void shareLocalLink(cardMenu.record, publishedUrlFor(cardMenu.record)!) }}>Share link</button>
               ) : (
@@ -2415,6 +2787,48 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             </>)}
           </div>
           )}
+        </Sheet>
+      ) : null}
+      {passwordPrompt ? (
+        <Sheet
+          open
+          onClose={() => { setPasswordPrompt(null); setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null) }}
+          title={passwordPrompt === 'set' ? 'Protect hidden galleries' : passwordPrompt === 'disable' ? 'Remove password' : 'Hidden galleries'}
+        >
+          <div class="lib-menu">
+            <p>
+              {passwordPrompt === 'set'
+                ? 'Choose a password. Opening the Hidden galleries section will ask for it.'
+                : passwordPrompt === 'disable'
+                  ? 'Enter the current password to remove protection.'
+                  : 'Enter the hidden-galleries password to open this section.'}
+            </p>
+            <input
+              type="password"
+              class="lib-menu-input"
+              value={passwordDraft}
+              placeholder={passwordPrompt === 'set' ? 'New password' : 'Password'}
+              aria-label={passwordPrompt === 'set' ? 'New password' : 'Password'}
+              onInput={(event: Event) => setPasswordDraft((event.target as HTMLInputElement).value)}
+              onKeyDown={(event: KeyboardEvent) => { if (event.key === 'Enter' && passwordPrompt !== 'set') void submitPasswordPrompt() }}
+            />
+            {passwordPrompt === 'set' ? (
+              <input
+                type="password"
+                class="lib-menu-input"
+                value={passwordDraft2}
+                placeholder="Repeat password"
+                aria-label="Repeat password"
+                onInput={(event: Event) => setPasswordDraft2((event.target as HTMLInputElement).value)}
+                onKeyDown={(event: KeyboardEvent) => { if (event.key === 'Enter') void submitPasswordPrompt() }}
+              />
+            ) : null}
+            {passwordNote ? <p class="m-note" role="alert">{passwordNote}</p> : null}
+            <button type="button" onClick={() => void submitPasswordPrompt()}>
+              {passwordPrompt === 'set' ? 'Set password' : passwordPrompt === 'disable' ? 'Remove password' : 'Open'}
+            </button>
+            <button type="button" onClick={() => { setPasswordPrompt(null); setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null) }}>Cancel</button>
+          </div>
         </Sheet>
       ) : null}
       {shareGallery ? (
@@ -2498,6 +2912,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             retainedLimit={retainedLimit}
             temporaryCount={temporaryCount}
             localCount={galleries.length + remoteDeviceGalleries.length}
+            hiddenCount={hiddenCount}
             upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
             theme={theme}
             onTheme={setTheme}
@@ -2540,6 +2955,25 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                       <p class="m-note m-panel-note">
                         Sends each local gallery's title and photograph count — never the photographs — so
                         your other devices can list this Mac's folders.
+                      </p>
+                      <ActionRow
+                        label="Hidden galleries"
+                        value={hiddenPasswordSet ? 'Password protected' : 'Open to anyone'}
+                        control={(
+                          <Button
+                            variant="quiet"
+                            onClick={() => {
+                              setPasswordPrompt(hiddenPasswordSet ? 'disable' : 'set')
+                              setPasswordDraft(''); setPasswordDraft2(''); setPasswordNote(null)
+                            }}
+                          >
+                            {hiddenPasswordSet ? 'Remove password' : 'Set a password'}
+                          </Button>
+                        )}
+                      />
+                      <p class="m-note m-panel-note">
+                        Any gallery's ··· menu can hide it out of the Library. The password gates
+                        opening that section — a screen-privacy barrier, not encryption.
                       </p>
                     </>
                   ) : null}

@@ -7,6 +7,9 @@ export type DeviceGalleryInput = {
   deviceId: string
   deviceLabel: string
   publicGallerySlug?: string
+  /** The source device's own hidden flag — a mirror hides wherever the
+   *  account lists it, matching the account-wide hide on cloud galleries. */
+  hidden?: boolean
 }
 
 export type DeviceGallery = DeviceGalleryInput & { id: string; updatedAt: string }
@@ -17,7 +20,7 @@ export const MAX_GALLERY_TITLE_LENGTH = 120
 export const parseDeviceGalleryInput = (value: unknown): DeviceGalleryInput | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const body = value as Record<string, unknown>
-  const allowed = new Set(['title', 'sourceKind', 'itemCount', 'deviceId', 'deviceLabel', 'publicGallerySlug'])
+  const allowed = new Set(['title', 'sourceKind', 'itemCount', 'deviceId', 'deviceLabel', 'publicGallerySlug', 'hidden'])
   if (Object.keys(body).some((key) => !allowed.has(key))) return null
   if (typeof body.title !== 'string' || !body.title.trim() || body.title.trim().length > MAX_GALLERY_TITLE_LENGTH) return null
   if (body.sourceKind !== 'folder' && body.sourceKind !== 'card') return null
@@ -25,5 +28,6 @@ export const parseDeviceGalleryInput = (value: unknown): DeviceGalleryInput | nu
   if (typeof body.deviceId !== 'string' || !DEVICE_GALLERY_ID_PATTERN.test(body.deviceId)) return null
   if (typeof body.deviceLabel !== 'string' || !body.deviceLabel.trim() || body.deviceLabel.trim().length > 80) return null
   if (body.publicGallerySlug !== undefined && (typeof body.publicGallerySlug !== 'string' || body.publicGallerySlug.length > 48 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(body.publicGallerySlug))) return null
-  return { title: body.title.trim(), sourceKind: body.sourceKind, itemCount: body.itemCount, deviceId: body.deviceId, deviceLabel: body.deviceLabel.trim(), ...(typeof body.publicGallerySlug === 'string' ? { publicGallerySlug: body.publicGallerySlug } : {}) }
+  if (body.hidden !== undefined && typeof body.hidden !== 'boolean') return null
+  return { title: body.title.trim(), sourceKind: body.sourceKind, itemCount: body.itemCount, deviceId: body.deviceId, deviceLabel: body.deviceLabel.trim(), ...(typeof body.publicGallerySlug === 'string' ? { publicGallerySlug: body.publicGallerySlug } : {}), ...(typeof body.hidden === 'boolean' ? { hidden: body.hidden } : {}) }
 }

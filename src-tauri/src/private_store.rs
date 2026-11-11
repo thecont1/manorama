@@ -18,7 +18,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 /// `providers.json` holds refresh tokens for Dropbox/Drive upload access —
 /// more sensitive than the session file and stored at the same 0600 mode.
 /// A keychain plugin is the documented upgrade path for both.
-const PRIVATE_FILES: &[&str] = &["session.json", "catalogue.json", "providers.json"];
+const PRIVATE_FILES: &[&str] = &["session.json", "catalogue.json", "providers.json", "library-prefs.json"];
 
 /// Provenance for filesystem scopes — which directories actually came out
 /// of the picker. Deliberately NOT in PRIVATE_FILES: the renderer can write

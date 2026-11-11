@@ -38,6 +38,10 @@ export type GalleryRecord = GalleryManifest & {
   retention?: GalleryRetention
   expiresAt?: string | null
   pinnedAt?: string | null
+  /** The Library-concealment timestamp — a display choice like the pin,
+   *  but account-wide: every device and the web Library hide the gallery
+   *  until it is cleared. Never touches retention or expiry. */
+  hiddenAt?: string | null
   keyRetiredAt?: string | null
   migrationDevices?: string[]
 }
@@ -55,6 +59,7 @@ type GalleryRow = {
   retention: string | null
   expires_at: string | null
   pinned_at: string | null
+  hidden_at: string | null
   key_retired_at: string | null
   migration_devices: string | null
 }
@@ -83,6 +88,7 @@ const normalizeRecord = (gallery: GalleryRecord): GalleryRecord => ({
   retention: retentionOf(gallery),
   expiresAt: gallery.expiresAt ?? null,
   pinnedAt: gallery.pinnedAt ?? null,
+  hiddenAt: gallery.hiddenAt ?? null,
   keyRetiredAt: gallery.keyRetiredAt ?? null,
   migrationDevices: gallery.migrationDevices ?? [],
 })
@@ -101,6 +107,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
     retention: row.retention === 'pipeline' ? 'pipeline' : 'retained',
     expiresAt: row.expires_at ?? null,
     pinnedAt: row.pinned_at ?? null,
+    hiddenAt: row.hidden_at ?? null,
     keyRetiredAt: row.key_retired_at ?? null,
     migrationDevices: JSON.parse(row.migration_devices || '[]') as string[],
     images: [],
@@ -116,7 +123,7 @@ const rowToRecord = (row: GalleryRow | null): GalleryRecord | null => {
   return gallery
 }
 
-const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, key_retired_at, migration_devices'
+const GALLERY_COLUMNS = 'id, manifest_version, slug, title, caption, date, source_url, images_json, created_at, retention, expires_at, pinned_at, hidden_at, key_retired_at, migration_devices'
 
 type GalleryInsertRow = {
   id: string
@@ -467,6 +474,26 @@ export const setGalleryPinned = async (ownerId: string, slug: string, pinned: bo
   return updated
 }
 
+/** Sets or clears the hidden timestamp — the Library's declutter/privacy
+ *  flag. Account-wide like the pin (every device and the web Library honor
+ *  it), and like the pin it never touches retention, expiry, or images. */
+export const setGalleryHidden = async (ownerId: string, slug: string, hidden: boolean, env?: GalleryEnv): Promise<GalleryRecord | null> => {
+  const hiddenAt = hidden ? new Date().toISOString() : null
+  if (d1Configured(env)) {
+    const result = await env.DB
+      .prepare(`UPDATE galleries SET hidden_at = ? WHERE owner_id = ? AND slug = ?`)
+      .bind(hiddenAt, ownerId, slug).run()
+    if ((result.meta.changes ?? 0) === 0) return null
+    return getGallery(ownerId, slug, env)
+  }
+  const store = ownerStore(ownerId)
+  const current = store.get(slug)
+  if (!current) return null
+  const updated = { ...normalizeRecord(current), hiddenAt }
+  store.set(slug, updated)
+  return updated
+}
+
 /** Promotes a pipeline gallery into a permanent slot on its own — used
  *  when the owner's permanent set has room and no swap is needed. The
  *  slot check rides inside the same UPDATE (a count-and-write pre-check
@@ -766,7 +793,7 @@ export const toSummary = (gallery: GalleryRecord) => {
   // vault's "Saving n of imageCount" progress reads it.
   const visible = gallery.images.filter((image) => !image.hidden)
   const { stills, videos } = mediaCountOf(visible)
-  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, images: previewImages(gallery.images) }
+  return { id: gallery.id, manifestVersion: gallery.manifestVersion ?? 1, slug: gallery.slug, title: gallery.title, caption: gallery.caption, date: gallery.date, imageCount: gallery.images.length, mediaCount: { stills, videos, hidden: gallery.images.length - visible.length }, sourceUrl: gallery.sourceUrl, createdAt: gallery.createdAt, retention: retentionOf(gallery), expiresAt: gallery.expiresAt ?? null, pinnedAt: gallery.pinnedAt ?? null, hiddenAt: gallery.hiddenAt ?? null, keyRetiredAt: gallery.keyRetiredAt ?? null, images: previewImages(gallery.images) }
 }
 export type GallerySummary = ReturnType<typeof toSummary>
 

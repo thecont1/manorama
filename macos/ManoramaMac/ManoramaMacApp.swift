@@ -65,6 +65,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // One instance, ever — two shells on one container would race the
+        // catalogue, the folder store, the vault key file, and providers.json.
+        // A second launch hands focus to the running app and exits before any
+        // of that state opens.
+        //
+        // A launch may carry `--bundle-id <id>` to probe a different id
+        // than the bundle's own — but only together with isolated
+        // storage (`--store` + `--config`). Without them a fake id would
+        // coexist with the installed app while still sharing the real
+        // container's folders.json et al., so the override is ignored
+        // unless the launch redirected that state. With no effective
+        // override the check probes the real bundle id and detects other
+        // instances as before.
+        let args = CommandLine.arguments
+        let bundleId: String? = {
+            let isolated = args.contains("--store") && args.contains("--config")
+            if isolated, let index = args.firstIndex(of: "--bundle-id"), args.indices.contains(index + 1) {
+                return args[index + 1]
+            }
+            return Bundle.main.bundleIdentifier
+        }()
+        if let bundleId {
+            let others = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleId)
+                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            if let running = others.first {
+                running.unhide()
+                running.activate(options: [.activateAllWindows])
+                NSApp.terminate(nil)
+                return
+            }
+        }
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),

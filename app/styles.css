@@ -541,7 +541,7 @@ button { color: inherit; }
 /* Literal hexes, not --m-* tokens: under html.light those flip dark and the
    curtain must stay dark-themed regardless of the owner theme. */
 .curtain-count { margin: 28px 0 0; font-size: 14px; color: #b8b4ab; }
-.curtain-prompt { margin: 6px 0 0; font-size: 14px; color: #b8b4ab; }
+.curtain-prompt { margin: 6px 0 0; font-size: 14px; font-weight: 300; color: #98948c; }
 .curtain-status { margin: 10px 0 0; font-size: 14px; color: #f3f0e8; }
 /* The merged mark's swash bleeds ~9.2% of its box past the "m" (the
    offset .brand-mark-wrap compensates on the ops surfaces), so the
@@ -1963,6 +1963,14 @@ body:has(.viewer-stage.has-arrow-bar) .m-chrome--bottom { bottom: calc(env(safe-
   font: 600 16px/1 inherit;
   outline: 2px solid rgba(243, 240, 232, .85);
 }
+/* The Library exit rides the curtain's letter column — the logo's ink and
+   the title text share one left edge (curtain padding + the 9.2% swash
+   bleed the copy indents by), so the backlink lands on that same line in
+   veil and raised states alike. */
+.m-chrome--top { padding-left: calc(28px + var(--m-logo-w, 140px) * .092); }
+@media (max-width: 640px) {
+  .m-chrome--top { padding-left: calc(20px + var(--m-logo-w, 140px) * .092); }
+}
 @media (prefers-reduced-motion: reduce) {
   .m-chrome { transition: opacity 200ms ease; transform: none !important; }
 }
@@ -2041,6 +2049,9 @@ a.m-btn { text-decoration: none; }
 .web-settings .m-settings-address input { min-width: 0; }
 .web-settings .m-settings-segmented { padding: 12px; }
 .web-settings .m-settings-delete { display: grid; gap: 16px; padding: 16px; }
+/* The vault card's own sheet look is iOS-only (`native/styles.css`); inside
+   Library settings it spans the column like every ActionGroup. */
+.web-settings .native-vault-card { width: 100%; max-width: none; }
 .web-settings .m-settings-delete > p { margin: 0; color: var(--m-secondary); line-height: 1.5; }
 .web-settings .m-settings-delete > div { display: flex; flex-wrap: wrap; gap: 10px; }
 
@@ -2147,12 +2158,24 @@ button.lib-card-title {
    label — one cover card each, the cover kept at its own ratio so card
    heights vary. The lean payload ships only the cover item for these. */
 /* The two Library sections announce themselves at the same pitch as the
-   page itself — "Your galleries" and "More galleries" are headings in
+   page itself — "Cloud galleries" and "More galleries" are headings in
    the "Library" voice, not captions. */
 .lib-section-title { margin: 0 0 18px; color: rgb(var(--ink)); font-size: 32px; font-weight: 600; letter-spacing: -.03em; }
+/* The count wears the gallery title's own weight — a heading in the
+   Library voice, not a quieter caption. */
+.lib-section-count { font-weight: 650; }
 .gallery-list section + section { margin-top: clamp(44px, 6vw, 72px); }
 /* The section's one-line contract: permanent, strips, downloaded whole. */
 .lib-section-sub { margin: -10px 0 18px; color: rgba(var(--ink), .55); font-size: 13px; }
+
+/* Hidden galleries — a collapsed section at the foot of the Library. The
+   toggle wears the section-title look but is a button, so it resets the
+   button chrome; the chevron and count are quiet by design — the section
+   should read as storage, not a feature billboard. */
+.lib-hidden-toggle { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 0; background: none; border: 0; cursor: pointer; text-align: left; font-family: inherit; }
+.lib-hidden-chevron { font-size: 18px; color: rgba(var(--ink), .5); }
+.lib-hidden-count { font-size: 14px; font-weight: 500; letter-spacing: 0; color: rgba(var(--ink), .45); }
+.lib-menu-input { width: 100%; padding: 10px 12px; border: 1px solid rgba(var(--ink), .18); border-radius: 10px; background: var(--admin-surface, transparent); color: rgb(var(--ink)); font: inherit; }
 
 /* The Free pin-cap chooser: pick a permanent gallery to give up, or the
    plan that lifts the cap. */

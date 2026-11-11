@@ -16,8 +16,12 @@ cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
 APP="macos/ManoramaMac"
-BUILD_DIR="$APP/build"
-BUNDLE_ID="in.thecontrarian.manorama.desktop"
+# Test builds may override the bundle id and output directory — a suite
+# that must coexist with an installed copy needs a REAL distinct
+# CFBundleIdentifier, since AX probes and `tell application id` resolve
+# the bundle's own id, not a launch argument.
+BUILD_DIR="${MANORAMA_MACOS_BUILD_DIR:-$APP/build}"
+BUNDLE_ID="${MANORAMA_MACOS_BUNDLE_ID:-in.thecontrarian.manorama.desktop}"
 
 echo "==> building the Library bundle"
 bunx vite build --config vite.config.desktop-shell.ts
@@ -78,10 +82,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
-      <key>CFBundleURLName</key><string>in.thecontrarian.manorama.desktop</string>
+      <key>CFBundleURLName</key><string>$BUNDLE_ID</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>in.thecontrarian.manorama.desktop</string>
+        <string>$BUNDLE_ID</string>
       </array>
     </dict>
   </array>

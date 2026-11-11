@@ -112,7 +112,7 @@ describe('sync payload hygiene', () => {
     const gallery = cat.galleries[0]!
     const body = deviceGalleryInput(gallery, cat)
     expect(parseDeviceGalleryInput(body)).not.toBeNull()
-    expect(Object.keys(body).sort()).toEqual(['deviceId', 'deviceLabel', 'itemCount', 'sourceKind', 'title'])
+    expect(Object.keys(body).sort()).toEqual(['deviceId', 'deviceLabel', 'hidden', 'itemCount', 'sourceKind', 'title'])
     const serialized = JSON.stringify(body)
     // The strongest form of the contract: nothing from the local record can
     // appear in the payload, even if field names change later.
@@ -166,6 +166,7 @@ describe('sync payload hygiene', () => {
       itemCount: 2,
       deviceId: DEVICE_ID,
       deviceLabel: 'This Mac',
+      hidden: false,
     })
     // The server-side parser is the contract's enforcement point.
     expect(parseDeviceGalleryInput(request.body)).toEqual(request.body)
