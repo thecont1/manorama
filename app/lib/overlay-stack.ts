@@ -23,6 +23,13 @@ const top = () => stack[stack.length - 1]
 
 const exempt = (el: HTMLElement) => el.hasAttribute('data-overlay-exempt')
 
+/** Realm-safe `instanceof HTMLElement` — the element's own document supplies
+ *  the constructor, so foreign-realm nodes and DOM-less globals both work. */
+const isHTMLElement = (el: Element): el is HTMLElement => {
+  const Ctor = el.ownerDocument?.defaultView?.HTMLElement
+  return Ctor ? el instanceof Ctor : el.nodeType === 1
+}
+
 /** Everything except the host and its ancestor chain: all siblings at every
  *  level from the host up to <body>. Works whether the host is a direct body
  *  child (portal-style) or nested inside the app root (inline render). */
@@ -31,7 +38,8 @@ const wantedInert = (host: HTMLElement): Set<HTMLElement> => {
   let node: HTMLElement | null = host
   while (node.parentElement) {
     for (const sib of node.parentElement.children) {
-      if (sib instanceof HTMLElement && sib !== node && !exempt(sib)) wanted.add(sib)
+      if (sib === node || exempt(sib as HTMLElement) || !isHTMLElement(sib)) continue
+      wanted.add(sib)
     }
     node = node.parentElement
   }
@@ -127,7 +135,7 @@ export const pushOverlay = ({ host, onEscape }: { host: HTMLElement; onEscape?: 
     applyInert()
     dropListener()
     const target = entry.returnFocus
-    if (target instanceof HTMLElement && target.isConnected) target.focus()
+    if (target && isHTMLElement(target) && target.isConnected) target.focus()
   }
 }
 
@@ -143,7 +151,7 @@ export const releaseAllOverlays = (): void => {
     const entry = stack.pop()!
     applyInert()
     const target = entry.returnFocus
-    if (target instanceof HTMLElement && target.isConnected) target.focus()
+    if (target && isHTMLElement(target) && target.isConnected) target.focus()
   }
   dropListener()
 }
