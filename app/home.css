@@ -239,6 +239,10 @@ html.home-page body {
   color: var(--home-ink);
 }
 
+/* The menu hangs from the right edge of the header, not from the small
+   "Menu" label: the disclosure is not positioned, so the list finds the
+   sticky header as its containing block and lines up with the page's
+   own margin instead of floating over the headline. */
 .home-nav-menu-list {
   position: absolute;
   right: clamp(20px, 4.5vw, 64px);
@@ -1092,7 +1096,6 @@ table.home-table td {
 
   .home-nav-menu {
     display: block;
-    position: relative;
   }
 
   .home-header-inner {
