@@ -13,7 +13,7 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme,
   const image = ogImage ?? '/og-image.png'
   const absoluteImage = image.startsWith('http') ? image : `${origin}${image}`
   return (
-  <html lang="en">
+  <html lang="en" class={home ? 'home-page' : undefined}>
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
