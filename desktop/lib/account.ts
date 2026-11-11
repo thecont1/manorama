@@ -292,6 +292,44 @@ export const setAccountGalleryPin = async (
   if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be pinned')
 }
 
+/** PATCH {apiBase}/api/galleries/{slug}/hide — the account-wide conceal
+ *  toggle; every Library (this Mac's, other devices', the web's) drops the
+ *  card while it is set. */
+export const setAccountGalleryHidden = async (
+  apiBase: string,
+  token: string,
+  slug: string,
+  hidden: boolean,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/galleries/${encodeURIComponent(slug)}/hide`, {
+    method: 'PATCH',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hidden }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That gallery could not be hidden')
+}
+
+/** PATCH {apiBase}/api/device-galleries/{id} — the same account-wide flag
+ *  for a synced mirror row; the owning device re-asserts its own flag on
+ *  the next sync. */
+export const setDeviceGalleryHidden = async (
+  apiBase: string,
+  token: string,
+  id: string,
+  hidden: boolean,
+  fetcher: typeof fetch = fetch,
+): Promise<void> => {
+  const response = await fetcher(`${normalizeApiBase(apiBase)}/api/device-galleries/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hidden }),
+  })
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  if (!response.ok) throw new AccountApiError(response.status, payload.error || 'That device gallery could not be hidden')
+}
+
 /** POST {apiBase}/api/galleries/{slug}/refresh — the rescan the web card
  *  menu runs. The init comes from refreshRequestInit so encrypted sources
  *  scan on-device and only the keyless listing crosses the wire. */

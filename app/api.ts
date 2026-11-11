@@ -7,7 +7,7 @@ import { fetchDriveFile, fetchDriveThumbnail } from './lib/gdrive-public'
 import { fetchICloudCkImage, fetchICloudCkVideo, fetchICloudImage, fetchICloudVideo, isAlbumToken } from './lib/icloud-shared'
 import { canonicalSourceMatches, scanSource, UNRECOGNIZED_LINK_MESSAGE } from './lib/sources'
 import { localSourcesEnabled, serveLocalMedia } from './lib/local-source'
-import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
+import { createGalleryWithinLimit, deleteGallery, getGallery, getStoredGallery, listGalleries, setGalleryHidden, setGalleryPinned, setGalleryRetained, swapGalleryRetention, toLibrarySummaries, toSummary, updateGalleryHidden, updateGalleryImages, updateGalleryMetadata, updateGalleryOrder, updateGalleryRecord, updateGallerySlug, type GalleryEnv, type GalleryRecord } from './lib/gallery-repository'
 import { assertGalleryEditable, FREE_RETAINED_LIMIT, GalleryPolicyError, isGalleryExpired, PAID_RETAINED_LIMIT, paidGalleryLimitError, pinLimitError, pipelineGalleryLimitError } from './lib/gallery-policy'
 import { createLinkHandoffToken, createSessionToken, requireMasterSession, requireSession, resolveManoramaSession, SESSION_COOKIE, type HonoSessionEnv, verifyNativeHandoffToken } from './lib/session'
 import { deleteAccount, getUserByAccountId, listUsersForAdmin, OwnerSlugError, setUserDisabled, setUserTier, updateOwnerSlug, getUserByOwnerSlug } from './lib/user-repository'
@@ -850,6 +850,27 @@ export const createManoramaApi = () => {
     } catch (error) {
       if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, error.code === 'PIN_LIMIT' ? 409 : 403)
       return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be pinned' }, 422)
+    }
+  })
+
+  /** The hide route mirrors the pin route's separation: concealment is a
+   *  display choice — it removes a card from every Library (and the web
+   *  Library) without touching permanence, expiry, or the gallery itself.
+   *  Account-wide, so any signed-in device can set or clear it. */
+  api.patch('/api/galleries/:slug/hide', async (c) => {
+    const session = c.get('manoramaSession')
+    const payload = await c.req.json<{ hidden?: boolean }>().catch((): { hidden?: boolean } => ({}))
+    const hidden = typeof payload.hidden === 'boolean' ? payload.hidden : undefined
+    if (hidden === undefined) return c.json({ error: 'Provide a hidden state to update' }, 400)
+    try {
+      const stored = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
+      if (!stored || isGalleryExpired(stored)) return c.json({ error: 'That gallery was not found' }, 404)
+      const gallery = await setGalleryHidden(session.accountId, stored.slug, hidden, dbEnv(c))
+      if (!gallery) return c.json({ error: 'That gallery was not found' }, 404)
+      return c.json({ gallery: toSummary(gallery) })
+    } catch (error) {
+      if (error instanceof GalleryPolicyError) return c.json({ code: error.code, error: error.message }, 403)
+      return c.json({ error: error instanceof Error ? error.message : 'That gallery could not be hidden' }, 422)
     }
   })
 

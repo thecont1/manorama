@@ -34,6 +34,9 @@ type Props = {
   /** Pipeline (temporary) galleries — surfaced on every surface that can
    *  count them. Absent surfaces omit the row entirely. */
   temporaryCount?: number
+  /** Hidden galleries are the concealment set across cloud, local, and
+   *  device galleries — only native shells pass this. */
+  hiddenCount?: number
   /** Local galleries are a device concept — only native shells pass this;
    *  the web has no persistence and omits the row (invariant 7). */
   localCount?: number
@@ -129,9 +132,12 @@ export function WebSettings(props: Props) {
 
         <ActionGroup label="Allowance">
           <ActionRow label="Plan" value={props.tier === 'pro' ? 'Visionary' : 'Free User'} chevron={false} />
-          <ActionRow label="Permanent galleries" value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
-          {props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={props.tier === 'pro' ? props.temporaryCount : `${props.temporaryCount} of ${FREE_PIPELINE_LIMIT}`} chevron={false} /> : null}
+          <ActionRow label={props.tier === 'pro' ? 'Cloud galleries' : 'Permanent galleries'} value={`${props.retainedCount} of ${props.retainedLimit}`} chevron={false} />
+          {/* Temporary galleries are a Free concept — Visionary holds every
+              cloud gallery permanently, so the row is noise there. */}
+          {props.tier === 'free' && props.temporaryCount != null ? <ActionRow label="Temporary galleries" value={`${props.temporaryCount} of ${FREE_PIPELINE_LIMIT}`} chevron={false} /> : null}
           {props.localCount != null ? <ActionRow label="Local galleries" value={props.tier === 'pro' ? `${props.localCount} of ∞` : '0 of 0'} chevron={false} /> : null}
+          {props.tier === 'pro' && props.hiddenCount != null ? <ActionRow label="Hidden galleries" value={props.hiddenCount} chevron={false} /> : null}
           {props.tier === 'free' ? <ActionRow label="Upgrade" href={props.upgradeHref} /> : null}
           {props.tier === 'pro' ? (
             <>

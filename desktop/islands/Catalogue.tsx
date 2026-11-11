@@ -33,7 +33,7 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryPin, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -516,7 +516,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }, [])
 
-  const hiddenKeys = new Set(prefs.hidden ?? [])
   const hiddenPasswordSet = Boolean(prefs.hiddenPassword)
 
   const persistPrefs = async (next: LibraryPrefs) => {
@@ -528,12 +527,44 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  const setGalleryHidden = async (key: string, hidden: boolean) => {
-    const next = new Set(hiddenKeys)
-    if (hidden) next.add(key)
-    else next.delete(key)
+  // Hidden galleries are an ACCOUNT-WIDE display choice, unlike the pin's
+  // per-device one: cloud galleries PATCH hidden_at on the row, device
+  // mirrors PATCH hidden on the synced row, and locals write hiddenAt into
+  // the catalogue so the flag rides the next sync. The only device-local
+  // piece is the optional password — it gates opening the section here,
+  // not whether other devices honor the hide.
+  const setGalleryHidden = async (menu: CardMenu, hidden: boolean) => {
+    const hiding = hidden ? new Date().toISOString() : null
     setCardMenu(null)
-    await persistPrefs({ ...prefs, hidden: [...next] })
+    setMenuRemove(false)
+    setBusy(true)
+    try {
+      if (menu.kind === 'account') {
+        if (!session) return
+        await setAccountGalleryHidden(base, session.token, menu.gallery.slug, hidden)
+        await refreshAccountGalleries(session.token)
+      } else if (menu.kind === 'device') {
+        if (!session) return
+        await setDeviceGalleryHidden(base, session.token, menu.gallery.id, hidden)
+        setDeviceRows((current) => current.map((row) => (row.id === menu.gallery.id ? { ...row, hidden } : row)))
+      } else {
+        if (!catalogue) return
+        const next: LocalCatalogue = {
+          ...catalogue,
+          galleries: catalogue.galleries.map((gallery) =>
+            gallery.id === menu.record.id ? { ...gallery, hiddenAt: hiding } : gallery),
+        }
+        await writeCatalogueFile(serializeLocalCatalogue(next))
+        setCatalogue(next)
+        if (session) void runSync(next, session)
+      }
+      const title = menu.kind === 'account' ? menu.gallery.title || menu.gallery.slug : menu.kind === 'device' ? menu.gallery.title : menu.record.title
+      setNotice(hidden ? `“${title}” hidden — find it under Hidden galleries` : `“${title}” is back in the Library`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That gallery could not be hidden')
+    } finally {
+      setBusy(false)
+    }
   }
 
   // The Hidden section opens only after the password clears when one is
@@ -611,7 +642,34 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       let next: LocalCatalogue
       try {
         next = deserializeLocalCatalogue(await readCatalogueFile()) ?? newCatalogue(crypto.randomUUID(), deviceLabel)
-        setPrefs(parseLibraryPrefs(await readPrefsFile().catch(() => null)))
+        const parsedPrefs = parseLibraryPrefs(await readPrefsFile().catch(() => null))
+        // The first Hidden galleries build parked hides in this file, device
+        // — local. The account-wide flags live elsewhere now: migrate each
+        // parked key once, then write the file back holding only the
+        // password gate.
+        if (parsedPrefs.hidden?.length) {
+          let migrated = false
+          for (const key of parsedPrefs.hidden) {
+            const sep = key.indexOf(':')
+            const kind = key.slice(0, sep); const id = key.slice(sep + 1)
+            if (kind === 'local') {
+              const record = next.galleries.find((gallery) => gallery.id === id)
+              if (record && !record.hiddenAt) {
+                record.hiddenAt = new Date().toISOString()
+                migrated = true
+              }
+            } else if (kind === 'account' && storedSession) {
+              void setAccountGalleryHidden(base, storedSession.token, id, true).catch(() => {})
+            } else if (kind === 'device' && storedSession) {
+              void setDeviceGalleryHidden(base, storedSession.token, id, true).catch(() => {})
+            }
+          }
+          if (migrated) await writeCatalogueFile(serializeLocalCatalogue(next)).catch(() => {})
+          const cleaned = { ...parsedPrefs, hidden: [] }
+          await writePrefsFile(serializeLibraryPrefs(cleaned)).catch(() => {})
+          parsedPrefs.hidden = []
+        }
+        setPrefs(parsedPrefs)
       } catch {
         next = newCatalogue(crypto.randomUUID(), deviceLabel)
       }
@@ -1944,12 +2002,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // identity spaces distinct inside the shared layout.
   const accountLayout = libraryLayout(
     [
-      ...liveAccountGalleries.map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
+      ...liveAccountGalleries.filter((gallery) => !gallery.hiddenAt).map((gallery) => ({ slug: `account:${gallery.slug}`, pinnedAt: gallery.pinnedAt })),
       // Free sees no locals anywhere — an ungated pinned local would still
       // surface in "Pinned galleries" after a downgrade even though the
       // Local section is hidden (invariant 12).
-      ...(accountTier === 'pro' ? galleries : []).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
-    ].filter((entry) => !hiddenKeys.has(entry.slug)),
+      ...(accountTier === 'pro' ? galleries : []).filter((record) => !record.hiddenAt).map((record) => ({ slug: `local:${record.id}`, pinnedAt: record.pinnedAt })),
+    ],
     accountTier,
   )
   const accountBySlug = new Map(liveAccountGalleries.map((gallery) => [`account:${gallery.slug}`, gallery]))
@@ -1970,13 +2028,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     .filter((record): record is LocalGalleryRecord => Boolean(record))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
 
-  // Hidden galleries resolve through the same namespaced keys the layout
-  // uses. A key whose gallery no longer exists stays parked — unhiding a
-  // stale key is harmless and the entry simply doesn't render.
-  const hiddenAccountGalleries = liveAccountGalleries.filter((g) => hiddenKeys.has(`account:${g.slug}`))
-  const hiddenLocalGalleries = galleries.filter((r) => hiddenKeys.has(`local:${r.id}`))
-  const hiddenDeviceGalleries = remoteDeviceGalleries.filter((g) => hiddenKeys.has(`device:${g.id}`))
-  const visibleDeviceGalleries = remoteDeviceGalleries.filter((g) => !hiddenKeys.has(`device:${g.id}`))
+  // Hidden galleries gather below — the flag is a field on each kind's
+  // record (server row, synced mirror row, catalogue record), not a list
+  // kept on this device.
+  const hiddenAccountGalleries = liveAccountGalleries.filter((g) => g.hiddenAt)
+  const hiddenLocalGalleries = galleries.filter((r) => r.hiddenAt)
+  const hiddenDeviceGalleries = remoteDeviceGalleries.filter((g) => g.hidden)
+  const visibleDeviceGalleries = remoteDeviceGalleries.filter((g) => !g.hidden)
   const hiddenCount = hiddenAccountGalleries.length + hiddenLocalGalleries.length + hiddenDeviceGalleries.length
 
   // Saved copies are a device fact, not an account fact — a gallery whose
@@ -2499,8 +2557,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   compact list — a display choice, never permanence. */}
               <button type="button" disabled={busy} onClick={() => { void togglePin(cardMenu.gallery) }}>{cardMenu.gallery.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               {accountTier === 'pro' ? (
-                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(`account:${cardMenu.gallery.slug}`, !hiddenKeys.has(`account:${cardMenu.gallery.slug}`)) }}>
-                  {hiddenKeys.has(`account:${cardMenu.gallery.slug}`) ? 'Unhide gallery' : 'Hide this gallery'}
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hiddenAt) }}>
+                  {cardMenu.gallery.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
                 </button>
               ) : null}
               <button type="button" onClick={() => { setShareGallery(cardMenu.gallery); setCardMenu(null) }}>Share link</button>
@@ -2545,8 +2603,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : cardMenu.kind === 'device' ? (<>
               {accountTier === 'pro' ? (
-                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(`device:${cardMenu.gallery.id}`, !hiddenKeys.has(`device:${cardMenu.gallery.id}`)) }}>
-                  {hiddenKeys.has(`device:${cardMenu.gallery.id}`) ? 'Unhide gallery' : 'Hide this gallery'}
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hidden) }}>
+                  {cardMenu.gallery.hidden ? 'Unhide gallery' : 'Hide this gallery'}
                 </button>
               ) : null}
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
@@ -2557,8 +2615,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                   because a local is already on this Mac. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               {accountTier === 'pro' ? (
-                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(`local:${cardMenu.record.id}`, !hiddenKeys.has(`local:${cardMenu.record.id}`)) }}>
-                  {hiddenKeys.has(`local:${cardMenu.record.id}`) ? 'Unhide gallery' : 'Hide this gallery'}
+                <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.record.hiddenAt) }}>
+                  {cardMenu.record.hiddenAt ? 'Unhide gallery' : 'Hide this gallery'}
                 </button>
               ) : null}
               {publishedUrlFor(cardMenu.record) ? (
@@ -2711,6 +2769,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             retainedLimit={retainedLimit}
             temporaryCount={temporaryCount}
             localCount={galleries.length + remoteDeviceGalleries.length}
+            hiddenCount={hiddenCount}
             upgradeHref="mailto:mahesh@thecontrarian.in?subject=Manorama%20upgrade"
             theme={theme}
             onTheme={setTheme}

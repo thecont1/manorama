@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { DEVICE_GALLERY_ID_PATTERN, parseDeviceGalleryInput } from '../packages/core/device-gallery'
-import { deleteDeviceGallery, listDeviceGalleries, putDeviceGallery, type DeviceGalleryEnv } from './lib/device-gallery-repository'
+import { deleteDeviceGallery, listDeviceGalleries, putDeviceGallery, setDeviceGalleryHidden, type DeviceGalleryEnv } from './lib/device-gallery-repository'
 import { getStoredGallery } from './lib/gallery-repository'
 import { isGalleryExpired } from './lib/gallery-policy'
 import { getUserByAccountId } from './lib/user-repository'
@@ -87,6 +87,25 @@ export const createDeviceGalleryApi = () => {
       return c.json({ gallery })
     } catch {
       return c.json({ error: 'That device gallery could not be saved' }, 503)
+    }
+  })
+
+  /** The hide toggle any device on the account can send — the flag lives on
+   *  the row, so hiding a mirror propagates to every device that lists it.
+   *  Open to Free accounts for the same reason DELETE is: cleanup must never
+   *  be gated by a plan that already left. */
+  api.patch('/api/device-galleries/:id', bodyLimit({ maxSize: 2048 }), async (c) => {
+    const session = c.get('manoramaSession')
+    const id = c.req.param('id')
+    if (!DEVICE_GALLERY_ID_PATTERN.test(id)) return c.json({ error: 'That device gallery was not found' }, 404)
+    const payload = await c.req.json<{ hidden?: boolean }>().catch((): { hidden?: boolean } => ({}))
+    if (typeof payload.hidden !== 'boolean') return c.json({ error: 'Provide a hidden state to update' }, 400)
+    try {
+      const updated = await setDeviceGalleryHidden(session.accountId, id, payload.hidden, dbEnv(c))
+      if (!updated) return c.json({ error: 'That device gallery was not found' }, 404)
+      return c.json({ ok: true })
+    } catch {
+      return c.json({ error: 'That device gallery could not be updated' }, 503)
     }
   })
 

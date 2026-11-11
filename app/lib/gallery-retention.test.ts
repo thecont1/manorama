@@ -185,6 +185,7 @@ describe('migration 0002 on a legacy database', () => {
     await applyMigration(db, '0013_gallery_identity_and_manifest_version.sql')
     await applyMigration(db, '0014_encrypted_key_retirement.sql')
     await applyMigration(db, '0015_gallery_key_vault.sql')
+    await applyMigration(db, '0016_gallery_hidden.sql')
   }, 15_000)
 
   afterAll(async () => {

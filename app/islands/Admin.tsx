@@ -899,7 +899,9 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   // Which galleries earn a rail and which collapse to a row is decided by
   // the shared layout rule, recomputed here so a PATCH response carrying a
   // full summary or a missing `layout` field never changes the shape.
-  const layout = libraryLayout(liveGalleries, tier)
+  // A hidden gallery opens by link but never lists — concealment is
+  // account-wide, so the web Library honors the same flag the desktops set.
+  const layout = libraryLayout(liveGalleries.filter((gallery) => !gallery.hiddenAt), tier)
   const bySlug = new Map(liveGalleries.map((gallery) => [gallery.slug, gallery]))
   const stripGalleries = layout.strips.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))

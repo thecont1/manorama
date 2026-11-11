@@ -16,6 +16,7 @@ type DeviceGalleryRow = {
   device_id: string
   device_label: string
   public_gallery_slug: string | null
+  hidden: number
   updated_at: string
 }
 
@@ -30,6 +31,7 @@ const rowToDeviceGallery = (row: DeviceGalleryRow): DeviceGallery => {
     updatedAt: row.updated_at,
   }
   if (row.public_gallery_slug) gallery.publicGallerySlug = row.public_gallery_slug
+  if (row.hidden) gallery.hidden = true
   return gallery
 }
 
@@ -39,7 +41,7 @@ const rowToDeviceGallery = (row: DeviceGalleryRow): DeviceGallery => {
    stored slug (see clearDeviceGalleryLink), so an expired link that stays
    hidden is either re-armed by renewal or dies with its gallery — a new
    gallery reusing the slug cannot inherit it. */
-const DEVICE_GALLERY_SELECT = `SELECT d.id, d.title, d.source_kind, d.item_count, d.device_id, d.device_label,
+const DEVICE_GALLERY_SELECT = `SELECT d.id, d.title, d.source_kind, d.item_count, d.device_id, d.device_label, d.hidden,
   CASE WHEN d.public_gallery_slug IS NOT NULL AND g.slug IS NOT NULL
     AND (g.retention != 'pipeline' OR g.expires_at IS NULL OR g.expires_at > ?)
     THEN d.public_gallery_slug ELSE NULL END AS public_gallery_slug,
@@ -64,8 +66,8 @@ export const putDeviceGallery = async (ownerId: string, id: string, input: Devic
     // PUT omits the field (parseDeviceGalleryInput leaves it undefined →
     // NULL here), and wiping a linked slug would unlink a published
     // gallery every sync. A real slug in the payload still applies.
-    .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, device_label = excluded.device_label, public_gallery_slug = COALESCE(excluded.public_gallery_slug, device_galleries.public_gallery_slug), updated_at = excluded.updated_at')
-    .bind(ownerId, id, input.title, input.sourceKind, input.itemCount, input.deviceId, input.deviceLabel, input.publicGallerySlug ?? null, updatedAt)
+    .prepare('INSERT INTO device_galleries (owner_id, id, title, source_kind, item_count, device_id, device_label, public_gallery_slug, hidden, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_id, id) DO UPDATE SET title = excluded.title, source_kind = excluded.source_kind, item_count = excluded.item_count, device_id = excluded.device_id, device_label = excluded.device_label, public_gallery_slug = COALESCE(excluded.public_gallery_slug, device_galleries.public_gallery_slug), hidden = COALESCE(excluded.hidden, device_galleries.hidden), updated_at = excluded.updated_at')
+    .bind(ownerId, id, input.title, input.sourceKind, input.itemCount, input.deviceId, input.deviceLabel, input.publicGallerySlug ?? null, input.hidden === undefined ? null : (input.hidden ? 1 : 0), updatedAt)
     .run()
   // Answer the stored row, not the input echo — a slug the upsert just
   // preserved belongs in the response too.
@@ -85,6 +87,19 @@ export const clearDeviceGalleryLink = async (db: D1Database, ownerId: string, sl
     .prepare('UPDATE device_galleries SET public_gallery_slug = NULL WHERE owner_id = ? AND public_gallery_slug = ?')
     .bind(ownerId, slug)
     .run()
+}
+
+/** Any device on the account can hide a mirror — the flag lives on the row,
+ *  so hiding propagates to every device that lists it. A source device's own
+ *  sync PUT re-asserts its record's flag, so a hidden source overrides a
+ *  remote unhide on the next sync — the home device stays authoritative. */
+export const setDeviceGalleryHidden = async (ownerId: string, id: string, hidden: boolean, env?: DeviceGalleryEnv): Promise<boolean> => {
+  const db = requireDb(env)
+  const result = await db
+    .prepare('UPDATE device_galleries SET hidden = ? WHERE owner_id = ? AND id = ?')
+    .bind(hidden ? 1 : 0, ownerId, id)
+    .run()
+  return (result.meta.changes ?? 0) > 0
 }
 
 export const deleteDeviceGallery = async (ownerId: string, id: string, env?: DeviceGalleryEnv): Promise<boolean> => {

@@ -36,6 +36,11 @@ export type LocalGalleryRecord = {
    *  the sync projection has no slot for it and other devices keep their
    *  own pinning. */
   pinnedAt?: string | null
+  /** Concealed from the Library, account-wide: the flag rides the sync
+   *  payload so this Mac's other devices hide the mirror too. Clearing it
+   *  restores the card exactly where it was — order, pin, and items never
+   *  moved. */
+  hiddenAt?: string | null
   addedAt: string
   lastSeenAt: string
 }
@@ -97,6 +102,7 @@ const parseRecord = (value: unknown): LocalGalleryRecord | null => {
     items: items as LocalGalleryItem[],
     ...(Array.isArray(record.hidden) ? { hidden: record.hidden.filter((id): id is string => typeof id === 'string') } : {}),
     ...(typeof record.pinnedAt === 'string' && record.pinnedAt ? { pinnedAt: record.pinnedAt } : {}),
+    ...(typeof record.hiddenAt === 'string' && record.hiddenAt ? { hiddenAt: record.hiddenAt } : {}),
     addedAt: typeof record.addedAt === 'string' ? record.addedAt : '',
     lastSeenAt: typeof record.lastSeenAt === 'string' ? record.lastSeenAt : '',
   }
@@ -188,6 +194,9 @@ export const deviceGalleryInput = (
   itemCount: Math.min(record.itemCount, MAX_GALLERY_ITEMS),
   deviceId: catalogue.deviceId,
   deviceLabel: catalogue.deviceLabel,
+  // The hidden flag rides the sync — a hidden local disappears from every
+  // device that lists this mirror, same contract as a cloud gallery.
+  hidden: Boolean(record.hiddenAt),
 })
 
 /** The request descriptor for one record — kept pure so tests can assert

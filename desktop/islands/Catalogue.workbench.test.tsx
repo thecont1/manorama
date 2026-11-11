@@ -1282,11 +1282,13 @@ describe('desktop catalogue workbench', () => {
     // The device group carries the real catalogue state.
     expect(screen.textContent).toContain('Sync now')
     expect(screen.textContent).toContain('title and photograph count')
-    // The plan group names the tiers and all three gallery counts.
+    // The plan group names the tier and the three gallery counts; Temporary
+    // galleries are a Free-tier concept and stay off a Visionary sheet.
     expect(screen.textContent).toContain('Visionary')
-    expect(screen.textContent).toContain('Permanent galleries')
-    expect(screen.textContent).toContain('Temporary galleries')
+    expect(screen.textContent).toContain('Cloud galleries')
+    expect(screen.textContent).toContain('Hidden galleries')
     expect(screen.textContent).toContain('Local galleries')
+    expect(screen.textContent).not.toContain('Temporary galleries')
     // The byline is gone — the About group carries a plain copyright notice.
     expect(screen.textContent).toContain('© 2026 Mahesh Shantaram / thecontrarian.in')
     // Sync feedback appears while the sync runs and reports its outcome —
@@ -1549,8 +1551,14 @@ describe('desktop catalogue workbench', () => {
   })
 
   test('a local gallery hides into the collapsed Hidden galleries section and back', async () => {
+    const puts: { url: string; body: { hidden?: boolean } }[] = []
     const defaultFetch = globals.fetch
-    globals.fetch = (async () => new Response(JSON.stringify({ galleries: [] }), { status: 200 })) as unknown as typeof fetch
+    globals.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      if (String(url).includes('/api/device-galleries') && init?.method === 'PUT') {
+        puts.push({ url: String(url), body: JSON.parse(init.body ?? '{}') })
+      }
+      return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+    }) as unknown as typeof fetch
     try {
       const container = await mount(true)
       const card = () => container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)
@@ -1567,14 +1575,15 @@ describe('desktop catalogue workbench', () => {
       await settle()
 
       // Gone from the Local section, parked in collapsed "Hidden galleries",
-      // and the choice lands in library-prefs.json — not the catalogue.
+      // and the flag lands on the record so the sync carries it to the
+      // account's other devices.
       expect(container.querySelector('#local-galleries-title')).toBeNull()
       expect(hiddenSection()).not.toBeNull()
       expect(hiddenSection()!.querySelector('.lib-hidden-count')?.textContent).toBe('1')
       expect(hiddenSection()!.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).toBeNull()
-      const prefs = JSON.parse(files['library-prefs.json']!) as { hidden: string[] }
-      expect(prefs.hidden).toEqual([`local:${GALLERY_ID}`])
-      expect(JSON.parse(files['catalogue.json']!).galleries[0].hidden).toBeUndefined()
+      const saved = JSON.parse(files['catalogue.json']!) as { galleries: { hiddenAt?: string }[] }
+      expect(saved.galleries[0]!.hiddenAt).toBeTruthy()
+      expect(puts.some((put) => put.body.hidden === true)).toBe(true)
 
       // Expanding the section shows the card; its menu swaps to Unhide.
       hiddenSection()!.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!.click()
@@ -1587,7 +1596,53 @@ describe('desktop catalogue workbench', () => {
 
       expect(hiddenSection()).toBeNull()
       expect(container.querySelector('#local-galleries-title')).not.toBeNull()
-      expect(JSON.parse(files['library-prefs.json']!).hidden).toEqual([])
+      expect(JSON.parse(files['catalogue.json']!).galleries[0].hiddenAt).toBeFalsy()
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('an account gallery hide PATCHes the server flag and the card drops out of Cloud galleries', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    let kashmirHidden = false
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url: String(url), method: init?.method, body: init?.body })
+      if (String(url).includes('/api/galleries/kashmir/hide')) {
+        kashmirHidden = JSON.parse(init?.body ?? '{}').hidden === true
+      }
+      if (String(url).endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({ galleries: [{
+          id: 'g1', manifestVersion: 1, slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+          imageCount: 1, mediaCount: { stills: 1, videos: 0, hidden: 0 },
+          sourceUrl: 'https://www.dropbox.com/scl/fo/x', createdAt: '2026-10-01T00:00:00.000Z',
+          retention: 'retained', expiresAt: null, pinnedAt: null, hiddenAt: kashmirHidden ? '2026-11-09T00:00:00.000Z' : null,
+          images: [{ id: 'a', ref: undefined, filename: 'a.jpg', src: '/img/a.jpg', width: 4000, height: 3000, alt: '', placeholder: '', variants: [{ src: '/img/a-sm.jpg', width: 400, format: 'image/jpeg' }] }],
+        }] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const accountSection = container.querySelector<HTMLElement>('[aria-labelledby="lib-compact-title"]')!
+      expect(accountSection.querySelector(`[data-gallery-card="kashmir"]`)).not.toBeNull()
+
+      accountSection.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
+      await settle()
+      menuItem(container, 'Hide this gallery')!.click()
+      await settle()
+
+      // The PATCH went to the server; the refetch landed the flag and the
+      // card moved to Hidden galleries.
+      const hide = calls.find((call) => call.url.includes('/api/galleries/kashmir/hide'))
+      expect(hide?.method).toBe('PATCH')
+      expect(JSON.parse(hide?.body ?? '{}').hidden).toBe(true)
+      const hiddenSection = container.querySelector<HTMLElement>('.lib-hidden-section')!
+      expect(hiddenSection).not.toBeNull()
+      hiddenSection.querySelector<HTMLButtonElement>('.lib-hidden-toggle')!.click()
+      await settle()
+      expect(hiddenSection.querySelector(`[data-gallery-card="kashmir"]`)).not.toBeNull()
+      expect(container.querySelector('[aria-labelledby="lib-compact-title"] [data-gallery-card="kashmir"]')).toBeNull()
     } finally {
       globals.fetch = defaultFetch
     }

@@ -2041,6 +2041,9 @@ a.m-btn { text-decoration: none; }
 .web-settings .m-settings-address input { min-width: 0; }
 .web-settings .m-settings-segmented { padding: 12px; }
 .web-settings .m-settings-delete { display: grid; gap: 16px; padding: 16px; }
+/* The vault card's own sheet look is iOS-only (`native/styles.css`); inside
+   Library settings it spans the column like every ActionGroup. */
+.web-settings .native-vault-card { width: 100%; max-width: none; }
 .web-settings .m-settings-delete > p { margin: 0; color: var(--m-secondary); line-height: 1.5; }
 .web-settings .m-settings-delete > div { display: flex; flex-wrap: wrap; gap: 10px; }
 
