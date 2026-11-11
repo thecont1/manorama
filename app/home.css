@@ -34,6 +34,27 @@ html {
   scroll-padding-top: var(--home-header-h);
 }
 
+/*
+ * The app shell is a fixed-height surface: `app/styles.css` sets
+ * `body { overflow: hidden }`, because the viewer manages its own
+ * scrolling. The root element's overflow is what the viewport inherits,
+ * and when the root's is `visible` the body's is used instead, so that
+ * one rule stops this page from being scrolled at all. A visitor could
+ * still reach every section with the menu, because an anchor jump
+ * scrolls the document programmatically; the wheel and the trackpad
+ * could not.
+ *
+ * The homepage is a document, so it scrolls like one. This restores that
+ * here, and only here: the stylesheet is loaded on this route alone.
+ */
+html.home-page {
+  overflow: visible;
+}
+
+html.home-page body {
+  overflow: visible;
+}
+
 .home {
   background: var(--home-bg, #0a0a0a);
   color: var(--home-ink);
@@ -934,6 +955,14 @@ table.home-table td {
 
 .home-footer-copy {
   margin: 0;
+}
+
+/* The privacy notice reads as a notice, not as another link row: the
+   measure is the same as the rest of the page's prose. */
+.home-footer-privacy {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--home-ink-muted);
 }
 
 /* ── the entrance ──────────────────────────────────────────────────── */

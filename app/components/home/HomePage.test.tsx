@@ -152,6 +152,23 @@ describe('the pricing section', () => {
   })
 })
 
+describe('the footer', () => {
+  test('carries the copyright and the privacy notice', () => {
+    const html = page()
+    expect(html).toContain('© 2026 Mahesh Shantaram. All platform rights reserved.')
+    // The two things a visitor can be surprised by, in the words the
+    // privacy policy uses: a link is unlisted but not private, and the
+    // photographs stay at the source.
+    expect(html).toContain('anyone with the link can view a gallery')
+    expect(html).toContain('not the photographs')
+    expect(html).toContain('href="/privacy"')
+  })
+
+  test('keeps the founder credit', () => {
+    expect(page()).toContain('Created by documentary photographer Mahesh Shantaram.')
+  })
+})
+
 describe('the surfaces and the sample gallery', () => {
   test('a surface with no published URL renders no link', () => {
     const html = page()

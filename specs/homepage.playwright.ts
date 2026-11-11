@@ -51,6 +51,18 @@ test.describe('the marketing homepage', () => {
     })
   }
 
+  test('the page scrolls with the wheel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    // The app shell sets `body { overflow: hidden }`, and the viewport
+    // inherits it, which leaves this document unsrollable by hand: an
+    // anchor jump still worked, so the menu looked fine while the wheel
+    // did nothing. This is the check that says so out loud.
+    await page.mouse.move(720, 450)
+    await page.mouse.wheel(0, 1200)
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
+  })
+
   test('the access row is in the first fold on a wide screen', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900 },
