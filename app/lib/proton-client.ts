@@ -246,18 +246,30 @@ export const capacitorHttpFetch = (request: CapacitorHttpRequest): typeof fetch 
  *  knows nothing of CORS; runtimes with no DOM (bun, SSR, tests) enforce
  *  none either. A real browser gets the honest refusal up front rather
  *  than a guaranteed opaque fetch failure. */
+
+/** The verdict `protonTransport` enforces, without the throw — UI surfaces
+ *  gate on this to explain the limitation up front instead of letting a
+ *  session attempt end at the refusal. Same three runtimes: native shells
+ *  and non-DOM environments answer true, a real browser false. */
+export const protonTransportAvailable = async (): Promise<boolean> => {
+  if (typeof window === 'undefined') return true
+  const { Capacitor } = await import('@capacitor/core')
+  if (Capacitor.isNativePlatform()) return true
+  return '__TAURI_INTERNALS__' in window
+}
+
 const protonTransport = async (): Promise<typeof fetch> => {
   if (typeof window === 'undefined') return fetch
+  if (!(await protonTransportAvailable())) {
+    throw new SourceFetchError('Proton Drive does not let websites call its API — add this link in the manorama app instead')
+  }
   const { Capacitor, CapacitorHttp } = await import('@capacitor/core')
   if (Capacitor.isNativePlatform()) return capacitorHttpFetch((options) => CapacitorHttp.request(options))
-  if ('__TAURI_INTERNALS__' in window) {
-    // Tauri's http plugin rides reqwest — the same outside-the-WebView
-    // transport CapacitorHttp provides on iOS, so the desktop shell answers
-    // links the browser build must refuse.
-    const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
-    return tauriFetch as unknown as typeof fetch
-  }
-  throw new SourceFetchError('Proton Drive does not let websites call its API — add this link in the manorama app instead')
+  // Tauri's http plugin rides reqwest — the same outside-the-WebView
+  // transport CapacitorHttp provides on iOS, so the desktop shell answers
+  // links the browser build must refuse.
+  const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
+  return tauriFetch as unknown as typeof fetch
 }
 
 export type ProtonScan = { sourceUrl: string; title: string; images: GalleryImage[]; truncated?: number }
@@ -351,7 +363,11 @@ export const openProtonSession = async (input: string, fetchImpl?: typeof fetch)
   // The SRP helpers go through the global CryptoProxy singleton — point it
   // at our main-thread endpoint (the SDK's own integration test wires the
   // Api class the same way; a worker pool would need bundler-worker plumbing
-  // for no benefit on this path).
+  // for no benefit on this path). The singleton survives the session that
+  // set it — dispose flips only a flag — and setEndpoint refuses a second
+  // set with 'already initialised', so a parked or failed session's hold
+  // must be released before a retry can open.
+  try { CryptoProxy.releaseEndpoint() } catch { /* nothing held yet */ }
   CryptoProxy.setEndpoint(cryptoApi)
   const client = new ProtonDriveClient({
     httpClient,
@@ -423,14 +439,24 @@ export const openProtonSession = async (input: string, fetchImpl?: typeof fetch)
       // A FileDownloader holds a download-queue slot until its stream is
       // finished or its signal aborts. The seekable stream locks a reader
       // in its constructor, so stream.cancel() throws "ReadableStream is
-      // locked" — aborting is the only release path. The signal also
-      // bounds the SDK's internal wait for queue capacity.
+      // locked" — aborting is the only release path. The SDK's internal
+      // wait for queue capacity does NOT reliably settle on abort, so the
+      // whole probe races the signal — a parked queue-wait drops out at
+      // the timeout instead of starving every later downloader (viewer
+      // media included) on the same queue.
       const probe = new AbortController()
       const timeout = setTimeout(() => probe.abort(), PROBE_TIMEOUT_MS)
       try {
-        const downloader = await session.getFileDownloader(node.uid, probe.signal)
-        const stream = downloader.getSeekableStream()
-        const { value } = await stream.read(DIMS_PROBE_BYTES)
+        const { value } = await Promise.race([
+          (async () => {
+            const downloader = await session.getFileDownloader(node.uid, probe.signal)
+            const stream = downloader.getSeekableStream()
+            return stream.read(DIMS_PROBE_BYTES)
+          })(),
+          new Promise<never>((_resolve, reject) => {
+            probe.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+          }),
+        ])
         const dims = displayedImageDimensions(value)
         if (dims) return dims
         break
@@ -533,7 +559,17 @@ export const openProtonSession = async (input: string, fetchImpl?: typeof fetch)
     }
   }
 
-  const scan = (async () => scanImages(await collectNodes(session)))()
+  // The scan — listing plus the dims probe pass — exists for manifest
+  // submitters. Viewers materialize off the authed session alone, so the
+  // listing defers until first awaited: an open that only needs media never
+  // pays the probe pass or risks its downloader waits starving first paint.
+  let scanPromise: Promise<ProtonScan> | null = null
+  const scan = {
+    then: <TResult1 = ProtonScan, TResult2 = never>(
+      onFulfilled?: ((value: ProtonScan) => TResult1 | PromiseLike<TResult1>) | null,
+      onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    ) => (scanPromise ??= (async () => scanImages(await collectNodes(session)))()).then(onFulfilled, onRejected),
+  } as Promise<ProtonScan>
 
   return {
     sourceUrl,

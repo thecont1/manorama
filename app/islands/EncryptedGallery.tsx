@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'hono/jsx'
 import Viewer from '../islands/Viewer'
-import { encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
+import { encryptedProviderForUrl, encryptedSourceFromGalleryHash, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import { webGalleryKeyStore, type WebGalleryKeyStore } from '../lib/key-store'
 import { EncryptedMediaResolver, type EncryptedClientSession, type EncryptedListing } from '../lib/encrypted-resolver'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
@@ -66,6 +66,10 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
   const [scan, setScan] = useState<ClientManifest | null>(null)
   const [migration, setMigration] = useState<MigrationState | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  /** A Proton-backed gallery in a real browser — viewing is app-only, so
+   *  the panel explains how rather than offering a form that cannot work. */
+  const [appOnly, setAppOnly] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [attempt, setAttempt] = useState(0)
   const [unlockValue, setUnlockValue] = useState('')
   /** A synced wrapped key waiting on the owner's passphrase — the alternative
@@ -156,8 +160,20 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     setProblem(null)
     setMigration(null)
     setPendingWrapped(null)
+    setAppOnly(false)
     const fragment = encryptedSourceFromGalleryHash(window.location.hash)
     void Promise.resolve(fragment ?? galleryKeys.get(galleryId).catch(() => null)).then(async (stored) => {
+      // Proton's API answers CORS to drive.proton.me alone — in a real
+      // browser every session attempt ends at the same refusal, so the
+      // honest surface is the add-to-Library guidance, not a paste form
+      // for a link this page could never open anyway.
+      if (encryptedProviderForUrl(sourceUrl) === 'proton') {
+        const { protonTransportAvailable } = await import('../lib/proton-client')
+        if (!(await protonTransportAvailable())) {
+          if (live) setAppOnly(true)
+          return
+        }
+      }
       // The keystore read must settle before the legacy fallback applies —
       // a pending promise is truthy, so chaining `?? legacySourceUrl` would
       // never reach it and the owner's migration path would show "locked".
@@ -230,14 +246,41 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
   // locked panel replaces — without this it dead-ends visitors over an
   // unreachable locked panel.
   useEffect(() => {
-    if (!problem) return
+    if (!problem && !appOnly) return
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')
     if (curtain) {
       curtain.classList.remove('fading')
       curtain.hidden = true
     }
     document.body.classList.add('gallery-entered')
-  }, [problem])
+  }, [problem, appOnly])
+
+  if (appOnly) {
+    const copyShareLink = async () => {
+      try {
+        await navigator.clipboard.writeText(window.location.href)
+        setCopyState('copied')
+      } catch {
+        setCopyState('failed')
+      }
+    }
+    return (
+      <section class="encrypted-locked" role="alert" aria-labelledby="encrypted-app-title">
+        <h1 id="encrypted-app-title">This gallery opens in the manorama app</h1>
+        <p>Its photographs are served from Proton Drive, which does not let websites open its shares — only the manorama app can view them.</p>
+        <p>
+          In the app, choose “Add a gallery”, then “A shared cloud link”, and paste the link you were sent — it carries
+          the gallery's key, which never leaves your device. If you do not have a manorama account yet, the app will help
+          you create one.
+        </p>
+        <form onSubmit={(event) => { event.preventDefault(); void copyShareLink() }}>
+          <button class="m-btn m-btn--primary" type="submit">Copy gallery link</button>
+        </form>
+        {copyState === 'copied' ? <p role="status">Link copied — paste it into the app's “A shared cloud link” field.</p> : null}
+        {copyState === 'failed' ? <p role="status">Copy this link into the app: <code>{window.location.href}</code></p> : null}
+      </section>
+    )
+  }
 
   if (problem) {
     const unlock = (event: Event) => {

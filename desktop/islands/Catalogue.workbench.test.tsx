@@ -592,6 +592,78 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
+  test('a Proton-backed gallery open failure stays in-app — the web can never open it', async () => {
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            id: '2b5dee85-7a75-4c48-93ec-ea1869361480', manifestVersion: 2,
+            slug: 'guinea', title: 'guinea', caption: '', date: '',
+            imageCount: 40, sourceUrl: 'https://drive.proton.me/urls/15C18NM2P0',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      // The manifest fetch and every other call fail — the same state that
+      // used to bounce the user into a browser tab that could not render.
+      return new Response('down', { status: 500 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      const title = [...container.querySelectorAll<HTMLElement>('.lib-card-title')]
+        .find((el) => el.textContent === 'guinea')!
+      title.click()
+      await settle()
+      expect(invokeCalls.some((call) => call.command === 'plugin:opener|open_url')).toBe(false)
+      const notes = [...container.querySelectorAll('.desktop-toast-stack .admin-toast')].map((el) => el.textContent)
+      expect(notes.some((text) => text?.includes('not saved on this Mac'))).toBe(true)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
+  test('a failed MEGA gallery open hands the browser the key-bearing link', async () => {
+    const megaSource = 'https://mega.nz/folder/AbCdEfGh#keymaterial'
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/api/account')) return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({
+          galleries: [{
+            id: 'mega-gallery-id', manifestVersion: 2,
+            slug: 'kashmir', title: 'kashmir, in winter', caption: '', date: '',
+            imageCount: 1, sourceUrl: 'https://mega.nz/folder/AbCdEfGh',
+            createdAt: '2026-10-01T00:00:00.000Z', retention: 'retained', expiresAt: null, images: [],
+          }],
+        }), { status: 200 })
+      }
+      return new Response('down', { status: 500 })
+    }) as unknown as typeof fetch
+    try {
+      installTauri(true)
+      // The device holds the key — the fallback link must carry the
+      // custody fragment so the browser opens the gallery, not a lock.
+      vaultKeys.set('manorama.gallery-key.v1.mega-gallery-id', megaSource)
+      const container = dom.document.createElement('div') as unknown as HTMLElement
+      dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
+      render(<Catalogue apiBase="https://manorama.xyz" />, container)
+      await settle()
+      const title = [...container.querySelectorAll<HTMLElement>('.lib-card-title')]
+        .find((el) => el.textContent === 'kashmir, in winter')!
+      title.click()
+      await settle()
+      const opener = invokeCalls.find((call) => call.command === 'plugin:opener|open_url')
+      expect(String(opener?.args?.url)).toContain('https://manorama.xyz/thecontrarian/kashmir#source=')
+      expect(String(opener?.args?.url)).toContain(encodeURIComponent(megaSource))
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
   test('signed out, the desktop shows the welcome chooser', async () => {
     const container = await mount(false)
     expect(container.querySelector('.admin-page')).toBeNull()

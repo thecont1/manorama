@@ -38,7 +38,7 @@ import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
 import { cancelProviderConnect, handleProviderDeepLink } from '../lib/providers/oauth'
-import { galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
+import { encryptedProviderForUrl, galleryHashForSource, isEncryptedSourceUrl, keylessSourceUrl } from '../../packages/core/encrypted-source'
 import type { EncryptedMediaResolver } from '../../app/lib/encrypted-resolver'
 import { SIGN_IN_PROVIDERS } from '../../app/lib/signin'
 import { desktopScreen, showPasteFallback } from '../lib/welcome'
@@ -1568,19 +1568,17 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
       })
     } catch (error) {
       if (abort.signal.aborted) return
-      if (error instanceof OfflineGalleryUnavailableError) {
-        // Nothing saved on this Mac and the fetch failed — say why, then
-        // hand the URL to the browser as the last resort it has always been.
-        setNotice('This gallery is not saved on this Mac — connect to open it here.')
-        openExternal(url)
-        return
-      }
-      if (error instanceof EncryptedSourceLockedError || error instanceof EncryptedSourceMismatchError) {
-        // The device holds no usable key — the island's unlock form opens
-        // the gallery in place rather than a browser tab that misreports
-        // the app as a stranger.
+      const sourceProvider = gallery.sourceUrl ? encryptedProviderForUrl(gallery.sourceUrl) : null
+      // A failed open for an encrypted source has two honest surfaces:
+      // the island's unlock form in place, or the browser fallback
+      // carrying the custody fragment so the key rides the link. A Proton
+      // gallery can never render in a browser, so for it the island — or
+      // a plain notice when even the manifest is unreachable — is all
+      // there is to offer.
+      const mountEncryptedIsland = async (): Promise<boolean> => {
         try {
           const { manifest, settings } = await fetchAccountGallery(base, owner, gallery.slug, session.token)
+          if (abort.signal.aborted) return true
           setAccountViewer({
             manifest,
             settings,
@@ -1588,14 +1586,35 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             gallery,
             galleryId: gallery.id,
             edit,
-            encryptedSourceUrl: gallery.sourceUrl ? keylessSourceUrl(gallery.sourceUrl) : undefined,
+            encryptedSourceUrl: gallery.sourceUrl && sourceProvider ? keylessSourceUrl(gallery.sourceUrl) : undefined,
           })
+          return true
         } catch {
-          openExternal(url)
+          return false
+        }
+      }
+      const externalUrl = sourceProvider && gallery.id ? `${url}${galleryHashes[gallery.id] ?? ''}` : url
+      if (error instanceof OfflineGalleryUnavailableError) {
+        // Nothing saved on this Mac and the fetch failed — say why, then
+        // hand the URL to the browser as the last resort it has always been.
+        setNotice('This gallery is not saved on this Mac — connect to open it here.')
+        if (sourceProvider === 'proton') { await mountEncryptedIsland(); return }
+        openExternal(externalUrl)
+        return
+      }
+      if (error instanceof EncryptedSourceLockedError || error instanceof EncryptedSourceMismatchError || sourceProvider === 'proton') {
+        // The device holds no usable key — or a Proton gallery failed some
+        // other way. The island's unlock form opens the gallery in place
+        // rather than a browser tab that misreports the app as a stranger
+        // (for Proton, a tab that could never open the source at all).
+        const mounted = await mountEncryptedIsland()
+        if (!mounted) {
+          if (sourceProvider === 'proton') setNotice('This gallery is not saved on this Mac — connect to open it here.')
+          else openExternal(externalUrl)
         }
         return
       }
-      openExternal(url)
+      openExternal(externalUrl)
     }
   }
 

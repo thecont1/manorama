@@ -200,6 +200,25 @@ describe('a Proton session over a stubbed SDK', () => {
     expect(noThumb.variants).toBeUndefined()
   })
 
+  test('the listing pass stays idle until scan is first awaited', async () => {
+    // A viewer-only open materializes off the authed session alone — the
+    // folder walk and dims probes must not fire until a manifest submitter
+    // awaits `scan` (a parked probe batch must never starve viewer media).
+    const session = await openSession()
+    let listed = false
+    const original = protonSessionStub.getRootNode
+    protonSessionStub.getRootNode = async () => { listed = true; return original() }
+    try {
+      await session.materialize('with-thumb', true)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(listed).toBe(false)
+      await session.scan
+      expect(listed).toBe(true)
+    } finally {
+      protonSessionStub.getRootNode = original
+    }
+  })
+
   test('a generated thumbnail materializes as the preview', async () => {
     const session = await openSession()
     const preview = await session.materialize('with-thumb', true)
