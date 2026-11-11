@@ -1529,6 +1529,34 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
   }, [])
 
+  // While the curtain is down the raised chrome's Library exit must still
+  // exist — otherwise the veil is a dead end for anyone who followed a
+  // link and wants back. The curtain clone wakes on pointer movement or
+  // focus (a keyboard Tab reaches the curtain first) and tucks away on
+  // the same 3s idle clock the chrome uses; galleryEntered unmounts it so
+  // the real chrome takes over without a seam.
+  const curtainLibraryHref = viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined
+  const hasCurtainLibrary = Boolean(onReturnToGalleries || curtainLibraryHref)
+  const [curtainLibraryShown, setCurtainLibraryShown] = useState(false)
+  useEffect(() => {
+    if (galleryEntered || !hasCurtainLibrary) return
+    let hideTimer: number | undefined
+    const reveal = () => {
+      const curtain = document.querySelector<HTMLElement>('[data-curtain]')
+      if (!curtain || curtain.hidden || curtain.classList.contains('fading')) return
+      setCurtainLibraryShown(true)
+      window.clearTimeout(hideTimer)
+      hideTimer = window.setTimeout(() => setCurtainLibraryShown(false), 3000)
+    }
+    window.addEventListener('pointermove', reveal, { passive: true })
+    window.addEventListener('focusin', reveal)
+    return () => {
+      window.clearTimeout(hideTimer)
+      window.removeEventListener('pointermove', reveal)
+      window.removeEventListener('focusin', reveal)
+    }
+  }, [galleryEntered, hasCurtainLibrary])
+
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
@@ -3004,6 +3032,28 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           ) : null}
         </div>
       </div>
+
+      {/* The curtain's own Library exit — identical chrome chrome, awake
+          while the veil is down and unmounted the moment it lifts. The
+          bar stays pointer-transparent; only the pill is clickable. */}
+      {!galleryEntered && hasCurtainLibrary ? (
+        <header
+          class={`m-chrome m-chrome--top ${curtainLibraryShown && !suspended ? 'is-visible' : ''}`}
+          inert={curtainLibraryShown && !suspended ? undefined : true}
+          aria-hidden={curtainLibraryShown && !suspended ? undefined : 'true'}
+          data-veil-chrome
+        >
+          {curtainLibraryHref ? (
+            <a class="m-chrome-pill" href={curtainLibraryHref} data-chrome-library onClick={(event) => event.stopPropagation()}>
+              <span aria-hidden="true">‹</span> Library
+            </a>
+          ) : (
+            <button type="button" class="m-chrome-pill" data-chrome-library onClick={(event) => { event.stopPropagation(); onReturnToGalleries?.() }}>
+              <span aria-hidden="true">‹</span> Library
+            </button>
+          )}
+        </header>
+      ) : null}
 
       <ViewerChrome
         visible={chromeVisible && !suspended}
