@@ -237,9 +237,11 @@ describe('slug rename contract', () => {
     expect(await response.json()).toEqual({ error: 'That gallery was not found' })
   })
 
-  test('the Admin island sends newSlug when editing the slug', () => {
-    const admin = readFileSync(`${repoRoot}/app/islands/Admin.tsx`, 'utf8')
-    expect(admin).toContain('newSlug')
+  test('the web owner panel sends newSlug when editing the slug', () => {
+    // The Address editor lives in the shared OwnerGalleryPanel the Library
+    // settings sheet hosts — Admin itself no longer carries the field.
+    const panel = readFileSync(`${repoRoot}/app/components/viewer/OwnerGalleryPanel.tsx`, 'utf8')
+    expect(panel).toContain('newSlug')
   })
 })
 

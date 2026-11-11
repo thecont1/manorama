@@ -33,13 +33,17 @@ test('light mode: owner screens and the dark gallery stay readable', async ({ br
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(page.locator('.web-settings')).toHaveCount(0)
 
-    // Details screen: the wordmark goes solid black in Light mode.
+    // Gallery settings sheet: the surface stays readable in Light mode.
     await page.locator('.lib-card-menu').first().click()
-    await page.locator('.lib-menu').getByRole('button', { name: 'Gallery details' }).click()
-    await expect(page.locator('[data-screen="details"]')).toBeVisible()
-    await expect(page.locator('.m-topbar-logo')).toHaveCSS('filter', 'brightness(0)')
-    await page.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect(page.locator('[data-screen="details"]')).toHaveCount(0)
+    await page.locator('.lib-menu').getByRole('button', { name: 'Gallery settings' }).click()
+    const sheet = page.getByRole('dialog', { name: 'Gallery settings' })
+    await expect(sheet).toBeVisible()
+    const sheetEl = await sheet.elementHandle()
+    const ratios = await sheetEl!.evaluate(contrastOf, '.m-sheet-title, .m-actionrow-label, .m-actiongroup-label')
+    expect(ratios.length).toBeGreaterThan(0)
+    for (const r of ratios) expect(r.ratio).toBeGreaterThanOrEqual(4.5)
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(sheet).toHaveCount(0)
 
     // The gallery's canvas follows the owner's theme by default, so pin the
     // album to Dark first — the check below is that the *surfaces* keep

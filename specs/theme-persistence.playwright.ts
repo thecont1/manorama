@@ -41,8 +41,12 @@ const expectTheme = async (page: Surface, expected: { stored: string; control: s
 
 const openPane = async (page: Surface) => {
   await expect(page.locator('[data-admin-ready="true"]')).toBeVisible({ timeout: 15_000 })
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Account', exact: true })).toBeVisible()
+  // The desktop gear opens the same shared WebSettings surface the web
+  // dashboard shows — a full-screen pane, not the retired Account dialog.
+  if (!(await page.locator('.web-settings').isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  }
+  await expect(page.locator('.web-settings')).toBeVisible()
 }
 
 const openWebSettings = async (page: Surface) => {
@@ -105,7 +109,7 @@ test('the macOS shell persists its theme through a reload, on the same key', asy
 
     await expectTheme(page, { stored: 'dark', control: LIGHT_LABEL, light: false })
 
-    await page.getByRole('button', { name: LIGHT_LABEL, exact: true }).click()
+    await page.locator('.web-settings').getByRole('radio', { name: 'Light', exact: true }).click()
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
 
     await page.reload({ waitUntil: 'domcontentloaded' })
@@ -132,7 +136,7 @@ test('both bundles answer to the identical key, class and label', async ({ brows
 
     await page.goto(desktop, { waitUntil: 'domcontentloaded' })
     await openPane(page)
-    await page.getByRole('button', { name: LIGHT_LABEL, exact: true }).click()
+    await page.locator('.web-settings').getByRole('radio', { name: 'Light', exact: true }).click()
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
     const onDesktop = await themeState(page)
 
@@ -169,7 +173,7 @@ test('a theme set on one origin does not silently apply to the other', async ({ 
     await expectTheme(page, { stored: 'dark', control: LIGHT_LABEL, light: false })
 
     // And its own choice does not reach back into the dashboard either.
-    await page.getByRole('button', { name: LIGHT_LABEL, exact: true }).click()
+    await page.locator('.web-settings').getByRole('radio', { name: 'Light', exact: true }).click()
     await expectTheme(page, { stored: 'light', control: DARK_LABEL, light: true })
 
     await page.goto(`${web}/thecontrarian`, { waitUntil: 'domcontentloaded' })

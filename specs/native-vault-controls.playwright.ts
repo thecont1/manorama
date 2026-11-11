@@ -249,7 +249,7 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1376, height: 1032
     await dialog.getByRole('button', { name: 'Close', exact: true }).click()
     const positionBeforeDetails = await page.locator('[data-chrome-position]').textContent()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Manage gallery' }).click()
+    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Gallery settings' }).click()
     const viewerDetails = page.locator('[data-screen="details"]')
     await expect(viewerDetails).toBeVisible()
     const keepCopy = page.getByRole('switch', { name: 'Keep a copy on this device' })

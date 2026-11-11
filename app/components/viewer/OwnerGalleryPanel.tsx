@@ -6,7 +6,7 @@ import type { WebGalleryKeyStore } from '../../lib/key-store'
 import { announce } from '../../lib/announce'
 import { ActionGroup, ActionRow } from '../ui/ActionRow'
 import { Button } from '../ui/Button'
-import { DETAILS_ICONS } from '../GalleryDetailsView'
+import { GALLERY_ROWS } from '../GalleryDetailsView'
 
 /** The web owner's gallery management, inline in the Settings popover —
  *  what "Manage gallery" used to hand off to the dashboard's Details
@@ -45,6 +45,13 @@ export type OwnerGalleryPanelProps = {
   onOpen?: () => void
   /** Reorder stays a dashboard deep-link until Phase B replaces it. */
   onReorder?: () => void
+  /** Account galleries: opens the provider source (the menu's Open source
+   *  logic — encrypted sources resolve their own URL first). */
+  onOpenSource?: () => void
+  /** The host's on-device group — the "On this Mac" ActionGroup with the
+   *  Keep-a-copy switch and saved-copy rows — rendered between the source
+   *  actions and Remove from Library. */
+  deviceGroup?: Child
   /** The on-stage photograph at save time — the rename redirect returns
    *  to it via `?photo=` instead of resetting to the first frame. */
   currentPhotoId: () => string
@@ -63,6 +70,13 @@ export type OwnerGalleryPanelProps = {
   keyStore?: Pick<WebGalleryKeyStore, 'get' | 'put' | 'remove'>
   /** The link the Share row copies — defaults to this origin's address. */
   shareHref?: string
+  /** Set when the link would open locked — a keyless encrypted address.
+   *  The row stays visible but refuses the copy, so a broken link never
+   *  reports "Link copied". */
+  shareDisabled?: boolean
+  /** Why sharing is off — shown beneath the row, the same explanation
+   *  the quick-share sheet gives. */
+  shareNote?: string
   /** Post-rename continuation — defaults to redirecting to the new
    *  address at the same photograph. */
   onRenamed?: (slug: string) => void
@@ -106,6 +120,8 @@ export default function OwnerGalleryPanel({
   upgradeHref,
   onOpen,
   onReorder,
+  onOpenSource,
+  deviceGroup,
   currentPhotoId,
   onTitleSaved,
   onCaptionSaved,
@@ -113,6 +129,8 @@ export default function OwnerGalleryPanel({
   authToken,
   keyStore,
   shareHref,
+  shareDisabled = false,
+  shareNote,
   onRenamed,
   onRefreshed,
   onRemoved,
@@ -229,7 +247,10 @@ export default function OwnerGalleryPanel({
 
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  /** Writes the share address to the clipboard; a keyless encrypted
+   *  link stays uncopied — the row's note explains the locked open. */
   const copyShareLink = () => {
+    if (shareDisabled) return
     void (async () => {
       try {
         await navigator.clipboard.writeText(shareHref ?? `${window.location.origin}/${owner}/${slug}`)
@@ -323,60 +344,65 @@ export default function OwnerGalleryPanel({
       <ActionGroup>
         {onOpen ? (
           <ActionRow
-            label="Open gallery"
-            icon={(
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                <rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/>
-              </svg>
-            )}
+            label={GALLERY_ROWS.open.label}
+            icon={GALLERY_ROWS.open.icon()}
             onClick={onOpen}
           />
         ) : null}
         <ActionRow
-          label={linkCopied ? 'Link copied' : 'Share link'}
-          icon={DETAILS_ICONS.share()}
+          label={linkCopied ? 'Link copied' : GALLERY_ROWS.share.label}
+          icon={GALLERY_ROWS.share.icon()}
           onClick={copyShareLink}
+          disabled={shareDisabled}
         />
       </ActionGroup>
+      {shareDisabled && shareNote ? <p class="m-note" role="alert">{shareNote}</p> : null}
       <ActionGroup>
         {editing === 'name' ? editBlock('Name', (
           <input class="m-input" type="text" aria-label="Name" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
-          <ActionRow label="Name" icon={DETAILS_ICONS.name()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
+          <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={liveTitle} onClick={() => startEdit('name')} disabled={locked} />
         )}
         {/* A present caption reads in full on the head — the row only
             carries the empty state, so nothing ellipsizes. */}
         {editing === 'caption' ? editBlock('Caption', (
           <textarea class="m-input" rows={3} aria-label="Caption" value={draft} maxLength={500} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
-          <ActionRow label="Caption" icon={DETAILS_ICONS.caption()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
+          <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={liveCaption ? undefined : 'None'} onClick={() => startEdit('caption')} disabled={locked} />
         )}
         {editing === 'address' ? editBlock('Address', (
           <input class="m-input" type="text" aria-label="Address" value={draft} maxLength={120} data-owner-edit-field onInput={onDraft} onKeyDown={onFieldKey} />
         )) : (
-          <ActionRow label="Address" value={slug} onClick={() => startEdit('address')} disabled={locked} />
+          <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={`${owner}/${slug}`} onClick={() => startEdit('address')} disabled={locked} />
         )}
-      </ActionGroup>
-      {onReorder ? (
-        <ActionGroup>
+        {onReorder ? (
           <ActionRow
-            label="Reorder photographs"
-            icon={DETAILS_ICONS.reorder()}
+            label={GALLERY_ROWS.reorder.label}
+            icon={GALLERY_ROWS.reorder.icon()}
             value={mediaCount.stills + mediaCount.videos + (mediaCount.hidden ?? 0)}
             onClick={onReorder}
             disabled={locked}
           />
-        </ActionGroup>
-      ) : null}
+        ) : null}
+      </ActionGroup>
       <ActionGroup>
         <ActionRow
-          label={readState === 'busy' ? 'Refreshing…' : 'Refresh gallery contents'}
-          icon={DETAILS_ICONS.refresh()}
+          label={readState === 'busy' ? 'Refreshing…' : GALLERY_ROWS.refresh.label}
+          icon={GALLERY_ROWS.refresh.icon()}
           onClick={readFolderAgain}
           disabled={locked || readState === 'busy'}
         />
+        {onOpenSource ? (
+          <ActionRow
+            label={GALLERY_ROWS.openSource.label}
+            icon={GALLERY_ROWS.openSource.icon()}
+            onClick={onOpenSource}
+            disabled={locked}
+          />
+        ) : null}
       </ActionGroup>
       {readNote ? <p class="m-error" role="alert">{readNote}</p> : null}
+      {deviceGroup}
       <ActionGroup>
         {confirmingRemove ? (
           <div class="m-owner-confirm" role="group" aria-label={`Confirm removal of ${liveTitle}`}>
@@ -389,14 +415,14 @@ export default function OwnerGalleryPanel({
           </div>
         ) : (
           <ActionRow
-            label="Remove gallery"
-            icon={DETAILS_ICONS.remove()}
+            label={GALLERY_ROWS.remove.label}
+            icon={GALLERY_ROWS.remove.icon()}
             tone="destructive"
+            value={`Photographs stay in ${sourceLabel}`}
             onClick={() => { setConfirmingRemove(true); setRemoveNote(null) }}
           />
         )}
       </ActionGroup>
-      <p class="m-owner-panel-note">Removing it leaves every photograph in {sourceLabel}.</p>
     </div>
   )
 }

@@ -3,6 +3,7 @@ import GalleryEditSheet from '../../app/components/GalleryEditSheet'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Button } from '../../app/components/ui/Button'
 import { Sheet } from '../../app/components/ui/Sheet'
+import { GALLERY_ROWS } from '../../app/components/GalleryDetailsView'
 import type { GalleryAvailability, LocalGalleryRecord } from '../lib/catalogue'
 
 /** The only operations that can be in flight; one at a time. */
@@ -25,6 +26,9 @@ type Props = {
   onRescan: () => void | Promise<void>
   onRename: (title: string) => void | Promise<void>
   onRemove: () => void | Promise<void>
+  /** Opens the gallery's folder on this Mac — the local counterpart of an
+   *  account gallery's "Open source". */
+  onRevealFolder?: () => void
 }
 
 /** The source is named by kind — the path itself is local-only and never
@@ -55,6 +59,7 @@ export default function LocalGalleryDetails({
   onRescan,
   onRename,
   onRemove,
+  onRevealFolder,
 }: Props) {
   const unavailable = availability === 'unavailable'
   const [editing, setEditing] = useState(false)
@@ -133,44 +138,83 @@ export default function LocalGalleryDetails({
         <p class="m-owner-panel-meta">
           {record.itemCount} {record.itemCount === 1 ? 'photograph' : 'photographs'} · {sourceLabel(record)}
         </p>
-        <p class="m-note" role="status" data-availability={availability}>
-          {unavailable ? 'Unavailable — reconnect the source, then rescan.' : 'Source available'}
-        </p>
+        {unavailable ? (
+          <p class="m-note" role="status" data-availability={availability}>
+            Unavailable — reconnect the source, then rescan.
+          </p>
+        ) : null}
       </header>
 
-      <ActionGroup label="Open">
-        <ActionRow label="Open gallery" onClick={onOpen} disabled={unavailable || locked} />
+      <ActionGroup>
+        <ActionRow
+          label={GALLERY_ROWS.open.label}
+          icon={GALLERY_ROWS.open.icon()}
+          onClick={onOpen}
+          disabled={unavailable || locked}
+        />
         {/* Publish means uploading originals to create the public gallery;
             once a usable link exists the action is sharing that link, not
             publishing again. */}
         {publishedUrl && onShareLink ? (
           <ActionRow
-            label="Share link"
+            label={GALLERY_ROWS.share.label}
+            icon={GALLERY_ROWS.share.icon()}
             value={`…/${publishedUrl.split('/').at(-1)}`}
             onClick={() => void shareLink()}
             disabled={locked}
           />
         ) : (
-          <ActionRow label="Publish" onClick={onShare} disabled={unavailable || locked} />
+          <ActionRow
+            label={GALLERY_ROWS.publish.label}
+            icon={GALLERY_ROWS.publish.icon()}
+            onClick={onShare}
+            disabled={unavailable || locked}
+          />
         )}
       </ActionGroup>
 
-      <ActionGroup label="Gallery">
-        <ActionRow label="Name" value={record.title} onClick={startRename} disabled={locked} />
-        <ActionRow label="Refresh gallery contents" onClick={() => void rescan()} disabled={locked} />
+      <ActionGroup>
+        <ActionRow
+          label={GALLERY_ROWS.name.label}
+          icon={GALLERY_ROWS.name.icon()}
+          value={record.title}
+          onClick={startRename}
+          disabled={locked}
+        />
+        {onReorder ? (
+          <ActionRow
+            label={GALLERY_ROWS.reorder.label}
+            icon={GALLERY_ROWS.reorder.icon()}
+            value={record.itemCount}
+            onClick={onReorder}
+            disabled={unavailable || locked}
+          />
+        ) : null}
       </ActionGroup>
 
-      {onReorder ? (
-        <ActionGroup>
-          <ActionRow label="Reorder photographs" onClick={onReorder} disabled={unavailable || locked} />
-        </ActionGroup>
-      ) : null}
+      <ActionGroup>
+        <ActionRow
+          label={GALLERY_ROWS.refresh.label}
+          icon={GALLERY_ROWS.refresh.icon()}
+          onClick={() => void rescan()}
+          disabled={locked}
+        />
+        {onRevealFolder ? (
+          <ActionRow
+            label={GALLERY_ROWS.openFolder.label}
+            icon={GALLERY_ROWS.openFolder.icon()}
+            onClick={onRevealFolder}
+            disabled={locked}
+          />
+        ) : null}
+      </ActionGroup>
 
       {note ? <p class="m-note" role="status">{note}</p> : null}
 
-      <ActionGroup label="Remove">
+      <ActionGroup>
         <ActionRow
-          label="Remove from Library"
+          label={GALLERY_ROWS.remove.label}
+          icon={GALLERY_ROWS.remove.icon()}
           value="Originals stay on this Mac"
           tone="destructive"
           onClick={() => setConfirmingRemove(true)}

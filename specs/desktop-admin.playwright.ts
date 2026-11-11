@@ -260,29 +260,27 @@ test('desktop admin details: Library → Details → share sheet, both themes, c
         await expect(dialog).toBeHidden()
       }
 
-      // Library → Details through the card's ··· menu → Gallery details.
+      // Library → Gallery settings through the card's ··· menu.
       const card = page.locator('.lib-card').first()
       await card.locator('.lib-card-menu').click()
-      await page.getByRole('dialog').getByRole('button', { name: 'Gallery details' }).click()
+      await page.getByRole('dialog').getByRole('button', { name: 'Gallery settings' }).click()
       await expect(details).toBeVisible()
-      expect(new URL(page.url()).searchParams.get('details')).toBe(GALLERY_ID)
-      // The surface states the gallery's own facts once: the top bar carries
-      // Back, the body carries the title — never both.
-      await expect(details.locator('.m-topbar-title')).toHaveCount(0)
-      await expect(details.locator('.d-name')).toHaveText('Bangkok Rain')
-      await expect(details.locator('.d-sub').first()).toHaveText('25 photographs · Folder on this Mac')
-      await expect(details.locator('[data-availability="available"]')).toHaveText('Source available')
-      // Local-only facts stay off the surface: no paths, no invented
-      // public/provider/vault/offline/reorder metadata.
+      // The sheet states the gallery's own facts once: the panel head
+      // carries the title and the count/source line — never both.
+      await expect(details.locator('.m-owner-panel-title')).toHaveText('Bangkok Rain')
+      await expect(details.locator('.m-owner-panel-meta')).toContainText('25 photographs · Folder on this Mac')
+      // An available source states nothing; local-only facts stay off the
+      // surface: no paths, no invented public/provider/vault/offline metadata.
+      await expect(details.locator('[data-availability]')).toHaveCount(0)
       await expect(details).not.toContainText('/Users/photographer/Pictures')
       await expect(details).not.toContainText('/Volumes')
-      for (const banned of ['public', 'provider', 'vault', 'offline', 'reorder']) {
+      for (const banned of ['public', 'provider', 'vault', 'offline']) {
         await expect(details).not.toContainText(banned)
       }
-      // Exactly the five action rows, in the contract's order, and no more.
-      await expect(details.locator('.m-actionrow')).toHaveCount(5)
+      // Exactly the seven action rows, in the contract's order, and no more.
+      await expect(details.locator('.m-actionrow')).toHaveCount(7)
       const labels = await details.locator('.m-actionrow-label').allTextContents()
-      expect(labels.map(label => label.trim())).toEqual(['Open', 'Publish', 'Name', 'Refresh gallery contents', 'Remove from Library'])
+      expect(labels.map(label => label.trim())).toEqual(['Open gallery', 'Publish', 'Name', 'Reorder photographs', 'Refresh gallery contents', 'Open folder', 'Remove from Library'])
 
       await mkdir(evidence, { recursive: true })
       await page.screenshot({ path: resolve(evidence, `window-${theme}-details.png`), animations: 'disabled', timeout: 10_000 })
