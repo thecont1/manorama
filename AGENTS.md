@@ -138,6 +138,14 @@ not equivalent: the preloaded DOM renderer is order-sensitive, and `app/server.t
 miniflare server, so they need a writable `~/.wrangler` and permission to bind a loopback
 port. Details in `VERIFICATION.md` § Running the unit suite.
 
+The mirror copies the working tree, not the committed tree — **untracked files are swept
+into the local suite and never reach CI**. A scratch `*.test.ts` left anywhere in the
+repository runs locally and fails the local run, while the same commit is green on
+`actions/checkout`. Before chasing a local failure, check whether its file is tracked
+(`git ls-files`); if it is not, it is not a failure of your change. CI checks out only
+tracked files, so a spec that only fails locally is either untracked scratch or a
+spec that depends on the working tree.
+
 Playwright needs the dev seed, which needs `MANORAMA_DEV_SOURCE_*` vars in `.env.local`:
 
 ```sh
