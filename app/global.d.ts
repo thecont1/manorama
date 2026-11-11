@@ -10,6 +10,12 @@ type Head = {
    *  Public gallery pages must not: html.light would flip the viewer's
    *  doodle-ink, and viewer appearance follows the Canvas choice instead. */
   ownerTheme?: boolean
+  /** The homepage is the one page the world may find: it drops the noindex
+   *  meta and the noindex header, and takes the canonical `/` URL. Every
+   *  other route leaves both in place. */
+  indexable?: boolean
+  /** Loads the marketing stylesheet alongside the app stylesheet. */
+  home?: boolean
 }
 
 declare module 'hono' {

@@ -44,7 +44,12 @@ const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
     // their content-type or content-length altered.
     const ct = c.res.headers.get('content-type')
     if (ct && ct.includes('text/html')) {
-      c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      // The homepage is the one page the world may find, so it carries no
+      // noindex header. A signed-in visitor is redirected before any HTML
+      // exists, and a redirect is not a page to index.
+      if (!(c.req.path === '/' && c.res.status < 300)) {
+        c.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
+      }
     }
   })
 }
