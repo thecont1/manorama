@@ -137,14 +137,14 @@ describe('vault cap policy', () => {
     expect(await loadVaultCapPreference(persistence)).toBeUndefined()
   })
 
-  test('defaults to vault and persists the stream policy explicitly', async () => {
+  test('defaults to stream and persists the vault policy explicitly', async () => {
     const persistence = new MemoryPersistence()
-    expect(await loadVaultLoadPolicy(persistence)).toBe('vault')
-    await saveVaultLoadPolicy('stream', persistence)
-    expect(persistence.values.get(VAULT_LOAD_POLICY_KEY)).toBe('stream')
     expect(await loadVaultLoadPolicy(persistence)).toBe('stream')
-    persistence.values.set(VAULT_LOAD_POLICY_KEY, 'unknown')
+    await saveVaultLoadPolicy('vault', persistence)
+    expect(persistence.values.get(VAULT_LOAD_POLICY_KEY)).toBe('vault')
     expect(await loadVaultLoadPolicy(persistence)).toBe('vault')
+    persistence.values.set(VAULT_LOAD_POLICY_KEY, 'unknown')
+    expect(await loadVaultLoadPolicy(persistence)).toBe('stream')
   })
 })
 
@@ -160,7 +160,7 @@ describe('vault settings controller', () => {
     const snapshot = await controller.snapshot()
     expect(snapshot.cap).toBe(512 * 1024 * 1024)
     expect(snapshot.preference).toBe(512 * 1024 * 1024)
-    expect(snapshot.loadPolicy).toBe('vault')
+    expect(snapshot.loadPolicy).toBe('stream')
     expect(snapshot.galleries).toHaveLength(1)
     expect(snapshot.usage.measuredBytes).toBeGreaterThan(0)
     // The stored Pro cap is applied on read: writes after this point evict

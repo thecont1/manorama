@@ -814,7 +814,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // Library theme never picks one: a canvas the viewer did not choose
   // reads as seams between photos, not as a mount.
   useEffect(() => {
-    setBackground(viewPrefs.background ?? 'none')
+    setBackground(readViewPrefs(slug).background ?? 'none')
   }, [slug, viewPrefs])
 
   useEffect(() => {
@@ -824,7 +824,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   useEffect(() => {
     const loaded = loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
-    setMode(viewPrefs.mode ?? loaded.defaultMode)
+    // viewPrefs is memoized per slug and can lag a just-written pref —
+    // read it fresh so this refire honors the mode the user picked.
+    setMode(readViewPrefs(slug).mode ?? loaded.defaultMode)
     setShowArrows(loaded.defaultShowArrows && !coarsePointer())
     setShowCaptions(loaded.defaultShowCaptions)
     const curtain = document.querySelector<HTMLElement>('[data-curtain]')

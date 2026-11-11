@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'hono/jsx'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import { publishAddFolder, publishAddGallery, publishClose, publishNavigation, shellPost } from '../lib/shell'
 import GalleryShell from '../../app/components/GalleryShell'
 import Viewer from '../../app/islands/Viewer'
@@ -317,6 +317,14 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   const [ownerSlug, setOwnerSlug] = useState<string | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Toasts retire themselves — a stale confirmation ("…is back in the
+  // Library") sitting on screen reads as the result of whatever the user
+  // taps next.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 5000)
+    return () => clearTimeout(timer)
+  }, [notice])
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [pasteUrl, setPasteUrl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1516,7 +1524,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         selection: { owner, slug: gallery.slug, galleryId: gallery.id, sourceUrl: gallery.sourceUrl ?? undefined },
         fetchOnline: (signal) => fetchAccountGallery(base, owner, gallery.slug, session.token, fetch, signal),
         store: desktopOfflineStore,
-        cachePolicy: streamOnly ? 'stream' : vaultLoadPolicy ?? 'vault',
+        cachePolicy: streamOnly ? 'stream' : vaultLoadPolicy ?? 'stream',
         onProgress: (progress) => setNotice(`Saving ${progress.completed} of ${progress.total} photos to your encrypted vault…`),
         signal: abort.signal,
         openEncryptedSession: openDesktopEncryptedSession,
@@ -1699,6 +1707,68 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     await saveGalleryStreamOnly(next, desktopVaultPersistence).catch(() => {})
   }
 
+  // The local viewer's manifest/settings/edit store must keep stable
+  // identities across island renders: the shared Viewer re-reads
+  // defaultMode whenever `settings` changes identity, so an inline rebuild
+  // would snap every mode choice back to strip on the next unrelated
+  // render. Rebuild only when the catalogue or the open target moves.
+  const localViewerBundle = useMemo(() => {
+    if (!viewerState || !catalogue || accountTier !== 'pro') return null
+    const record = catalogue.galleries.find((gallery) => gallery.id === viewerState.galleryId)
+    if (!record) return null
+    const withDims = (item: LocalGalleryItem): LocalGalleryItem => {
+      const dims = dimsRef.current.get(item.id)
+      return dims ? { ...item, width: dims.w, height: dims.h } : item
+    }
+    const manifest: GalleryManifest = {
+      slug: record.id,
+      title: record.title,
+      caption: '',
+      date: '',
+      images: visibleItemsFor(record).map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
+    }
+    // The picker's Edit mode for locals: same draft the API editor builds
+    // (every item's orderKey, the hidden keys), persisted into the
+    // catalogue instead of PATCHed to the Worker. orderKey is the item id —
+    // the relative path, stable across rescans.
+    const localEditStore = {
+      load: async (): Promise<PickerEditItem[]> => {
+        const hidden = new Set(record.hidden ?? [])
+        return record.items.map((raw) => {
+          const item = withDims(raw)
+          return {
+            id: item.id,
+            orderKey: item.id,
+            width: item.width && item.width > 0 ? item.width : 1200,
+            height: item.height && item.height > 0 ? item.height : 800,
+            src: assetUrl(item.path),
+            preview: assetUrl(item.path),
+            filename: item.name,
+            label: item.name,
+            hidden: hidden.has(item.id),
+          }
+        })
+      },
+      save: async (order: string[], hidden: string[]) => {
+        const byId = new Map(record.items.map((item) => [item.id, item]))
+        const ordered = order.map((id) => byId.get(id)).filter((item): item is LocalGalleryItem => Boolean(item))
+        const inOrder = new Set(order)
+        const items = [...ordered, ...record.items.filter((item) => !inOrder.has(item.id))]
+        const next: LocalCatalogue = {
+          ...catalogue,
+          galleries: catalogue.galleries.map((gallery) =>
+            gallery.id === record.id ? { ...gallery, items, hidden: hidden.length ? hidden : undefined } : gallery
+          ),
+        }
+        // Persist first, like rename/rescan — a failed private-store write
+        // surfaces in the editor instead of pretending the order stuck.
+        await writeCatalogueFile(serializeLocalCatalogue(next))
+        setCatalogue(next)
+      },
+    }
+    return { record, manifest, settings: defaultGallerySettings(manifest), localEditStore }
+  }, [catalogue, viewerState?.galleryId, accountTier])
+
   if (accountViewer) {
     const summary = accountViewer.gallery
     const viewerProps = {
@@ -1790,63 +1860,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // Full-screen viewing: the shared Viewer, fed by manifest items pointing
   // at convertFileSrc URLs. The viewer heals guessed dims to the real
   // natural size on load — nothing is upscaled or re-encoded.
-  const viewableRecord = viewerState && catalogue && accountTier === 'pro'
-    ? catalogue.galleries.find((g) => g.id === viewerState.galleryId)
-    : undefined
-  if (viewableRecord && availability[viewableRecord.id] !== 'unavailable') {
-    const record = viewableRecord
-    const withDims = (item: LocalGalleryItem): LocalGalleryItem => {
-      const dims = dimsRef.current.get(item.id)
-      return dims ? { ...item, width: dims.w, height: dims.h } : item
-    }
-    const manifest: GalleryManifest = {
-      slug: record.id,
-      title: record.title,
-      caption: '',
-      date: '',
-      images: visibleItemsFor(record).map((item) => toGalleryMediaItem(withDims(item), assetUrl)),
-    }
-    const settings = defaultGallerySettings(manifest)
-    // The picker's Edit mode for locals: same draft the API editor builds
-    // (every item's orderKey, the hidden keys), persisted into the
-    // catalogue instead of PATCHed to the Worker. orderKey is the item id —
-    // the relative path, stable across rescans.
-    const localEditStore = {
-      load: async (): Promise<PickerEditItem[]> => {
-        const hidden = new Set(record.hidden ?? [])
-        return record.items.map((raw) => {
-          const item = withDims(raw)
-          return {
-            id: item.id,
-            orderKey: item.id,
-            width: item.width && item.width > 0 ? item.width : 1200,
-            height: item.height && item.height > 0 ? item.height : 800,
-            src: assetUrl(item.path),
-            preview: assetUrl(item.path),
-            filename: item.name,
-            label: item.name,
-            hidden: hidden.has(item.id),
-          }
-        })
-      },
-      save: async (order: string[], hidden: string[]) => {
-        if (!catalogue) throw new Error('The catalogue is not loaded')
-        const byId = new Map(record.items.map((item) => [item.id, item]))
-        const ordered = order.map((id) => byId.get(id)).filter((item): item is LocalGalleryItem => Boolean(item))
-        const inOrder = new Set(order)
-        const items = [...ordered, ...record.items.filter((item) => !inOrder.has(item.id))]
-        const next: LocalCatalogue = {
-          ...catalogue,
-          galleries: catalogue.galleries.map((gallery) =>
-            gallery.id === record.id ? { ...gallery, items, hidden: hidden.length ? hidden : undefined } : gallery
-          ),
-        }
-        // Persist first, like rename/rescan — a failed private-store write
-        // surfaces in the editor instead of pretending the order stuck.
-        await writeCatalogueFile(serializeLocalCatalogue(next))
-        setCatalogue(next)
-      },
-    }
+  if (localViewerBundle && availability[localViewerBundle.record.id] !== 'unavailable') {
+    const { record, manifest, settings, localEditStore } = localViewerBundle
     return (
       <>
         <div class="desktop-titlebar" data-tauri-drag-region />
@@ -1854,6 +1869,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           <Viewer
             key={`${record.id}:${viewerState?.index ?? 0}`}
             slug={record.id}
+            galleryTitle={record.title}
             images={manifest.images}
             settings={settings}
             plate={plate}
