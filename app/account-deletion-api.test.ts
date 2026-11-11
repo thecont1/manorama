@@ -85,6 +85,15 @@ describe('deleteAccount', () => {
   const db = () => sharedD1!.proxy.env.DB
 
   test('removes every account-scoped row and leaves other accounts intact', async () => {
+    // Seed the escrow rows too — ciphertext is still data about the owner.
+    await db().prepare(
+      `INSERT INTO owner_key_vault (owner_id, kdf_salt, kdf_iterations, wrapped_vk, vk_nonce, version, updated_at)
+       VALUES (?, 'salt', 600000, 'cipher', 'nonce', 1, '2026-10-01 00:00:00')`,
+    ).bind(OWNER_A).run()
+    await db().prepare(
+      `INSERT INTO gallery_keys (owner_id, gallery_id, wrapped_source, nonce, updated_at)
+       VALUES (?, 'gal-1', 'cipher', 'nonce', '2026-10-01 00:00:00')`,
+    ).bind(OWNER_A).run()
     expect(await deleteAccount(OWNER_A, { DB: db() })).toBe(true)
     for (const [table, column] of [
       ['users', 'account_id'],
@@ -92,6 +101,8 @@ describe('deleteAccount', () => {
       ['auth_flows', 'account_id'],
       ['galleries', 'owner_id'],
       ['device_galleries', 'owner_id'],
+      ['owner_key_vault', 'owner_id'],
+      ['gallery_keys', 'owner_id'],
     ]) {
       expect(await countRows(db(), table, column, OWNER_A)).toBe(0)
     }
@@ -237,5 +248,46 @@ describe('DELETE /api/account', () => {
       headers: { Authorization: `Bearer ${token}` },
     }, env)
     expect(followUp.status).toBe(401)
+  })
+})
+
+// The escrowed vault is where a lost race costs real data — prove the
+// compare-and-swap is atomic on the real D1 schema, not just in memory.
+describe('key-vault CAS on D1', () => {
+  const OWNER = 'dbid:DDvaultCAS'
+  let sharedD1: { proxy: Awaited<ReturnType<typeof getPlatformProxy<{ DB: D1Database }>>> } | null = null
+
+  beforeAll(async () => {
+    const proxy = await getPlatformProxy<{ DB: D1Database }>({
+      configPath: `${repoRoot}/wrangler.toml`,
+      persist: false,
+    })
+    sharedD1 = { proxy }
+    await applyMigration(proxy.env.DB, '0015_gallery_key_vault.sql')
+  }, 15_000)
+
+  afterAll(async () => {
+    await sharedD1?.proxy.dispose()
+    sharedD1 = null
+  })
+
+  const env = () => ({ DB: sharedD1!.proxy.env.DB })
+  const vaultRecord = (wrappedVk: string) => ({ kdfSalt: 'salt', kdfIterations: 600_000, wrappedVk, vkNonce: 'nonce', version: 1 })
+
+  test('a create-only write conflicts on an existing row; a stale stamp cannot replace it', async () => {
+    const { getOwnerVault, putOwnerVault, putGalleryKey, getGalleryKey } = await import('./lib/key-vault-repository')
+    const stored = await putOwnerVault(OWNER, vaultRecord('first'), null, env())
+    expect(stored?.updatedAt).toBeTruthy()
+    // Second create → conflict, row untouched.
+    expect(await putOwnerVault(OWNER, vaultRecord('usurper'), null, env())).toBeNull()
+    expect((await getOwnerVault(OWNER, env()))?.wrappedVk).toBe('first')
+    // Stale stamp → conflict; the read-back stamp → lands.
+    expect(await putOwnerVault(OWNER, vaultRecord('usurper'), 'not-the-stamp', env())).toBeNull()
+    expect((await putOwnerVault(OWNER, vaultRecord('second'), stored!.updatedAt, env()))?.wrappedVk).toBe('second')
+    // Same contract on gallery keys.
+    const key = await putGalleryKey(OWNER, 'gal-cas', { wrappedSource: 'w1', nonce: 'n1' }, null, env())
+    expect(key).not.toBeNull()
+    expect(await putGalleryKey(OWNER, 'gal-cas', { wrappedSource: 'w2', nonce: 'n2' }, null, env())).toBeNull()
+    expect((await getGalleryKey(OWNER, 'gal-cas', env()))?.wrappedSource).toBe('w1')
   })
 })

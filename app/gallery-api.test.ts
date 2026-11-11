@@ -928,16 +928,40 @@ describe('the key vault routes', () => {
     expect(missing.status).toBe(200)
     expect(((await missing.json()) as { vault: unknown }).vault).toBeNull()
     const put = await api.request('/api/account/key-vault', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(vaultBody),
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ...vaultBody, expectedUpdatedAt: null }),
     }, env)
     expect(put.status).toBe(200)
     const got = await api.request('/api/account/key-vault', { headers: { Cookie: cookie } }, env)
     const vault = ((await got.json()) as { vault: Record<string, unknown> }).vault
     expect(vault).toMatchObject(vaultBody)
+    // A second create-only PUT conflicts and hands back the survivor; a
+    // replace stamped against that row's updatedAt lands.
+    const second = await api.request('/api/account/key-vault', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ...vaultBody, wrappedVk: 'b3RoZXI', expectedUpdatedAt: null }),
+    }, env)
+    expect(second.status).toBe(409)
+    const surviving = ((await second.json()) as { vault: Record<string, unknown> }).vault
+    expect(surviving.wrappedVk).toBe('Y2lwaGVy')
+    const replaced = await api.request('/api/account/key-vault', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ...vaultBody, wrappedVk: 'b3RoZXI', expectedUpdatedAt: surviving.updatedAt }),
+    }, env)
+    expect(replaced.status).toBe(200)
   })
 
   test('PUT /api/account/key-vault rejects malformed payloads', async () => {
-    for (const body of [{}, { ...vaultBody, kdfIterations: 10 }, { ...vaultBody, version: 2 }, { ...vaultBody, wrappedVk: '' }]) {
+    for (const body of [
+      {},
+      { ...vaultBody, kdfIterations: 10 },
+      { ...vaultBody, version: 2 },
+      { ...vaultBody, wrappedVk: '' },
+      // The compare-and-swap token is mandatory — an unconditional write
+      // is exactly the clobber this endpoint refuses.
+      vaultBody,
+      { ...vaultBody, expectedUpdatedAt: 7 },
+    ]) {
       const response = await api.request('/api/account/key-vault', {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(body),
       }, env)
@@ -952,9 +976,15 @@ describe('the key vault routes', () => {
     })
     const put = await api.request('/api/galleries/vaulted/key', {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
-      body: JSON.stringify({ wrappedSource: 'd3JhcHBlZA', nonce: 'bm9uY2Ux' }),
+      body: JSON.stringify({ wrappedSource: 'd3JhcHBlZA', nonce: 'bm9uY2Ux', expectedUpdatedAt: null }),
     }, env)
     expect(put.status).toBe(200)
+    // A second create-only write conflicts rather than overwriting.
+    const second = await api.request('/api/galleries/vaulted/key', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ wrappedSource: 'b3RoZXI', nonce: 'bm9uY2Uy', expectedUpdatedAt: null }),
+    }, env)
+    expect(second.status).toBe(409)
     const got = await api.request('/api/galleries/vaulted/key', { headers: { Cookie: cookie } }, env)
     const key = ((await got.json()) as { key: { wrappedSource: string } | null }).key
     expect(key?.wrappedSource).toBe('d3JhcHBlZA')
