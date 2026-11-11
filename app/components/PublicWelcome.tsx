@@ -1,0 +1,60 @@
+import { SignInLinks } from '../lib/signin'
+
+/**
+ * The public Welcome — the web landing page's door. It mirrors the native
+ * Welcome: the one approved sentence, the one truthful provider explanation,
+ * the shared sign-in chooser, and a semantic footer. The route decides the
+ * facts (returning cookie, failed sign-in) and the component owns the
+ * surface, so the door reads identically wherever it is drawn.
+ */
+
+/** The display face shared by the public headings. The quick-add interstitial
+ *  imports this too, so the two public surfaces share one heading treatment
+ *  without touching app/styles.css. */
+export const PUBLIC_HEADING_FONT_FAMILY =
+  "'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif"
+
+const welcomeHeadingStyle = {
+  fontFamily: PUBLIC_HEADING_FONT_FAMILY,
+  fontSize: 'clamp(30px, 4.6vw, 46px)',
+  fontWeight: 700,
+  letterSpacing: '-.03em',
+  lineHeight: 1.12,
+  margin: '0 0 18px',
+}
+
+export default function PublicWelcome({
+  returning,
+  failed,
+  next,
+}: {
+  /** True when the browser has the returning-visitor hint cookie. */
+  returning?: boolean
+  /** True when an OAuth round-trip ended in `?error=1`. */
+  failed?: boolean
+  /** Same-origin path the OAuth callback lands on instead of the dashboard —
+   *  a gallery's Sign in pill sends visitors back to what they were viewing. */
+  next?: string
+}) {
+  return (
+    <main class="landing-page">
+      <div class="landing-brand">
+        <span class="brand-mark-wrap">
+          <img src="/manorama-merged-logo.png" alt="manorama" class="landing-brand-mark" />
+        </span>
+        <h1 style={welcomeHeadingStyle}>
+          Your shared folders, shown properly
+        </h1>
+        <p class="landing-brand-intro">
+          Paste a shared Dropbox, Google Drive, iCloud, MEGA, Ente or Proton Drive album link. manorama turns it into a quiet, full-screen gallery at your own address.
+        </p>
+        <SignInLinks returning={returning} next={next} />
+        {failed ? <p class="landing-note">Sign-in didn’t complete. Please try again.</p> : null}
+      </div>
+      <footer class="site-footer">
+        <a class="site-footer-link" href="/privacy">Privacy Policy</a>
+        <p class="site-footer-copy">© 2026 Mahesh Shantaram · <a href="https://thecontrarian.in">thecontrarian.in</a></p>
+      </footer>
+    </main>
+  )
+}

@@ -1,7 +1,7 @@
 import { createRoute } from 'honox/factory'
 import { getCookie } from 'hono/cookie'
 import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
-import HomePage from '../components/home/HomePage'
+import PublicWelcome from '../components/PublicWelcome'
 
 export default createRoute(async (c) => {
   // The landing page doubles as the sign-in door: editors arriving with a
@@ -20,15 +20,7 @@ export default createRoute(async (c) => {
   const rawNext = c.req.query('next') ?? ''
   const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : undefined
   return c.render(
-    <HomePage returning={returning} failed={failed} next={next} />,
-    {
-      title: 'Manorama: your photographs, together in one beautiful view',
-      description:
-        'Bring your local folders and supported cloud galleries together in one beautiful Library. Keep your photographs where they are. Enjoy them together in Manorama.',
-      // The homepage is the one page the world may find. Every other route
-      // keeps its noindex meta and header.
-      indexable: true,
-      home: true,
-    },
+    <PublicWelcome returning={returning} failed={failed} next={next} />,
+    { title: 'manorama', description: 'manorama turns a folder of images (either on this device or in the cloud) into a beautiful full-screen hi-res gallery with a custom link of your own' },
   )
 })

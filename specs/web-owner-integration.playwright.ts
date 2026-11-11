@@ -323,7 +323,7 @@ test('a signed-out visitor is refused the owner dashboard', async ({ browser }) 
     const page = await context.newPage()
     await page.goto(`${base}/${owner}`, { waitUntil: 'domcontentloaded' })
     await expect.poll(() => page.evaluate(() => new URL(window.location.href).pathname), { timeout: 20_000 }).toBe('/')
-    await expect(page.locator('.home main#content')).toBeVisible()
+    await expect(page.locator('main.landing-page')).toBeVisible()
     await expect(page.locator('[data-admin-ready="true"]')).toHaveCount(0)
     await expect(page.locator('[data-gallery-card]')).toHaveCount(0)
   } finally {

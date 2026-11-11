@@ -473,7 +473,7 @@ export default defineConfig(() => ({
           /^\/app\/.+\.tsx?/,
         ],
       },
-      client: { input: ['/app/client.ts', '/app/quickadd.ts', '/app/styles.css', '/app/home.css'] },
+      client: { input: ['/app/client.ts', '/app/quickadd.ts', '/app/styles.css'] },
     }),
     build(),
   ],

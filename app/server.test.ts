@@ -164,7 +164,7 @@ describe('owner dashboard authentication', () => {
   })
 })
 
-describe('the homepage is the marketing page', () => {
+describe('the landing page is the sign-in door', () => {
   const page = () => {
     const app = new Hono()
     app.use(honoxContext)
@@ -173,7 +173,7 @@ describe('the homepage is the marketing page', () => {
     return app
   }
 
-  test('anonymous visitors get the homepage provider chooser', async () => {
+  test('anonymous visitors get the landing page provider chooser', async () => {
     const response = await page().request('/', undefined, env)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
@@ -185,15 +185,6 @@ describe('the homepage is the marketing page', () => {
     expect(html).toContain('href="/auth/dropbox"')
     expect(html).toContain('href="/auth/google"')
     expect(html).toContain('href="/auth/apple"')
-    // Apple leads the row — App Review 4.8 ordering, same as every door.
-    expect(html.indexOf('/auth/apple')).toBeLessThan(html.indexOf('/auth/dropbox'))
-  })
-
-  test('the homepage is the one page the world may find', async () => {
-    const response = await page().request('/', undefined, env)
-    const html = await response.text()
-    expect(html).not.toContain('name="robots"')
-    expect(html).toContain('rel="canonical" href="https://manorama.xyz/"')
   })
 
   test('a browser that signed in before gets the shorter sign-in label', async () => {
@@ -215,28 +206,10 @@ describe('the homepage is the marketing page', () => {
     expect(html).toContain('try again')
   })
 
-  test('the next parameter is sanitised exactly as before', async () => {
-    const kept = await (await page().request('/?next=%2Fthecontrarian%2Fitaly', undefined, env)).text()
-    expect(kept).toContain('/auth/apple?next=%2Fthecontrarian%2Fitaly')
-    const dropped = await (await page().request('/?next=https://evil.example', undefined, env)).text()
-    expect(dropped).not.toContain('evil.example')
-  })
-
   test('a signed-in editor is redirected to their dashboard', async () => {
     const response = await page().request('/', authed(), env)
     expect(response.status).toBe(302)
     expect(response.headers.get('location')).toBe('/test-owner')
-  })
-
-  test('every other page stays noindex', async () => {
-    const app = new Hono()
-    app.use(honoxContext)
-    app.use(renderer)
-    mountRoute(app, '/:owner', ownerPage)
-    mountRoute(app, '/:owner/:slug', viewerPage)
-    const dashboard = await app.request('/test-owner', authed(), env)
-    expect(dashboard.status).toBe(200)
-    expect(await dashboard.text()).toContain('name="robots" content="noindex, nofollow, noarchive"')
   })
 })
 

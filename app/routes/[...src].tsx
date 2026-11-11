@@ -4,7 +4,7 @@ import { localFolderCandidate } from '../lib/local-source'
 import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
 import { SignInLinks } from '../lib/signin'
 import { getCookie } from 'hono/cookie'
-import { PUBLIC_HEADING_FONT_FAMILY } from '../components/home/typography'
+import { PUBLIC_HEADING_FONT_FAMILY } from '../components/PublicWelcome'
 
 /**
  * The quick-add script URL, resolved for both dev and production.
