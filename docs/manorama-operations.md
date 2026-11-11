@@ -45,7 +45,7 @@ Free-tier owners keep at most 3 `retained` galleries; creates beyond that insert
 Every public gallery URL is `/<owner>/<slug>` — two slugs, two rule
 sets.
 
-- **Owner slug** identifies the account. 3–48 characters: lowercase `a-z`, `0-9`, single hyphens, starting and ending with an alphanum. Globally unique; minted from the display name on first sign-in (`name`, `name-2`, `name-3`, …). Changeable via `PATCH /api/account`; galleries follow the account, so every gallery URL changes with it.
+- **Owner slug** identifies the account. 3–48 characters: lowercase `a-z`, `0-9`, single hyphens, starting and ending with an alphanum. Globally unique; minted from the display name on first sign-in (`name`, `name-2`, `name-3`, …). Changeable via `PATCH /api/account`; galleries follow the account, so every gallery URL changes with it. A released slug is **never recycled**: renaming or deleting the account records it in `owner_slug_reservations`, bound to that account forever. Another account asking for it gets the same refusal as a live collision, so an old shared link 404s rather than serving a stranger's galleries. Only the original owner may take the name back; there is no admin release path — if a legitimate request ever needs one, that is a new policy to write down, not a row to delete.
 
 - **Gallery slug** is unique per owner, not globally — `/mahesh/italy` and `/sarah/italy` can coexist. Auto-derived from the source title: diacritics stripped, lowercased, non-alphanumerics become hyphens, capped at 48 characters, `gallery` if nothing usable remains. Collisions get `-2`, `-3`, … suffixes automatically.
 

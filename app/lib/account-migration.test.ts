@@ -88,6 +88,7 @@ beforeAll(async () => {
   await applyMigration(db, '0005_provider_neutral_accounts.sql')
   await applyMigration(db, '0006_auth_flows.sql')
   await applyMigration(db, '0018_auth_flow_state_cookie.sql')
+  await applyMigration(db, '0019_owner_slug_reservations.sql')
   // Gallery deletes clear device_galleries links — the table is part of
   // the real schema, so the fixture carries it too.
   await applyMigration(db, '0007_device_galleries.sql')

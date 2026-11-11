@@ -64,6 +64,10 @@ export const OWNER_SLUG_MIN = 3
 // Keyed by account ID, with an owner-slug index for lookups.
 const users = new Map<string, UserRecord>()
 const ownerSlugIndex = new Map<string, string>()
+// slug → the account that last held it. Released slugs never go back on
+// the market — only the same account may reclaim one, so an old shared
+// link can never start serving a stranger's galleries.
+const ownerSlugReservations = new Map<string, string>()
 
 const d1Configured = (env?: UserRepositoryEnv): env is UserRepositoryEnv & { DB: D1Database } =>
   Boolean(env?.DB)
@@ -119,13 +123,27 @@ const ownerSlugTaken = async (slug: string, env?: UserRepositoryEnv) => {
   return ownerSlugIndex.has(slug)
 }
 
+/** The account a released slug still belongs to — null when the slug was
+ *  never used. Reservations outlive accounts by design. */
+const ownerSlugReservedBy = async (slug: string, env?: UserRepositoryEnv): Promise<string | null> => {
+  if (d1Configured(env)) {
+    const row = await env.DB.prepare(
+      'SELECT account_id FROM owner_slug_reservations WHERE owner_slug = ?',
+    ).bind(slug).first<{ account_id: string }>()
+    return row?.account_id ?? null
+  }
+  return ownerSlugReservations.get(slug) ?? null
+}
+
 /** Reserves a unique owner slug derived from a display name:
- * `mahesh-v`, then `mahesh-v-2`, `mahesh-v-3`, ... */
+ * `mahesh-v`, then `mahesh-v-2`, `mahesh-v-3`, ... A new account may hold
+ * no history, so every reserved slug is off-limits here regardless of who
+ * reserved it. */
 const deriveOwnerSlug = async (displayName: string, env?: UserRepositoryEnv) => {
   const base = slugifyName(displayName) || 'photographer'
   let slug = base
   let suffix = 2
-  while (await ownerSlugTaken(slug, env)) {
+  while (await ownerSlugTaken(slug, env) || (await ownerSlugReservedBy(slug, env)) !== null) {
     slug = `${base}-${suffix}`
     suffix += 1
   }
@@ -158,41 +176,46 @@ export const upsertUser = async (
         .first()
       return rowToUser(updated as Record<string, unknown>)!
     }
-    const ownerSlug = await deriveOwnerSlug(displayName, env)
-    try {
-      await env.DB.prepare(
-        'INSERT INTO users (account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
-      ).bind(account.accountId, ownerSlug, displayName, email ?? null).run()
-    } catch (error) {
-      if (!String(error).includes('UNIQUE')) throw error
-      // A concurrent sign-in may have created this user (account_id PK
-      // conflict) OR claimed the same owner_slug. Query by account_id;
-      // if the user exists, refresh the profile instead of retrying.
-      const concurrent = await env.DB
-        .prepare('SELECT * FROM users WHERE account_id = ?')
-        .bind(account.accountId)
-        .first()
-      if (concurrent) {
-        await env.DB.prepare(
-          `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE account_id = ?`,
-        ).bind(displayName, email ?? null, account.accountId).run()
-        const updated = await env.DB
+    // The reservation guard rides inside the INSERT: a released slug
+    // cannot be claimed even if a rename lands between derive and write.
+    const insertUser = (ownerSlug: string) => env.DB.prepare(
+      `INSERT INTO users (account_id, owner_slug, display_name, email)
+       SELECT ?, ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM owner_slug_reservations WHERE owner_slug = ?)`,
+    ).bind(account.accountId, ownerSlug, displayName, email ?? null, ownerSlug).run()
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const ownerSlug = await deriveOwnerSlug(displayName, env)
+      try {
+        if ((await insertUser(ownerSlug)).meta.changes) break
+        continue // reservation won the race — derive the next candidate
+      } catch (error) {
+        if (!String(error).includes('UNIQUE')) throw error
+        // A concurrent sign-in may have created this user (account_id PK
+        // conflict) OR claimed the same owner_slug. Query by account_id;
+        // if the user exists, refresh the profile instead of retrying.
+        const concurrent = await env.DB
           .prepare('SELECT * FROM users WHERE account_id = ?')
           .bind(account.accountId)
           .first()
-        return rowToUser(updated as Record<string, unknown>)!
+        if (concurrent) {
+          await env.DB.prepare(
+            `UPDATE users SET display_name = ?, email = ?, updated_at = datetime('now') WHERE account_id = ?`,
+          ).bind(displayName, email ?? null, account.accountId).run()
+          const updated = await env.DB
+            .prepare('SELECT * FROM users WHERE account_id = ?')
+            .bind(account.accountId)
+            .first()
+          return rowToUser(updated as Record<string, unknown>)!
+        }
+        // The conflict was on owner_slug, not account_id — loop derives
+        // a fresh slug on the next pass.
       }
-      // The conflict was on owner_slug, not account_id — retry with a
-      // fresh slug.
-      const retrySlug = await deriveOwnerSlug(displayName, env)
-      await env.DB.prepare(
-        'INSERT INTO users (account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)',
-      ).bind(account.accountId, retrySlug, displayName, email ?? null).run()
     }
     const created = await env.DB
       .prepare('SELECT * FROM users WHERE account_id = ?')
       .bind(account.accountId)
       .first()
+    if (!created) throw new Error('Could not allocate an owner slug')
     return rowToUser(created as Record<string, unknown>)!
   }
   const existing = users.get(account.accountId)
@@ -530,12 +553,24 @@ export const updateOwnerSlug = async (
   const current = await getUserByAccountId(accountId, env)
   if (!current) throw new OwnerSlugError('Sign in again before changing your URL')
   if (taken && slug !== current.ownerSlug) throw new OwnerSlugError('That URL is already in use')
+  // History counts as ownership: a slug another account once released can
+  // never be claimed — old links die rather than change hands. Only the
+  // account that released it may take it back.
+  const reservedBy = await ownerSlugReservedBy(slug, env)
+  if (reservedBy !== null && reservedBy !== accountId) throw new OwnerSlugError('That URL is already in use')
   if (slug === current.ownerSlug) return current
   if (d1Configured(env)) {
     try {
-      await env.DB.prepare(
-        `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE account_id = ?`,
-      ).bind(slug, accountId).run()
+      await env.DB.batch([
+        // The outgoing slug stays this account's forever — the same rename
+        // may release it more than once over the account's life.
+        env.DB.prepare(
+          'INSERT OR IGNORE INTO owner_slug_reservations (owner_slug, account_id) VALUES (?, ?)',
+        ).bind(current.ownerSlug, accountId),
+        env.DB.prepare(
+          `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE account_id = ?`,
+        ).bind(slug, accountId),
+      ])
     } catch (error) {
       // UNIQUE constraint failure on owner_slug — another user holds it.
       if (String(error).includes('UNIQUE')) throw new OwnerSlugError('That URL is already in use')
@@ -543,6 +578,7 @@ export const updateOwnerSlug = async (
     }
   } else {
     ownerSlugIndex.delete(current.ownerSlug)
+    ownerSlugReservations.set(current.ownerSlug, accountId)
     current.ownerSlug = slug
     ownerSlugIndex.set(slug, accountId)
   }
@@ -561,6 +597,12 @@ export const updateOwnerSlug = async (
 export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv): Promise<boolean> => {
   if (d1Configured(env)) {
     const results = await env.DB.batch([
+      // Reserve the outgoing slug first — the row must survive the user
+      // delete in the same batch, so a deleted account's address can never
+      // be recycled into someone else's gallery links.
+      env.DB.prepare(
+        'INSERT OR IGNORE INTO owner_slug_reservations (owner_slug, account_id) SELECT owner_slug, account_id FROM users WHERE account_id = ?',
+      ).bind(accountId),
       env.DB.prepare('DELETE FROM auth_identities WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM auth_flows WHERE account_id = ?').bind(accountId),
       env.DB.prepare('DELETE FROM device_galleries WHERE owner_id = ?').bind(accountId),
@@ -574,6 +616,7 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
   }
   const user = users.get(accountId)
   if (!user) return false
+  ownerSlugReservations.set(user.ownerSlug, accountId)
   users.delete(accountId)
   ownerSlugIndex.delete(user.ownerSlug)
   const { dropOwnerGalleries } = await import('./gallery-repository')
@@ -587,5 +630,6 @@ export const deleteAccount = async (accountId: string, env?: UserRepositoryEnv):
 export const resetUserStore = () => {
   users.clear()
   ownerSlugIndex.clear()
+  ownerSlugReservations.clear()
   lastActivityStamped.clear()
 }

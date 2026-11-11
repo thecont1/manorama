@@ -90,6 +90,7 @@ beforeAll(async () => {
     '0010_session_revocation.sql',
     '0011_last_seen_location.sql',
     '0018_auth_flow_state_cookie.sql',
+    '0019_owner_slug_reservations.sql',
   ]) await applyMigration(proxy.env.DB, name)
 }, 20_000)
 

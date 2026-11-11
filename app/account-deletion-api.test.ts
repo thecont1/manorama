@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import type { D1Database } from '@cloudflare/workers-types'
 import { createManoramaApi } from './api'
 import { createSessionToken } from './lib/session'
-import { deleteAccount, getUserByAccountId, resetUserStore } from './lib/user-repository'
+import { deleteAccount, getUserByAccountId, OwnerSlugError, resetUserStore, updateOwnerSlug } from './lib/user-repository'
+import { upsertIdentitySignIn } from './lib/identity-repository'
 import { createGallery, listGalleries, resetGalleryStore } from './lib/gallery-repository'
 import { seedTestUser, sessionCookieFor, TEST_OWNER, TEST_SESSION_SECRET } from './lib/test-fixtures'
 
@@ -53,6 +54,7 @@ describe('deleteAccount', () => {
       '0015_gallery_key_vault.sql',
       '0016_gallery_hidden.sql',
       '0017_device_gallery_hidden.sql',
+      '0019_owner_slug_reservations.sql',
     ]) {
       await applyMigration(db, migration)
     }
@@ -107,6 +109,36 @@ describe('deleteAccount', () => {
     expect(await deleteAccount('dbid:CCCdeleteC', { DB: db() })).toBe(true)
     expect(await deleteAccount('dbid:CCCdeleteC', { DB: db() })).toBe(false)
     expect(await deleteAccount('dbid:never-existed', { DB: db() })).toBe(false)
+  })
+
+  test('deletion reserves the slug — it cannot be claimed or derived again', async () => {
+    // OWNER_A was deleted by the first test; its slug must stay theirs.
+    const reservation = await db().prepare(
+      'SELECT account_id FROM owner_slug_reservations WHERE owner_slug = ?',
+    ).bind('delete-a').first<{ account_id: string }>()
+    expect(reservation?.account_id).toBe(OWNER_A)
+    // A stranger cannot take it through the rename path.
+    await expect(updateOwnerSlug(OWNER_B, 'delete-a', { DB: db() }))
+      .rejects.toBeInstanceOf(OwnerSlugError)
+    // And a fresh sign-up named to collide derives past it instead of
+    // landing on the dead account's address.
+    const newcomer = await upsertIdentitySignIn(
+      { provider: 'google', subject: 'goog:reserved-slug-check', displayName: 'Delete A' },
+      { DB: db() },
+    )
+    expect(newcomer.ownerSlug).not.toBe('delete-a')
+    expect(newcomer.ownerSlug.startsWith('delete-a-')).toBe(true)
+  })
+
+  test('a rename reserves the outgoing slug, and only the owner may reclaim it', async () => {
+    await updateOwnerSlug(OWNER_B, 'delete-b-moved', { DB: db() })
+    const reservation = await db().prepare(
+      'SELECT account_id FROM owner_slug_reservations WHERE owner_slug = ?',
+    ).bind('delete-b').first<{ account_id: string }>()
+    expect(reservation?.account_id).toBe(OWNER_B)
+    // The owner itself may take it back — history stays with the account.
+    const reclaimed = await updateOwnerSlug(OWNER_B, 'delete-b', { DB: db() })
+    expect(reclaimed.ownerSlug).toBe('delete-b')
   })
 
   test('the in-memory fallback clears the user and their galleries', async () => {
