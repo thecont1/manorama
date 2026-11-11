@@ -21,6 +21,15 @@ describe('placeMasonry', () => {
     expect(placements[2]!.rowStart).toBe(placements[1]!.rowStart + placements[1]!.span)
   })
 
+  test('ranks columns by next grid row, not consumed px', () => {
+    // Column 1 holds two 1px items: less px than column 2's single 4px item,
+    // but each rounded up to a full row — its next free line is 3 against
+    // column 2's 2. A px-load ranking would misorder the fourth item.
+    const placements = placeMasonry([1, 4, 1, 8], 2, 0)
+    expect(placements[3]!.column).toBe(2)
+    expect(placements[3]!.rowStart).toBe(2)
+  })
+
   test('two and three columns place the same feed differently', () => {
     const heights = [100, 60, 140, 80, 120, 50]
     const two = placeMasonry(heights, 2, 0)

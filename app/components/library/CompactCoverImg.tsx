@@ -24,6 +24,10 @@ type Props = {
  * aspectRatio before the next paint. Once loaded, the img caps at its own
  * pixels (invariant 13): a large rendition fills the column, a small one
  * floats centred at honest size inside the slot's aspect-ratio.
+ *
+ * The img's own aspect-ratio is the cover's single source of truth — the
+ * wrapping anchor reserves no ratio of its own, so it hugs this box from
+ * stored dims pre-load through EXIF-rotated decoded dims after.
  */
 export function CompactCoverImg({
   src,
@@ -38,6 +42,8 @@ export function CompactCoverImg({
   onNaturalSize,
 }: Props) {
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null)
+  /** Adopts the decoded frame's pixel size — honouring EXIF rotation —
+   *  and reports it onward for any host that records true dimensions. */
   const handleLoad = (event: Event) => {
     const img = event.currentTarget as HTMLImageElement
     img.classList.add('is-loaded')

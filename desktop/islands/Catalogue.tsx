@@ -2243,9 +2243,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </article></li>
   }
 
-  // The compact form a local gallery takes while unpinned — a cover card in
-  // the Local section's grid, the same shape account galleries collapse to
-  // in "Cloud galleries".
+  /** The compact form a local gallery takes while unpinned — a cover card
+   *  in the Local section's grid, the same shape account galleries
+   *  collapse to in "Cloud galleries". */
   const localCompactCard = (record: LocalGalleryRecord) => {
     const state = availability[record.id] ?? 'available'
     const unavailable = state === 'unavailable'
@@ -2258,7 +2258,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         draggable={false}
         aria-label={`${record.title} cover`}
         aria-disabled={unavailable ? true : undefined}
-        style={cover?.width && cover?.height ? { aspectRatio: `${cover.width} / ${cover.height}` } : undefined}
       >
         {cover ? (
           <CompactCoverImg
@@ -2286,6 +2285,8 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     </li>
   }
 
+  /** The compact card an account gallery takes in "Cloud galleries" —
+   *  cover, title, status badges and the ··· quick menu. */
   const accountCompactCard = (gallery: GallerySummary) => {
     const title = gallery.title || gallery.slug
     const galleryUrl = accountGalleryUrl(gallery)
@@ -2298,7 +2299,7 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     // would leak a concealed photograph.
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={`account-${gallery.slug}`} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-      <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`} style={cover ? { aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` } : undefined}>
+      <a class="lib-compact-cover" href={galleryUrl} onClick={openCard} draggable={false} aria-label={`${title} cover`}>
         {cover ? <CompactCoverImg src={cover.src || previewSrcFor(cover)} preview={previewSrcFor(cover)} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} onError={stripImgRetry} /> : null}
       </a>
       <div class="lib-compact-body">
