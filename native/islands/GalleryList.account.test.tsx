@@ -1471,7 +1471,7 @@ describe('signed-in account area', () => {
     keep.click()
     await settle()
     expect(keep.getAttribute('aria-checked')).toBe('false')
-    ;([...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Remove gallery')) as HTMLButtonElement).click()
+    ;([...container.querySelectorAll('.m-actionrow')].find((row) => row.textContent?.includes('Remove from Library')) as HTMLButtonElement).click()
     await settle()
     const confirmation = container.querySelector('.m-sheet') as HTMLElement
     expect(confirmation.textContent).toContain('Originals remain at their source')

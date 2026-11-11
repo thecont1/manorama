@@ -473,11 +473,16 @@ describe('desktop catalogue workbench', () => {
       expect(card.querySelector('.lib-card-sub')?.textContent).toBe('1 photograph from Dropbox')
       // Server-relative previews arrive rewritten against the API origin.
       expect(card.querySelector('img')?.getAttribute('src')).toBe('https://manorama.xyz/img/a-sm.jpg')
-      // The ··· menu carries the web's full range; Details stays local-only.
+      // The ··· menu is down to pin/share/settings — Hide is a pro-tier
+      // row this free session does not carry, and the management verbs
+      // live inside Gallery settings now.
       card.querySelector<HTMLButtonElement>(`[aria-label="kashmir, in winter actions"]`)!.click()
       await settle()
-      for (const item of ['Pin gallery', 'Hide this gallery', 'Share link', 'Gallery settings', 'Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
+      for (const item of ['Pin gallery', 'Share link', 'Gallery settings']) {
         expect(menuItem(container, item)).toBeDefined()
+      }
+      for (const item of ['Reorder photographs', 'Open source', 'Refresh gallery contents', 'Remove gallery']) {
+        expect(menuItem(container, item)).toBeUndefined()
       }
       expect(menuItem(container, 'Open')).toBeUndefined()
 
@@ -1469,7 +1474,7 @@ describe('desktop catalogue workbench', () => {
     return () => { globals.fetch = defaultFetch }
   }
 
-  test('the account menu pins and removes through the web API calls', async () => {
+  test('the account menu pins, and removal runs inside Gallery settings', async () => {
     const calls: { url: string; method?: string; body?: string }[] = []
     const restore = withGallery(calls)
     try {
@@ -1482,14 +1487,24 @@ describe('desktop catalogue workbench', () => {
       expect(pin?.method).toBe('PATCH')
       expect(pin?.body).toBe('{"pinned":true}')
 
+      // Remove left the quick menu — it is the account card's Gallery
+      // settings panel's last row, behind its own inline confirm.
       container.querySelector<HTMLButtonElement>('[aria-label="kashmir, in winter actions"]')!.click()
       await settle()
-      menuItem(container, 'Remove gallery')!.click()
+      menuItem(container, 'Gallery settings')!.click()
       await settle()
-      // The removal is a confirm step inside the same sheet — nothing is
+      const removeRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
+        .find((el) => el.textContent?.includes('Remove from Library')) as HTMLElement
+      expect(removeRow).toBeTruthy()
+      removeRow.click()
+      await settle()
+      // The removal is a confirm step inside the panel — nothing is
       // deleted by the first tap alone.
       expect(calls.some((call) => call.method === 'DELETE')).toBe(false)
-      menuItem(container, 'Remove gallery')!.click()
+      const confirm = container.querySelector('.m-owner-confirm')
+      expect(confirm).not.toBeNull()
+      ;[...confirm!.querySelectorAll<HTMLButtonElement>('button')]
+        .find((b) => b.textContent?.trim() === 'Remove')!.click()
       await settle()
       const del = calls.find((call) => call.method === 'DELETE' && call.url.endsWith('/api/galleries/kashmir'))
       expect(del).toBeDefined()
@@ -1522,41 +1537,44 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
-  test('the local card menu carries the account menu’s relevant verbs and a guarded remove', async () => {
+  test('the local card menu carries the account menu’s relevant verbs', async () => {
     const container = await mount(true)
     container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
     await settle()
-    // Same set and order as the account menu — Share link swaps to Publish
-    // until a public slug exists, Open folder is the local Open source, and
-    // Save to this Mac is absent because a local is already on it.
+    // The quick menu is pin/hide/share-or-publish/settings — the management
+    // verbs moved inside Gallery settings.
     const items = [...container.querySelectorAll<HTMLButtonElement>('.lib-menu button')].map((b) => b.textContent?.trim())
     expect(items).toEqual([
       'Pin gallery',
       'Hide this gallery',
       'Publish this gallery',
       'Gallery settings',
-      'Reorder photographs',
-      'Open folder',
-      'Refresh gallery contents',
-      'Remove gallery',
     ])
-    // Remove confirms inside the sheet before the catalogue entry goes.
-    menuItem(container, 'Remove gallery')!.click()
+  })
+
+  test('a local gallery’s guarded remove lives inside Gallery settings', async () => {
+    const container = await mount(true)
+    await openCardDetails(container)
+    const removeRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
+      .find((el) => el.textContent?.includes('Remove from Library')) as HTMLElement
+    expect(removeRow).toBeTruthy()
+    removeRow.click()
     await settle()
-    expect(container.textContent).toContain('The folder on this Mac is untouched')
+    expect(container.textContent).toContain('catalogue entry')
+    expect(container.textContent).toContain('untouched')
     expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
   })
 
-  test('Open folder on a local card asks the bridge to reveal the granted root', async () => {
+  test('Open folder inside local settings asks the bridge to reveal the granted root', async () => {
     const container = await mount(true)
-    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
-    await settle()
-    menuItem(container, 'Open folder')!.click()
+    await openCardDetails(container)
+    const folderRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
+      .find((el) => el.textContent?.includes('Open folder')) as HTMLElement
+    expect(folderRow).toBeTruthy()
+    folderRow.click()
     await settle()
     const call = invokeCalls.find((c) => c.command === 'reveal_gallery_root')
     expect(call?.args?.path).toBe(ROOT_PATH)
-    // The menu closed itself; nothing was published, removed, or navigated.
-    expect(container.querySelector('.lib-menu')).toBeNull()
     expect(container.querySelector(`[data-gallery-card="${GALLERY_ID}"]`)).not.toBeNull()
   })
 
@@ -1569,11 +1587,13 @@ describe('desktop catalogue workbench', () => {
     expect(container.querySelector('.desktop-share--sheet')).not.toBeNull()
   })
 
-  test('Reorder photographs on a local card opens the picker straight into Edit', async () => {
+  test('Reorder photographs inside local settings opens the picker straight into Edit', async () => {
     const container = await mount(true)
-    container.querySelector<HTMLButtonElement>(`[aria-label="${TITLE} actions"]`)!.click()
-    await settle()
-    menuItem(container, 'Reorder photographs')!.click()
+    await openCardDetails(container)
+    const reorderRow = [...container.querySelectorAll<HTMLElement>('.m-actionrow')]
+      .find((el) => el.textContent?.includes('Reorder photographs')) as HTMLElement
+    expect(reorderRow).toBeTruthy()
+    reorderRow.click()
     await settle()
     expect(container.querySelector('.viewer-picker-mode')?.textContent).toBe('Reorder Photos')
   })

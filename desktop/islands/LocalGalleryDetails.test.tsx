@@ -98,6 +98,7 @@ const mount = (overrides: Partial<Props> = {}) => {
     onRemove: overrides.onRemove
       ? async () => { calls.remove += 1; await overrides.onRemove?.() }
       : () => { calls.remove += 1 },
+    onRevealFolder: overrides.onRevealFolder,
   }
   const container = dom.document.createElement('div') as unknown as HTMLElement
   dom.document.body.appendChild(container as unknown as Parameters<typeof dom.document.body.appendChild>[0])
@@ -244,6 +245,20 @@ describe('local gallery settings panel (desktop)', () => {
     expect((row(off, 'Reorder photographs') as HTMLButtonElement).disabled).toBe(true)
   })
 
+  test('Open folder renders and emits when the container wires it', async () => {
+    let reveals = 0
+    const { container } = mount({ onRevealFolder: () => { reveals += 1 } })
+    const folder = row(container, 'Open folder') as HTMLButtonElement
+    expect(folder).not.toBeNull()
+    folder.click()
+    await settle()
+    expect(reveals).toBe(1)
+
+    // Unwired, the row is absent — the local counterpart of Open source.
+    const { container: plain } = mount()
+    expect(row(plain, 'Open folder')).toBeUndefined()
+  })
+
   test('when the source is unavailable, Open and Share are disabled and the state shows', async () => {
     const { container, calls } = mount({ availability: 'unavailable' })
     const openRow = row(container, 'Open gallery') as HTMLButtonElement
@@ -268,7 +283,9 @@ describe('local gallery settings panel (desktop)', () => {
     const { container, calls } = mount()
     expect((row(container, 'Open gallery') as HTMLButtonElement).disabled).toBe(false)
     expect((row(container, 'Publish') as HTMLButtonElement).disabled).toBe(false)
-    expect(container.querySelector('[data-availability="available"]')?.textContent).toBe('Source available')
+    // An available source states nothing — the line exists only to warn
+    // when the source is gone.
+    expect(container.querySelector('[data-availability]')).toBeNull()
 
     ;(row(container, 'Open gallery') as HTMLButtonElement).click()
     ;(row(container, 'Publish') as HTMLButtonElement).click()
@@ -302,7 +319,7 @@ describe('local gallery settings panel (desktop)', () => {
     ;(row(container, 'Share link') as HTMLButtonElement).click()
     await settle()
     const notes = [...container.querySelectorAll('.m-note[role="status"]')].map((el) => el.textContent)
-    expect(notes).toEqual(['Source available'])
+    expect(notes).toEqual([])
   })
 
   test('renaming opens the shared edit sheet and submits the trimmed title', async () => {

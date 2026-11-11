@@ -146,9 +146,12 @@ test('the library card menu and the legacy ?reorder=1 link land in Edit mode', a
   try {
     const slug = await discoverSlug(page)
 
-    // Card menu → ?edit=1 → the picker opens straight into Edit.
+    // Card menu → Gallery settings → Reorder photographs → the picker
+    // opens straight into Edit.
     await page.locator(`[data-gallery-card="${slug}"]`).locator('.lib-card-menu').click()
-    await page.getByRole('button', { name: 'Reorder photographs' }).click()
+    await page.getByRole('button', { name: 'Gallery settings' }).click()
+    const settings = page.getByRole('dialog', { name: 'Gallery settings' })
+    await settings.getByRole('button', { name: 'Reorder photographs' }).click()
     await expect(page.locator('.viewer-edit-cell').first()).toBeVisible({ timeout: 20_000 })
     expect(new URL(page.url()).searchParams.get('edit')).toBeNull()
 

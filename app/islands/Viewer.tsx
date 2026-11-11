@@ -15,6 +15,7 @@ import SettingsSheet from '../components/viewer/SettingsSheet'
 import PickerEditor, { BROWSE_HINT, loadGalleryItems, PickerEditButton, PickerSizer, type PickerEditActions, type PickerEditItem } from '../components/viewer/PickerEditor'
 import { HeicImg } from '../components/ui/HeicImg'
 import OwnerGalleryPanel, { OwnerGalleryHead } from '../components/viewer/OwnerGalleryPanel'
+import ShortcutsSheet from '../components/viewer/ShortcutsSheet'
 import InfoSheet from '../components/viewer/InfoSheet'
 import { ActionGroup, ActionRow } from '../components/ui/ActionRow'
 import { createCredentialQueue } from '../lib/credential-queue'
@@ -53,7 +54,6 @@ type Props = {
   onOpenGlobalView?: (index: number) => void
   /** Native-only actions remain in the controls panel, never on the stage. */
   onReturnToGalleries?: () => void
-  deviceControls?: Child
   /** Browser fullscreen is web-only; native and desktop shells suppress it. */
   allowFullscreen?: boolean
   /** Mount-time frame entry — the global grid lands the stage on the tapped
@@ -281,7 +281,7 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, deviceControls, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
   const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
@@ -353,6 +353,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }), [sourceImages, resolvedMedia])
   const images = useMemo(() => resolvedSourceImages.map((image) => imageWithSettings(image, settings)), [resolvedSourceImages, settings])
   const [modalOpen, setModalOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [gridOpen, setGridOpen] = useState(false)
   // The picker's owner Edit mode: a fetched all-items list (the page
@@ -462,7 +463,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // closures and render-synced values lag a setState call. The open/close
   // helpers write this at event time; the render line is the backstop.
   const anyModalOpenRef = useRef(false)
-  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen
+  anyModalOpenRef.current = modalOpen || infoOpen || gridOpen || shortcutsOpen
   // A saved name propagates into the picker's header — the prop is the
   // SSR title, this override is the live one.
   const [titleOverride, setTitleOverride] = useState<string | undefined>(undefined)
@@ -578,6 +579,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     anyModalOpenRef.current = false
     gridOpenRef.current = false
     setModalOpen(false)
+    setShortcutsOpen(false)
     setInfoOpen(false)
     setGridOpen(false)
     // Leaving the picker ends any in-flight edit — the draft's component
@@ -941,9 +943,25 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // viewer no longer navigates away for editing.
   const settingsActions = onOpenDetails ? (
     <ActionGroup>
-      <ActionRow label="Manage gallery" onClick={() => onOpenDetails({ imageId: images[index]?.id ?? '', index })} />
+      <ActionRow label="Gallery settings" onClick={() => onOpenDetails({ imageId: images[index]?.id ?? '', index })} />
     </ActionGroup>
-  ) : ownerGallery ? (
+  ) : ownerGallery ? null : addToLibrary ? (
+    <ActionGroup>
+      <ActionRow
+        label={addToLibraryLabel ?? (adoptState === 'busy' ? 'Adding…' : adoptState === 'failed' ? 'Couldn’t add — try again' : 'Add to Library')}
+        onClick={addToLibrary}
+        disabled={addToLibraryBusy ?? adoptState === 'busy'}
+      />
+    </ActionGroup>
+  ) : resolvedSignInHref ? (
+    <ActionGroup>
+      <ActionRow label="Sign in" href={resolvedSignInHref} />
+    </ActionGroup>
+  ) : null
+  // The owner's gallery management drills into the Settings popover's
+  // gallery page: the hoisted head is the intro, the panel the body. The
+  // viewer is already inside the gallery, so no "Open gallery" row.
+  const galleryPanel = ownerInline && ownerGallery ? (
     <OwnerGalleryPanel
       owner={galleryOwner ?? ''}
       slug={slug}
@@ -969,22 +987,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       onTitleSaved={(title) => setTitleOverride(title)}
       onCaptionSaved={(caption) => setCaptionOverride(caption)}
     />
-  ) : addToLibrary ? (
-    <ActionGroup>
-      <ActionRow
-        label={addToLibraryLabel ?? (adoptState === 'busy' ? 'Adding…' : adoptState === 'failed' ? 'Couldn’t add — try again' : 'Add to Library')}
-        onClick={addToLibrary}
-        disabled={addToLibraryBusy ?? adoptState === 'busy'}
-      />
-    </ActionGroup>
-  ) : resolvedSignInHref ? (
-    <ActionGroup>
-      <ActionRow label="Sign in" href={resolvedSignInHref} />
-    </ActionGroup>
-  ) : null
-  // The popover's intro: the gallery's own identity, hoisted above View
-  // so the card reads top-down — what this is, then how it shows.
-  const settingsIntro = ownerInline && ownerGallery ? (
+  ) : undefined
+  // The gallery page's intro: the gallery's own identity — title, source
+  // line, caption — so the drilled page reads what it manages.
+  const galleryIntro = ownerInline && ownerGallery ? (
     <OwnerGalleryHead
       title={titleOverride ?? ownerGallery.title}
       caption={captionOverride ?? ownerGallery.caption}
@@ -993,7 +999,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       expiresAt={ownerGallery.expiresAt}
       mediaCount={ownerGallery.mediaCount}
     />
-  ) : null
+  ) : undefined
   const arrowsVisible = arrowsOn && hasMultiple
 
   const getBounds = () => {
@@ -2021,6 +2027,24 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
     // Same deliberate omission as the nav handler: re-arming on modal
     // transitions would leave a window where M/Esc presses vanish.
+  }, [magnifierAvailable])
+
+  // `?` opens the shortcut sheet — pointer:fine only, under the same gates
+  // as the other chrome keys. While any sheet is open the key stays out;
+  // the sheet's own row reaches it from inside Settings instead.
+  useEffect(() => {
+    if (!magnifierAvailable) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.defaultPrevented) return
+      if (isTypingTarget(event.target as HTMLElement | null)) return
+      if (event.key !== '?') return
+      if (suspendedRef.current || anyModalOpenRef.current || !document.body.classList.contains('gallery-entered')) return
+      event.preventDefault()
+      setShortcutsOpen(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [magnifierAvailable])
 
   // `I` is the magnifier's companion key: the stage keeps no button for it.
@@ -3139,14 +3163,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               onExit={exitEdit}
               onDone={pickerDoneHref ? () => window.location.assign(pickerDoneHref) : requestCloseModals}
               doneHref={pickerDoneHref}
-              onSaved={(photoId) => {
+              onSaved={editStore ? (photoId) => {
                 // A store-backed save does not reload the page the way the
                 // API flow does — the cached edit list must invalidate or
                 // the next Reorder opens on the pre-save order, unchanged
-                // viewer key notwithstanding.
+                // viewer key notwithstanding. The API path keeps
+                // PickerEditor's own reload fallback, which is also what
+                // closes the picker after Save.
                 setEditItems(null)
                 onEditSaved?.(photoId)
-              }}
+              } : undefined}
               onSaveOrder={editStore?.save}
             />
           ) : (
@@ -3247,12 +3273,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           fullscreenActive={fullscreenActive}
           onFullscreen={() => { void toggleFullscreen() }}
           showShortcuts={magnifierAvailable}
+          actions={settingsActions}
+          galleryPanel={galleryPanel}
+          galleryIntro={galleryIntro}
+          onOpenShortcuts={() => { setModalOpen(false); setShortcutsOpen(true) }}
+          panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
+        />
+        <ShortcutsSheet
+          open={shortcutsOpen}
+          onClose={() => setShortcutsOpen(false)}
           magnifierAvailable={magnifierAvailable}
           magnifierActive={magnifierActive}
-          deviceControls={deviceControls}
-          actions={settingsActions}
-          intro={settingsIntro}
-          panelStyle={{ ...popoverAnchor, ...foldPanelStyle }}
         />
       </div>
 

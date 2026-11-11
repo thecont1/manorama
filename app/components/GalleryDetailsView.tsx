@@ -47,6 +47,8 @@ type Props = {
   onEditAddress?: () => void
   onReorder: () => void
   onRefresh: () => void
+  /** Account galleries only: opens the provider source. */
+  onOpenSource?: () => void
   onStreamOnlyChange: (next: boolean) => void
   onPurge: () => void
   onRemove: () => void
@@ -60,19 +62,55 @@ const icon = (...paths: string[]) => (
     {paths.map((path) => <path key={path} d={path} />)}
   </svg>
 )
-export const DETAILS_ICONS = {
-  share: () => icon('M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6'),
-  name: () => icon('M4 20h4L19 9l-4-4L4 16z', 'M13.5 6.5l4 4'),
-  caption: () => icon('M4 6h16M4 11h16M4 16h10'),
-  reorder: () => icon('M7 4v16M4 7l3-3 3 3', 'M17 20V4M14 17l3 3 3-3'),
-  keep: () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-      <rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>
-    </svg>
-  ),
-  refresh: () => icon('M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7'),
-  remove: () => icon('M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13'),
-}
+
+/** The one label/icon table every gallery-settings surface reads from, so
+ *  the same action carries the same name and glyph on web, desktop and
+ *  iOS. Order here is documentation only — each container renders the rows
+ *  its host can actually perform, in the canonical group order. */
+export const GALLERY_ROWS = {
+  open: {
+    label: 'Open gallery',
+    icon: () => (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/>
+      </svg>
+    ),
+  },
+  share: { label: 'Share link', icon: () => icon('M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6') },
+  publish: {
+    label: 'Publish',
+    icon: () => icon('M17.5 18.5a4.5 4.5 0 0 0 .6-9A6 6 0 0 0 6.6 7.6 4 4 0 0 0 7.5 18.5z', 'M12 11v7m0 0l-3-3m3 3l3-3'),
+  },
+  name: { label: 'Name', icon: () => icon('M4 20h4L19 9l-4-4L4 16z', 'M13.5 6.5l4 4') },
+  caption: { label: 'Caption', icon: () => icon('M4 6h16M4 11h16M4 16h10') },
+  address: {
+    label: 'Address',
+    icon: () => icon('M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.1 1.1', 'M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.1-1.1'),
+  },
+  reorder: { label: 'Reorder photographs', icon: () => icon('M7 4v16M4 7l3-3 3 3', 'M17 20V4M14 17l3 3 3-3') },
+  refresh: { label: 'Refresh gallery contents', icon: () => icon('M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7') },
+  openSource: {
+    label: 'Open source',
+    icon: () => icon('M14 4h6v6', 'M20 4l-9.5 9.5', 'M19 13.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5.5'),
+  },
+  openFolder: {
+    label: 'Open folder',
+    icon: () => icon('M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', 'M12 10.5v5M9.8 13.2L12 15.5l2.2-2.3'),
+  },
+  keepCopy: {
+    label: 'Keep a copy',
+    icon: () => (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M12 8v6M9.5 11.5L12 14l2.5-2.5"/>
+      </svg>
+    ),
+  },
+  removeSaved: {
+    label: 'Remove saved copy',
+    icon: () => icon('M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6', 'M12 3v8m0 0l-3-3m3 3l3-3'),
+  },
+  remove: { label: 'Remove from Library', icon: () => icon('M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13') },
+} as const
 
 /** Shared owner Details composition. Platform containers own the commands;
  * this view only states capabilities and emits intent. */
@@ -107,6 +145,7 @@ export function GalleryDetailsView({
   onEditAddress,
   onReorder,
   onRefresh,
+  onOpenSource,
   onStreamOnlyChange,
   onPurge,
   onRemove,
@@ -148,50 +187,53 @@ export function GalleryDetailsView({
           ) : null}
           <ActionGroup>
             <ActionRow
-              label="Open gallery"
-              icon={(
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                  <rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/>
-                </svg>
-              )}
+              label={GALLERY_ROWS.open.label}
+              icon={GALLERY_ROWS.open.icon()}
               onClick={onOpen}
               disabled={busy}
             />
             {/* The full address is already on the header — the row states the
                 action, not a second copy of the path. */}
             <ActionRow
-              label="Share link"
-              icon={DETAILS_ICONS.share()}
+              label={GALLERY_ROWS.share.label}
+              icon={GALLERY_ROWS.share.icon()}
               onClick={onShare}
               disabled={busy}
             />
           </ActionGroup>
 
           <ActionGroup>
-            <ActionRow label="Name" icon={DETAILS_ICONS.name()} value={title} onClick={onEditName} disabled={locked} />
+            <ActionRow label={GALLERY_ROWS.name.label} icon={GALLERY_ROWS.name.icon()} value={title} onClick={onEditName} disabled={locked} />
             {/* A present caption reads in full on the header — only an empty
                 one needs the row to state it. */}
-            <ActionRow label="Caption" icon={DETAILS_ICONS.caption()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
+            <ActionRow label={GALLERY_ROWS.caption.label} icon={GALLERY_ROWS.caption.icon()} value={caption ? undefined : 'None'} onClick={onEditCaption} disabled={locked} />
             {onEditAddress ? (
-              <ActionRow label="Address" value={address} onClick={onEditAddress} disabled={locked} />
+              <ActionRow label={GALLERY_ROWS.address.label} icon={GALLERY_ROWS.address.icon()} value={address} onClick={onEditAddress} disabled={locked} />
             ) : null}
-            <ActionRow label="Reorder photographs" icon={DETAILS_ICONS.reorder()} value={imageCount} onClick={onReorder} disabled={locked} />
+            <ActionRow label={GALLERY_ROWS.reorder.label} icon={GALLERY_ROWS.reorder.icon()} value={imageCount} onClick={onReorder} disabled={locked} />
+          </ActionGroup>
+
+          <ActionGroup>
+            <ActionRow label={GALLERY_ROWS.refresh.label} icon={GALLERY_ROWS.refresh.icon()} onClick={onRefresh} disabled={locked} />
+            {onOpenSource ? (
+              <ActionRow label={GALLERY_ROWS.openSource.label} icon={GALLERY_ROWS.openSource.icon()} onClick={onOpenSource} disabled={locked} />
+            ) : null}
           </ActionGroup>
 
           {platform === 'native' ? (
-            <ActionGroup>
+            <ActionGroup label={`On ${deviceLabel ?? 'this device'}`}>
               {/* The value span must exist from the first render: when the
                   flip adds "Streams" it would otherwise shift the control
                   span's index and swap the switch node mid-gesture. */}
               <ActionRow
-                label={`Keep on ${deviceLabel}`}
-                icon={DETAILS_ICONS.keep()}
+                label={GALLERY_ROWS.keepCopy.label}
+                icon={GALLERY_ROWS.keepCopy.icon()}
                 value={keepValue ?? ''}
                 control={(
                   <Switch
                     checked={!streamOnly}
                     onChange={(keep) => onStreamOnlyChange(!keep)}
-                    label={`Keep a copy on ${deviceLabel}`}
+                    label={`Keep a copy on ${deviceLabel ?? 'this device'}`}
                     describedBy="gallery-keep-note"
                     disabled={busy}
                   />
@@ -201,21 +243,24 @@ export function GalleryDetailsView({
                 Turning this off stops future downloads. It does not delete copies already saved here.
               </p>
               {vaultNote ? <p class="m-note m-panel-note" role="status" aria-live="polite">{vaultNote}</p> : null}
-              {hasSavedCopy ? <ActionRow label={`Remove saved copy from ${deviceLabel}`} onClick={onPurge} disabled={busy} /> : null}
-              <ActionRow label="Refresh gallery contents" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
+              {hasSavedCopy ? (
+                <ActionRow label={GALLERY_ROWS.removeSaved.label} icon={GALLERY_ROWS.removeSaved.icon()} onClick={onPurge} disabled={busy} />
+              ) : null}
             </ActionGroup>
-          ) : (
-            <ActionGroup>
-              <ActionRow label="Refresh gallery contents" icon={DETAILS_ICONS.refresh()} onClick={onRefresh} disabled={locked} />
-            </ActionGroup>
-          )}
+          ) : null}
 
           {note ? <p class="m-note" role="status">{note}</p> : null}
 
           <ActionGroup>
-            <ActionRow label="Remove gallery" icon={DETAILS_ICONS.remove()} tone="destructive" onClick={onRemove} disabled={busy} />
+            <ActionRow
+              label={GALLERY_ROWS.remove.label}
+              icon={GALLERY_ROWS.remove.icon()}
+              tone="destructive"
+              value={`Photographs stay in ${sourceLabel}`}
+              onClick={onRemove}
+              disabled={busy}
+            />
           </ActionGroup>
-          <p class="d-acts-note">Removing it leaves every photograph in {sourceLabel}.</p>
         </div>
       </div>
     </main>

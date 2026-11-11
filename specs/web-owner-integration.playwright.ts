@@ -2,10 +2,10 @@ import { expect, test, type Browser, type BrowserContext, type Page } from '@pla
 
 /**
  * P10 web owner integration — the shared admin surfaces (AddGallerySheet,
- * WebSettings, GalleryDetailsView platform=web, GalleryShareSheet,
- * GalleryEditSheet), browser-history state across Details/Settings, the
- * owner viewer chrome's Details handoff into the dashboard, and the web
- * storage contract (invariant 7: no persistence beyond preference keys).
+ * WebSettings, the Gallery settings sheet, GalleryShareSheet), browser-
+ * history state across Settings, the owner viewer chrome's Settings
+ * drill-in, and the web storage contract (invariant 7: no persistence
+ * beyond preference keys).
  *
  * Everything here is read-only against the seeded repos: no gallery
  * creates/edits/deletes/reorders, no provider writes, no sign-out, no
@@ -87,42 +87,35 @@ test('add-gallery CTA opens the shared sheet with URL and optional Name and clos
   }
 })
 
-test('card Details is web-only (no vault/offline) and browser Back/Forward round-trips', async ({ browser }) => {
-  const { context, page, slug } = await openDashboard(browser)
+test('?details=<slug> opens the Gallery settings sheet — web-only, no vault/offline', async ({ browser }) => {
+  const { context, page, slug, title } = await openDashboard(browser)
   try {
-    // The ⋯ menu now opens the gallery-settings sheet; the Details surface
-    // survives as its own addressable screen via ?details=<slug>.
+    // The deep link opens the same sheet the ⋯ menu's Gallery settings row
+    // does — the full-page Details surface is gone.
     await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
-    const details = page.locator('[data-screen="details"]')
-    await expect(details).toBeVisible()
+    // SSR paints the sheet before the island hydrates — the Close button
+    // has no handler until then, so wait for the app's ready marker first.
+    await expect(page.locator('[data-admin-ready="true"]')).toBeVisible()
+    const sheet = page.getByRole('dialog', { name: 'Gallery settings' })
+    await expect(sheet).toBeVisible()
     await expect(page).toHaveURL(`${base}/${owner}?details=${slug}`)
-    await expect(details.locator('.d-name')).toBeVisible()
+    await expect(sheet.locator('.m-owner-panel-title')).toHaveText(title)
 
-    // platform="web": no device/vault/offline controls; the Source group
-    // replaces the native "This device" group entirely.
-    await expect(details.getByText('Keep a copy', { exact: true })).toHaveCount(0)
-    await expect(details.getByText(/vault/i)).toHaveCount(0)
-    await expect(details.getByText(/offline/i)).toHaveCount(0)
+    // No device/vault/offline controls on web — the sheet is the account
+    // panel alone.
+    await expect(sheet.getByText('Keep a copy', { exact: true })).toHaveCount(0)
+    await expect(sheet.getByText(/vault/i)).toHaveCount(0)
+    await expect(sheet.getByText(/offline/i)).toHaveCount(0)
     await expect(page.getByRole('switch')).toHaveCount(0)
-    await expect(details.getByRole('button', { name: 'Refresh gallery contents', exact: true })).toBeVisible()
+    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Open source', 'Remove from Library']) {
+      await expect(sheet.getByRole('button', { name: label }), label).toBeVisible()
+    }
 
-    // History Back pops the pushed entry. Schedule navigation so Playwright
-    // does not wait on a same-document navigation that has no load.
-    await page.evaluate(() => { setTimeout(() => window.history.back(), 0) })
-    await expect(details).toHaveCount(0)
-    await expect(page).toHaveURL(`${base}/${owner}`)
-
-    // Browser Back/Forward across the Details entry.
-    await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
-    await expect(details).toBeVisible()
-    await page.evaluate(() => { setTimeout(() => window.history.back(), 0) })
-    await expect(details).toHaveCount(0)
-    await expect(page).toHaveURL(`${base}/${owner}`)
-    await page.evaluate(() => { setTimeout(() => window.history.forward(), 0) })
-    await expect(details).toBeVisible()
-    await expect(page).toHaveURL(`${base}/${owner}?details=${slug}`)
-    await page.evaluate(() => { setTimeout(() => window.history.back(), 0) })
-    await expect(details).toHaveCount(0)
+    // The sheet is transient — it holds no history entry. Closing returns
+    // to the library; the deep link itself stays addressable.
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(sheet).toHaveCount(0)
+    await expect(page.locator('[data-admin-ready="true"]')).toBeVisible()
   } finally {
     await context.close()
   }
@@ -138,8 +131,9 @@ test('the ⋯ menu opens the gallery’s own Settings sheet — the same panel t
     // The library keeps its URL — the sheet is a panel, not a surface.
     await expect(page).toHaveURL(`${base}/${owner}`)
     await expect(sheet.locator('.m-owner-panel-title')).toHaveText(title)
-    // From the Library the panel earns an Open row the viewer never needs.
-    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery']) {
+    // From the Library the panel earns an Open row the viewer never needs;
+    // Open source rides along because the host wires it.
+    for (const label of ['Open gallery', 'Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Open source', 'Remove from Library']) {
       await expect(sheet.getByRole('button', { name: label }), label).toBeVisible()
     }
     await sheet.getByRole('button', { name: 'Close', exact: true }).click()
@@ -149,21 +143,15 @@ test('the ⋯ menu opens the gallery’s own Settings sheet — the same panel t
   }
 })
 
-test('Details Share opens the shared sheet with the correct public URL', async ({ browser }) => {
-  const { context, page, slug, title } = await openDashboard(browser)
+test('the ⋯ menu’s Share link opens the shared sheet with the correct public URL', async ({ browser }) => {
+  const { context, page, card, slug, title } = await openDashboard(browser)
   try {
-    await page.goto(`${base}/${owner}?details=${slug}`, { waitUntil: 'domcontentloaded' })
-    const details = page.locator('[data-screen="details"]')
-    await expect(details).toBeVisible()
-
-    const addressRow = details.locator('.m-actionrow').filter({ hasText: /^Address/ })
-    const address = (await addressRow.locator('.m-actionrow-value').innerText()).trim()
-    expect(address).toMatch(new RegExp(`^localhost:\\d+/${owner}/`))
-
-    await details.getByRole('button', { name: /Share link/ }).click()
+    await card.getByRole('button', { name: /actions$/i }).click()
+    await page.getByRole('button', { name: 'Share link', exact: true }).click()
     const sheet = page.getByRole('dialog', { name: `Share ${title}`, exact: true })
     await expect(sheet).toBeVisible()
-    await expect(sheet.locator('.m-share-address')).toHaveText(`https://${address}`)
+    // The address is this gallery's public path on the configured host.
+    await expect(sheet.locator('.m-share-address')).toContainText(`/${owner}/${slug}`)
     await expect(sheet.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible()
     await sheet.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(sheet).toHaveCount(0)
@@ -187,14 +175,18 @@ test('owner viewer Settings carries gallery management inline — no Details nav
     await settingsPill.click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
     await expect(dialog).toBeVisible()
-    // The panel is the gallery: header, inline edit rows, share/refresh,
-    // and the destructive row — and no "Manage gallery" handoff to the
-    // dashboard anywhere on web.
+    // The view page's role slot is a single Gallery settings row; it drills
+    // into the gallery page — heading, hoisted head, and the same panel the
+    // Library's settings sheet hosts.
+    await dialog.getByRole('button', { name: 'Gallery settings', exact: true }).click()
+    await expect(dialog.getByRole('heading', { name: 'Gallery settings' })).toBeVisible()
     await expect(dialog.locator('.m-owner-panel-title')).toHaveText(title)
+    // No "Manage gallery" handoff to the dashboard anywhere on web.
     await expect(dialog.getByRole('button', { name: 'Manage gallery' })).toHaveCount(0)
     // The rows' accessible names carry their values ("Name Mixed album"),
-    // so match on the label itself.
-    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery']) {
+    // so match on the label itself. The viewer wires no Open/Open source —
+    // it is already inside the gallery.
+    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       await expect(dialog.getByRole('button', { name: label }), label).toBeVisible()
     }
     await expect(page).toHaveURL(new RegExp(`/${owner}/${slug}$`))
@@ -230,11 +222,12 @@ test('Account → Settings shows identities/plan/typed-delete; Light persists af
     await expect(identities.getByRole('button', { name: 'Unlink', exact: true })).toBeVisible()
     await expect(identities.getByRole('link', { name: /^Connect / })).toHaveCount(2)
 
-    // Allowance: seeded account is pro → Visionary.
+    // Allowance: seeded account is pro → Visionary, and pro galleries are
+    // cloud-hosted so the row reads "Cloud galleries" (d737f03).
     const plan = settings.locator('h3.m-actiongroup-label', { hasText: /^Allowance$/ })
       .locator('..').locator('.m-actiongroup')
     await expect(plan.getByText('Visionary', { exact: true })).toBeVisible()
-    await expect(plan.getByText(/Permanent galleries/)).toBeVisible()
+    await expect(plan.getByText(/Cloud galleries/)).toBeVisible()
     await expect(plan.locator('.m-actionrow-value').nth(1)).toHaveText(/\d+ of \d+/)
 
     // Typed-delete: the panel stays behind its destructive row until the

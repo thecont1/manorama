@@ -472,15 +472,20 @@ for (const vp of viewports) {
       await page.getByRole("button", { name: "Settings", exact: true }).click();
       const settingsDialog = page.getByRole("dialog", { name: "Settings" });
       await expect(settingsDialog).toBeVisible();
-      // The owner's management lives inline in the popover now — the web
-      // viewer never hands off to dashboard Details.
-      await expect(settingsDialog.getByText("This gallery")).toBeVisible();
+      // The owner's management drills in one level: the view page's role
+      // slot is the Gallery settings row, and the panel lives on its page.
+      await settingsDialog.getByRole("button", { name: "Gallery settings", exact: true }).click();
+      await expect(
+        settingsDialog.getByRole("heading", { name: "Gallery settings" }),
+      ).toBeVisible();
       await expect(
         settingsDialog.getByRole("button", { name: "Share link" }),
       ).toBeVisible();
       await expect(
         settingsDialog.getByRole("button", { name: "Manage gallery" }),
       ).toHaveCount(0);
+      // Back to the view page for the layout assertions below.
+      await page.keyboard.press("Escape");
       // Vertical scroll keeps the bars working in their docks.
       await page.getByRole("radio", { name: "Scroll" }).click();
       await expect(page.locator("[data-stage]")).toHaveClass(/mode-vertical/);
@@ -2174,9 +2179,18 @@ test.describe("display and info sheets", () => {
     if (card.width <= viewport.width - 28) {
       expect(Math.abs(cardCentre - navCentre)).toBeLessThanOrEqual(2);
     }
-    // The card floats just above the nav it anchors to.
-    expect(nav.top - (card.y + card.height)).toBeGreaterThanOrEqual(8);
-    expect(nav.top - (card.y + card.height)).toBeLessThanOrEqual(60);
+    // The card floats just above the nav it anchors to. The popover's
+    // 10px enter animation reads as a flush gap if measured mid-flight —
+    // re-measure until the geometry settles (same rule as the phone pass
+    // below).
+    await expect(async () => {
+      const settledCard = (await dialog.boundingBox())!;
+      const settledNav = await page
+        .locator("[data-chrome-bottom]")
+        .evaluate((el) => el.getBoundingClientRect());
+      expect(settledNav.top - (settledCard.y + settledCard.height)).toBeGreaterThanOrEqual(8);
+      expect(settledNav.top - (settledCard.y + settledCard.height)).toBeLessThanOrEqual(60);
+    }).toPass({ timeout: 5000 });
     // The owner gets inline management, never a Details handoff, and the
     // shortcuts section always closes the sheet.
     await expect(dialog.getByRole("button", { name: "Manage gallery" })).toHaveCount(0);
@@ -2235,6 +2249,8 @@ test.describe("display and info sheets", () => {
     await showChrome(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Settings" });
+    // Management rows live one level deep — the Gallery settings page.
+    await dialog.getByRole("button", { name: "Gallery settings", exact: true }).click();
     // Typing inside an editor must not reach the viewer's shortcuts —
     // the "g" completes the name, it does not open the picker. The row's
     // accessible name carries its value, so locate the label inside it.
@@ -3250,11 +3266,14 @@ test.describe("M magnifier (desktop only)", () => {
     await context.close();
   });
 
-  test("the shortcut row appears only where the key works", async ({ page }) => {
+  test("the shortcuts row opens the shortcuts sheet where the key works", async ({ page }) => {
     await dismissCurtain(page);
     await showChrome(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.locator(".m-shortcut-list", { hasText: "magnify" })).toBeVisible();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await settings.getByRole("button", { name: "Keyboard shortcuts", exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+    await expect(sheet.locator(".m-shortcut-list", { hasText: "magnify" })).toBeVisible();
   });
 });
 
@@ -3601,17 +3620,17 @@ test.describe("retention policy", () => {
     // disabled, removal stays armed, and the upgrade path lives in the
     // gallery's own settings sheet.
     await card.locator(".lib-card-menu").click();
-    let menu = page.locator(".lib-menu");
-    await expect(menu.getByRole("button", { name: "Reorder photographs", exact: true })).toBeDisabled();
-    await expect(menu.getByRole("button", { name: "Remove gallery", exact: true })).toBeEnabled();
-    await menu.getByRole("button", { name: "Gallery settings", exact: true }).click();
-    const details = page.locator(".m-sheet").last();
-    await expect(details.getByRole("link", { name: "Upgrade", exact: true })).toHaveAttribute("href", /^mailto:/);
-    await details.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+    const lockedDetails = page.locator(".m-sheet").last();
+    await expect(lockedDetails.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ })).toBeDisabled();
+    await expect(lockedDetails.locator(".m-actionrow").filter({ hasText: /^Remove from Library/ })).toBeEnabled();
+    await expect(lockedDetails.getByRole("link", { name: "Upgrade", exact: true })).toHaveAttribute("href", /^mailto:/);
+    await lockedDetails.getByRole("button", { name: "Close", exact: true }).click();
     const freeCard = page.locator('[data-gallery-card="ui-a"]');
     await freeCard.locator(".lib-card-menu").click();
-    menu = page.locator(".lib-menu");
-    await expect(menu.getByRole("button", { name: "Reorder photographs", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Gallery settings", exact: true }).click();
+    const freeDetails = page.locator(".m-sheet").last();
+    await expect(freeDetails.locator(".m-actionrow").filter({ hasText: /^Reorder photographs/ })).toBeEnabled();
     await page.keyboard.press("Escape");
     await context.close();
   });

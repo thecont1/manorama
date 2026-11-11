@@ -78,10 +78,13 @@ describe('the web owner panel', () => {
     expect(root.textContent).not.toContain('This gallery')
     expect(root.textContent).toContain('Mixed album')
     expect(root.textContent).toContain('24 photographs · 1 video · Dropbox')
-    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove gallery']) {
+    for (const label of ['Share link', 'Name', 'Caption', 'Address', 'Reorder photographs', 'Refresh gallery contents', 'Remove from Library']) {
       expect(row(root, label)).toBeTruthy()
     }
-    expect(root.querySelector('.m-owner-panel-note')?.textContent).toContain('Removing it leaves every photograph in Dropbox.')
+    // The remove row carries the source reassurance as its value — the
+    // separate footnote paragraph is gone.
+    expect(row(root, 'Remove from Library')?.querySelector('.m-actionrow-value')?.textContent).toBe('Photographs stay in Dropbox')
+    expect(root.querySelector('.m-owner-panel-note')).toBeNull()
   })
 
   test('a present caption reads in full on the head — the row never ellipsizes it', () => {
@@ -100,6 +103,13 @@ describe('the web owner panel', () => {
     expect(row(inside, 'Open gallery')).toBeFalsy()
     const library = mounted({ onOpen: () => {} })
     expect(row(library, 'Open gallery')).toBeTruthy()
+  })
+
+  test('the Open source row only renders when the host provides it', () => {
+    const plain = mounted()
+    expect(row(plain, 'Open source')).toBeFalsy()
+    const sourced = mounted({ onOpenSource: () => {} })
+    expect(row(sourced, 'Open source')).toBeTruthy()
   })
 
   test('name and caption PATCH their own field and report through onTitleSaved', async () => {
@@ -183,14 +193,14 @@ describe('the web owner panel', () => {
       expect(button.disabled).toBe(true)
     }
     expect((row(root, 'Share link') as HTMLButtonElement).disabled).toBe(false)
-    expect((row(root, 'Remove gallery') as HTMLButtonElement).disabled).toBe(false)
+    expect((row(root, 'Remove from Library') as HTMLButtonElement).disabled).toBe(false)
     expect(root.querySelector('.m-owner-panel-lock a')?.getAttribute('href')).toBe('/thecontrarian')
   })
 
   test('remove asks inline, then DELETEs and lands on the library', async () => {
     calls = []; assigned = []
     const root = mounted()
-    flushSync(() => row(root, 'Remove gallery')?.click())
+    flushSync(() => row(root, 'Remove from Library')?.click())
     expect(root.textContent).toContain('Remove “Mixed album”?')
     flushSync(() => { [...root.querySelectorAll('button')].find((b) => b.textContent === 'Remove')?.click() })
     await settle()

@@ -33,7 +33,7 @@ import { assetUrl, isDesktopRuntime, pathExists, pickGalleryFolder, readDirEntri
 import { invoke } from '@tauri-apps/api/core'
 import { removeDeviceGallery, syncDeviceGalleries } from '../lib/sync'
 import { copyText, shareGalleryOnWeb } from '../../app/lib/gallery-share'
-import { AccountApiError, createAccountGallery, deleteAccount, deleteAccountGallery, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, refreshAccountGallery, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
+import { AccountApiError, createAccountGallery, deleteAccount, deleteDeviceGalleryRecord, fetchAccountGalleries, fetchAccountGallery, fetchAccountIdentities, fetchAccountProfile, fetchDeviceGalleries, mintLinkHandoff, patchAccountOwnerSlug, scanGalleryLink, setAccountGalleryHidden, setAccountGalleryPin, setDeviceGalleryHidden, standaloneDeviceGalleries, unlinkAccountIdentity } from '../lib/account'
 import { previewSrcFor, sourceLabelFor } from '../../native/lib/library-media'
 import type { GallerySummary } from '../../app/lib/gallery-repository'
 import type { DeviceGallery } from '../../packages/core/device-gallery'
@@ -53,7 +53,6 @@ import type { PickerEditItem } from '../../app/components/viewer/PickerEditor'
 import { HeicImg } from '../../app/components/ui/HeicImg'
 import { useMasonry } from '../../app/components/library/useMasonry'
 import { CompactCoverImg } from '../../app/components/library/CompactCoverImg'
-import { refreshRequestInit } from '../../app/lib/encrypted-refresh'
 import { configureEncryptedDisplayKeyStore } from '../../app/lib/encrypted-display'
 import { desktopKeyStore } from '../lib/key-store'
 import { desktopOfflineStore, desktopVaultPersistence, openDesktopEncryptedSession, createDesktopVaultSettings } from '../lib/offline-gallery'
@@ -66,6 +65,7 @@ import { Meter } from '../../app/components/ui/Meter'
 import { WebSettings, type AccountIdentityWeb } from '../../app/components/WebSettings'
 import { ActionGroup, ActionRow } from '../../app/components/ui/ActionRow'
 import { Switch } from '../../app/components/ui/Switch'
+import { GALLERY_ROWS } from '../../app/components/GalleryDetailsView'
 import { Button } from '../../app/components/ui/Button'
 import { friendlySourceError } from '../../app/lib/source-errors'
 import type { EncryptedClientSession } from '../../app/lib/encrypted-resolver'
@@ -1140,43 +1140,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     }
   }
 
-  const refreshGallery = async (gallery: GallerySummary) => {
-    if (!session || !gallery.sourceUrl) return
-    setCardMenu(null)
-    setMenuRemove(false)
-    setBusy(true)
-    setNotice(`Refreshing “${gallery.title || gallery.slug}”…`)
-    try {
-      const init = await refreshRequestInit({ id: gallery.id, sourceUrl: gallery.sourceUrl, keyStore: desktopKeyStore() })
-      await refreshAccountGallery(base, session.token, gallery.slug, init)
-      await refreshAccountGalleries(session.token)
-      setNotice(`“${gallery.title || gallery.slug}” refreshed`)
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That gallery could not be refreshed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const removeGalleryConfirmed = async (gallery: GallerySummary) => {
-    if (!session) return
-    setBusy(true)
-    try {
-      await deleteAccountGallery(base, session.token, gallery.slug)
-      // The D1 row is gone; this device's copy of the key goes with it —
-      // the provider's originals are never touched (invariant 9).
-      if (gallery.id) await desktopKeyStore().remove(gallery.id).catch(() => {})
-      setCardMenu(null)
-      setMenuRemove(false)
-      await refreshAccountGalleries(session.token)
-      setNotice('Gallery removed')
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'That gallery could not be removed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const removeDeviceGalleryConfirmed = async (gallery: DeviceGallery) => {
     if (!session) return
     setBusy(true)
@@ -1304,14 +1267,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     setCatalogue(next)
     setNotice(updated.items.length ? `“${record.title}” refreshed` : 'That source has no photos Manorama can display')
     void runSync(next, session)
-  }
-
-  /** Card-level rescan has no note surface of its own — a success repaints
-   *  the rail and count (and rescan itself reports an empty source); only a
-   *  thrown read needs the section's status line. */
-  const rescanFromCard = (record: LocalGalleryRecord) => {
-    rescan(record).catch((reason: unknown) =>
-      setNotice(reason instanceof Error ? reason.message : 'That source could not be read again'))
   }
 
   /** Forget the share sheet, its step, and any in-flight upload together. */
@@ -2170,6 +2125,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     .map((key) => localByCardId.get(key))
     .filter((record): record is LocalGalleryRecord => Boolean(record))
   const galSettingsGallery = galSettingsSlug ? liveAccountGalleries.find((gallery) => gallery.slug === galSettingsSlug) ?? null : null
+  const galSettingsStreamOnly = galSettingsGallery
+    ? streamOnlyPolicies[galleryPolicyKey(ownerSlug ?? session?.ownerSlug ?? '', galSettingsGallery.slug)] === true
+    : false
+  const galSettingsSaved = galSettingsGallery ? savedGalleryFor(galSettingsGallery) : null
 
   // Hidden galleries gather below — the flag is a field on each kind's
   // record (server row, synced mirror row, catalogue record), not a list
@@ -2674,20 +2633,19 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
             onRescan={() => rescan(detailsRecord)}
             onRename={(title) => rename(detailsRecord, title)}
             onRemove={() => remove(detailsRecord)}
+            onRevealFolder={() => { void revealFolder(detailsRecord) }}
           />
         </Sheet>
       ) : null}
       {shareHost}
       {cardMenu ? (
         <Sheet open onClose={() => { setCardMenu(null); setMenuRemove(false) }} title={cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}>
-          {menuRemove ? (
+          {/* Only synced-device cards still confirm removal inline —
+              account and local removes live inside Gallery settings. */}
+          {menuRemove && cardMenu.kind === 'device' ? (
             <div class="lib-menu">
-              <p>Remove “{cardMenu.kind === 'account' ? cardMenu.gallery.title || cardMenu.gallery.slug : cardMenu.kind === 'local' ? cardMenu.record.title : cardMenu.gallery.title}” from manorama?{cardMenu.kind === 'account' && cardMenu.gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(cardMenu.gallery.sourceUrl)}.` : cardMenu.kind === 'device' ? ` The folder on ${cardMenu.gallery.deviceLabel} is untouched.` : ' The folder on this Mac is untouched.'}</p>
-              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => {
-                if (cardMenu.kind === 'account') void removeGalleryConfirmed(cardMenu.gallery)
-                else if (cardMenu.kind === 'device') void removeDeviceGalleryConfirmed(cardMenu.gallery)
-                else { const record = cardMenu.record; setCardMenu(null); setMenuRemove(false); void remove(record) }
-              }}>Remove gallery</button>
+              <p>Remove “{cardMenu.gallery.title}” from manorama? The folder on {cardMenu.gallery.deviceLabel} is untouched.</p>
+              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => void removeDeviceGalleryConfirmed(cardMenu.gallery)}>Remove gallery</button>
               <button type="button" disabled={busy} onClick={() => setMenuRemove(false)}>Cancel</button>
             </div>
           ) : (
@@ -2707,42 +2665,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               {/* The gallery's own Settings — the same panel the viewer's
                   Settings popover hosts, so the owner edits in place. */}
               <button type="button" onClick={() => { setGalSettingsSlug(cardMenu.gallery.slug); setCardMenu(null) }}>Gallery settings</button>
-              <button
-                type="button"
-                disabled={busy || isLocked(cardMenu.gallery)}
-                title={isLocked(cardMenu.gallery) ? PIPELINE_LOCK_MESSAGE : undefined}
-                onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void openAccountGallery(g, 0, true) }}
-              >Reorder photographs</button>
-              {cardMenu.gallery.sourceUrl ? <a href={cardMenu.gallery.sourceUrl} target="_blank" rel="noopener" onClick={(event) => {
-                // Encrypted sourceUrl is stored keyless — the full provider
-                // link is rebuilt from this device's custody before it
-                // leaves for the browser, same as the web menu.
-                event.preventDefault()
-                const g = cardMenu.gallery
-                setCardMenu(null)
-                if (g.manifestVersion === 2 && g.id && isEncryptedSourceUrl(g.sourceUrl!)) void openSourceResolved(g)
-                else openExternal(g.sourceUrl!)
-              }}>Open source</a> : null}
-              {cardMenu.gallery.sourceUrl ? (
-                <button
-                  type="button"
-                  disabled={busy || isLocked(cardMenu.gallery)}
-                  title={isLocked(cardMenu.gallery) ? PIPELINE_LOCK_MESSAGE : undefined}
-                  onClick={() => { void refreshGallery(cardMenu.gallery) }}
-                >Refresh gallery contents</button>
-              ) : null}
-              {/* The encrypted on-device copy — bytes stay on this Mac,
-                  locked behind the Keychain, viewable only here. */}
-              {savedGalleryFor(cardMenu.gallery) ? (
-                <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => {
-                  const saved = savedGalleryFor(cardMenu.gallery)
-                  setCardMenu(null)
-                  if (saved) void removeSavedCopy(saved.galleryId)
-                }}>Delete from this Mac</button>
-              ) : (
-                <button type="button" disabled={busy} onClick={() => { const g = cardMenu.gallery; setCardMenu(null); void saveToVault(g) }}>Save to this Mac</button>
-              )}
-              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : cardMenu.kind === 'device' ? (<>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.gallery.hidden) }}>
@@ -2752,9 +2674,9 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>) : (<>
               {/* The same verbs the account menu carries, in the same order —
-                  Share link swaps to Publish until a public slug exists,
-                  Open folder is the local's Open source, and Save is absent
-                  because a local is already on this Mac. */}
+                  Share link swaps to Publish until a public slug exists.
+                  Reorder, Open folder, Refresh and Remove live in the
+                  gallery's settings sheet now. */}
               <button type="button" disabled={busy} onClick={() => { void toggleLocalPin(cardMenu.record) }}>{cardMenu.record.pinnedAt ? 'Unpin gallery' : 'Pin gallery'}</button>
               {accountTier === 'pro' ? (
                 <button type="button" disabled={busy} onClick={() => { void setGalleryHidden(cardMenu, !cardMenu.record.hiddenAt) }}>
@@ -2771,18 +2693,6 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
                 >Publish this gallery</button>
               )}
               <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); openDetails(record) }}>Gallery settings</button>
-              <button
-                type="button"
-                disabled={busy || availability[cardMenu.record.id] === 'unavailable'}
-                onClick={() => { const record = cardMenu.record; setCardMenu(null); openViewer(record.id, 0, true) }}
-              >Reorder photographs</button>
-              <button
-                type="button"
-                disabled={availability[cardMenu.record.id] === 'unavailable'}
-                onClick={() => { void revealFolder(cardMenu.record) }}
-              >Open folder</button>
-              <button type="button" onClick={() => { const record = cardMenu.record; setCardMenu(null); rescanFromCard(record) }}>Refresh gallery contents</button>
-              <button type="button" class="lib-menu-danger" disabled={busy} onClick={() => setMenuRemove(true)}>Remove gallery</button>
             </>)}
           </div>
           )}
@@ -2871,23 +2781,59 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
               shareHref={`${accountGalleryUrl(galSettingsGallery)}${galSettingsGallery.id ? galleryHashes[galSettingsGallery.id] ?? '' : ''}`}
               onRenamed={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token) }}
               onRefreshed={() => { if (session) void refreshAccountGalleries(session.token) }}
-              onRemoved={() => { setGalSettingsSlug(null); if (session) void refreshAccountGalleries(session.token); setNotice('Gallery removed') }}
-            />
-            {/* Device-local policy, deliberately outside the owner panel:
-                it governs this Mac's encrypted vault, not the gallery the
-                account publishes. */}
-            <ActionGroup label="On this Mac" note="Stream only cancels future offline saving for this gallery; a copy already saved stays until removed.">
-              <ActionRow
-                label="Stream only"
-                control={(
-                  <Switch
-                    checked={streamOnlyPolicies[galleryPolicyKey(ownerSlug ?? session?.ownerSlug ?? '', galSettingsGallery.slug)] === true}
-                    label="Stream only — never keep an offline copy on this Mac"
-                    onChange={(value) => void setGalleryStreamOnly(galSettingsGallery, value)}
+              onRemoved={() => {
+                setGalSettingsSlug(null)
+                // The D1 row is gone; this device's custody copy of the key
+                // goes with it — same cleanup the retired card-menu Remove ran.
+                if (galSettingsGallery.id) void desktopKeyStore().remove(galSettingsGallery.id).catch(() => {})
+                if (session) void refreshAccountGalleries(session.token)
+                setNotice('Gallery removed')
+              }}
+              onOpenSource={galSettingsGallery.sourceUrl ? () => {
+                // The menu's old Open source row: an encrypted sourceUrl is
+                // stored keyless — rebuild the provider link from this
+                // device's custody; anything else opens as stored.
+                const g = galSettingsGallery
+                if (g.manifestVersion === 2 && g.id && isEncryptedSourceUrl(g.sourceUrl!)) void openSourceResolved(g)
+                else openExternal(g.sourceUrl!)
+              } : undefined}
+              deviceGroup={(
+                /* Device-local policy, deliberately outside the owner panel:
+                   it governs this Mac's encrypted vault, not the gallery the
+                   account publishes. */
+                <ActionGroup label="On this Mac">
+                  {/* The value span must exist from the first render: when the
+                      flip adds "Streams" it would otherwise shift the control
+                      span's index and swap the switch node mid-gesture. */}
+                  <ActionRow
+                    label={GALLERY_ROWS.keepCopy.label}
+                    icon={GALLERY_ROWS.keepCopy.icon()}
+                    value={galSettingsStreamOnly ? 'Streams' : galSettingsSaved ? 'On this Mac' : ''}
+                    control={(
+                      <Switch
+                        checked={!galSettingsStreamOnly}
+                        label="Keep a copy on this Mac"
+                        onChange={(keep) => void setGalleryStreamOnly(galSettingsGallery, !keep)}
+                      />
+                    )}
                   />
-                )}
-              />
-            </ActionGroup>
+                  <p class="m-note m-panel-note">Stream only cancels future offline saving for this gallery; a copy already saved stays until removed.</p>
+                  {galSettingsSaved ? (
+                    <ActionRow
+                      label={GALLERY_ROWS.removeSaved.label}
+                      icon={GALLERY_ROWS.removeSaved.icon()}
+                      onClick={() => void removeSavedCopy(galSettingsSaved.galleryId)}
+                    />
+                  ) : (
+                    <ActionRow
+                      label="Save to this Mac"
+                      icon={GALLERY_ROWS.keepCopy.icon()}
+                      onClick={() => void saveToVault(galSettingsGallery)}
+                    />
+                  )}
+                </ActionGroup>
+              )}
+            />
           </div>
         </Sheet>
       ) : null}
