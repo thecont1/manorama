@@ -1,0 +1,1149 @@
+/*
+ * manorama: the marketing homepage.
+ *
+ * Scoped to the page: every rule that draws is under `.home`, and the only
+ * global rules are the custom properties the scroll offset needs. The page
+ * is server-rendered and has no client script of its own, so everything here
+ * is plain CSS: layout, type scale, the entrance motion and its
+ * reduced-motion fallback.
+ *
+ * The house rules this file keeps:
+ *   · one canvas (#0a0a0a) and one warm ink (#f3f0e8), one accent (#fc0fc0)
+ *     used only for focus rings and the active nav state;
+ *   · two typefaces: Bricolage Grotesque for display, Manrope for text;
+ *   · no gradients, no shadows at rest, no hairlines, no floating cards:
+ *     surfaces are separated by a tone step and by space;
+ *   · the pictures are never stretched: the box is reserved from the
+ *     intrinsic size and the file is served at that size.
+ */
+
+:root {
+  --home-header-h: 64px;
+  --home-measure: 68ch;
+  /* The rhythm between two bands is twice this, so it is kept small: the
+     page reads as one column of content rather than as a stack of
+     separate sections. The tone step between the bands does the
+     separating; the space only has to let the two breathe. */
+  --home-rhythm: clamp(44px, 4.6vw, 76px);
+  --home-gap: clamp(24px, 4vw, 64px);
+  --home-ink: #f3f0e8;
+  --home-ink-soft: #cdc9c0;
+  --home-ink-muted: #a3a098;
+  --home-surface: #141414;
+  --home-surface-raised: #1c1c1c;
+  --home-accent: #fc0fc0;
+}
+
+html {
+  /* The sticky header is 64px tall. The scroll offset lives here, once,
+     so a link lands its section directly under the header instead of a
+     header's height below it. */
+  scroll-padding-top: var(--home-header-h);
+}
+
+/*
+ * The app shell is a fixed-height surface: `app/styles.css` sets
+ * `body { overflow: hidden }`, because the viewer manages its own
+ * scrolling. The root element's overflow is what the viewport inherits,
+ * and when the root's is `visible` the body's is used instead, so that
+ * one rule stops this page from being scrolled at all. A visitor could
+ * still reach every section with the menu, because an anchor jump
+ * scrolls the document programmatically; the wheel and the trackpad
+ * could not.
+ *
+ * The homepage is a document, so it scrolls like one. This restores that
+ * here, and only here: the stylesheet is loaded on this route alone.
+ */
+html.home-page {
+  overflow: visible;
+}
+
+html.home-page body {
+  overflow: visible;
+}
+
+.home {
+  background: var(--home-bg, #0a0a0a);
+  color: var(--home-ink);
+  font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 18px;
+  line-height: 1.6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.home * {
+  box-sizing: border-box;
+}
+
+.home img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.home p {
+  /* A reset, not a layout: it beats a plain class rule, so any <p> that
+     needs a margin says `.home p.<class>`: otherwise this silently eats
+     the spacing. */
+  margin: 0;
+}
+
+/* ── the frame ─────────────────────────────────────────────────────── */
+
+.home-wrap {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: clamp(20px, 4.5vw, 64px);
+}
+
+.home-band {
+  padding-block: var(--home-rhythm);
+}
+
+/* The wide band: the page's one margin pair. Everything that spans the
+   page starts and ends here, so the two outer margins always match. */
+.home-band-wide {
+  background: var(--home-surface);
+}
+
+/* ── type ──────────────────────────────────────────────────────────── */
+
+.home-h1 {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(26px, 6vw, 84px);
+  font-weight: 700;
+  letter-spacing: -.035em;
+  line-height: 1.04;
+  margin: 0 0 24px;
+  text-wrap: balance;
+}
+
+.home-h2 {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(22px, 3.3vw, 42px);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.14;
+  margin: 0 0 20px;
+  max-width: 30ch;
+  text-wrap: balance;
+}
+
+.home-h3 {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.25;
+  margin: 0 0 8px;
+}
+
+.home p.home-lede {
+  font-size: clamp(18px, 1.5vw, 20px);
+  line-height: 1.5;
+  color: var(--home-ink-soft);
+  max-width: 46ch;
+  margin-bottom: 28px;
+}
+
+.home-body {
+  max-width: var(--home-measure);
+  color: var(--home-ink-soft);
+}
+
+.home-note {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--home-ink-muted);
+  max-width: 520px;
+  text-wrap: pretty;
+}
+
+.home p.home-note-spaced {
+  margin-top: 16px;
+}
+
+/* ── the header ────────────────────────────────────────────────────── */
+
+.home-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #0a0a0a;
+}
+
+.home-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--home-header-h);
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-inline: clamp(20px, 4.5vw, 64px);
+}
+
+.home-wordmark {
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-right: auto;
+}
+
+.home-wordmark img {
+  width: 132px;
+  height: auto;
+}
+
+.home-nav {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.home .home-nav a {
+  font-size: 15px;
+  text-decoration: none;
+  color: var(--home-ink-soft);
+  transition: color 120ms ease-out;
+}
+
+.home .home-nav a:hover {
+  color: var(--home-ink);
+}
+
+.home .home-nav a[aria-current='true'] {
+  color: var(--home-accent);
+}
+
+.home-nav-menu {
+  display: none;
+}
+
+.home-nav-menu summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 15px;
+  color: var(--home-ink-soft);
+  padding: 10px 2px;
+}
+
+.home-nav-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.home-nav-menu[open] summary {
+  color: var(--home-ink);
+}
+
+/* The menu hangs from the right edge of the header, not from the small
+   "Menu" label: the disclosure is not positioned, so the list finds the
+   sticky header as its containing block and lines up with the page's
+   own margin instead of floating over the headline. */
+.home-nav-menu-list {
+  position: absolute;
+  right: clamp(20px, 4.5vw, 64px);
+  top: var(--home-header-h);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--home-surface-raised);
+  min-width: 190px;
+}
+
+.home .home-nav-menu-list a {
+  font-size: 15px;
+  text-decoration: none;
+  color: var(--home-ink-soft);
+  padding: 10px 8px;
+}
+
+/* ── buttons ───────────────────────────────────────────────────────── */
+
+.home .home-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--home-ink);
+  color: #0a0a0a;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.home .home-btn:hover {
+  background: #ffffff;
+  color: #0a0a0a;
+}
+
+.home .home-btn-quiet {
+  background: transparent;
+  color: var(--home-ink);
+  border: 2px solid #3d3d3d;
+}
+
+.home .home-btn-quiet:hover {
+  background: var(--home-surface-raised);
+  color: var(--home-ink);
+}
+
+.home:focus-visible,
+.home a:focus-visible,
+.home button:focus-visible,
+.home summary:focus-visible,
+.home details:focus-visible {
+  outline: 2px solid var(--home-accent);
+  outline-offset: 3px;
+}
+
+.home .home-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--home-ink);
+  color: #0a0a0a;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  z-index: 40;
+}
+
+.home .home-skip:focus {
+  left: 12px;
+  top: 12px;
+}
+
+/* ── the hero ──────────────────────────────────────────────────────── */
+
+.home-hero {
+  padding-top: clamp(24px, 2.6vw, 40px);
+}
+
+.home-hero-grid {
+  display: grid;
+  gap: clamp(28px, 4vw, 56px);
+  align-items: start;
+}
+
+.home-hero-copy {
+  min-width: 0;
+}
+
+.home-hero-media {
+  min-width: 0;
+}
+
+/* ── the sign-in group ─────────────────────────────────────────────── */
+
+.home-signin {
+  margin: 0 0 16px;
+  max-width: 480px;
+}
+
+.home-signin-title {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.25;
+  margin: 0 0 14px;
+}
+
+.home .signin {
+  margin-top: 0;
+  text-align: left;
+}
+
+.home .signin-icons {
+  max-width: none;
+  margin-inline: 0;
+  gap: 10px;
+}
+
+/* The provider chooser. Outlined rather than filled: the one filled
+   action in the first fold is the header's Start free, so the photograph
+   and the headline stay the loudest things on the screen. */
+.home .signin-pill {
+  min-height: 56px;
+  justify-content: flex-start;
+  padding: 14px 22px;
+  border: 2px solid #3d3d3d;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--home-ink);
+  font-size: 18px;
+  font-weight: 600;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.home .signin-pill:hover {
+  filter: none;
+  background: var(--home-surface-raised);
+  border-color: var(--home-ink);
+}
+
+.home .signin-pill:focus-visible {
+  outline: 2px solid var(--home-accent);
+  outline-offset: 3px;
+}
+
+.home .signin-pill svg {
+  width: 22px;
+  height: 22px;
+}
+
+.home p.home-signin-note {
+  margin-top: 12px;
+}
+
+.home p.home-hero-cta {
+  margin-bottom: 12px;
+}
+
+/* ── the access row ────────────────────────────────────────────────── */
+
+.home-access {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.home-access-label {
+  font-size: 16px;
+  color: var(--home-ink-muted);
+}
+
+.home .home-access a {
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  text-decoration-color: #4a4a4a;
+  transition: text-decoration-color 120ms ease-out, color 120ms ease-out;
+}
+
+.home .home-access a:hover {
+  color: var(--home-ink);
+  text-decoration-color: var(--home-ink);
+}
+
+.home-access-blurb {
+  font-weight: 400;
+  color: var(--home-ink-muted);
+}
+
+.home p.home-sources {
+  margin-top: 26px;
+  padding-top: 18px;
+  font-size: 16px;
+  color: var(--home-ink-muted);
+  max-width: 520px;
+  text-wrap: pretty;
+}
+
+.home p.home-sources-foot {
+  margin-top: 4px;
+  font-size: 16px;
+  color: var(--home-ink-muted);
+  max-width: 520px;
+}
+
+/* ── pictures ──────────────────────────────────────────────────────── */
+
+.home-figure {
+  margin: 0;
+}
+
+.home-figure img {
+  width: 100%;
+  height: auto;
+  background: var(--home-surface);
+}
+
+.home-figure-caption {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--home-ink-muted);
+  margin-top: 10px;
+  max-width: 46ch;
+}
+
+/* The reserved box for a capture that does not exist yet. It holds its
+   exact ratio so nothing on the page shifts, and it reads as a surface
+   rather than as a hole. */
+.home-figure-missing {
+  background: var(--home-surface);
+  color: var(--home-ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 16px;
+  padding: 24px;
+}
+
+/* A phone-shaped picture: it keeps its own proportion and its own width. */
+.home-phone-figure {
+  max-width: 260px;
+}
+
+@media (min-width: 1024px) {
+  .home-phone-figure {
+    max-width: 240px;
+  }
+}
+
+/* ── the diagram ───────────────────────────────────────────────────── */
+
+.home-diagram {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px 28px;
+  padding: 24px;
+  background: var(--home-surface);
+}
+
+.home-diagram-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 320px;
+  gap: 8px;
+}
+
+.home-diagram-sources li {
+  font-size: 15px;
+  color: var(--home-ink-soft);
+  background: var(--home-surface-raised);
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+
+.home-diagram-arrow {
+  font-size: 22px;
+  color: var(--home-ink-muted);
+  text-align: center;
+}
+
+.home-diagram-target {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--home-ink);
+}
+
+/* ── the steps ─────────────────────────────────────────────────────── */
+
+.home-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 28px;
+  max-width: var(--home-measure);
+}
+
+.home-steps li {
+  max-width: var(--home-measure);
+}
+
+.home-step-title {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0 0 6px;
+}
+
+.home-step-body {
+  font-size: 18px;
+  color: var(--home-ink-soft);
+}
+
+.home p.home-step-note {
+  margin-top: 8px;
+  font-size: 16px;
+  color: var(--home-ink-muted);
+}
+
+/* ── disclosures ───────────────────────────────────────────────────── */
+
+.home-disclosure {
+  background: var(--home-surface);
+  margin-top: 28px;
+}
+
+.home-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 18px 22px;
+  font-size: 18px;
+  font-weight: 600;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+}
+
+.home-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.home-disclosure[open] > summary {
+  color: var(--home-accent);
+}
+
+.home-disclosure-body {
+  padding: 0 22px 22px;
+}
+
+.home-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.home-source-list li {
+  display: grid;
+  gap: 2px;
+}
+
+.home-source-name {
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.home-source-detail {
+  font-size: 18px;
+  color: var(--home-ink-soft);
+}
+
+.home-source-where {
+  font-size: 16px;
+  color: var(--home-ink-muted);
+}
+
+/* ── the feature groups ────────────────────────────────────────────── */
+
+.home-features {
+  display: grid;
+  gap: 34px;
+  max-width: 44ch;
+}
+
+.home-feature p {
+  font-size: 18px;
+  color: var(--home-ink-soft);
+}
+
+.home p.home-feature-caveat {
+  font-size: 16px;
+  color: var(--home-ink-muted);
+  margin-top: 6px;
+}
+
+/* ── pricing ───────────────────────────────────────────────────────── */
+
+.home-plans {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: 1fr;
+  margin: 34px 0 48px;
+}
+
+.home-plan {
+  background: var(--home-surface);
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-plan-raised {
+  background: var(--home-surface-raised);
+}
+
+.home-plan-name {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.015em;
+  margin: 0;
+}
+
+.home-plan-price {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.home-plan-price-sub {
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--home-ink-muted);
+  display: block;
+  margin-top: 4px;
+}
+
+.home-plan-line {
+  font-size: 18px;
+  color: var(--home-ink-soft);
+}
+
+.home-plan-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.home-plan-list li {
+  font-size: 18px;
+  color: var(--home-ink-soft);
+  padding-left: 20px;
+  position: relative;
+}
+
+.home-plan-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--home-ink-muted);
+}
+
+.home p.home-plan-cta {
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.home-plan-note {
+  font-size: 16px;
+  color: var(--home-ink-muted);
+}
+
+/* ── the comparison table ──────────────────────────────────────────── */
+
+/* A closed disclosure really is closed: the body has no box until the
+   summary opens it. The browser hides the content from view but still lays
+   it out, which leaves invisible text in the page's geometry: measured by
+   anything that reads the DOM rather than the pixels. */
+.home-disclosure:not([open]) > .home-disclosure-body,
+.home-faq-item:not([open]) > .home-faq-answer {
+  display: none;
+}
+
+/* The comparison sits on a surface: it is a document, not a stray grid on
+   the canvas. */
+.home-table-wrap {
+  overflow-x: auto;
+  background: var(--home-surface);
+  padding: 10px 28px 24px;
+}
+
+.home-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.home-table caption {
+  text-align: left;
+  font-size: 16px;
+  color: var(--home-ink-muted);
+  padding-bottom: 14px;
+}
+
+table.home-table th,
+table.home-table td {
+  font-size: 18px;
+  padding: 16px 18px;
+  vertical-align: top;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+table.home-table thead th {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--home-ink);
+  border-bottom: 1px solid #3d3d3d;
+}
+
+table.home-table tbody th {
+  font-weight: 600;
+  color: var(--home-ink);
+  width: 26%;
+}
+
+table.home-table td {
+  color: var(--home-ink-soft);
+}
+
+.home-table-note {
+  display: block;
+  font-size: 16px;
+  color: var(--home-ink-muted);
+  margin-top: 4px;
+}
+
+.home-table-notes {
+  margin-top: 28px;
+  display: grid;
+  gap: 10px;
+}
+
+.home-table-notes li {
+  font-size: 16px;
+  color: var(--home-ink-muted);
+  max-width: var(--home-measure);
+}
+
+/* Below 720px the same rows stack, with the column names repeated. */
+.home-table-cell-label {
+  display: none;
+}
+
+/* ── the surfaces ──────────────────────────────────────────────────── */
+
+.home-tiles {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+  margin-top: 30px;
+}
+
+.home-tile {
+  background: var(--home-surface);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home-tile-name {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.home-tile-blurb {
+  font-size: 18px;
+  color: var(--home-ink-soft);
+}
+
+.home-tile-missing {
+  background: transparent;
+  outline: 1px dashed #3d3d3d;
+  outline-offset: -1px;
+}
+
+.home-tile-missing .home-tile-blurb {
+  color: var(--home-ink-muted);
+}
+
+/* ── the FAQ ───────────────────────────────────────────────────────── */
+
+.home-faq {
+  max-width: none;
+}
+
+.home-faq-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 30px;
+}
+
+.home-faq-item {
+  background: var(--home-surface);
+}
+
+.home-faq-item > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 18px 20px;
+  font-size: 18px;
+  font-weight: 600;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-faq-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.home-faq-item[open] > summary {
+  color: var(--home-accent);
+}
+
+.home-faq-answer {
+  padding: 0 20px 20px;
+  font-size: 18px;
+  color: var(--home-ink-soft);
+}
+
+.home-faq-answer p + p {
+  margin-top: 10px;
+}
+
+/* ── the closing statement ─────────────────────────────────────────── */
+
+.home-final {
+  text-align: center;
+}
+
+.home-final .home-h2 {
+  max-width: 30ch;
+  margin-inline: auto;
+}
+
+.home-final .home-btn {
+  margin-top: 26px;
+}
+
+/* ── the footer ────────────────────────────────────────────────────── */
+
+.home-footer {
+  background: var(--home-surface);
+  padding-block: 48px;
+  font-size: 16px;
+  color: var(--home-ink-muted);
+}
+
+.home-footer-inner {
+  display: grid;
+  gap: 18px;
+}
+
+.home-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.home .home-footer a {
+  color: var(--home-ink-soft);
+  text-decoration: none;
+  transition: color 120ms ease-out;
+}
+
+.home .home-footer a:hover {
+  color: var(--home-ink);
+}
+
+.home-footer-copy {
+  margin: 0;
+}
+
+/* The privacy notice reads as a notice, not as another link row: the
+   measure is the same as the rest of the page's prose. */
+.home-footer-privacy {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--home-ink-muted);
+}
+
+/* ── the entrance ──────────────────────────────────────────────────── */
+
+/*
+ * The page arrives rather than appearing. Every part of a section rises
+ * once, transform and opacity only, and the whole thing is switched off
+ * for a visitor who asks for reduced motion: the page they get is the
+ * finished page, not a blank one waiting for an animation that will not
+ * run.
+ */
+@keyframes home-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.home-rise {
+  animation: home-rise 520ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.home-rise-1 { animation-delay: 60ms; }
+.home-rise-2 { animation-delay: 140ms; }
+.home-rise-3 { animation-delay: 220ms; }
+.home-rise-4 { animation-delay: 300ms; }
+.home-rise-5 { animation-delay: 380ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .home-rise {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .home a,
+  .home .signin-pill,
+  .home .home-btn {
+    transition: none;
+  }
+}
+
+/* ── the wide screens ──────────────────────────────────────────────── */
+
+/* Above 720px the table is a table: the column headers name the columns,
+   so the repeated label would only be noise. It comes back when the rows
+   stack and the header is gone. */
+@media (min-width: 720px) {
+  .home-table-cell-label {
+    display: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .home-plans {
+    grid-template-columns: 1fr 1fr;
+    align-items: stretch;
+  }
+
+  .home-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .home-hero-grid {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+
+  .home-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: var(--home-gap);
+    align-items: start;
+  }
+
+  /* The Unify band: the statement and the diagram take the wide column,
+     the Library capture takes a column sized to a phone. Sizing the column
+     to the capture is what keeps the band from reading as a narrow picture
+     with dead ground either side. */
+  .home-split-unify {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+
+  .home-split-unify .home-diagram {
+    margin-top: 40px;
+  }
+
+  .home-faq-list {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    gap: 2px 20px;
+  }
+
+  /* The two device pictures, side by side: the phone keeps its own
+     proportion and the wide capture takes what is left. */
+  .home-pair {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+}
+
+@media (max-width: 1023px) {
+  .home-pair {
+    display: grid;
+    gap: 20px;
+    justify-items: start;
+  }
+}
+
+@media (max-width: 719px) {
+  .home-nav {
+    display: none;
+  }
+
+  .home-nav-menu {
+    display: block;
+  }
+
+  .home-header-inner {
+    gap: 12px;
+  }
+
+  .home-wordmark img {
+    width: 108px;
+  }
+
+  .home-plan {
+    padding: 24px;
+  }
+
+  .home-table thead {
+    display: none;
+  }
+
+  /* The rows stack, so every cell takes the full width. These selectors
+     carry the `table.home-table` prefix on purpose: the wide-screen rules
+     use it too, and a plain class here would lose on specificity and
+     leave the row header in a 26% column, wrapping one word per line. */
+  table.home-table,
+  table.home-table tbody,
+  table.home-table tr,
+  table.home-table th,
+  table.home-table td {
+    display: block;
+    width: auto;
+  }
+
+  table.home-table tr {
+    padding: 14px 0;
+    border-bottom: 1px solid #2a2a2a;
+  }
+
+  table.home-table tbody th {
+    font-size: 18px;
+    padding: 0 0 8px;
+    width: auto;
+  }
+
+  table.home-table td {
+    padding: 4px 0;
+    border-bottom: 0;
+  }
+
+  .home-table-cell-label {
+    display: block;
+  }
+}

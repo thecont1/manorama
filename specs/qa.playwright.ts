@@ -2510,28 +2510,34 @@ test("credentialed image validates through the browser reader", async ({
   test.skip(true, "seeded gallery carries no credentialed images");
 });
 
-test("public root is a minimal Manorama landing page", async ({
+test("public root is the Manorama marketing homepage", async ({
   page,
   request,
 }) => {
   const root = await request.get(BASE + "/");
   expect(root.status()).toBe(200);
-  // Every HTML response has carried the noindex posture since v1 — the
-  // landing page included.
-  expect(root.headers()["x-robots-tag"] || "").toContain("noindex");
+  // The homepage is the one page the world may find: no noindex header, no
+  // noindex meta, and a canonical that says so. Every other route below
+  // keeps the noindex posture.
+  expect(root.headers()["x-robots-tag"] || "").not.toContain("noindex");
   await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".landing-page")).toBeVisible();
-  await expect(page.locator(".landing-brand")).toBeVisible();
-  await expect(page.locator(".landing-brand-mark")).toHaveAttribute(
+  await expect(page.locator(".home main#content")).toBeVisible();
+  await expect(page.locator("h1")).toHaveText(
+    "Your photographs. Different places. One beautiful view.",
+  );
+  await expect(page.locator("link[rel=canonical]")).toHaveAttribute(
+    "href",
+    "https://manorama.xyz/",
+  );
+  await expect(page.locator("head meta[name=robots]")).toHaveCount(0);
+  await expect(page.locator(".home-wordmark img")).toHaveAttribute(
     "src",
     "/manorama-merged-logo.png",
   );
-  await expect(page.locator(".landing-brand h1")).toHaveText(
-    "Your shared folders, shown properly",
-  );
-  await expect(page.locator(".landing-brand-intro")).toHaveText(
-    /Paste a shared Dropbox, Google Drive, iCloud or MEGA album link\. manorama turns it into a quiet, full-screen gallery at your own address\./,
-  );
+  // The sign-in group is the door: it is in the first fold.
+  await expect(page.locator(".home-signin")).toBeVisible();
+  await expect(page.locator(".signin-pill").first()).toBeVisible();
+  // The marketing page is not the dashboard.
   await expect(page.locator(".lib-card")).toHaveCount(0);
 });
 test("owner admin lists galleries without a selector and remains noindex", async ({
