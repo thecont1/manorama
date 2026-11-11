@@ -8,6 +8,8 @@ import type { AuthProvider } from '../lib/identity-repository'
 import { encodeStripeAccountRef } from '../lib/stripe-account-ref'
 import { readRuntimeFoldLayout, subscribeToRuntimeFoldLayout } from '../../native/lib/fold'
 import { AddGallerySheet } from '../components/AddGallerySheet'
+import { useMasonry } from '../components/library/useMasonry'
+import { CompactCoverImg } from '../components/library/CompactCoverImg'
 import { GalleryShareSheet } from '../components/GalleryShareSheet'
 import { HeicImg } from '../components/ui/HeicImg'
 import { Sheet } from '../components/ui/Sheet'
@@ -330,6 +332,11 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     sync()
     return subscribeToRuntimeFoldLayout(sync)
   }, [])
+
+  const compactGridRef = useRef<HTMLUListElement | null>(null)
+  const hiddenGridRef = useRef<HTMLUListElement | null>(null)
+  useMasonry(compactGridRef)
+  useMasonry(hiddenGridRef)
 
   // Browser Back/Forward across the Details and Settings surfaces. Each full
   // surface occupies one history entry ({surface} state + search param); a
@@ -940,31 +947,23 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     // summary carrying more never leaks past the render slice.
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-      <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-        {cover ? <HeicImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` }} onLoad={(event: Event) => {
-          const img = event.currentTarget as HTMLImageElement
-          img.classList.add('is-loaded')
-          // The card takes the thumbnail's own size — the image
-          // always fills it exactly, and a small rendition never
-          // stretches into mush. Stored dims are the placeholder's
-          // shape; the decoded frame owns the real ratio.
-          if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-          const card = img.closest('.lib-compact-card') as HTMLElement | null
-          if (card && img.naturalWidth) card.style.maxWidth = `${img.naturalWidth}px`
-        }} /> : null}
+      <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`} style={cover ? { aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` } : undefined}>
+        {cover ? <CompactCoverImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} /> : null}
       </a>
-      <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
       <div class="lib-compact-body">
-        <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
-        {locked ? (
-          <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
-          </button>
-        ) : null}
-        <p class="lib-card-sub">
-          {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
-          {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
-        </p>
+        <div class="lib-compact-main">
+          <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>
+          {locked ? (
+            <button type="button" class="lib-temp-flag" aria-label={`Temporary gallery${gallery.expiresAt ? ` — expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}`} onClick={() => setPinChoiceSlug(gallery.slug)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>
+            </button>
+          ) : null}
+          <p class="lib-card-sub">
+            {cardCountSource(formatMediaCount(summaryMediaCount(gallery)), sourceLabelFor(gallery.sourceUrl))}
+            {locked ? ` · Temporary gallery${gallery.expiresAt ? ` · expires in ${expiryCountdownText(gallery.expiresAt, now)}` : ''}` : ''}
+          </p>
+        </div>
+        <button type="button" class="lib-card-menu lib-compact-menu" aria-label={`${title} actions`} aria-haspopup="dialog" onClick={() => setMenuSlug(gallery.slug)}>···</button>
       </div>
       {removeSlug === gallery.slug ? <div class="lib-remove-confirm" role="group" aria-label={`Confirm removal of ${title}`}>
         <p>Remove “{title}” from manorama?{gallery.sourceUrl ? ` Every photograph stays in ${sourceLabelFor(gallery.sourceUrl)}.` : ''}</p>
@@ -1126,7 +1125,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
-            <ul class="lib-compact-grid">{compactGalleries.map(compactCard)}</ul>
+            <ul class="lib-compact-grid" ref={compactGridRef}>{compactGalleries.map(compactCard)}</ul>
           </section>
         ) : null}
         {/* Concealed galleries stay reachable — the flag is account-wide,
@@ -1146,7 +1145,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
               Hidden galleries <span class="lib-hidden-count">({hiddenGalleries.length})</span>
             </button>
             {hiddenOpen ? (
-              <ul class="lib-compact-grid">{hiddenGalleries.map(compactCard)}</ul>
+              <ul class="lib-compact-grid" ref={hiddenGridRef}>{hiddenGalleries.map(compactCard)}</ul>
             ) : null}
           </section>
         ) : null}

@@ -2185,27 +2185,35 @@ button.lib-card-title {
 .lib-pin-choice-list > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(var(--ink), .1); }
 .lib-pin-choice-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; color: rgb(var(--ink)); }
 .lib-pin-choice-upgrade { align-self: flex-start; }
-.lib-compact-grid { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 14px; }
-/* Three across fills the card column — a fourth column made the covers
-   read as thumbnails instead of galleries. */
-@media (min-width: 640px) { .lib-compact-grid { columns: 3; } }
-.lib-compact-card { position: relative; display: inline-block; width: 100%; margin: 0 0 14px; break-inside: avoid; }
-.lib-compact-cover { display: block; overflow: hidden; border-radius: 10px; background: rgba(var(--ink), .06); }
-.lib-compact-cover img { display: block; width: 100%; height: auto; opacity: 0; transition: opacity .32s ease; }
-.lib-compact-cover img.is-loaded { opacity: 1; }
-.lib-compact-card .lib-card-menu {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: rgba(17, 19, 18, .55);
-  color: rgba(244, 240, 232, .9);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+/* The compact feed is a real grid, not CSS columns: columns fill
+   top-to-bottom and would scramble the Library's order. Until the masonry
+   hook places the cards, auto rows still read left→right; once it sets
+   data-masonry, rows quantize into the 4px units it computes spans in. */
+.lib-compact-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+  column-gap: 14px;
+  grid-auto-rows: auto;
+  row-gap: 14px;
 }
-.lib-compact-body { padding: 8px 2px 0; }
+/* Three across fills the card column — a fourth column made the covers
+   read as thumbnails instead of galleries. --cols is the pre-hydration
+   default; the hook rewrites it from the same 640px query. */
+@media (min-width: 640px) { .lib-compact-grid { --cols: 3; } }
+.lib-compact-grid[data-masonry='on'] { grid-auto-rows: 4px; row-gap: 0; }
+.lib-compact-card { display: block; width: 100%; margin: 0; align-self: start; }
+/* The anchor owns the cover's slot: its aspect-ratio (set from the stored
+   dims) reserves the shape before bytes land, and flex centring floats a
+   rendition narrower than the column at its honest size — invariant 13. */
+.lib-compact-cover { display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 10px; background: rgba(var(--ink), .06); }
+.lib-compact-cover img { display: block; width: 100%; max-width: 100%; max-height: 100%; height: auto; margin: auto; opacity: 0; transition: opacity .32s ease; }
+.lib-compact-cover img.is-loaded { opacity: 1; }
+/* The ··· sits in the body beside the title — never on the photograph. */
+.lib-compact-body { display: flex; align-items: flex-start; gap: 8px; padding: 8px 2px 0; }
+.lib-compact-main { flex: 1; min-width: 0; }
 .lib-compact-body .lib-card-title { min-height: 0; font-size: 15px; }
 .lib-compact-card > .lib-remove-confirm { padding-bottom: 6px; }
 
