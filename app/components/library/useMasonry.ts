@@ -18,6 +18,7 @@ export function useMasonry(listRef: RefObject<HTMLUListElement | null>) {
     const list = listRef.current
     if (!list?.isConnected || typeof window === 'undefined') return
 
+    /** Measures card heights and writes each card's grid row/column. */
     const layout = () => {
       const columns =
         typeof window.matchMedia === 'function' && window.matchMedia(WIDE_QUERY).matches ? 3 : 2
@@ -36,6 +37,7 @@ export function useMasonry(listRef: RefObject<HTMLUListElement | null>) {
     }
 
     let frame = 0
+    /** Coalesces layout requests onto a single animation frame. */
     const schedule = () => {
       if (frame) return
       const run = () => {

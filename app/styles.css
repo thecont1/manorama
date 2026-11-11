@@ -2205,9 +2205,10 @@ button.lib-card-title {
 @media (min-width: 640px) { .lib-compact-grid { --cols: 3; } }
 .lib-compact-grid[data-masonry='on'] { grid-auto-rows: 4px; row-gap: 0; }
 .lib-compact-card { display: block; width: 100%; margin: 0; align-self: start; }
-/* The anchor owns the cover's slot: its aspect-ratio (set from the stored
-   dims) reserves the shape before bytes land, and flex centring floats a
-   rendition narrower than the column at its honest size — invariant 13. */
+/* The img's own aspect-ratio owns the cover's slot — seeded from stored
+   dims, corrected to the decoded frame after load, so the anchor hugs it
+   and flex centring floats a rendition narrower than the column at its
+   honest size — invariant 13. */
 .lib-compact-cover { display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 10px; background: rgba(var(--ink), .06); }
 .lib-compact-cover img { display: block; width: 100%; max-width: 100%; max-height: 100%; height: auto; margin: auto; opacity: 0; transition: opacity .32s ease; }
 .lib-compact-cover img.is-loaded { opacity: 1; }

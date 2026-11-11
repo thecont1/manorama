@@ -756,8 +756,8 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const hiddenGalleries = liveGalleries.filter((gallery) => gallery.hiddenAt)
 
-  // One card shape for every gallery list — the compact grid and the
-  // recoverable Hidden section both render it.
+  /** One card shape for every gallery list — the compact grid and the
+   *  recoverable Hidden section both render it. */
   const compactCard = (gallery: GallerySummary) => {
     const title = gallery.title || gallery.slug
     const locked = isLocked(gallery)
@@ -765,7 +765,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
     // summary carrying more never leaks past the render slice.
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
-      <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`} style={cover ? { aspectRatio: `${Math.max(1, cover.width)} / ${Math.max(1, cover.height)}` } : undefined}>
+      <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
         {cover ? <CompactCoverImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} /> : null}
       </a>
       <div class="lib-compact-body">
