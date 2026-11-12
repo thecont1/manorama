@@ -160,10 +160,12 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             return
         }
         decisionHandler(.cancel)
-        // A new-window request arrives here with no target frame; it was
-        // already routed to the browser by createWebViewWith, so opening it
-        // again would put up a second tab for one click.
-        if navigationAction.targetFrame == nil { return }
+        // A new-window request (target=_blank) is decided HERE, with no
+        // target frame — createWebViewWith only runs once an action is
+        // allowed, and nothing external ever is. This early return would
+        // leave a gestured _blank click dead, so the route is shared:
+        // _blank hands off here, window.open in createWebViewWith, and the
+        // dedup covers a WebKit that consults both seams for one click.
         if let last = lastExternalOpen, last.url == url, Date().timeIntervalSince(last.at) < 2 { return }
         // Only a GET can be handed to the browser honestly — a POST body
         // would be silently dropped on the way out.
