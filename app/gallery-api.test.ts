@@ -957,9 +957,8 @@ describe('the key vault routes', () => {
       { ...vaultBody, kdfIterations: 10 },
       { ...vaultBody, version: 2 },
       { ...vaultBody, wrappedVk: '' },
-      // The compare-and-swap token is mandatory — an unconditional write
-      // is exactly the clobber this endpoint refuses.
-      vaultBody,
+      // A token of the wrong type is malformed — but an absent token is a
+      // pre-CAS client, which the server reads the current stamp for.
       { ...vaultBody, expectedUpdatedAt: 7 },
     ]) {
       const response = await api.request('/api/account/key-vault', {

@@ -518,21 +518,27 @@ export const createManoramaApi = () => {
     const kdfIterations = typeof payload?.kdfIterations === 'number' ? payload.kdfIterations : 0
     const wrappedVk = typeof payload?.wrappedVk === 'string' ? payload.wrappedVk : ''
     const vkNonce = typeof payload?.vkNonce === 'string' ? payload.vkNonce : ''
-    // The compare-and-swap token is mandatory: null means create-only, a
-    // stored updatedAt means replace-if-unchanged. Unconditional writes
-    // are exactly the clobber this endpoint exists to prevent.
+    // The compare-and-swap token: null means create-only, a stored
+    // updatedAt means replace-if-unchanged. A MISSING field is a pre-CAS
+    // client — the server does the read half of read-modify-write for it
+    // (refusing outright would brick escrow on builds already installed).
+    // CAS is an honest-race guard, not authorization, so filling in the
+    // current stamp costs nothing: anyone could GET it anyway.
     const expectedUpdatedAt = payload?.expectedUpdatedAt
     if (payload?.version !== 1 || !kdfSalt || kdfSalt.length > 64
       || kdfIterations < 100_000 || kdfIterations > 10_000_000
       || !wrappedVk || wrappedVk.length > 256 || !vkNonce || vkNonce.length > 64
-      || (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== 'string')) {
+      || (expectedUpdatedAt !== undefined && expectedUpdatedAt !== null && typeof expectedUpdatedAt !== 'string')) {
       return c.json({ error: 'That key vault payload is not valid' }, 400)
     }
     try {
+      const expected = expectedUpdatedAt === undefined
+        ? (await getOwnerVault(session.accountId, dbEnv(c)))?.updatedAt ?? null
+        : expectedUpdatedAt as string | null
       const stored = await putOwnerVault(
         session.accountId,
         { kdfSalt, kdfIterations, wrappedVk, vkNonce, version: 1 },
-        expectedUpdatedAt as string | null,
+        expected,
         dbEnv(c),
       )
       if (!stored) {
@@ -564,14 +570,19 @@ export const createManoramaApi = () => {
     const nonce = typeof payload?.nonce === 'string' ? payload.nonce : ''
     const expectedUpdatedAt = payload?.expectedUpdatedAt
     if (!wrappedSource || wrappedSource.length > 2048 || !nonce || nonce.length > 64
-      || (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== 'string')) {
+      || (expectedUpdatedAt !== undefined && expectedUpdatedAt !== null && typeof expectedUpdatedAt !== 'string')) {
       return c.json({ error: 'That gallery key payload is not valid' }, 400)
     }
     try {
       const gallery = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery?.id) return c.json({ error: 'That gallery was not found' }, 404)
+      // Same legacy bridge as the vault PUT: a missing token means a
+      // pre-CAS build, so the server reads the stamp it should guard on.
+      const expected = expectedUpdatedAt === undefined
+        ? (await getGalleryKey(session.accountId, gallery.id, dbEnv(c)))?.updatedAt ?? null
+        : expectedUpdatedAt as string | null
       const stored = await putGalleryKey(
-        session.accountId, gallery.id, { wrappedSource, nonce }, expectedUpdatedAt as string | null, dbEnv(c),
+        session.accountId, gallery.id, { wrappedSource, nonce }, expected, dbEnv(c),
       )
       if (!stored) {
         return c.json({ error: 'conflict', key: await getGalleryKey(session.accountId, gallery.id, dbEnv(c)) }, 409)
