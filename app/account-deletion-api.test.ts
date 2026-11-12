@@ -123,22 +123,27 @@ describe('deleteAccount', () => {
   })
 
   test('deletion reserves the slug — it cannot be claimed or derived again', async () => {
-    // OWNER_A was deleted by the first test; its slug must stay theirs.
+    // Seeds and deletes its own owner — never relies on a sibling test's
+    // deletion having run first.
+    await db().prepare(
+      `INSERT INTO users (account_id, owner_slug, display_name, email, tier) VALUES (?, ?, ?, ?, ?)`,
+    ).bind('dbid:EEdeleteE', 'delete-e', 'Delete E', null, 'free').run()
+    expect(await deleteAccount('dbid:EEdeleteE', { DB: db() })).toBe(true)
     const reservation = await db().prepare(
       'SELECT account_id FROM owner_slug_reservations WHERE owner_slug = ?',
-    ).bind('delete-a').first<{ account_id: string }>()
-    expect(reservation?.account_id).toBe(OWNER_A)
+    ).bind('delete-e').first<{ account_id: string }>()
+    expect(reservation?.account_id).toBe('dbid:EEdeleteE')
     // A stranger cannot take it through the rename path.
-    await expect(updateOwnerSlug(OWNER_B, 'delete-a', { DB: db() }))
+    await expect(updateOwnerSlug(OWNER_B, 'delete-e', { DB: db() }))
       .rejects.toBeInstanceOf(OwnerSlugError)
     // And a fresh sign-up named to collide derives past it instead of
     // landing on the dead account's address.
     const newcomer = await upsertIdentitySignIn(
-      { provider: 'google', subject: 'goog:reserved-slug-check', displayName: 'Delete A' },
+      { provider: 'google', subject: 'goog:reserved-slug-check', displayName: 'Delete E' },
       { DB: db() },
     )
-    expect(newcomer.ownerSlug).not.toBe('delete-a')
-    expect(newcomer.ownerSlug.startsWith('delete-a-')).toBe(true)
+    expect(newcomer.ownerSlug).not.toBe('delete-e')
+    expect(newcomer.ownerSlug.startsWith('delete-e-')).toBe(true)
   })
 
   test('a rename reserves the outgoing slug, and only the owner may reclaim it', async () => {

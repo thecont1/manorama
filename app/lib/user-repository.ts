@@ -144,7 +144,10 @@ const deriveOwnerSlug = async (displayName: string, env?: UserRepositoryEnv) => 
   let slug = base
   let suffix = 2
   while (await ownerSlugTaken(slug, env) || (await ownerSlugReservedBy(slug, env)) !== null) {
-    slug = `${base}-${suffix}`
+    // The stem yields to the suffix — a 48-char base plus "-2" would land
+    // over the cap upsertIdentitySignIn already respects.
+    const tail = `-${suffix}`
+    slug = `${base.slice(0, OWNER_SLUG_MAX - tail.length).replace(/-+$/, '')}${tail}`
     suffix += 1
   }
   return slug
@@ -561,16 +564,26 @@ export const updateOwnerSlug = async (
   if (slug === current.ownerSlug) return current
   if (d1Configured(env)) {
     try {
-      await env.DB.batch([
+      const results = await env.DB.batch([
         // The outgoing slug stays this account's forever — the same rename
         // may release it more than once over the account's life.
         env.DB.prepare(
           'INSERT OR IGNORE INTO owner_slug_reservations (owner_slug, account_id) VALUES (?, ?)',
         ).bind(current.ownerSlug, accountId),
+        // Compare-and-swap: the row must still carry the slug this call read,
+        // and the target must still be unclaimed and unreserved by another
+        // account — a concurrent rename or release must not slip between
+        // the pre-checks and the write.
         env.DB.prepare(
-          `UPDATE users SET owner_slug = ?, updated_at = datetime('now') WHERE account_id = ?`,
-        ).bind(slug, accountId),
+          `UPDATE users SET owner_slug = ?, updated_at = datetime('now')
+           WHERE account_id = ? AND owner_slug = ?
+             AND NOT EXISTS (SELECT 1 FROM users WHERE owner_slug = ? AND account_id != ?)
+             AND NOT EXISTS (SELECT 1 FROM owner_slug_reservations WHERE owner_slug = ? AND account_id != ?)`,
+        ).bind(slug, accountId, current.ownerSlug, slug, accountId, slug, accountId),
       ])
+      // Zero rows on the UPDATE: the slug moved under us — a conflict, not
+      // a silent overwrite of the newer value.
+      if (!results[1].meta.changes) throw new OwnerSlugError('That URL is already in use')
     } catch (error) {
       // UNIQUE constraint failure on owner_slug — another user holds it.
       if (String(error).includes('UNIQUE')) throw new OwnerSlugError('That URL is already in use')
