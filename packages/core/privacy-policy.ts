@@ -232,7 +232,7 @@ export const PRIVACY_POLICY: PrivacyDocument = {
         {
           parts: [
             t(
-              'Cloudflare hosts Manorama and may handle request details such as IP address and time for delivery and security. Apple, Google, or Dropbox handles sign-in, depending on which you choose. The linked photo provider supplies the media. The website and apps may request fonts from Google. RevenueCat and the app store handle mobile purchases; Stripe handles web purchases. If you install the app through the App Store or TestFlight, Apple may share crash reports, diagnostics, and any tester feedback you choose to send, under Apple\'s own policies and your device settings. We do not sell your account or gallery records or use them to personalize ads.',
+              'Cloudflare hosts Manorama and may handle request details such as IP address and time for delivery and security. Apple, Google, or Dropbox handles sign-in, depending on which you choose. The linked photo provider supplies the media. RevenueCat and the app store handle mobile purchases; Stripe handles web purchases. If you install the app through the App Store or TestFlight, Apple may share crash reports, diagnostics, and any tester feedback you choose to send, under Apple\'s own policies and your device settings. We do not sell your account or gallery records or use them to personalize ads.',
             ),
           ],
         },
