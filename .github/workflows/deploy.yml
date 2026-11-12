@@ -8,8 +8,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # The production environment carries the required-reviewer gate: a merge
-    # alone is not enough to mutate the live schema or ship a Worker.
+    # The production environment scopes deployments to main — no other ref
+    # can reach prod — but it is NOT an approval gate: this repo's plan has
+    # no required reviewers, so a push to main still runs the migration and
+    # deploy unattended.
     environment: production
     permissions:
       contents: read
