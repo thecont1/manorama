@@ -197,7 +197,13 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         const wrapped = await fetchGalleryKey(viewerProps.slug).catch(() => null)
         if (wrapped) {
           const vaultKey = await cachedVaultKey()
-          if (vaultKey) source = await unwrapSourceForVault(vaultKey, wrapped.wrapped, galleryId).catch(() => null)
+          if (vaultKey) {
+            source = await unwrapSourceForVault(vaultKey, wrapped.wrapped, galleryId).catch(() => null)
+            // A pre-AAD escrow record swapped onto this gallery unwraps
+            // fine — only the album identity can tell it from the real
+            // one. Same check the passphrase path makes below.
+            if (source && keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) source = null
+          }
           // A cached VK that cannot unwrap the blob is no better than none —
           // the vault may have been re-created elsewhere, so the passphrase
           // path (which re-derives from the current record) still applies.
