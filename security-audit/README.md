@@ -1,5 +1,10 @@
 # Security audit — Manorama (adversarial review)
 
+> **Superseded in part.** The findings below were addressed in PR #203; per-finding verdicts,
+> the new code's own findings and the fresh evidence are in
+> [`review-2/`](review-2/README.md). This file is kept as the record of the first pass and
+> still describes every finding as open.
+
 Audit of `thecont1/manorama`. The review began at
 `ffdcd867a3f0a89bd1dce3370bcb141a6650feef` and is delivered against
 **`b0e70ee72fa437ff9098ce929970aa365a87f782`** (`origin/main`, "docs(agents): the unit
