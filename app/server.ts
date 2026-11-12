@@ -6,6 +6,7 @@ import type { RuntimeEnv } from './api'
 import { expirePipelineGalleries } from './lib/gallery-expiry'
 import { deleteExpiredPipelineGallery, listExpiredPipelineGalleries } from './lib/gallery-repository'
 import { injectDevD1 } from './lib/dev-d1'
+import { handleDownloads, isDownloadHost } from './lib/downloads'
 
 type AppEnv = HonoSessionEnv & { Bindings: SessionEnv & RuntimeEnv }
 
@@ -25,6 +26,15 @@ runtimeProcess?.on?.('uncaughtException', (error) => {
 })
 
 const init = (app: ReturnType<typeof createApp<AppEnv>>) => {
+  // downloads.manorama.xyz is a public installer host on the same Worker —
+  // it short-circuits before the app sees the request.
+  app.use('*', async (c, next) => {
+    if (isDownloadHost(new URL(c.req.url).hostname)) {
+      return handleDownloads(c.req.raw, c.env)
+    }
+    await next()
+  })
+
   // Dev-only: when MANORAMA_DEV_D1 parked a local D1 on globalThis, expose
   // it as env.DB before any handler reads c.env. No-op in production.
   app.use('*', injectDevD1)

@@ -29,6 +29,7 @@ import { mergeMigratedImages } from './lib/encrypted-migration'
 type RequestBody = { url?: string; manifest?: unknown; order?: string[]; quick?: boolean; title?: string; caption?: string }
 
 export type RuntimeEnv = {
+  DOWNLOADS?: R2Bucket
   AIRTABLE_PAT?: string
   AIRTABLE_BASE_ID?: string
   AIRTABLE_GALLERIES_TABLE?: string

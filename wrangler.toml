@@ -16,6 +16,14 @@ migrations_dir = "migrations"
 pattern = "manorama.xyz"
 custom_domain = true
 
+[[routes]]
+pattern = "downloads.manorama.xyz"
+custom_domain = true
+
+[[r2_buckets]]
+binding = "DOWNLOADS"
+bucket_name = "manorama-downloads"
+
 [vars]
 PUBLIC_HOST = "manorama.xyz"
 STRIPE_PRO_PAYMENT_LINK = "https://buy.stripe.com/test_6oU3cxafo3TX0PE6lFdjO00"
@@ -42,6 +50,14 @@ workers_dev = false
 [[env.production.routes]]
 pattern = "manorama.xyz"
 custom_domain = true
+
+[[env.production.routes]]
+pattern = "downloads.manorama.xyz"
+custom_domain = true
+
+[[env.production.r2_buckets]]
+binding = "DOWNLOADS"
+bucket_name = "manorama-downloads"
 
 [env.production.vars]
 PUBLIC_HOST = "manorama.xyz"
