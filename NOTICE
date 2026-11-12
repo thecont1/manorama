@@ -1,0 +1,20 @@
+manorama
+© 2026 Mahesh Shantaram / thecontrarian.in. All platform rights reserved.
+
+The manorama source code is licensed under the Business Source License 1.1
+(see LICENSE). That license permits use, modification, and redistribution for
+any purpose except operating manorama or a substantially similar
+photography-gallery publishing service for third parties; each released version
+converts to the GNU Affero General Public License v3.0 or later four (4) years
+after its first public release. Commercial licenses are available from the
+Licensor for uses outside the license grant.
+
+The "manorama" name, logo, icon, and other brand assets are trademarks of
+Mahesh Shantaram / thecontrarian.in and are NOT licensed under the Business Source License or any
+other license in this repository. You may not use the name or logo to brand a
+derivative work or a competing service without prior written permission.
+Nominative use — stating that your project is "manorama-compatible" or was
+inspired by manorama — is permitted.
+
+Third-party components bundled with or depended on by manorama remain under
+their own licenses; see the relevant package manifests and notices.
