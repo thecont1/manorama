@@ -415,7 +415,10 @@ export const finishProviderAuth = async (
   // verified cookie is kept: this flow may yet pause on the interstitial,
   // whose confirm POST re-checks the same binding.
   if (!(await stateCookieMatches(c, flow.state, flow.stateCookieHash, true))) return finishFailure(c)
-  if (params.error || !params.code) return finishFailure(c)
+  if (params.error || !params.code) {
+    deleteCookie(c, stateCookieName(flow.state), { path: '/auth' })
+    return finishFailure(c)
+  }
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return finishFailure(c)
 
@@ -439,6 +442,9 @@ export const finishProviderAuth = async (
     }, env as ProviderEnv, deps)
 
     if (flow.intent === 'link') {
+      // Every link return is terminal for this flow — the verifier's only
+      // reason to linger is the sign-in pause below.
+      deleteCookie(c, stateCookieName(flow.state), { path: '/auth' })
       try {
         await linkIdentity(flow.accountId!, identity, env)
       } catch (error) {
@@ -459,6 +465,9 @@ export const finishProviderAuth = async (
     const existing = await findAccountByIdentity(identity.provider, identity.subject, env)
     if (!existing) return pendingAccountPage(c, identity, flow, secret)
     const user = await upsertIdentitySignIn(identity, env)
+    // Sign-in completed without a pause — the verifier's keep reason is
+    // gone, so it leaves with the session's arrival rather than its maxAge.
+    deleteCookie(c, stateCookieName(flow.state), { path: '/auth' })
     return completeSignIn(c, user, flow, env, secret)
   } catch (error) {
     if (error instanceof IdentityStorageUnavailableError) {
