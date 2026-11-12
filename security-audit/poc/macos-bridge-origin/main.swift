@@ -102,32 +102,92 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
 
         // Click the target=_blank link the Library ships (ad CTA / share
         // link). A synthetic .click() carries no user gesture, so WebKit
-        // swallows the new window before createWebViewWith ever runs — the
-        // assertion here is the security property: no navigation happens.
-        // The opener routing itself is proven by window.open below, which
-        // takes the same createWebViewWith path a gestured _blank would.
-        _ = try await js("document.querySelector('a[target=_blank]').click()")
+        // swallows the popup before createWebViewWith ever runs — post a
+        // real HID click instead, which WebKit honours as a gesture. A click
+        // recorder and a hit test separate "the click missed" from "the
+        // gesture was not trusted" — both would report as no open.
+        _ = try await js("""
+            window.__blankClicks = 0;
+            document.querySelector('a[target=_blank]').addEventListener('click', () => window.__blankClicks++);
+            'ok'
+            """)
+        let linkXY = (try await js("""
+            (() => { const r = document.querySelector('a[target=_blank]').getBoundingClientRect();
+              return `${r.x + r.width / 2},${r.y + r.height / 2}` })()
+            """) ?? "0,0").split(separator: ",").compactMap { Double($0) }
+        if linkXY.count == 2 {
+            let hitId = try await js("document.elementFromPoint(\(linkXY[0]), \(linkXY[1]))?.id ?? 'miss'")
+            // WKWebView is flipped: page coords map straight into view coords.
+            let winPt = webView.convert(CGPoint(x: linkXY[0], y: linkXY[1]), to: nil)
+            let scrPt = window.convertPoint(toScreen: winPt)
+            // CGEvent space is global display coordinates, origin top-left.
+            let cgPt = CGPoint(x: scrPt.x, y: NSScreen.screens[0].frame.height - scrPt.y)
+            // The HID event lands on whatever window is topmost at the point —
+            // float the probe window and re-activate so it is ours.
+            window.level = .floating
+            window.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            // Three delivery paths for the click, in rising order of how much
+            // of the event stack they traverse: a real NSEvent through
+            // sendEvent (AppKit dispatch), a CGEvent into this pid, and a HID
+            // post (needs Input Monitoring — usually filtered, kept last as
+            // the fallback that works on a signed-in desktop).
+            let clickIn = NSEvent.mouseEvent(with: .leftMouseDown, location: winPt, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            let clickOut = NSEvent.mouseEvent(with: .leftMouseUp, location: winPt, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            if let clickIn, let clickOut {
+                NSApp.sendEvent(clickIn)
+                NSApp.sendEvent(clickOut)
+            }
+            let pid = ProcessInfo.processInfo.processIdentifier
+            CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: cgPt, mouseButton: .left)?.postToPid(pid)
+            CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: cgPt, mouseButton: .left)?.postToPid(pid)
+            CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: cgPt, mouseButton: .left)?.post(tap: .cghidEventTap)
+            CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: cgPt, mouseButton: .left)?.post(tap: .cghidEventTap)
+            print("STEP2a click aimed at \(hitId ?? "?") screen=\(Int(cgPt.x)),\(Int(cgPt.y))")
+        }
         try? await Task.sleep(nanoseconds: 2_000_000_000)
-        print("STEP2a after target=_blank click: url=\(webView.url?.absoluteString ?? "?") opened=\(opened.map { $0.absoluteString })")
+        let opensAfterBlank = opened.count
+        let blankClicks = try await js("String(window.__blankClicks)") ?? "?"
+        print("STEP2a after target=_blank click: url=\(webView.url?.absoluteString ?? "?") clicks=\(blankClicks) opened=\(opened.map { $0.absoluteString })")
 
         // Second external-link idiom: window.open().
         _ = try await js("window.open(document.querySelector('a[target=_blank]').href, '_blank', 'noopener')")
         try? await Task.sleep(nanoseconds: 2_000_000_000)
+        let opensAfterWindowOpen = opened.count
         print("STEP2b after window.open: url=\(webView.url?.absoluteString ?? "?") opened=\(opened.map { $0.absoluteString })")
 
         // The renderer's other navigation path — a plain location change.
         _ = try await js("location.assign(document.querySelector('a[target=_blank]').href)")
         try? await Task.sleep(nanoseconds: 2_000_000_000)
+        let opensAfterAssign = opened.count
         print("STEP2c after location.assign: url=\(webView.url?.absoluteString ?? "?") opened=\(opened.map { $0.absoluteString })")
 
         // The bundle is the only document the web view should ever hold up
-        // to this point, and every external idiom belongs in `opened`.
+        // to this point. Each opener idiom gets its own count, so a route
+        // that quietly dies cannot hide behind a sibling's success —
+        // window.open and location.assign must each have routed. A landed
+        // _blank click must also route; an undelivered one (event injection
+        // is filtered in headless sessions) is reported, not assumed.
         let stayedBundled = (webView.url?.absoluteString ?? "").hasPrefix("manorama://localhost")
-        let remoteRouted = opened.contains { $0.absoluteString.contains("evil.html") }
-        print("STEP2 summary: stayedBundled=\(stayedBundled) externalOpens=\(opened.count)")
+        let blankClicksInt = Int(blankClicks) ?? 0
+        let blankLandedButUnrouted = blankClicksInt > 0 && opensAfterBlank == 0
+        let windowOpenRouted = opensAfterWindowOpen > opensAfterBlank
+        let assignRouted = opensAfterAssign > opensAfterWindowOpen
+        let remoteRouted = windowOpenRouted && assignRouted && !blankLandedButUnrouted
+        print("STEP2 summary: stayedBundled=\(stayedBundled) blankClicks=\(blankClicksInt) blankOpens=\(opensAfterBlank) windowOpenRouted=\(windowOpenRouted) assignRouted=\(assignRouted)")
 
         // STEP3 — a same-origin child frame loads (the nav policy allows the
         // bundle inside a frame) but its messages die at the isMainFrame gate.
+        // The reply slot to watch is the MAIN document's __rt: settle replies
+        // via webView.evaluateJavaScript, which always runs in the main frame
+        // — a leaked reply to the frame's invoke lands here, never inside
+        // the iframe's own window. Clear it first so only id 9 can fill it.
+        _ = try await js("window.__rt = null; 'ok'")
         _ = try await js("""
             const f = document.createElement('iframe');
             f.src = 'manorama://localhost/frame.html';
@@ -146,7 +206,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         var frameReply: String?
         if frameSent {
             for _ in 0..<40 {
-                let rt = try await js("JSON.stringify(document.querySelector('iframe').contentWindow.__rt)")
+                let rt = try await js("window.__rt && window.__rt.id === 9 ? JSON.stringify(window.__rt) : 'null'")
                 if rt != nil && rt != "null" { frameReply = rt; break }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
@@ -182,8 +242,14 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         let leaked = result.contains(canaryToken)
             || frameSays.contains(canaryToken)
             || remoteGotReply || frameGotReply || !stayedBundled || !remoteRouted
+        // NOT-REACHABLE means the probe ran to completion: the trusted doc
+        // got its reply (the gate is not just dead) and the frame's script
+        // actually posted (a missing frame would fake a pass). Anything
+        // less is inconclusive, not a pass.
         if leaked {
             print("VERDICT: BRIDGE-LEAKED-SESSION-TOKEN")
+        } else if !trustedReply || !frameSent {
+            print("VERDICT: INCONCLUSIVE (probe incomplete: trustedReply=\(trustedReply) frameSent=\(frameSent))")
         } else {
             print("VERDICT: BRIDGE-NOT-REACHABLE")
         }

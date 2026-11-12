@@ -69,6 +69,7 @@ describe('F-05 vault key escrow', () => {
     const vaultA = await ensureVaultKey('correct horse battery staple')
     const galleryKeyA = await wrapSourceForVault(vaultA, 'https://mega.nz/folder/AAA#key-a', 'gal-aaa')
     expect(server.vault).not.toBeNull()
+    const vaultBeforeB = { ...server.vault! }
 
     // Device B's read raced A's write: it still sees an empty vault, mints
     // its own, and the create-only PUT conflicts — B adopts A's record.
@@ -77,7 +78,8 @@ describe('F-05 vault key escrow', () => {
     staleRead = false
 
     // One record survives and it is still A's — B never wrote over it.
-    expect(server.vault).toMatchObject(vaultA ? { wrappedVk: server.vault!.wrappedVk } : {})
+    // Compared against the snapshot taken before B ran, not against itself.
+    expect(server.vault).toEqual(vaultBeforeB)
     const reopened = await openVault('correct horse battery staple', server.vault!)
     // Everything escrowed under the surviving vault opens everywhere.
     expect(await unwrapSourceForVault(vaultB, galleryKeyA, 'gal-aaa')).toBe('https://mega.nz/folder/AAA#key-a')
