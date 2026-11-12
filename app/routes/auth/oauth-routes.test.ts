@@ -25,7 +25,7 @@ import {
   SESSION_COOKIE,
   verifyNativeHandoffToken,
 } from '../../lib/session'
-import { TEST_SESSION_SECRET } from '../../lib/test-fixtures'
+import { applySetCookie, TEST_SESSION_SECRET } from '../../lib/test-fixtures'
 import { listUsersForAdmin } from '../../lib/user-repository'
 import dropboxStartRoute from './dropbox'
 import dropboxCallbackRoute from './dropbox/callback'
@@ -226,16 +226,19 @@ const cookieHeader = (...cookies: Array<string | undefined>) =>
 
 /** A first-time identity pauses on the confirm page instead of signing in
  *  directly — this drives the form post the page itself would have made
- *  and returns the confirm step's response. */
+ *  and returns the confirm step's response. The cookie goes through the
+ *  jar: whatever the interstitial's Set-Cookie did to it is what the POST
+ *  carries. */
 const completePending = async (app: Hono, response: Response, stateCookie?: string) => {
   const html = response.status === 200 ? await response.text() : ''
   const token = /name="token" value="([^"]+)"/.exec(html)?.[1]
   if (!token) return response
+  const jar = applySetCookie(stateCookie ?? '', response)
   return app.request(`${BASE}/auth/confirm-account`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(stateCookie ? { Cookie: stateCookie } : {}),
+      ...(jar ? { Cookie: jar } : {}),
     },
     body: `token=${encodeURIComponent(token)}`,
   }, env())

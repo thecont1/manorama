@@ -28,6 +28,7 @@ import {
   createNativeHandoffToken,
   createPendingAccountToken,
   createSessionToken,
+  PENDING_ACCOUNT_TTL_SECONDS,
   resolveManoramaSession,
   verifyLinkHandoffToken,
   verifyPendingAccountToken,
@@ -72,15 +73,22 @@ const constantTimeEqual = (expected: string, actual: string) => {
 
 /** Demands the verifier cookie that belongs to this flow. `state` must be
  *  the trusted value from the consumed row (or the signed pending token),
- *  never the raw query parameter. The cookie is deleted either way — the
- *  consumed row makes it spent. */
-const stateCookieMatches = async (c: Context, state: string | undefined, expectedHash: string | undefined) => {
+ *  never the raw query parameter. A missing or wrong verifier is swept;
+ *  a verified one is swept too unless `keepVerified` — the interstitial
+ *  confirm POST still owes the same binding, and deleting it on the pause
+ *  page's response would strand every first-time sign-in. */
+const stateCookieMatches = async (
+  c: Context,
+  state: string | undefined,
+  expectedHash: string | undefined,
+  keepVerified = false,
+) => {
   if (typeof state === 'string' && STATE_PATTERN.test(state)) {
     const verifier = getCookie(c)[stateCookieName(state)]
-    deleteCookie(c, stateCookieName(state), { path: '/auth' })
-    if (verifier && expectedHash) {
-      return constantTimeEqual(await pkceChallenge(verifier), expectedHash)
-    }
+    const verified = Boolean(verifier && expectedHash
+      && constantTimeEqual(await pkceChallenge(verifier!), expectedHash!))
+    if (!(verified && keepVerified)) deleteCookie(c, stateCookieName(state), { path: '/auth' })
+    return verified
   }
   return false
 }
@@ -192,7 +200,10 @@ export const startProviderAuth = async (
     secure,
     sameSite: provider === 'apple' && secure ? 'None' : 'Lax',
     path: '/auth',
-    maxAge: AUTH_FLOW_TTL_SECONDS,
+    // The cookie has to outlive the worst-case pause: a user who spends the
+    // whole flow TTL authorizing still gets the full confirm window on the
+    // interstitial, and the confirm step checks this same verifier.
+    maxAge: AUTH_FLOW_TTL_SECONDS + PENDING_ACCOUNT_TTL_SECONDS,
   })
   const redirectUri = callbackUri(provider, c.req.url)
   try {
@@ -400,8 +411,10 @@ export const finishProviderAuth = async (
   if (!flow || flow.provider !== provider) return finishFailure(c)
   // The state alone proves nothing about whose browser this is — the
   // verifier cookie it was bound to has to be in the jar too. That is
-  // what turns an attacker-forwarded callback URL into a dead end.
-  if (!(await stateCookieMatches(c, flow.state, flow.stateCookieHash))) return finishFailure(c)
+  // what turns an attacker-forwarded callback URL into a dead end. A
+  // verified cookie is kept: this flow may yet pause on the interstitial,
+  // whose confirm POST re-checks the same binding.
+  if (!(await stateCookieMatches(c, flow.state, flow.stateCookieHash, true))) return finishFailure(c)
   if (params.error || !params.code) return finishFailure(c)
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return finishFailure(c)

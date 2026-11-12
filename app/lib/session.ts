@@ -112,6 +112,8 @@ export const verifyLinkHandoffToken = async (token: string, secret: string) => {
  *  callback to the confirm step, so the "no account exists" page can finish
  *  the sign-in without a second provider round-trip. Five minutes: it only
  *  needs to survive the human pause on the interstitial. */
+export const PENDING_ACCOUNT_TTL_SECONDS = 300
+
 export type PendingAccount = {
   provider: 'dropbox' | 'google' | 'apple'
   subject: string
@@ -142,7 +144,7 @@ export const createPendingAccountToken = (pending: PendingAccount, secret: strin
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('300s')
+    .setExpirationTime(`${PENDING_ACCOUNT_TTL_SECONDS}s`)
     .sign(sessionKey(secret))
 
 export const verifyPendingAccountToken = async (token: string, secret: string): Promise<PendingAccount | null> => {

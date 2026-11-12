@@ -10,7 +10,7 @@ import { resetAuthFlowStore } from '../../app/lib/auth-flows'
 import { confirmPendingAccount, finishProviderAuth, stateCookieName } from '../../app/lib/oauth-flow'
 import type { OidcDependencies } from '../../app/lib/oidc'
 import { SESSION_COOKIE } from '../../app/lib/session'
-import { TEST_SESSION_SECRET } from '../../app/lib/test-fixtures'
+import { applySetCookie, TEST_SESSION_SECRET } from '../../app/lib/test-fixtures'
 import googleStartRoute from '../../app/routes/auth/google'
 
 /**
@@ -251,9 +251,8 @@ describe('F-03 OAuth state is bound to the browser (login CSRF fixed)', () => {
     expect(pending.status).toBe(200)
     const token = /name="token" value="([^"]+)"/.exec(await pending.text())![1]!
 
-    // The attacker forwards the interstitial's token to the victim — but the
-    // verifier cookie was deleted when the callback ran, and the victim's
-    // browser never held it anyway.
+    // The attacker forwards the interstitial's token to the victim — whose
+    // browser never held the verifier cookie, so the confirm dies there.
     const confirm = await app.request(`${BASE}/auth/confirm-account`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -276,9 +275,11 @@ describe('F-03 OAuth state is bound to the browser (login CSRF fixed)', () => {
     expect(pending.status).toBe(200)
     const token = /name="token" value="([^"]+)"/.exec(await pending.text())![1]!
 
+    // Through the jar — whatever the interstitial's Set-Cookie did to the
+    // verifier is what this POST carries, like a real browser.
     const confirm = await app.request(`${BASE}/auth/confirm-account`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: stateCookie },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: applySetCookie(stateCookie, pending) },
       body: `token=${encodeURIComponent(token)}`,
     }, env())
 

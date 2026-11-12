@@ -19,7 +19,7 @@ import {
 import { OWNER_SLUG_PATTERN } from './user-repository'
 import { createAuthFlow, pkceChallenge, randomBase64Url } from './auth-flows'
 import { confirmPendingAccount, stateCookieName } from './oauth-flow'
-import { TEST_SESSION_SECRET } from './test-fixtures'
+import { applySetCookie, TEST_SESSION_SECRET } from './test-fixtures'
 import callbackRoute from '../routes/auth/dropbox/callback'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -425,9 +425,12 @@ describe('the Dropbox callback on the migrated schema', () => {
         { headers: { Cookie: freshFlow.cookie } }, oauthEnv())
       expect(interstitial.status).toBe(200)
       const token = /name="token" value="([^"]+)"/.exec(await interstitial.text())?.[1]!
+      // The confirm POST carries whatever the interstitial's Set-Cookie left
+      // in the jar — replaying the original header would mask a delete that
+      // stranded the confirm step in a real browser.
       const fresh = await app.request('/auth/confirm-account', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: freshFlow.cookie },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: applySetCookie(freshFlow.cookie, interstitial) },
         body: `token=${encodeURIComponent(token)}`,
       }, oauthEnv())
       expect(fresh.status).toBe(302)
