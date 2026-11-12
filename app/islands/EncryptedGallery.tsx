@@ -129,7 +129,13 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     try {
       const vaultKey = await ensureVaultKey(passphrase)
       const existing = await fetchGalleryKey(viewerProps.slug).catch(() => null)
-      await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source, galleryId), existing?.updatedAt ?? null)
+      const outcome = await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source, galleryId), existing?.updatedAt ?? null)
+      if (outcome === 'conflict') {
+        // A sibling device's escrow won the race — don't report a sync we
+        // did not write. The passphrase stays so a retry just lands.
+        setKeySyncNote('Another device synced this key first. Try again.')
+        return
+      }
       setKeySync(false)
       setPassphrase('')
     } catch {
