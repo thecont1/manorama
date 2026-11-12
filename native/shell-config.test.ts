@@ -7,6 +7,28 @@ describe('native platform adaptations', () => {
     expect(manifest).toContain('android:windowSoftInputMode="adjustResize"')
   })
 
+  test('Android keeps the vault out of cloud backup, as the privacy policy promises', () => {
+    // The vault root travels in both rule files — and it is read back out of
+    // vault.ts so a rename cannot silently re-enable the backup. Checks are
+    // structural: the exclude has to live inside each backup section, and
+    // the manifest references on the application element itself.
+    const vaultSource = readFileSync(new URL('./lib/vault.ts', import.meta.url), 'utf8')
+    const vaultRoot = vaultSource.match(/VAULT_ROOT = '([^']+)'/)?.[1]
+    expect(vaultRoot).toBeTruthy()
+    const section = (xml: string, tag: string) =>
+      xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? ''
+    const exclude = `<exclude domain="file" path="${vaultRoot}"`
+    const manifest = readFileSync(new URL('../android/app/src/main/AndroidManifest.xml', import.meta.url), 'utf8')
+    const application = manifest.match(/<application[\s\S]*?>/)?.[0] ?? ''
+    expect(application).toContain('android:fullBackupContent="@xml/backup_rules"')
+    expect(application).toContain('android:dataExtractionRules="@xml/data_extraction_rules"')
+    const legacy = readFileSync(new URL('../android/app/src/main/res/xml/backup_rules.xml', import.meta.url), 'utf8')
+    expect(section(legacy, 'full-backup-content')).toContain(exclude)
+    const extraction = readFileSync(new URL('../android/app/src/main/res/xml/data_extraction_rules.xml', import.meta.url), 'utf8')
+    expect(section(extraction, 'cloud-backup')).toContain(exclude)
+    expect(section(extraction, 'device-transfer')).toContain(exclude)
+  })
+
   test('the Library and editor have explicit Light grounds', () => {
     const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
     for (const selector of ['.native-list-shell', '.native-editor']) {

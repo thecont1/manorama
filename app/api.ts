@@ -518,13 +518,29 @@ export const createManoramaApi = () => {
     const kdfIterations = typeof payload?.kdfIterations === 'number' ? payload.kdfIterations : 0
     const wrappedVk = typeof payload?.wrappedVk === 'string' ? payload.wrappedVk : ''
     const vkNonce = typeof payload?.vkNonce === 'string' ? payload.vkNonce : ''
+    // The compare-and-swap token is mandatory: null means create-only, a
+    // stored updatedAt means replace-if-unchanged. Unconditional writes
+    // are exactly the clobber this endpoint exists to prevent.
+    const expectedUpdatedAt = payload?.expectedUpdatedAt
     if (payload?.version !== 1 || !kdfSalt || kdfSalt.length > 64
       || kdfIterations < 100_000 || kdfIterations > 10_000_000
-      || !wrappedVk || wrappedVk.length > 256 || !vkNonce || vkNonce.length > 64) {
+      || !wrappedVk || wrappedVk.length > 256 || !vkNonce || vkNonce.length > 64
+      || (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== 'string')) {
       return c.json({ error: 'That key vault payload is not valid' }, 400)
     }
     try {
-      return c.json({ vault: await putOwnerVault(session.accountId, { kdfSalt, kdfIterations, wrappedVk, vkNonce, version: 1 }, dbEnv(c)) })
+      const stored = await putOwnerVault(
+        session.accountId,
+        { kdfSalt, kdfIterations, wrappedVk, vkNonce, version: 1 },
+        expectedUpdatedAt as string | null,
+        dbEnv(c),
+      )
+      if (!stored) {
+        // Lost the race — hand back the surviving record so the client can
+        // adopt it instead of re-blind-writing over it.
+        return c.json({ error: 'conflict', vault: await getOwnerVault(session.accountId, dbEnv(c)) }, 409)
+      }
+      return c.json({ vault: stored })
     } catch {
       return c.json({ error: 'The key vault could not be saved' }, 503)
     }
@@ -546,13 +562,21 @@ export const createManoramaApi = () => {
     const payload = await c.req.json().catch(() => null) as Record<string, unknown> | null
     const wrappedSource = typeof payload?.wrappedSource === 'string' ? payload.wrappedSource : ''
     const nonce = typeof payload?.nonce === 'string' ? payload.nonce : ''
-    if (!wrappedSource || wrappedSource.length > 2048 || !nonce || nonce.length > 64) {
+    const expectedUpdatedAt = payload?.expectedUpdatedAt
+    if (!wrappedSource || wrappedSource.length > 2048 || !nonce || nonce.length > 64
+      || (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== 'string')) {
       return c.json({ error: 'That gallery key payload is not valid' }, 400)
     }
     try {
       const gallery = await getStoredGallery(session.accountId, c.req.param('slug'), dbEnv(c))
       if (!gallery?.id) return c.json({ error: 'That gallery was not found' }, 404)
-      return c.json({ ok: true, key: await putGalleryKey(session.accountId, gallery.id, { wrappedSource, nonce }, dbEnv(c)) })
+      const stored = await putGalleryKey(
+        session.accountId, gallery.id, { wrappedSource, nonce }, expectedUpdatedAt as string | null, dbEnv(c),
+      )
+      if (!stored) {
+        return c.json({ error: 'conflict', key: await getGalleryKey(session.accountId, gallery.id, dbEnv(c)) }, 409)
+      }
+      return c.json({ ok: true, key: stored })
     } catch {
       return c.json({ error: 'That gallery key could not be saved' }, 503)
     }

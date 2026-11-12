@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup (pre-Android 12). The vault's ciphertext is excluded: its
+     keys live in the device-bound Keystore, so a restored copy is
+     undecryptable dead weight — and the privacy policy promises the vault
+     stays off cloud backup. -->
+<full-backup-content>
+    <exclude domain="file" path="manorama-vault-v1" />
+</full-backup-content>

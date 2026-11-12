@@ -12,10 +12,12 @@
 #
 # Output lines to read:
 #   STEP1  handler present on the bundled page
-#   STEP2a target=_blank click — does WebKit navigate the app's webview?
+#   STEP1a the trusted document still gets a bridge reply
+#   STEP2a target=_blank click — routed to the opener, webview stays bundled
 #   STEP2b window.open — same question for the other external-link idiom
-#   STEP2  the navigation that did happen
-#   STEP3  what the remote page managed to do
+#   STEP2c location.assign — the in-place navigation attempt, also routed out
+#   STEP3  a same-origin child frame's messages die at the main-frame gate
+#   STEP4  an untrusted document's messages die at the origin gate
 #   VERDICT BRIDGE-LEAKED-SESSION-TOKEN | BRIDGE-NOT-REACHABLE
 set -euo pipefail
 

@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { seedTestUser } from './test-fixtures'
 import {
   getUserByAccountId,
+  OWNER_SLUG_MAX,
   resetUserStore,
   setLastSeenLocation,
   touchLastSeen,
+  upsertUser,
 } from './user-repository'
 
 beforeEach(() => {
@@ -50,5 +52,21 @@ describe('last-seen activity', () => {
     const moved = await getUserByAccountId(user.accountId)
     expect(moved?.lastSeenAt).not.toBe(first)
     expect(moved?.lastSeenCountry).toBe('DE')
+  })
+})
+
+describe('derived owner slugs', () => {
+  test('a suffixed slug never exceeds the 48-character cap', async () => {
+    // A 48-char base that is already taken forces the numeric-suffix path —
+    // the stem must yield to keep the derived slug inside the cap.
+    const longName = 'a'.repeat(60)
+    const first = await upsertUser({ accountId: 'acct_slug_long1', displayName: longName })
+    expect(first.ownerSlug).toBe('a'.repeat(OWNER_SLUG_MAX))
+    const second = await upsertUser({ accountId: 'acct_slug_long2', displayName: longName })
+    expect(second.ownerSlug.length).toBeLessThanOrEqual(OWNER_SLUG_MAX)
+    expect(second.ownerSlug.endsWith('-2')).toBe(true)
+    const third = await upsertUser({ accountId: 'acct_slug_long3', displayName: longName })
+    expect(third.ownerSlug.length).toBeLessThanOrEqual(OWNER_SLUG_MAX)
+    expect(third.ownerSlug.endsWith('-3')).toBe(true)
   })
 })

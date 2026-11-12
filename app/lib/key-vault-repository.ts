@@ -25,7 +25,10 @@ const d1Configured = (env?: KeyVaultEnv): env is KeyVaultEnv & { DB: D1Database 
 
 const runtimeVaults = new Map<string, StoredOwnerVault>()
 const runtimeKeys = new Map<string, StoredGalleryKey>()
-const runtimeKeyId = (ownerId: string, galleryId: string) => `${ownerId}${galleryId}`
+// NUL-separated: a bare join lets one owner id sit as a prefix of another
+// ("ab" before "abc"), and dropOwnerKeyVault's startsWith purge would then
+// delete the neighbour's wrapped keys too.
+const runtimeKeyId = (ownerId: string, galleryId: string) => `${ownerId}\0${galleryId}`
 
 type VaultRow = {
   kdf_salt: string
@@ -57,18 +60,39 @@ export const getOwnerVault = async (ownerId: string, env?: KeyVaultEnv): Promise
   return runtimeVaults.get(ownerId) ?? null
 }
 
-export const putOwnerVault = async (ownerId: string, vault: Omit<StoredOwnerVault, 'updatedAt'>, env?: KeyVaultEnv): Promise<StoredOwnerVault> => {
+/**
+ * Compare-and-swap write. `expectedUpdatedAt` is the concurrency token the
+ * caller read earlier: `null` means "create only — refuse if a row exists",
+ * a string means "replace only if this is still the stored stamp". Returns
+ * the stored record, or `null` when the guard failed — the caller must
+ * re-read and adopt the surviving record rather than blindly writing over
+ * it (two devices that both see "no vault" must not clobber each other's
+ * freshly wrapped keys).
+ */
+export const putOwnerVault = async (
+  ownerId: string,
+  vault: Omit<StoredOwnerVault, 'updatedAt'>,
+  expectedUpdatedAt: string | null,
+  env?: KeyVaultEnv,
+): Promise<StoredOwnerVault | null> => {
   const stored: StoredOwnerVault = { ...vault, updatedAt: new Date().toISOString() }
   if (d1Configured(env)) {
-    await env.DB
-      .prepare(`INSERT INTO owner_key_vault (owner_id, kdf_salt, kdf_iterations, wrapped_vk, vk_nonce, version, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (owner_id) DO UPDATE SET kdf_salt = excluded.kdf_salt, kdf_iterations = excluded.kdf_iterations,
-          wrapped_vk = excluded.wrapped_vk, vk_nonce = excluded.vk_nonce, version = excluded.version, updated_at = excluded.updated_at`)
-      .bind(ownerId, stored.kdfSalt, stored.kdfIterations, stored.wrappedVk, stored.vkNonce, stored.version, stored.updatedAt)
-      .run()
-    return stored
+    const result = expectedUpdatedAt === null
+      ? await env.DB
+        .prepare(`INSERT INTO owner_key_vault (owner_id, kdf_salt, kdf_iterations, wrapped_vk, vk_nonce, version, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (owner_id) DO NOTHING`)
+        .bind(ownerId, stored.kdfSalt, stored.kdfIterations, stored.wrappedVk, stored.vkNonce, stored.version, stored.updatedAt)
+        .run()
+      : await env.DB
+        .prepare(`UPDATE owner_key_vault SET kdf_salt = ?, kdf_iterations = ?, wrapped_vk = ?, vk_nonce = ?,
+            version = ?, updated_at = ? WHERE owner_id = ? AND updated_at = ?`)
+        .bind(stored.kdfSalt, stored.kdfIterations, stored.wrappedVk, stored.vkNonce, stored.version,
+          stored.updatedAt, ownerId, expectedUpdatedAt)
+        .run()
+    return result.meta.changes ? stored : null
   }
+  const existing = runtimeVaults.get(ownerId)
+  if (expectedUpdatedAt === null ? existing !== undefined : existing?.updatedAt !== expectedUpdatedAt) return null
   runtimeVaults.set(ownerId, stored)
   return stored
 }
@@ -84,19 +108,33 @@ export const getGalleryKey = async (ownerId: string, galleryId: string, env?: Ke
   return runtimeKeys.get(runtimeKeyId(ownerId, galleryId)) ?? null
 }
 
-export const putGalleryKey = async (ownerId: string, galleryId: string, key: { wrappedSource: string; nonce: string }, env?: KeyVaultEnv): Promise<StoredGalleryKey> => {
+/** Same compare-and-swap as putOwnerVault, scoped to one gallery row. */
+export const putGalleryKey = async (
+  ownerId: string,
+  galleryId: string,
+  key: { wrappedSource: string; nonce: string },
+  expectedUpdatedAt: string | null,
+  env?: KeyVaultEnv,
+): Promise<StoredGalleryKey | null> => {
   const stored: StoredGalleryKey = { galleryId, ...key, updatedAt: new Date().toISOString() }
   if (d1Configured(env)) {
-    await env.DB
-      .prepare(`INSERT INTO gallery_keys (owner_id, gallery_id, wrapped_source, nonce, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT (owner_id, gallery_id) DO UPDATE SET wrapped_source = excluded.wrapped_source,
-          nonce = excluded.nonce, updated_at = excluded.updated_at`)
-      .bind(ownerId, stored.galleryId, stored.wrappedSource, stored.nonce, stored.updatedAt)
-      .run()
-    return stored
+    const result = expectedUpdatedAt === null
+      ? await env.DB
+        .prepare(`INSERT INTO gallery_keys (owner_id, gallery_id, wrapped_source, nonce, updated_at)
+          VALUES (?, ?, ?, ?, ?) ON CONFLICT (owner_id, gallery_id) DO NOTHING`)
+        .bind(ownerId, stored.galleryId, stored.wrappedSource, stored.nonce, stored.updatedAt)
+        .run()
+      : await env.DB
+        .prepare(`UPDATE gallery_keys SET wrapped_source = ?, nonce = ?, updated_at = ?
+          WHERE owner_id = ? AND gallery_id = ? AND updated_at = ?`)
+        .bind(stored.wrappedSource, stored.nonce, stored.updatedAt, ownerId, galleryId, expectedUpdatedAt)
+        .run()
+    return result.meta.changes ? stored : null
   }
-  runtimeKeys.set(runtimeKeyId(ownerId, galleryId), stored)
+  const id = runtimeKeyId(ownerId, galleryId)
+  const existing = runtimeKeys.get(id)
+  if (expectedUpdatedAt === null ? existing !== undefined : existing?.updatedAt !== expectedUpdatedAt) return null
+  runtimeKeys.set(id, stored)
   return stored
 }
 
@@ -111,7 +149,7 @@ export const dropOwnerKeyVault = async (ownerId: string, env?: KeyVaultEnv): Pro
     return
   }
   runtimeVaults.delete(ownerId)
-  for (const key of [...runtimeKeys.keys()]) if (key.startsWith(`${ownerId}`)) runtimeKeys.delete(key)
+  for (const key of [...runtimeKeys.keys()]) if (key.startsWith(`${ownerId}\0`)) runtimeKeys.delete(key)
 }
 
 /** A deleted gallery's wrapped key is dead weight — ciphertext nobody can

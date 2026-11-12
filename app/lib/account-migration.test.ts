@@ -17,9 +17,9 @@ import {
   upsertIdentitySignIn,
 } from './identity-repository'
 import { OWNER_SLUG_PATTERN } from './user-repository'
-import { createAuthFlow } from './auth-flows'
-import { confirmPendingAccount } from './oauth-flow'
-import { TEST_SESSION_SECRET } from './test-fixtures'
+import { createAuthFlow, pkceChallenge, randomBase64Url } from './auth-flows'
+import { confirmPendingAccount, stateCookieName } from './oauth-flow'
+import { applySetCookie, TEST_SESSION_SECRET } from './test-fixtures'
 import callbackRoute from '../routes/auth/dropbox/callback'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -87,6 +87,8 @@ beforeAll(async () => {
   legacySessionToken = await createSessionToken(OWNER_A, TEST_SESSION_SECRET)
   await applyMigration(db, '0005_provider_neutral_accounts.sql')
   await applyMigration(db, '0006_auth_flows.sql')
+  await applyMigration(db, '0018_auth_flow_state_cookie.sql')
+  await applyMigration(db, '0019_owner_slug_reservations.sql')
   // Gallery deletes clear device_galleries links — the table is part of
   // the real schema, so the fixture carries it too.
   await applyMigration(db, '0007_device_galleries.sql')
@@ -381,10 +383,18 @@ const oauthEnv = () => ({
   DB: db(),
 })
 
-/** OAuth transaction state now lives server-side in auth_flows, so the
- *  callback tests mint a real flow row instead of a state cookie. */
-const callbackState = () =>
-  createAuthFlow({ provider: 'dropbox', intent: 'signin' }, { DB: db() }).then((flow) => flow.state)
+/** OAuth transaction state now lives server-side in auth_flows, and the
+ *  callback is bound to the browser by a verifier cookie — the tests mint
+ *  both halves the way the real start route does. */
+const callbackState = async (env?: { DB: D1Database }) => {
+  const verifier = randomBase64Url(32)
+  const flow = await createAuthFlow({
+    provider: 'dropbox',
+    intent: 'signin',
+    stateCookieHash: await pkceChallenge(verifier),
+  }, env)
+  return { state: flow.state, cookie: `${stateCookieName(flow.state)}=${verifier}` }
+}
 
 describe('the Dropbox callback on the migrated schema', () => {
   test('a migrated subject signs into its legacy account id; a new subject gets acct_', async () => {
@@ -393,7 +403,9 @@ describe('the Dropbox callback on the migrated schema', () => {
     app.get('/auth/dropbox/callback', ...callbackRoute)
     app.post('/auth/confirm-account', confirmPendingAccount)
     try {
-      const migrated = await app.request(`/auth/dropbox/callback?code=abc&state=${await callbackState()}`, undefined, oauthEnv())
+      const migratedFlow = await callbackState({ DB: db() })
+      const migrated = await app.request(`/auth/dropbox/callback?code=abc&state=${migratedFlow.state}`,
+        { headers: { Cookie: migratedFlow.cookie } }, oauthEnv())
       expect(migrated.status).toBe(302)
       expect(migrated.headers.get('Location')).toBe('/owner-a')
       expect(migrated.headers.get('Set-Cookie')).toContain(SESSION_COOKIE)
@@ -408,12 +420,17 @@ describe('the Dropbox callback on the migrated schema', () => {
       mockDropboxFetch('dbid:CALLBACKnew', 'new@manorama.xyz')
       // A first-time identity pauses on the confirm page; completing it
       // creates the account and lands on the new dashboard.
-      const interstitial = await app.request(`/auth/dropbox/callback?code=abc&state=${await callbackState()}`, undefined, oauthEnv())
+      const freshFlow = await callbackState({ DB: db() })
+      const interstitial = await app.request(`/auth/dropbox/callback?code=abc&state=${freshFlow.state}`,
+        { headers: { Cookie: freshFlow.cookie } }, oauthEnv())
       expect(interstitial.status).toBe(200)
       const token = /name="token" value="([^"]+)"/.exec(await interstitial.text())?.[1]!
+      // The confirm POST carries whatever the interstitial's Set-Cookie left
+      // in the jar — replaying the original header would mask a delete that
+      // stranded the confirm step in a real browser.
       const fresh = await app.request('/auth/confirm-account', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: applySetCookie(freshFlow.cookie, interstitial) },
         body: `token=${encodeURIComponent(token)}`,
       }, oauthEnv())
       expect(fresh.status).toBe(302)
@@ -436,8 +453,9 @@ describe('the Dropbox callback on the migrated schema', () => {
     try {
       // No DB binding anywhere: the flow lands on the memory fallback and
       // identity storage fails closed inside the callback.
-      const { state } = await createAuthFlow({ provider: 'dropbox', intent: 'signin' })
-      const response = await app.request(`/auth/dropbox/callback?code=abc&state=${state}`, undefined, {
+      const { state, cookie } = await callbackState()
+      const response = await app.request(`/auth/dropbox/callback?code=abc&state=${state}`,
+        { headers: { Cookie: cookie } }, {
         HOST_API_JWT_SECRET: TEST_SESSION_SECRET,
         DROPBOX_APP_KEY: 'test-key',
         DROPBOX_APP_SECRET: 'test-secret',

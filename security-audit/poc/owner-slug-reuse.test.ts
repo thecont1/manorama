@@ -6,15 +6,15 @@ import { SESSION_COOKIE } from '../../app/lib/session'
 import { seedTestUser, sessionCookieFor, TEST_SESSION_SECRET } from '../../app/lib/test-fixtures'
 
 /**
- * FINDING F-04 — an owner slug is released the moment its account renames or
- * is deleted, and nothing reserves it.
+ * FINDING F-04 — a released owner slug could be claimed by a stranger.
+ * FIXED.
  *
- * Public gallery addresses are `/<owner_slug>/<gallery_slug>` and the owner
- * slug is the only thing naming the account, so every previously shared link
- * depends on it. Two accounts can never hold the same slug at the same time,
- * but the *history* is not kept: the next account to ask for a freed slug gets
- * it, and can pick the same gallery slug. From then on an old link resolves to
- * someone else's photographs with no signal that it changed.
+ * Renaming or deleting an account now writes the outgoing slug into
+ * owner_slug_reservations, bound to the releasing account forever. Another
+ * account asking for a reserved slug gets the same 'in use' refusal as a
+ * live collision; only the original owner may take the name back, so an
+ * old shared link either keeps working (owner reclaimed it) or 404s —
+ * never serves someone else's photographs.
  *
  * Runs entirely on the in-memory repositories, so no D1 and no network.
  */
@@ -44,37 +44,31 @@ beforeEach(() => {
   resetGalleryStore()
 })
 
-describe('F-04 a released owner slug is free for anyone to claim', () => {
-  test('a shared gallery link silently starts serving a different account after a rename', async () => {
-    // The real owner publishes /alice/field-notes and shares it.
+describe('F-04 a released owner slug stays reserved for its account', () => {
+  test('a stranger cannot claim the slug a rename just freed', async () => {
     const alice = await seedTestUser({ accountId: 'dbid:audit-alice', displayName: 'Alice' })
     await createGallery(alice.accountId, gallery('field-notes', 'Alice in the field'))
 
-    const before = await api.request('/api/gallery/alice/field-notes', {}, env)
-    expect(before.status).toBe(200)
-    expect((await before.json() as { manifest: { title: string } }).manifest.title).toBe('Alice in the field')
-
-    // Alice renames her address. The old slug is now unowned.
     const renamed = await patchAccount(await cookieFor(alice.accountId), 'alice-photographs')
     expect(renamed.status).toBe(200)
 
-    // A stranger signs in and asks for the released slug — nothing reserves it.
+    // A stranger asks for the released slug — refused like a live collision.
     const bob = await upsertUser({ accountId: 'dbid:audit-bob', displayName: 'Bob' })
     const claimed = await patchAccount(await cookieFor(bob.accountId), 'alice')
-    expect(claimed.status).toBe(200)
+    expect(claimed.status).toBe(422)
+    expect((await claimed.json() as { error: string }).error).toBe('That URL is already in use')
+
+    // The old link now 404s — it can never resolve to Bob's photographs.
     await createGallery(bob.accountId, gallery('field-notes', 'Bob, somewhere else'))
+    const oldLink = await api.request('/api/gallery/alice/field-notes', {}, env)
+    expect(oldLink.status).toBe(404)
 
-    // The link Alice shared before the rename now serves Bob's gallery.
-    const after = await api.request('/api/gallery/alice/field-notes', {}, env)
-    expect(after.status).toBe(200)
-    expect((await after.json() as { manifest: { title: string } }).manifest.title).toBe('Bob, somewhere else')
-
-    // Alice's own gallery is intact — just somewhere else.
+    // Alice's gallery is intact at the new address.
     const moved = await api.request('/api/gallery/alice-photographs/field-notes', {}, env)
     expect((await moved.json() as { manifest: { title: string } }).manifest.title).toBe('Alice in the field')
   })
 
-  test('deleting an account frees its slug immediately, with all galleries gone', async () => {
+  test('deleting an account reserves its slug permanently', async () => {
     const alice = await seedTestUser({ accountId: 'dbid:audit-alice', displayName: 'Alice' })
     await createGallery(alice.accountId, gallery('field-notes', 'Alice in the field'))
 
@@ -85,13 +79,36 @@ describe('F-04 a released owner slug is free for anyone to claim', () => {
     }, env)
     expect(deleted.status).toBe(200)
 
-    // Same slug, different account: the old link is claimable.
+    // Same slug, different account: still refused, and the link 404s.
     const bob = await upsertUser({ accountId: 'dbid:audit-bob', displayName: 'Bob' })
-    expect((await patchAccount(await cookieFor(bob.accountId), 'alice')).status).toBe(200)
+    expect((await patchAccount(await cookieFor(bob.accountId), 'alice')).status).toBe(422)
     await createGallery(bob.accountId, gallery('field-notes', 'Bob, somewhere else'))
 
     const after = await api.request('/api/gallery/alice/field-notes', {}, env)
-    expect((await after.json() as { manifest: { title: string } }).manifest.title).toBe('Bob, somewhere else')
+    expect(after.status).toBe(404)
+  })
+
+  test('the original owner may reclaim the slug it released', async () => {
+    const alice = await seedTestUser({ accountId: 'dbid:audit-alice', displayName: 'Alice' })
+    await createGallery(alice.accountId, gallery('field-notes', 'Alice in the field'))
+    const cookie = await cookieFor(alice.accountId)
+
+    expect((await patchAccount(cookie, 'alice-photographs')).status).toBe(200)
+    // Renaming back is the account's own choice — the old link revives.
+    const back = await patchAccount(cookie, 'alice')
+    expect(back.status).toBe(200)
+    const revived = await api.request('/api/gallery/alice/field-notes', {}, env)
+    expect(revived.status).toBe(200)
+  })
+
+  test('a new account is never derived onto a released slug', async () => {
+    // 'carol' is released by a rename, then a Carol signs up — the derived
+    // slug must skip the reserved name entirely.
+    const carol = await seedTestUser({ accountId: 'dbid:audit-carol', displayName: 'Carol' })
+    await patchAccount(await cookieFor(carol.accountId), 'carol-elsewhere')
+    const newcomer = await upsertUser({ accountId: 'dbid:audit-carol2', displayName: 'Carol' })
+    expect(newcomer.ownerSlug).not.toBe('carol')
+    expect(newcomer.ownerSlug.startsWith('carol-')).toBe(true)
   })
 
   test('two accounts may hold the same gallery slug; only the owner segment separates them', async () => {

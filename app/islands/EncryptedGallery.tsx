@@ -105,7 +105,11 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     try {
       const vaultKey = await cachedVaultKey()
       if (vaultKey) {
-        await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source))
+        // CAS escrow: insert when nothing is stored, replace only the row
+        // we just read — a sibling device's concurrent write wins instead
+        // of being silently overwritten.
+        const existing = await fetchGalleryKey(viewerProps.slug)
+        await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source, galleryId), existing?.updatedAt ?? null)
         return
       }
       const [record, wrapped] = await Promise.all([fetchVaultRecord(), fetchGalleryKey(viewerProps.slug)])
@@ -124,7 +128,14 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     setKeySyncNote(null)
     try {
       const vaultKey = await ensureVaultKey(passphrase)
-      await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source))
+      const existing = await fetchGalleryKey(viewerProps.slug).catch(() => null)
+      const outcome = await putGalleryKey(viewerProps.slug, await wrapSourceForVault(vaultKey, source, galleryId), existing?.updatedAt ?? null)
+      if (outcome === 'conflict') {
+        // A sibling device's escrow won the race — don't report a sync we
+        // did not write. The passphrase stays so a retry just lands.
+        setKeySyncNote('Another device synced this key first. Try again.')
+        return
+      }
       setKeySync(false)
       setPassphrase('')
     } catch {
@@ -139,9 +150,9 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
     try {
       const record = await fetchVaultRecord()
       if (!record) { setPendingWrapped(null); setProblem('No synced key vault exists on this account. Paste the full link instead.'); return }
-      const vaultKey = await openVault(passphrase, record)
+      const vaultKey = await openVault(passphrase, record.record)
       await cacheVaultKey(vaultKey)
-      const source = await unwrapSourceForVault(vaultKey, wrapped)
+      const source = await unwrapSourceForVault(vaultKey, wrapped, galleryId)
       // Wrong-album ciphertext still unwraps to *something* — bind the result
       // to this gallery's identity before it enters custody.
       if (keylessSourceUrl(source) !== keylessSourceUrl(sourceUrl)) throw new Error('That synced key belongs to a different source album')
@@ -186,12 +197,12 @@ export default function EncryptedGallery({ galleryId, sourceUrl, legacySourceUrl
         const wrapped = await fetchGalleryKey(viewerProps.slug).catch(() => null)
         if (wrapped) {
           const vaultKey = await cachedVaultKey()
-          if (vaultKey) source = await unwrapSourceForVault(vaultKey, wrapped).catch(() => null)
+          if (vaultKey) source = await unwrapSourceForVault(vaultKey, wrapped.wrapped, galleryId).catch(() => null)
           // A cached VK that cannot unwrap the blob is no better than none —
           // the vault may have been re-created elsewhere, so the passphrase
           // path (which re-derives from the current record) still applies.
           if (!source && live) {
-            setPendingWrapped(wrapped)
+            setPendingWrapped(wrapped.wrapped)
             setProblem('This gallery is synced to your account. Enter your Manorama sync passphrase to unlock it on this device.')
             return
           }

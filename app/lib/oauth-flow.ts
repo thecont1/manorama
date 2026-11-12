@@ -1,6 +1,13 @@
 import type { Context } from 'hono'
-import { setCookie } from 'hono/cookie'
-import { consumeAuthFlow, createAuthFlow, pkceChallenge, type AuthFlow } from './auth-flows'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import {
+  AUTH_FLOW_TTL_SECONDS,
+  consumeAuthFlow,
+  createAuthFlow,
+  pkceChallenge,
+  randomBase64Url,
+  type AuthFlow,
+} from './auth-flows'
 import { appleAuthorizeUrl, fetchAppleIdentity, type AppleAuthEnv } from './apple-auth'
 import { createDesktopHandoffToken, DESKTOP_CALLBACK } from './desktop-auth'
 import { dropboxAuthorizeUrl, fetchDropboxAccount, type DropboxOauthEnv } from './dropbox-oauth'
@@ -21,6 +28,7 @@ import {
   createNativeHandoffToken,
   createPendingAccountToken,
   createSessionToken,
+  PENDING_ACCOUNT_TTL_SECONDS,
   resolveManoramaSession,
   verifyLinkHandoffToken,
   verifyPendingAccountToken,
@@ -33,15 +41,57 @@ import { setLastSeenLocation, type UserRecord } from './user-repository'
 
 /**
  * The shared halves of the /auth/{provider} routes. All three providers
- * run the same transaction: `startProviderAuth` opens an auth_flows row
- * and redirects to the provider; `finishProviderAuth` consumes the row
- * (single-use, before any provider call), verifies the identity, and
- * lands on a session cookie, a native/desktop handoff, or an error
- * redirect. Nothing about the flow rides in cookies, so Apple's
- * cross-site form_post works unchanged.
+ * run the same transaction: `startProviderAuth` opens an auth_flows row,
+ * plants a verifier cookie in the browser, and redirects to the provider;
+ * `finishProviderAuth` consumes the row (single-use, before any provider
+ * call), demands the cookie back, verifies the identity, and lands on a
+ * session cookie, a native/desktop handoff, or an error redirect. The
+ * cookie is what keeps the state from being a bearer token an attacker
+ * can hand to a victim's browser — Apple needs SameSite=None for its
+ * cross-site form_post, the GET providers keep Lax.
  */
 
 const NATIVE_CALLBACK = 'in.thecontrarian.manorama://auth/callback'
+
+/** The browser-bound half of `state`: a random verifier in an HttpOnly
+ *  cookie named for the flow, whose SHA-256 sits in the auth_flows row.
+ *  The name carries the state so two sign-ins started in parallel tabs
+ *  can never clobber each other's verifier. The value itself grants
+ *  nothing — it only proves the callback came back through the same
+ *  browser that asked for the redirect. */
+export const stateCookieName = (state: string) => `manorama_oauth_${state}`
+
+const STATE_PATTERN = /^[0-9a-f]{64}$/
+
+/** Same byte-wise compare the webhooks use for HMACs. */
+const constantTimeEqual = (expected: string, actual: string) => {
+  if (expected.length !== actual.length) return false
+  let diff = 0
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ actual.charCodeAt(i)
+  return diff === 0
+}
+
+/** Demands the verifier cookie that belongs to this flow. `state` must be
+ *  the trusted value from the consumed row (or the signed pending token),
+ *  never the raw query parameter. A missing or wrong verifier is swept;
+ *  a verified one is swept too unless `keepVerified` — the interstitial
+ *  confirm POST still owes the same binding, and deleting it on the pause
+ *  page's response would strand every first-time sign-in. */
+const stateCookieMatches = async (
+  c: Context,
+  state: string | undefined,
+  expectedHash: string | undefined,
+  keepVerified = false,
+) => {
+  if (typeof state === 'string' && STATE_PATTERN.test(state)) {
+    const verifier = getCookie(c)[stateCookieName(state)]
+    const verified = Boolean(verifier && expectedHash
+      && constantTimeEqual(await pkceChallenge(verifier!), expectedHash!))
+    if (!(verified && keepVerified)) deleteCookie(c, stateCookieName(state), { path: '/auth' })
+    return verified
+  }
+  return false
+}
 
 type ProviderEnv = DropboxOauthEnv & GoogleAuthEnv & AppleAuthEnv
 
@@ -123,6 +173,10 @@ export const startProviderAuth = async (
 ) => {
   const env = accessEnvOf(c)
   const linking = intent.intent === 'link'
+  // The verifier lives only in the browser's cookie jar and this hash —
+  // the flow row never sees the verifier itself, so a leaked row (or a
+  // callback URL) still cannot satisfy the check from another browser.
+  const stateVerifier = randomBase64Url(32)
   const flow = await createAuthFlow({
     provider,
     intent: intent.intent,
@@ -133,8 +187,24 @@ export const startProviderAuth = async (
     native: linking ? intent.native ?? '' : c.req.query('native') ?? '',
     appChallenge: linking ? undefined : c.req.query('code_challenge'),
     next: c.req.query('next'),
+    stateCookieHash: await pkceChallenge(stateVerifier),
   }, env).catch(() => null)
   if (!flow) return c.redirect('/?error=1')
+  // Apple's callback is a cross-site POST (response_mode=form_post), which
+  // only a SameSite=None cookie survives; the GET providers keep Lax.
+  // None requires Secure, so an insecure dev origin stays Lax — Apple's
+  // real callback needs HTTPS anyway.
+  const secure = new URL(c.req.url).protocol === 'https:'
+  setCookie(c, stateCookieName(flow.state), stateVerifier, {
+    httpOnly: true,
+    secure,
+    sameSite: provider === 'apple' && secure ? 'None' : 'Lax',
+    path: '/auth',
+    // The cookie has to outlive the worst-case pause: a user who spends the
+    // whole flow TTL authorizing still gets the full confirm window on the
+    // interstitial, and the confirm step checks this same verifier.
+    maxAge: AUTH_FLOW_TTL_SECONDS + PENDING_ACCOUNT_TTL_SECONDS,
+  })
   const redirectUri = callbackUri(provider, c.req.url)
   try {
     return c.redirect(await authorizeUrl(provider, flow, redirectUri, env as ProviderEnv))
@@ -243,6 +313,10 @@ const pendingAccountPage = async (
     next: flow.nextUrl,
     native: flow.native || undefined,
     appChallenge: flow.appChallenge,
+    // The flow row is consumed — the confirm POST still owes the browser
+    // binding, so the state and its cookie hash ride inside the signature.
+    state: flow.state,
+    stateCookieHash: flow.stateCookieHash,
   }, secret)
   const provider = PROVIDER_LABEL[identity.provider]
   // Declining lands back where sign-in can be retried: the ops door keeps
@@ -291,6 +365,10 @@ export const confirmPendingAccount = async (c: Context) => {
     ? await verifyPendingAccountToken(form.token, secret).catch(() => null)
     : null
   if (!token) return finishFailure(c)
+  // The pending token proves the identity; the state cookie still has to
+  // prove this is the browser that ran the flow. Without it a forwarded
+  // confirm could mint the attacker's fresh account in a victim's jar.
+  if (!(await stateCookieMatches(c, token.state, token.stateCookieHash))) return finishFailure(c)
   try {
     const user = await upsertIdentitySignIn({
       provider: token.provider,
@@ -331,6 +409,12 @@ export const finishProviderAuth = async (
   const env = accessEnvOf(c)
   const flow = params.state ? await consumeAuthFlow(params.state, env).catch(() => null) : null
   if (!flow || flow.provider !== provider) return finishFailure(c)
+  // The state alone proves nothing about whose browser this is — the
+  // verifier cookie it was bound to has to be in the jar too. That is
+  // what turns an attacker-forwarded callback URL into a dead end. A
+  // verified cookie is kept: this flow may yet pause on the interstitial,
+  // whose confirm POST re-checks the same binding.
+  if (!(await stateCookieMatches(c, flow.state, flow.stateCookieHash, true))) return finishFailure(c)
   if (params.error || !params.code) return finishFailure(c)
   const secret = env.HOST_API_JWT_SECRET?.trim()
   if (!secret) return finishFailure(c)

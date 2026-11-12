@@ -112,6 +112,8 @@ export const verifyLinkHandoffToken = async (token: string, secret: string) => {
  *  callback to the confirm step, so the "no account exists" page can finish
  *  the sign-in without a second provider round-trip. Five minutes: it only
  *  needs to survive the human pause on the interstitial. */
+export const PENDING_ACCOUNT_TTL_SECONDS = 300
+
 export type PendingAccount = {
   provider: 'dropbox' | 'google' | 'apple'
   subject: string
@@ -120,6 +122,11 @@ export type PendingAccount = {
   next?: string | undefined
   native?: string | undefined
   appChallenge?: string | undefined
+  /** The consumed flow's state and cookie hash — the confirm step still
+   *  has to prove it rides in the browser that started the flow, and the
+   *  auth_flows row it lived in is already gone. */
+  state?: string | undefined
+  stateCookieHash?: string | undefined
 }
 
 export const createPendingAccountToken = (pending: PendingAccount, secret: string) =>
@@ -132,10 +139,12 @@ export const createPendingAccountToken = (pending: PendingAccount, secret: strin
     next: pending.next,
     native: pending.native,
     appChallenge: pending.appChallenge,
+    state: pending.state,
+    stateCookieHash: pending.stateCookieHash,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('300s')
+    .setExpirationTime(`${PENDING_ACCOUNT_TTL_SECONDS}s`)
     .sign(sessionKey(secret))
 
 export const verifyPendingAccountToken = async (token: string, secret: string): Promise<PendingAccount | null> => {
@@ -154,6 +163,8 @@ export const verifyPendingAccountToken = async (token: string, secret: string): 
     next: claim('next'),
     native: claim('native'),
     appChallenge: claim('appChallenge'),
+    state: claim('state'),
+    stateCookieHash: claim('stateCookieHash'),
   }
 }
 

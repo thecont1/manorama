@@ -8,11 +8,16 @@ const SOURCE = 'https://mega.nz/collection/MzBkCAJQ#trUGvGYJjEXwekPxeAkUHQ'
 
 const session = new Map<string, string>()
 const globals = globalThis as Record<string, unknown>
-let putBodies: unknown[] = []
+let putBodies: Array<OwnerVaultRecord & { expectedUpdatedAt?: string | null }> = []
+
+/** A minimal CAS-speaking vault endpoint: null expectedUpdatedAt means
+ *  create-only, a stale stamp means replace-only-if-current. */
+let serverVault: { record: OwnerVaultRecord; updatedAt: string } | null = null
 
 beforeEach(() => {
   session.clear()
   putBodies = []
+  serverVault = null
   globals.sessionStorage = {
     getItem: (key: string) => session.get(key) ?? null,
     setItem: (key: string, value: string) => { session.set(key, value) },
@@ -21,10 +26,25 @@ beforeEach(() => {
 })
 
 const stubFetch = (record: OwnerVaultRecord | null) => {
+  serverVault = record ? { record, updatedAt: '2026-01-01T00:00:00.000Z' } : null
   globals.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const path = String(url)
-    if (init?.method === 'PUT') { putBodies.push(JSON.parse(String(init.body))); return new Response('{}', { status: 200 }) }
-    return new Response(JSON.stringify({ vault: path.endsWith('/key-vault') ? record : null }), { status: 200 })
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body))
+      putBodies.push(body)
+      const expected = body.expectedUpdatedAt
+      const conflict = expected === null ? serverVault !== null : serverVault?.updatedAt !== expected
+      if (conflict) {
+        return new Response(JSON.stringify({
+          error: 'conflict',
+          vault: serverVault ? { ...serverVault.record, updatedAt: serverVault.updatedAt } : null,
+        }), { status: 409 })
+      }
+      const { expectedUpdatedAt: _ignored, ...record } = body
+      serverVault = { record, updatedAt: new Date().toISOString() }
+      return new Response(JSON.stringify({ vault: { ...serverVault.record, updatedAt: serverVault.updatedAt } }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ vault: path.endsWith('/key-vault') && serverVault ? { ...serverVault.record, updatedAt: serverVault.updatedAt } : null }), { status: 200 })
   }) as unknown as typeof fetch
 }
 
@@ -55,16 +75,61 @@ describe('the key vault', () => {
     await expect(unwrapSourceForVault(b.vaultKey, wrapped)).rejects.toThrow()
   })
 
+  test('a gallery-bound wrap fails authentication on a different gallery row', async () => {
+    const { vaultKey } = await createVault('passphrase')
+    const wrapped = await wrapSourceForVault(vaultKey, SOURCE, 'gallery-one')
+    // Same gallery: opens.
+    expect(await unwrapSourceForVault(vaultKey, wrapped, 'gallery-one')).toBe(SOURCE)
+    // The record moved to another gallery's row: the AAD refuses it and the
+    // legacy path cannot rescue an AAD-tagged ciphertext.
+    await expect(unwrapSourceForVault(vaultKey, wrapped, 'gallery-two')).rejects.toThrow()
+    // A pre-AAD record still opens when asked for a specific gallery —
+    // compatibility until the escrow is rewrapped.
+    const legacy = await wrapSourceForVault(vaultKey, SOURCE)
+    expect(await unwrapSourceForVault(vaultKey, legacy, 'gallery-two')).toBe(SOURCE)
+  })
+
   test('ensureVaultKey creates the record when none exists, and reuses one that does', async () => {
     stubFetch(null)
     const first = await ensureVaultKey('my passphrase')
     expect(putBodies).toHaveLength(1) // the new vault record was PUT
+    expect(putBodies[0]!.expectedUpdatedAt).toBeNull() // create-only, never clobber
     const record = putBodies[0] as OwnerVaultRecord
     stubFetch(record)
     const second = await ensureVaultKey('my passphrase')
     expect(putBodies).toHaveLength(1) // no second PUT — the vault was opened
     const wrapped = await wrapSourceForVault(second, SOURCE)
     expect(await unwrapSourceForVault(first, wrapped)).toBe(SOURCE)
+  })
+
+  test('ensureVaultKey adopts the winner of a create race instead of clobbering it', async () => {
+    // Device A creates its vault on the server first.
+    stubFetch(null)
+    const vaultA = await ensureVaultKey('shared passphrase')
+    const recordA = serverVault!.record
+    expect(putBodies).toHaveLength(1)
+
+    // Device B read "no vault" before A's write landed, then PUTs —
+    // the server conflicts and hands back A's record, which B must open
+    // rather than replace. No second read is needed: the 409 carries it.
+    const seenB: string[] = []
+    globals.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const path = String(url)
+      if (init?.method === 'PUT') {
+        seenB.push('put')
+        return new Response(JSON.stringify({ error: 'conflict', vault: { ...recordA, updatedAt: serverVault!.updatedAt } }), { status: 409 })
+      }
+      seenB.push(`get:${path.endsWith('/key-vault')}`)
+      // B's one read raced A's write: still empty.
+      return new Response(JSON.stringify({ vault: null }), { status: 200 })
+    }) as unknown as typeof fetch
+    const vaultB = await ensureVaultKey('shared passphrase')
+    expect(seenB).toEqual(['get:true', 'put'])
+    // B adopted A's vault key — keys wrapped under it unwrap on B.
+    const wrappedByA = await wrapSourceForVault(vaultA, SOURCE)
+    expect(await unwrapSourceForVault(vaultB, wrappedByA)).toBe(SOURCE)
+    // And the server still holds A's record — one vault, no orphans.
+    expect(serverVault!.record).toBe(recordA)
   })
 
   test('ensureVaultKey surfaces a wrong passphrase instead of silently re-vaulting', async () => {
@@ -113,7 +178,11 @@ describe('the key vault', () => {
     // A failed read must surface as a failure, not as "not escrowed" —
     // otherwise an outage fires the passphrase card for no reason.
     await expect(fetchGalleryKey('italy')).rejects.toThrow('The gallery key could not be read')
+    globals.fetch = (async () => new Response(JSON.stringify({ key: { wrappedSource: 'abc', nonce: 'n', updatedAt: '2026-01-01T00:00:00.000Z' } }), { status: 200 })) as unknown as typeof fetch
+    expect(await fetchGalleryKey('italy')).toEqual({ wrapped: { wrappedSource: 'abc', nonce: 'n' }, updatedAt: '2026-01-01T00:00:00.000Z' })
+    // A key row without its concurrency stamp is malformed — never treated
+    // as something safe to overwrite.
     globals.fetch = (async () => new Response(JSON.stringify({ key: { wrappedSource: 'abc', nonce: 'n' } }), { status: 200 })) as unknown as typeof fetch
-    expect(await fetchGalleryKey('italy')).toEqual({ wrappedSource: 'abc', nonce: 'n' })
+    await expect(fetchGalleryKey('italy')).rejects.toThrow('The gallery key response was not valid')
   })
 })

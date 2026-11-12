@@ -25,3 +25,28 @@ export const sessionCookieFor = async (accountId: string, issuedAtSeconds?: numb
   const token = await createSessionToken(accountId, TEST_SESSION_SECRET, issuedAtSeconds)
   return `${SESSION_COOKIE}=${token}`
 }
+
+/** A real jar between requests: the response's Set-Cookie headers update or
+ *  delete entries in the Cookie header the next request sends. Without it a
+ *  test replays a cookie the server just told the browser to drop — which is
+ *  how a verifier deleted too early once went unnoticed in this suite. */
+export const applySetCookie = (header: string, response: Response): string => {
+  const jar = new Map<string, string>()
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq > 0) jar.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim())
+  }
+  const setCookies = typeof response.headers.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response.headers.get('Set-Cookie') ?? '']
+  for (const setCookie of setCookies) {
+    const [pair, ...attrs] = setCookie.split(';')
+    const eq = pair.indexOf('=')
+    if (eq < 0) continue
+    const name = pair.slice(0, eq).trim()
+    const expired = attrs.some((attr) => /max-age=0/i.test(attr.trim()) || /expires=thu, 01 jan 1970/i.test(attr.trim()))
+    if (expired || !pair.slice(eq + 1).trim()) jar.delete(name)
+    else jar.set(name, pair.slice(eq + 1).trim())
+  }
+  return [...jar].map(([name, value]) => `${name}=${value}`).join('; ')
+}

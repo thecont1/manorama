@@ -117,10 +117,25 @@ export const upsertIdentitySignIn = async (
     const ownerSlug = `${stem}${suffix}`
     const accountId = `acct_${crypto.randomUUID()}`
     try {
-      await db.batch([
-        db.prepare('INSERT INTO users (account_id, owner_slug, display_name, email) VALUES (?, ?, ?, ?)').bind(accountId, ownerSlug, initialName, email ?? null),
-        db.prepare('INSERT INTO auth_identities (provider, provider_subject, account_id, email, display_name) VALUES (?, ?, ?, ?, ?)').bind(provider, subject, accountId, email ?? null, displayName ?? null),
+      const results = await db.batch([
+        // The reservation check rides inside the INSERT so a rename or
+        // delete that releases this slug cannot slip between a pre-check
+        // and the write — a released slug is only ever reusable by the
+        // account that released it, and a fresh acct_ has no history.
+        db.prepare(
+          `INSERT INTO users (account_id, owner_slug, display_name, email)
+           SELECT ?, ?, ?, ?
+           WHERE NOT EXISTS (SELECT 1 FROM owner_slug_reservations WHERE owner_slug = ?)`,
+        ).bind(accountId, ownerSlug, initialName, email ?? null, ownerSlug),
+        // Runs only when the user row actually landed — a refused slug
+        // must not leave an orphan identity pointing at nothing.
+        db.prepare(
+          `INSERT INTO auth_identities (provider, provider_subject, account_id, email, display_name)
+           SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM users WHERE account_id = ?)`,
+        ).bind(provider, subject, accountId, email ?? null, displayName ?? null, accountId),
       ])
+      // Zero rows: the slug is reserved by someone else's history.
+      if (!results[0].meta.changes) continue
       const created = await getUserByAccountId(accountId, env)
       if (created) return created
     } catch (error) {
