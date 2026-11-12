@@ -29,8 +29,6 @@ export const PRICING = {
   free: '$0',
   firstYear: '$12',
   yearly: '$20',
-  /** The word the page uses for the annual term. */
-  term: 'Annual',
 }
 
 /** The allowance, in the words the page uses. */
@@ -79,17 +77,17 @@ export const SURFACES: Surface[] = [
   },
   {
     id: 'macos',
-    label: 'Mac',
+    label: 'Apple Silicon',
     blurb: 'Local folders, opened in place',
     href: null,
-    url: null,
+    url: 'https://downloads.manorama.xyz/mac',
   },
   {
     id: 'windows',
     label: 'Windows',
     blurb: 'Local folders, opened in place',
     href: null,
-    url: null,
+    url: 'https://downloads.manorama.xyz/windows',
   },
 ]
 
@@ -147,7 +145,7 @@ export const ASSETS: Asset[] = [
     height: 900,
     src: 'h1-viewer',
     status: 'interim',
-    caption: 'Whole frames, at their own size.',
+    caption: 'Every frame shown whole. Explore at your own pace.',
     eager: true,
   },
   {
@@ -246,11 +244,5 @@ export const SOURCES: Source[] = [
     name: 'Proton Drive',
     detail: 'Public share links, with the password that comes with them.',
     where: 'The iPhone, iPad, Mac and Windows apps',
-  },
-  {
-    id: 'local',
-    name: 'Local folders',
-    detail: 'A folder on your own computer, opened where it sits.',
-    where: 'The Mac and Windows apps, with Visionary',
   },
 ]

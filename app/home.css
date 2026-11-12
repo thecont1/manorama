@@ -20,18 +20,48 @@
 :root {
   --home-header-h: 64px;
   --home-measure: 68ch;
-  /* The rhythm between two bands is twice this, so it is kept small: the
+  /* The breath before a band is owned by the band that follows, so each
+     gap between two thoughts exists exactly once. A continued thought
+     steps close, a new movement stands back, and a turn waits: the
      page reads as one column of content rather than as a stack of
-     separate sections. The tone step between the bands does the
-     separating; the space only has to let the two breathe. */
-  --home-rhythm: clamp(44px, 4.6vw, 76px);
+     separate sections beating the same interval. */
+  --home-breath-sm: clamp(52px, 4.5vw, 80px);
+  --home-breath-md: clamp(76px, 6.5vw, 116px);
+  --home-breath-lg: clamp(104px, 9vw, 160px);
+  /* Inside a band: the step from a heading to what it introduces, and
+     the gap between items in a sequence. */
+  --home-gap-block: clamp(28px, 2.8vw, 40px);
+  --home-gap-items: clamp(26px, 2.6vw, 36px);
   --home-gap: clamp(24px, 4vw, 64px);
+  /* The one margin pair every full-width element shares, named so a
+     figure can pull itself past it and bleed to the viewport edge. */
+  --home-wrap-pad: clamp(20px, 4.5vw, 64px);
+  --home-bg: #0a0a0a;
   --home-ink: #f3f0e8;
+  --home-ink-bright: #ffffff;
   --home-ink-soft: #cdc9c0;
   --home-ink-muted: #a3a098;
   --home-surface: #141414;
   --home-surface-raised: #1c1c1c;
+  --home-line: #3d3d3d;
+  --home-line-soft: #2a2a2a;
   --home-accent: #fc0fc0;
+}
+
+/* The milky surface — the same inversion the owner theme applies across
+   the dashboard and the apps under html.light. Dark is the photographic
+   default; this is its counterpart, not a second design. */
+html.light {
+  --home-bg: #f3f0e8;
+  --home-ink: #171715;
+  --home-ink-bright: #000000;
+  --home-ink-soft: #49473f;
+  --home-ink-muted: #5a574f;
+  --home-surface: #e9e5dc;
+  --home-surface-raised: #ddd8cd;
+  --home-line: #a8a296;
+  --home-line-soft: #d8d2c6;
+  color-scheme: light;
 }
 
 html {
@@ -62,8 +92,18 @@ html.home-page body {
   overflow: visible;
 }
 
+/* Anchor navigation glides rather than jumps — unless the visitor has
+   asked for reduced motion, where an anchor must land, not travel. */
+@media (prefers-reduced-motion: no-preference) {
+  html.home-page {
+    scroll-behavior: smooth;
+  }
+}
+
 .home {
-  background: var(--home-bg, #0a0a0a);
+  /* A figure may bleed to the viewport edge but never past it. */
+  overflow-x: clip;
+  background: var(--home-bg);
   color: var(--home-ink);
   font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: 18px;
@@ -96,29 +136,69 @@ html.home-page body {
   width: 100%;
   max-width: 1440px;
   margin-inline: auto;
-  padding-inline: clamp(20px, 4.5vw, 64px);
+  padding-inline: var(--home-wrap-pad);
 }
 
+/* A band owns only the breath that precedes it — one margin between two
+   thoughts, never padding on both sides. That is what keeps the page a
+   single column instead of stacked sections, and it lets an anchored
+   jump land the heading just under the header. */
 .home-band {
-  padding-block: var(--home-rhythm);
+  margin-top: var(--home-band-before, var(--home-breath-md));
+}
+
+/* How loudly the page breathes before each band. Features keeps walking
+   with How-it-works; the two turns — what it costs, and the closing
+   line — get the page's widest breath. */
+#features {
+  --home-band-before: var(--home-breath-sm);
+}
+
+#pricing,
+.home-final {
+  --home-band-before: var(--home-breath-lg);
 }
 
 /* The wide band: the page's one margin pair. Everything that spans the
-   page starts and ends here, so the two outer margins always match. */
+   page starts and ends here, so the two outer margins always match. The
+   slab carries its own internal air — the breath before it belongs to
+   the transparent ground, so the tonal step arrives as a deliberate
+   landmark rather than another section boundary. */
 .home-band-wide {
   background: var(--home-surface);
+  padding-block: clamp(32px, 3.5vw, 56px);
 }
 
 /* ── type ──────────────────────────────────────────────────────────── */
 
 .home-h1 {
   font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(26px, 6vw, 84px);
+  font-size: clamp(14px, 6.2vw, 96px);
   font-weight: 700;
   letter-spacing: -.035em;
   line-height: 1.04;
-  margin: 0 0 24px;
-  text-wrap: balance;
+  margin: 0 0 var(--home-gap-block);
+}
+
+/* The headline is set on exactly two lines at every width: each line is a
+   block that may not wrap, and the vw-tuned size keeps the longer line
+   inside the wrap measure instead of spilling past it. */
+.home-h1-line {
+  display: block;
+  white-space: nowrap;
+}
+
+/* The one word that carries the feeling. Playfair italic is the page's
+   editorial voice; the accent pink is the product's signature — the same
+   hue that marks the picked photograph in the gallery picker. Neither is
+   decorative: the word is the promise. */
+.home-h1 em,
+.home-h2 em {
+  font-family: 'Playfair', 'Bricolage Grotesque', serif;
+  font-style: italic;
+  font-weight: 560;
+  letter-spacing: -.01em;
+  color: var(--home-accent);
 }
 
 .home-h2 {
@@ -127,7 +207,9 @@ html.home-page body {
   font-weight: 700;
   letter-spacing: -.02em;
   line-height: 1.14;
-  margin: 0 0 20px;
+  /* A band's heading owns the step to whatever it introduces, so every
+     section reads heading → content at the same interval. */
+  margin: 0 0 var(--home-gap-block);
   max-width: 30ch;
   text-wrap: balance;
 }
@@ -146,7 +228,7 @@ html.home-page body {
   line-height: 1.5;
   color: var(--home-ink-soft);
   max-width: 46ch;
-  margin-bottom: 28px;
+  margin-bottom: var(--home-gap-block);
 }
 
 .home-body {
@@ -172,7 +254,7 @@ html.home-page body {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: #0a0a0a;
+  background: var(--home-bg);
 }
 
 .home-header-inner {
@@ -183,7 +265,7 @@ html.home-page body {
   width: 100%;
   max-width: 1440px;
   margin-inline: auto;
-  padding-inline: clamp(20px, 4.5vw, 64px);
+  padding-inline: var(--home-wrap-pad);
 }
 
 .home-wordmark {
@@ -194,14 +276,40 @@ html.home-page body {
 }
 
 .home-wordmark img {
-  width: 132px;
+  width: 198px;
   height: auto;
+  /* The asset leads with a blue aperture mark; the "m" of "manorama"
+     starts ~7% into it. Pulling the paint back that much puts the "m"
+     on the same vertical as the headline's "Y". A percentage, so the
+     162px mobile mark lands true too. */
+  translate: -6.4% 0;
 }
 
+/* The wordmark ships cream for the dark ground; the milky theme gets the
+   same mark rendered pure black. Exactly one is ever displayed. The `.home`
+   prefix is load-bearing: `.home img { display:block }` would otherwise
+   out-specify the hide rule and paint both marks at once. */
+.home .home-logo-light {
+  display: none;
+}
+
+html.light .home .home-logo-dark {
+  display: none;
+}
+
+html.light .home .home-logo-light {
+  display: block;
+}
+
+/* Two flexible auto margins — after the wordmark and after the nav —
+   split the header into three zones: mark, the page's table of contents,
+   and the actions. The contents list mirrors document order; the actions
+   sit at the right edge where utilities belong. */
 .home-nav {
   display: flex;
   align-items: center;
   gap: 22px;
+  margin-right: auto;
 }
 
 .home .home-nav a {
@@ -217,6 +325,45 @@ html.home-page body {
 
 .home .home-nav a[aria-current='true'] {
   color: var(--home-accent);
+}
+
+/* The theme toggle rides with the utilities — quiet until needed. It
+   renders hidden: the theme script reveals it once it can actually do
+   the job, so a scriptless page never shows a dead control. */
+.home .home-theme-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  color: var(--home-ink-muted);
+  cursor: pointer;
+  transition: color 120ms ease-out;
+}
+
+.home .home-theme-toggle:hover {
+  color: var(--home-ink);
+}
+
+.home-nav-menu-list .home-theme-toggle {
+  font-size: 15px;
+  text-align: left;
+  color: var(--home-ink-soft);
+  padding: 10px 8px;
+}
+
+/* The sign-in utility: quieter than the contents links, sitting with the
+   one filled action rather than among the sections. */
+.home .home-nav-signin {
+  font-size: 15px;
+  text-decoration: none;
+  color: var(--home-ink-muted);
+  margin-left: 6px;
+  transition: color 120ms ease-out;
+}
+
+.home .home-nav-signin:hover {
+  color: var(--home-ink);
 }
 
 .home-nav-menu {
@@ -262,6 +409,12 @@ html.home-page body {
   padding: 10px 8px;
 }
 
+.home-nav-menu-label {
+  font-size: 13px;
+  color: var(--home-ink-muted);
+  padding: 12px 8px 2px;
+}
+
 /* ── buttons ───────────────────────────────────────────────────────── */
 
 .home .home-btn {
@@ -273,7 +426,7 @@ html.home-page body {
   border: 0;
   border-radius: 999px;
   background: var(--home-ink);
-  color: #0a0a0a;
+  color: var(--home-bg);
   font-family: inherit;
   font-size: 15px;
   font-weight: 600;
@@ -283,14 +436,17 @@ html.home-page body {
 }
 
 .home .home-btn:hover {
-  background: #ffffff;
-  color: #0a0a0a;
+  background: var(--home-ink-bright);
+  color: var(--home-bg);
 }
 
+/* The quiet variant keeps its hairline as an inset shadow rather than a
+   border, so it occupies exactly the same box as the solid button. */
 .home .home-btn-quiet {
   background: transparent;
   color: var(--home-ink);
-  border: 2px solid #3d3d3d;
+  border: 0;
+  box-shadow: inset 0 0 0 2px var(--home-line);
 }
 
 .home .home-btn-quiet:hover {
@@ -312,7 +468,7 @@ html.home-page body {
   left: -9999px;
   top: 0;
   background: var(--home-ink);
-  color: #0a0a0a;
+  color: var(--home-bg);
   padding: 12px 18px;
   font-size: 15px;
   font-weight: 600;
@@ -328,7 +484,8 @@ html.home-page body {
 /* ── the hero ──────────────────────────────────────────────────────── */
 
 .home-hero {
-  padding-top: clamp(24px, 2.6vw, 40px);
+  /* The first band's breath stays small: the sticky header is its frame. */
+  --home-band-before: clamp(24px, 2.6vw, 40px);
 }
 
 .home-hero-grid {
@@ -379,7 +536,7 @@ html.home-page body {
   min-height: 56px;
   justify-content: flex-start;
   padding: 14px 22px;
-  border: 2px solid #3d3d3d;
+  border: 2px solid var(--home-line);
   border-radius: 10px;
   background: transparent;
   color: var(--home-ink);
@@ -412,45 +569,145 @@ html.home-page body {
   margin-bottom: 12px;
 }
 
-/* ── the access row ────────────────────────────────────────────────── */
+/* ── the download menu ─────────────────────────────────────────────── */
 
-.home-access {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 18px;
-  margin: 16px 0 0;
-  padding: 0;
+/* One disclosure, two costumes: a quiet utility in the header, a quiet
+   pill in the hero fold. The panel floats in the menu layer (40). */
+.home-download {
+  position: relative;
 }
 
-.home-access-label {
+.home-download > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.home-download > summary::-webkit-details-marker {
+  display: none;
+}
+
+.home-download > summary::before {
+  content: '▾';
+  margin-right: 8px;
+  font-size: 15px;
+}
+
+.home-download-header > summary {
+  font-size: 15px;
+  color: var(--home-ink-muted);
+  transition: color 120ms ease-out;
+}
+
+.home-download-header > summary:hover,
+.home-download-header[open] > summary {
+  color: var(--home-ink);
+}
+
+/* The tail of the fold is a quiet details list: the platform line and the
+   account note are one cluster, the sources and their caveat another —
+   16px / 8px inside, 18px between clusters, and the caveat hugs its line.
+   `.home p.<class>` because the bare `p` reset beats a plain class. */
+.home p.home-hero-links {
+  margin-top: 16px;
   font-size: 16px;
   color: var(--home-ink-muted);
 }
 
-.home .home-access a {
-  font-size: 15px;
-  font-weight: 600;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
-  text-decoration-color: #4a4a4a;
-  transition: text-decoration-color 120ms ease-out, color 120ms ease-out;
+.home p.home-hero-links + .home-note {
+  margin-top: 8px;
 }
 
-.home .home-access a:hover {
+.home-hero-links a {
+  color: var(--home-ink-soft);
+  text-decoration: none;
+  transition: color 120ms ease-out;
+}
+
+.home-hero-links a:hover {
   color: var(--home-ink);
-  text-decoration-color: var(--home-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-.home-access-blurb {
-  font-weight: 400;
+.home-hero-links-soon {
   color: var(--home-ink-muted);
 }
 
+.home .home-hero-media .home-hero-cta {
+  margin: 20px 0 0;
+}
+
+.home-hero-cta-note {
+  display: block;
+  margin-top: 10px;
+  font-size: 15px;
+  color: var(--home-ink-muted);
+}
+
+/* The panel is a printed sticker, not a frosted card: sharp corners, an
+   ink border and a hard offset shadow in the signature pink. It follows
+   the page's own surface and ink tokens, so the dark theme gets a dark
+   shade and the milky theme its counterpart — no fixed colours here. */
+.home-download-panel {
+  --dl-ink: var(--home-ink);
+  --dl-ink-soft: var(--home-ink-muted);
+  position: absolute;
+  top: calc(100% + 10px);
+  min-width: 250px;
+  background: var(--home-surface-raised);
+  border: 2px solid var(--home-ink);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--home-accent);
+  padding: 8px;
+  z-index: 40;
+}
+
+.home-download-header .home-download-panel {
+  right: 0;
+}
+
+/* The two posters read as paper on the milky ground: pure white sheets
+   with the same ink border and pink offset. */
+html.light .home-download-panel,
+html.light .home-sources-box {
+  background: #fff;
+}
+
+.home-download-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.home-download-list a,
+.home-download-soon {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 12px;
+  border-radius: 0;
+  text-decoration: none;
+}
+
+/* The pink does one job inside the poster: the row fills with it on
+   hover — the same accent that marks the picked photograph. */
+.home .home-download-list a:hover {
+  background: var(--home-accent);
+}
+
+.home-download-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--dl-ink);
+}
+
+.home-download-soon .home-download-name {
+  color: var(--dl-ink-soft);
+}
+
 .home p.home-sources {
-  margin-top: 26px;
-  padding-top: 18px;
+  margin-top: 18px;
   font-size: 16px;
   color: var(--home-ink-muted);
   max-width: 520px;
@@ -458,7 +715,7 @@ html.home-page body {
 }
 
 .home p.home-sources-foot {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 16px;
   color: var(--home-ink-muted);
   max-width: 520px;
@@ -509,49 +766,6 @@ html.home-page body {
   }
 }
 
-/* ── the diagram ───────────────────────────────────────────────────── */
-
-.home-diagram {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 18px 28px;
-  padding: 24px;
-  background: var(--home-surface);
-}
-
-.home-diagram-sources {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  flex: 1 1 320px;
-  gap: 8px;
-}
-
-.home-diagram-sources li {
-  font-size: 15px;
-  color: var(--home-ink-soft);
-  background: var(--home-surface-raised);
-  padding: 8px 14px;
-  border-radius: 999px;
-}
-
-.home-diagram-arrow {
-  font-size: 22px;
-  color: var(--home-ink-muted);
-  text-align: center;
-}
-
-.home-diagram-target {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  color: var(--home-ink);
-}
-
 /* ── the steps ─────────────────────────────────────────────────────── */
 
 .home-steps {
@@ -559,7 +773,7 @@ html.home-page body {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 28px;
+  gap: var(--home-gap-items);
   max-width: var(--home-measure);
 }
 
@@ -588,67 +802,77 @@ html.home-page body {
 
 /* ── disclosures ───────────────────────────────────────────────────── */
 
-.home-disclosure {
-  background: var(--home-surface);
-  margin-top: 28px;
+/* One line of air above and below the heading: note, label and register
+   step down the column at the same beat. */
+/* The register of sources gets its own sheet, dressed like the Download
+   poster: sharp corners, an ink border and a hard pink offset shadow, on
+   a raised surface that inverts with the theme. */
+.home-sources-box {
+  background: var(--home-surface-raised);
+  border: 2px solid var(--home-ink);
+  box-shadow: 4px 4px 0 var(--home-accent);
+  padding: 22px 24px 24px;
+  margin-top: var(--home-gap-items);
 }
 
-.home-disclosure > summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 18px 22px;
-  font-size: 18px;
+.home p.home-sources-title {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 22px;
   font-weight: 600;
-  min-height: 56px;
-  display: flex;
-  align-items: center;
+  line-height: 1.25;
+  margin: 0 0 var(--home-gap-items);
 }
 
-.home-disclosure > summary::-webkit-details-marker {
-  display: none;
-}
-
-.home-disclosure[open] > summary {
-  color: var(--home-accent);
-}
-
-.home-disclosure-body {
-  padding: 0 22px 22px;
-}
-
-.home-source-list {
+/* The register of sources: marks and names only, packed into a compact
+   multi-column grid — recognisable at a glance and a break from the
+   page's run of plain text blocks. */
+.home-sources-grid {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, max-content));
+  gap: 12px 28px;
 }
 
-.home-source-list li {
+.home-source-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-source-mark {
+  flex: none;
+  width: 34px;
+  height: 34px;
   display: grid;
-  gap: 2px;
+  place-items: center;
+  background: var(--home-surface);
+  border-radius: 9px;
+  color: var(--home-ink-soft);
+}
+
+.home-source-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.home-source-initial {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 15px;
+  color: var(--home-ink);
 }
 
 .home-source-name {
   font-weight: 600;
-  font-size: 18px;
-}
-
-.home-source-detail {
-  font-size: 18px;
-  color: var(--home-ink-soft);
-}
-
-.home-source-where {
   font-size: 16px;
-  color: var(--home-ink-muted);
 }
 
 /* ── the feature groups ────────────────────────────────────────────── */
 
 .home-features {
   display: grid;
-  gap: 34px;
+  gap: var(--home-gap-items);
   max-width: 44ch;
 }
 
@@ -657,19 +881,13 @@ html.home-page body {
   color: var(--home-ink-soft);
 }
 
-.home p.home-feature-caveat {
-  font-size: 16px;
-  color: var(--home-ink-muted);
-  margin-top: 6px;
-}
-
 /* ── pricing ───────────────────────────────────────────────────────── */
 
 .home-plans {
   display: grid;
   gap: 20px;
   grid-template-columns: 1fr;
-  margin: 34px 0 48px;
+  margin: var(--home-gap-block) 0;
 }
 
 .home-plan {
@@ -713,6 +931,9 @@ html.home-page body {
 .home-plan-line {
   font-size: 18px;
   color: var(--home-ink-soft);
+  /* Two lines' worth, so the feature lists below start on the same row in
+     both cards even when one tagline wraps and the other does not. */
+  min-height: 3em;
 }
 
 .home-plan-list {
@@ -746,6 +967,11 @@ html.home-page body {
   padding-top: 10px;
 }
 
+/* The two plan buttons are the same size even though their labels are not. */
+.home-plan-cta .home-btn {
+  min-width: 140px;
+}
+
 .home-plan-note {
   font-size: 16px;
   color: var(--home-ink-muted);
@@ -757,7 +983,6 @@ html.home-page body {
    summary opens it. The browser hides the content from view but still lays
    it out, which leaves invisible text in the page's geometry: measured by
    anything that reads the DOM rather than the pixels. */
-.home-disclosure:not([open]) > .home-disclosure-body,
 .home-faq-item:not([open]) > .home-faq-answer {
   display: none;
 }
@@ -772,15 +997,24 @@ html.home-page body {
 
 .home-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
 }
 
-.home-table caption {
+/* The table's own label, set like a museum placard inside the surface. */
+.home-table-caption {
+  caption-side: top;
   text-align: left;
-  font-size: 16px;
-  color: var(--home-ink-muted);
-  padding-bottom: 14px;
+  /* Same face and headroom as the plan names on the cards above. */
+  padding: 16px 18px 16px;
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.015em;
+  color: var(--home-ink);
+  /* Stacked rows make the caption box narrow on small screens. */
+  white-space: nowrap;
 }
 
 table.home-table th,
@@ -788,7 +1022,7 @@ table.home-table td {
   font-size: 18px;
   padding: 16px 18px;
   vertical-align: top;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--home-line-soft);
 }
 
 table.home-table thead th {
@@ -796,17 +1030,36 @@ table.home-table thead th {
   font-size: 18px;
   font-weight: 600;
   color: var(--home-ink);
-  border-bottom: 1px solid #3d3d3d;
+  border-bottom: 1px solid var(--home-line);
+}
+
+/* Fixed layout honours these exactly: the label takes a quarter, the
+   two plan columns split the rest evenly. */
+table.home-table thead th:first-child {
+  width: 26%;
+}
+
+table.home-table thead th:not(:first-child) {
+  width: 37%;
 }
 
 table.home-table tbody th {
   font-weight: 600;
   color: var(--home-ink);
-  width: 26%;
 }
 
 table.home-table td {
   color: var(--home-ink-soft);
+}
+
+/* The offer's headline numbers, set at display size. */
+.home-table-cell-big {
+  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.05;
+  color: var(--home-ink);
 }
 
 .home-table-note {
@@ -817,7 +1070,7 @@ table.home-table td {
 }
 
 .home-table-notes {
-  margin-top: 28px;
+  margin-top: var(--home-gap-items);
   display: grid;
   gap: 10px;
 }
@@ -828,48 +1081,51 @@ table.home-table td {
   max-width: var(--home-measure);
 }
 
+/* What both plans share, said once under the comparison instead of
+   repeated in matched cells. */
+.home-shared {
+  margin-top: var(--home-gap-items);
+}
+
+.home-shared-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--home-ink);
+}
+
+.home-shared-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: var(--home-measure);
+  font-size: 16px;
+  color: var(--home-ink-muted);
+}
+
+.home-shared-list li {
+  display: inline;
+}
+
+.home-shared-list li + li::before {
+  content: '  ·  ';
+  color: var(--home-ink-muted);
+}
+
+.home-shared-list a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 120ms ease-out;
+}
+
+.home-shared-list a:hover {
+  color: var(--home-ink);
+}
+
 /* Below 720px the same rows stack, with the column names repeated. */
 .home-table-cell-label {
   display: none;
-}
-
-/* ── the surfaces ──────────────────────────────────────────────────── */
-
-.home-tiles {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: 1fr;
-  margin-top: 30px;
-}
-
-.home-tile {
-  background: var(--home-surface);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.home-tile-name {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 22px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.home-tile-blurb {
-  font-size: 18px;
-  color: var(--home-ink-soft);
-}
-
-.home-tile-missing {
-  background: transparent;
-  outline: 1px dashed #3d3d3d;
-  outline-offset: -1px;
-}
-
-.home-tile-missing .home-tile-blurb {
-  color: var(--home-ink-muted);
 }
 
 /* ── the FAQ ───────────────────────────────────────────────────────── */
@@ -878,14 +1134,19 @@ table.home-table td {
   max-width: none;
 }
 
+/* The list is columns, not a grid: a grid pairs items into rows, so one
+   opening answer stretches its row and strands dead ground under its
+   neighbour. Columns flow independently — an answer grows its own column
+   and the other keeps its own height. `break-inside` keeps one question
+   whole inside a column. */
 .home-faq-list {
-  display: grid;
-  gap: 2px;
-  margin-top: 30px;
+  margin-top: var(--home-gap-block);
 }
 
 .home-faq-item {
   background: var(--home-surface);
+  break-inside: avoid;
+  margin-bottom: 2px;
 }
 
 .home-faq-item > summary {
@@ -904,7 +1165,24 @@ table.home-table td {
   display: none;
 }
 
+/* The disclosure mark: a quiet plus that turns to an × on open, in the
+   accent the open question's text already takes. */
+.home-faq-item > summary::after {
+  content: '+';
+  margin-left: auto;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--home-ink-muted);
+  transition: transform 160ms ease-out, color 120ms ease-out;
+}
+
 .home-faq-item[open] > summary {
+  color: var(--home-accent);
+}
+
+.home-faq-item[open] > summary::after {
+  transform: rotate(45deg);
   color: var(--home-accent);
 }
 
@@ -922,6 +1200,9 @@ table.home-table td {
 
 .home-final {
   text-align: center;
+  /* The closing line also owns the gap before the footer's tonal slab:
+     the page exhales, then the slab arrives as a deliberate boundary. */
+  margin-bottom: var(--home-breath-md);
 }
 
 .home-final .home-h2 {
@@ -1014,7 +1295,8 @@ table.home-table td {
 
   .home a,
   .home .signin-pill,
-  .home .home-btn {
+  .home .home-btn,
+  .home-faq-item > summary::after {
     transition: none;
   }
 }
@@ -1036,9 +1318,6 @@ table.home-table td {
     align-items: stretch;
   }
 
-  .home-tiles {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 @media (min-width: 1024px) {
@@ -1053,22 +1332,34 @@ table.home-table td {
     align-items: start;
   }
 
-  /* The Unify band: the statement and the diagram take the wide column,
-     the Library capture takes a column sized to a phone. Sizing the column
-     to the capture is what keeps the band from reading as a narrow picture
-     with dead ground either side. */
-  .home-split-unify {
-    grid-template-columns: minmax(0, 1fr) 260px;
+  /* Alternate the figure's side where three splits would otherwise repeat
+     the same composition: the eye zig-zags down the page instead of
+     meeting the same wall three times. Narrow screens are unaffected —
+     `order` does nothing outside a grid container. */
+  .home-split-flip {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
 
-  .home-split-unify .home-diagram {
-    margin-top: 40px;
+  .home-split-flip > :first-child {
+    order: 2;
+  }
+
+  .home-split-flip > :last-child {
+    order: 1;
+  }
+
+  /* The Unify band: the statement and the diagram take the wide column,
+     the Library capture takes a column sized to a phone. The capture is
+     tall, so the text column centres against it — the air above and below
+     reads as composition, not a hole under the last line. */
+  .home-split-unify {
+    grid-template-columns: minmax(0, 1fr) 252px;
+    align-items: center;
   }
 
   .home-faq-list {
-    grid-template-columns: 1fr 1fr;
-    align-items: start;
-    gap: 2px 20px;
+    columns: 2;
+    column-gap: 20px;
   }
 
   /* The two device pictures, side by side: the phone keeps its own
@@ -1078,6 +1369,12 @@ table.home-table td {
     grid-template-columns: 240px minmax(0, 1fr);
     gap: 28px;
     align-items: start;
+  }
+
+  /* The hero photograph escapes the column's right padding and runs to
+     the viewport edge — the one full-bleed moment the fold gets. */
+  .home-hero-media {
+    margin-right: calc(-1 * var(--home-wrap-pad));
   }
 }
 
@@ -1090,7 +1387,10 @@ table.home-table td {
 }
 
 @media (max-width: 719px) {
-  .home-nav {
+  .home-nav,
+  .home-nav-signin,
+  .home-header-inner > .home-theme-toggle,
+  .home-download-header {
     display: none;
   }
 
@@ -1103,7 +1403,7 @@ table.home-table td {
   }
 
   .home-wordmark img {
-    width: 108px;
+    width: 162px;
   }
 
   .home-plan {
@@ -1129,7 +1429,7 @@ table.home-table td {
 
   table.home-table tr {
     padding: 14px 0;
-    border-bottom: 1px solid #2a2a2a;
+    border-bottom: 1px solid var(--home-line-soft);
   }
 
   table.home-table tbody th {

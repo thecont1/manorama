@@ -24,7 +24,10 @@ export default jsxRenderer(({ children, title, description, ogImage, ownerTheme,
       <link rel="icon" type="image/png" sizes="64x64" href="/manorama_64x64.png" />
       <link rel="icon" type="image/png" sizes="256x256" href="/manorama_256x256.png" />
       <link rel="apple-touch-icon" href="/manorama_256x256.png" />
-      {ownerTheme ? <script src="/theme-init.js"></script> : null}
+      {ownerTheme || home ? <script src="/theme-init.js"></script> : null}
+      {home ? <script src="/home-theme.js" defer></script> : null}
+      {home ? <script src="/home-menu.js" defer></script> : null}
+      {home ? <script src="/home-hero.js" defer></script> : null}
       <Link href="/app/styles.css" rel="stylesheet" />
       {home ? <Link href="/app/home.css" rel="stylesheet" /> : null}
       <title>{title}</title>

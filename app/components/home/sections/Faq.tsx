@@ -10,7 +10,7 @@ const QUESTIONS = [
     q: 'Which cloud links can I add?',
     a: [
       'Dropbox shared folders, Google Drive folders shared with anyone, iCloud Photos Shared Album links, MEGA folders and collections, Ente albums, and Proton Drive share links in the apps. Local folders work in the Mac and Windows apps.',
-      'The full list is under Supported sources, in How it works.',
+      'The full list is under Supported cloud sources. Ente opens in the browser too.',
     ],
   },
   {
@@ -67,7 +67,7 @@ export default function Faq() {
     <section class="home-band" id="faq">
       <div class="home-wrap">
         <div class="home-faq">
-          <h2 class="home-h2 home-rise home-rise-1">Questions</h2>
+          <h2 class="home-h2 home-rise home-rise-1">FAQ</h2>
           <div class="home-faq-list">
             {QUESTIONS.map((item, index) => (
               <details key={item.q} class={`home-faq-item home-rise home-rise-${(index % 4) + 2}`}>

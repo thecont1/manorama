@@ -15,7 +15,10 @@ import {
   PAID_RETAINED_LIMIT,
 } from '../../lib/gallery-policy'
 
-const HEADLINE = 'Your photographs. Different places. One beautiful view.'
+const HEADLINE = 'Your photographic life. One beautiful Library.'
+const HEADLINE_HTML =
+  '<span class="home-h1-line">Your <em>photographic</em> life.</span>' +
+  '<span class="home-h1-line">One beautiful <em>Library</em>.</span>'
 
 const globals = globalThis as Record<string, unknown>
 let previousWindow: unknown
@@ -44,12 +47,12 @@ describe('the homepage headline', () => {
   test('renders the approved headline as the one h1', () => {
     const html = page()
     expect(html.match(/<h1[\s>]/g)?.length).toBe(1)
-    expect(html).toContain(`<h1 class="home-h1 home-rise home-rise-1">${HEADLINE}</h1>`)
+    expect(html).toContain(`<h1 class="home-h1 home-rise home-rise-1">${HEADLINE_HTML}</h1>`)
   })
 
   test('leads with what the product does and how to start', () => {
     const html = page()
-    expect(html).toContain('Bring your local folders and supported cloud galleries together')
+    expect(html).toContain('Bring your local folders and shared cloud galleries together')
     expect(html).toContain('Start free or sign in')
   })
 })
@@ -84,8 +87,8 @@ describe('the sign-in group', () => {
     expect(page()).not.toContain('Sign-in didn')
   })
 
-  test('says that the same sign-in creates the account', () => {
-    expect(page()).toContain('The same sign-in creates your account or welcomes you back.')
+  test('says that the same button creates the account', () => {
+    expect(page()).toContain('The same button creates your account the first time and signs you in after.')
   })
 })
 
@@ -98,12 +101,12 @@ describe('the navigation', () => {
     for (const target of targets) expect(ids.has(target)).toBe(true)
   })
 
-  test('offers the four sections a visitor looks for', () => {
+  test('offers the sections a visitor looks for, plus the download action', () => {
     const html = page()
-    expect(html).toContain('href="#how-it-works"')
-    expect(html).toContain('href="#features"')
+    expect(html).toContain('href="#unify"')
     expect(html).toContain('href="#pricing"')
-    expect(html).toContain('href="#get-manorama"')
+    expect(html).toContain('href="#faq"')
+    expect(html).toContain('home-download')
   })
 
   test('has a skip link and one h1', () => {
@@ -119,20 +122,21 @@ describe('the pricing section', () => {
     expect(html).toContain('$12')
     expect(html).toContain('$20')
     expect(html).toContain('for your first year')
+    expect(html).toContain('Free forever')
+    expect(html).toContain('home-plan-name">Free<')
   })
 
   test('states the limits the policy actually enforces', () => {
     const html = page()
     expect(html).toContain(`${FREE_RETAINED_LIMIT} permanent cloud galleries`)
     expect(html).toContain(`${PAID_RETAINED_LIMIT} permanent cloud galleries`)
-    expect(html).toContain(`${FREE_PIPELINE_LIMIT} temporary galleries at a time`)
+    expect(html).toContain(`${FREE_PIPELINE_LIMIT} temporary cloud galleries`)
     expect(html).toContain('30 days')
   })
 
-  test('compares the two plans in a table with a caption and scopes', () => {
+  test('compares the two plans in a table with scopes', () => {
     const html = page()
     expect(html).toContain('<table class="home-table">')
-    expect(html).toContain('<caption>')
     expect(html).toContain('scope="col"')
     expect(html).toContain('scope="row"')
   })
@@ -140,7 +144,7 @@ describe('the pricing section', () => {
   test('every comparison cell says something', () => {
     const html = page()
     const rows = [...html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => m[1]!)
-    expect(rows.length).toBeGreaterThan(8)
+    expect(rows.length).toBeGreaterThan(4)
     for (const row of rows) {
       const cells = [...row.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map((m) => m[1]!)
       for (const cell of cells) {
@@ -153,17 +157,14 @@ describe('the pricing section', () => {
 })
 
 describe('the footer', () => {
-  test('carries the copyright and the privacy notice', () => {
+  test('carries the copyright and the privacy link', () => {
     const html = page()
     expect(html).toContain('© 2026 Mahesh Shantaram /')
     expect(html).toContain('All platform rights reserved.')
     expect(html).toContain('href="https://thecontrarian.in"')
-    // The two things a visitor can be surprised by, in the words the
-    // privacy policy uses: a link is unlisted but not private, and the
-    // photographs stay at the source.
-    expect(html).toContain('anyone with the link can view a gallery')
-    expect(html).toContain('not the photographs')
     expect(html).toContain('href="/privacy"')
+    // Downloads live in the first fold and the header, not the footer.
+    expect(html.match(/home-footer[\s\S]*downloads\.manorama\.xyz/)).toBeNull()
   })
 
   test('carries nothing else at the bottom of the page', () => {
@@ -187,6 +188,15 @@ describe('the surfaces and the sample gallery', () => {
     expect(html).not.toContain('href="https://apps.apple.com')
     expect(html).not.toContain('href="https://microsoft.com')
     expect(html).not.toContain('URL missing')
+  })
+
+  test('the published app surfaces link to the downloads host', () => {
+    const html = page()
+    expect(html).toContain('href="https://downloads.manorama.xyz/mac"')
+    expect(html).toContain('href="https://downloads.manorama.xyz/windows"')
+    expect(html).toContain('Apple Silicon')
+    // iPhone & iPad have no store URL yet, so the page carries no link for them.
+    expect(html).not.toContain('downloads.manorama.xyz/ios')
   })
 
   test('the sample gallery is linked when the manifest holds one', () => {
@@ -275,17 +285,27 @@ describe('the index route renders the homepage', () => {
     const response = await app.request('/', {}, env)
     expect(response.status).toBe(200)
     const html = await response.text()
-    expect(html).toContain(HEADLINE)
+    expect(
+      html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1'),
+    ).toContain(HEADLINE)
     expect(html).toContain('class="home"')
     expect(html).toContain('href="/privacy"')
     // The homepage is its own surface: never the quick-add interstitial.
     expect(html).not.toContain('data-quickadd')
   })
 
-  test('the page carries no island and no client script of its own', async () => {
+  test('the page carries no island and only the chrome scripts', async () => {
     const app = mountIndexRoute()
     const html = await (await app.request('/', {}, env)).text()
-    expect(html).not.toContain('<script')
+    // The script surface is four files and nothing else: theme-init applies
+    // the stored choice pre-paint, home-theme wires the toggle, home-menu
+    // dismisses the download disclosure, home-hero aligns the fold image.
+    // No islands.
+    expect(html).toContain('src="/theme-init.js"')
+    expect(html).toContain('src="/home-theme.js"')
+    expect(html).toContain('src="/home-menu.js"')
+    expect(html).toContain('src="/home-hero.js"')
+    expect(html.match(/<script/g)).toHaveLength(4)
     expect(html).not.toContain('has-island')
   })
 

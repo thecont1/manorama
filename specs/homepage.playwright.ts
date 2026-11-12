@@ -63,26 +63,26 @@ test.describe('the marketing homepage', () => {
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
   })
 
-  test('the access row is in the first fold on a wide screen', async ({ page }) => {
+  test('the surface links are in the first fold on a wide screen', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900 },
       { width: 2560, height: 1440 },
     ]) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await open(page)
-      const row = page.locator('.home-access')
-      await expect(row).toBeVisible()
-      const box = await row.boundingBox()
+      const menu = page.locator('.home-hero-links')
+      await expect(menu).toBeVisible()
+      const box = await menu.boundingBox()
       expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
     }
   })
 
-  test('the access row is within a viewport and a quarter on a phone', async ({ page }) => {
+  test('the surface links are within a viewport and a quarter on a phone', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 })
     await open(page)
-    const row = page.locator('.home-access')
-    await expect(row).toBeVisible()
-    const box = await row.boundingBox()
+    const menu = page.locator('.home-hero-links')
+    await expect(menu).toBeVisible()
+    const box = await menu.boundingBox()
     expect(box!.y + box!.height).toBeLessThanOrEqual(812 * 1.25)
   })
 

@@ -114,12 +114,14 @@ than assumed. Each one that is not yet true on the public page is a launch block
 |---|---|---|---|
 | Web | "Open in your browser", links to the sign-in | Always published | Live |
 | iPhone & iPad | "Encrypted offline copies on the device" | iOS deployment target 15.0 (`ios/App/App.xcodeproj`) | **No store URL** |
-| Mac | "Local folders, opened in place" | `macos/ManoramaMac` (SwiftUI shell) | **No store URL**, min OS unconfirmed |
-| Windows | "Local folders, opened in place" | `src-tauri/tauri.conf.json`, `minimumSystemVersion` 13.0 for the Tauri bundle | **No download URL** |
+| Mac | "Local folders, opened in place" | `macos/ManoramaMac` (SwiftUI shell) | Direct download: `downloads.manorama.xyz/mac` (arm64 DMG, no store listing) |
+| Windows | "Local folders, opened in place" | `src-tauri/tauri.conf.json`, `minimumSystemVersion` 13.0 for the Tauri bundle | Direct download: `downloads.manorama.xyz/windows` |
 
 Arch: the desktop release workflow (`.github/workflows/desktop-release.yml`) builds
-**macOS arm64 and x86_64 as two separate assets**, and Windows as both an `.msi` and an
-`.exe`. There is no single universal Mac binary, so the tile must not claim one.
+macOS as **arm64 and x86_64 Tauri legs**, but those legs are deprecated — the shipped
+macOS asset is the arm64-only SwiftUI DMG served from `downloads.manorama.xyz`. Windows
+ships as both an `.msi` and an `.exe`. There is no single universal Mac binary, so the
+tile must not claim one.
 
 A surface with no published URL is **hidden in production** and shown in development
 with a dashed tile reading "URL missing". There are no dead links on the page.
@@ -131,8 +133,8 @@ with a dashed tile reading "URL missing". There are no dead links on the page.
 1. **Owner approval for H1–H5.** Every capture on the page is interim. The page should
    not launch on unapproved photography.
 2. **More than one photograph.** The interim captures all show the same frame.
-3. **Store and download URLs** for iPhone & iPad, Mac and Windows, so the three tiles
-   can appear in production.
+3. **App Store URL** for iPhone & iPad — the only surface still hidden in production.
+   Mac and Windows publish through `downloads.manorama.xyz`.
 4. **A product-true OG card.** The page still shares `/og-image.png`.
 5. **Approved Apple and Google badge assets** for the sign-in buttons, if the official
    badges are to be used instead of the current monotone glyphs.

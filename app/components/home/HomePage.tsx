@@ -2,7 +2,6 @@ import Features from './sections/Features'
 import Faq from './sections/Faq'
 import FinalCta from './sections/FinalCta'
 import Footer from './sections/Footer'
-import GetManorama from './sections/GetManorama'
 import Header from './sections/Header'
 import Hero from './sections/Hero'
 import HowItWorks from './sections/HowItWorks'
@@ -40,7 +39,6 @@ export default function HomePage({
         <HowItWorks />
         <Features />
         <Pricing />
-        <GetManorama />
         <Faq />
         <FinalCta />
       </main>

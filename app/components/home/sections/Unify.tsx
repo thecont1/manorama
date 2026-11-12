@@ -1,4 +1,5 @@
 import Figure from '../Figure'
+import SourceMark from '../SourceMark'
 import { ASSETS, SOURCES } from '../home-manifest'
 
 /**
@@ -18,23 +19,27 @@ export default function Unify() {
             </h2>
             <p class="home-body home-rise home-rise-2">
               Meaningful galleries live across services and devices: a shared album, a friend’s
-              folder, a trip’s photographs still sitting on your own disk. Manorama gathers
-              references to them into one Library, and you decide what belongs in it.
+              folder, a trip’s photographs still sitting on your own disk. Bring the galleries
+              you care about into one Library.
             </p>
             <p class="home-note home-note-spaced home-rise home-rise-3">
-              One gallery at a time, with one link. Never your whole account.
+              Add a shared gallery link or choose a local folder — not your entire cloud account.
             </p>
 
-            <div class="home-diagram home-rise home-rise-3">
-              <ul class="home-diagram-sources">
+            {/* Where a link may come from: one recognisable mark per
+                source, set on its own surface like a museum's donor
+                register. The nuance — which link, which app — lives in
+                the FAQ, not beside the brand name. */}
+            <div class="home-sources-box home-rise home-rise-3">
+              <p class="home-sources-title">Supported cloud sources</p>
+              <ul class="home-sources-grid">
                 {SOURCES.map((source) => (
-                  <li key={source.id}>{source.name}</li>
+                  <li key={source.id} class="home-source-item">
+                    <SourceMark id={source.id} />
+                    <span class="home-source-name">{source.name}</span>
+                  </li>
                 ))}
               </ul>
-              <p class="home-diagram-arrow" aria-hidden="true">
-                ↓
-              </p>
-              <p class="home-diagram-target">Your Manorama Library</p>
             </div>
           </div>
 
