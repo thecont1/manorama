@@ -172,12 +172,21 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         let opensAfterAssign = opened.count
         print("STEP2c after location.assign: url=\(webView.url?.absoluteString ?? "?") opened=\(opened.map { $0.absoluteString })")
 
+        // The upgrade/support fallbacks ship as mailto: anchors — a same-
+        // frame navigation, so no gesture needed, but it must still reach
+        // the opener rather than die at the scheme filter.
+        _ = try await js("document.querySelector('a[href^=mailto]').click()")
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let opensAfterMailto = opened.count
+        print("STEP2d after mailto click: opened=\(opened.map { $0.absoluteString })")
+
         // The bundle is the only document the web view should ever hold up
         // to this point. Each opener idiom gets its own count, so a route
         // that quietly dies cannot hide behind a sibling's success —
-        // window.open and location.assign must each have routed. A landed
-        // _blank click must also route; an undelivered one (event injection
-        // is filtered in headless sessions) is reported, not assumed.
+        // window.open, location.assign and mailto must each have routed.
+        // A landed _blank click must also route; an undelivered one (event
+        // injection is filtered in headless sessions) is reported, not
+        // assumed.
         let stayedBundled = (webView.url?.absoluteString ?? "").hasPrefix("manorama://localhost")
         let blankClicksInt = Int(blankClicks) ?? 0
         // Only a gestured click may fail for not routing. A click the DOM
@@ -186,8 +195,9 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         let blankLandedButUnrouted = blankClicksInt > 0 && gestureSeen && opensAfterBlank == 0
         let windowOpenRouted = opensAfterWindowOpen > opensAfterBlank
         let assignRouted = opensAfterAssign > opensAfterWindowOpen
-        let remoteRouted = windowOpenRouted && assignRouted && !blankLandedButUnrouted
-        print("STEP2 summary: stayedBundled=\(stayedBundled) blankClicks=\(blankClicksInt) gesture=\(gestureSeen) blankOpens=\(opensAfterBlank) windowOpenRouted=\(windowOpenRouted) assignRouted=\(assignRouted)")
+        let mailtoRouted = opensAfterMailto > opensAfterAssign
+        let remoteRouted = windowOpenRouted && assignRouted && mailtoRouted && !blankLandedButUnrouted
+        print("STEP2 summary: stayedBundled=\(stayedBundled) blankClicks=\(blankClicksInt) gesture=\(gestureSeen) blankOpens=\(opensAfterBlank) windowOpenRouted=\(windowOpenRouted) assignRouted=\(assignRouted) mailtoRouted=\(mailtoRouted)")
 
         // STEP3 — a same-origin child frame loads (the nav policy allows the
         // bundle inside a frame) but its messages die at the isMainFrame gate.
@@ -221,6 +231,22 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         }
         let frameSays = frameReply.map { "FR-RESULT: \($0)" } ?? (frameSent ? "FR-RESULT: null" : "NO FRAME SCRIPT")
         print("STEP3 child frame report: \(frameSays)")
+
+        // STEP3b — a remote iframe is a navigation this policy must cancel
+        // WITHOUT opening a tab. Two witnesses: the opener's count does not
+        // move, and the loopback server never sees the document fetched.
+        let opensBeforeRemoteFrame = opened.count
+        let hitsBeforeRemoteFrame = remoteHits
+        _ = try await js("""
+            const rf = document.createElement('iframe');
+            rf.src = 'http://localhost:\(remotePort)/evil.html';
+            document.body.appendChild(rf);
+            'ok'
+            """)
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        let remoteFrameSpawnedTab = opened.count > opensBeforeRemoteFrame
+        let remoteFrameFetched = remoteHits > hitsBeforeRemoteFrame
+        print("STEP3b remote iframe: spawnedTab=\(remoteFrameSpawnedTab) fetched=\(remoteFrameFetched) opened=\(opened.count)")
 
         // STEP4 — the untrusted-document case for the message gate itself.
         // A remote URL can never commit (STEP2 proved that), so the closest
@@ -263,6 +289,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         let leaked = result.contains(canaryToken)
             || frameSays.contains(canaryToken)
             || remoteGotReply || frameGotReply || !stayedBundled || !remoteRouted
+            || remoteFrameSpawnedTab || remoteFrameFetched
         // NOT-REACHABLE means the probe ran to completion: the trusted doc
         // got its reply (the gate is not just dead), the frame's script
         // actually posted, and the untrusted document's invoke really left
@@ -285,6 +312,7 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         <!doctype html><html><head><meta charset="utf-8"><title>bundled</title></head>
         <body><h1>bundled library</h1>
         <a id="ad" href="http://localhost:\(remotePort)/evil.html" target="_blank" rel="noopener">sponsor</a>
+        <a id="mail" href="mailto:support@manorama.xyz">support</a>
         </body></html>
         """
         try index.write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
@@ -380,6 +408,11 @@ var blen = socklen_t(MemoryLayout<sockaddr_in>.size)
 _ = withUnsafeMutablePointer(to: &bound) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(listener, $0, &blen) } }
 let port = UInt16(bigEndian: bound.sin_port)
 
+// Counts every request the "attacker" origin actually serves — a remote
+// iframe that never reaches the wire proves the nav policy cancelled it.
+let hitLock = NSLock()
+var remoteHits = 0
+
 DispatchQueue.global().async {
     let body = [UInt8](evil.utf8)
     while true {
@@ -388,6 +421,7 @@ DispatchQueue.global().async {
         let fd = withUnsafeMutablePointer(to: &client) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
             Darwin.accept(listener, $0, &clen) } }
         if fd < 0 { continue }
+        hitLock.lock(); remoteHits += 1; hitLock.unlock()
         var buf = [UInt8](repeating: 0, count: 8192)
         _ = Darwin.read(fd, &buf, buf.count)
         let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"

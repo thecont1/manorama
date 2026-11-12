@@ -25,7 +25,11 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
     /// bridge and no reach into the app's files. The boundary probe
     /// substitutes a recorder so nothing real opens during a test run.
     var openExternal: (URL) -> Void = { url in
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        // The bridge's own opener scope: https anywhere, localhost http for
+        // dev, and mailto for the upgrade/support fallbacks the Library
+        // carries. Anything outside that stays dead — the right default for
+        // schemes that could reach a third-party handler.
+        guard NativeCapabilities.isAllowedOpenerURL(url.absoluteString) != nil else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -160,6 +164,10 @@ final class ViewerCoordinator: NSObject, WKScriptMessageHandler, WKNavigationDel
             return
         }
         decisionHandler(.cancel)
+        // A subframe asking for a remote document is cancelled in place —
+        // it must not also open a browser tab the page never asked for.
+        // Only main-frame and new-window (nil-target) actions may hand off.
+        if let target = navigationAction.targetFrame, !target.isMainFrame { return }
         // A new-window request (target=_blank) is decided HERE, with no
         // target frame — createWebViewWith only runs once an action is
         // allowed, and nothing external ever is. This early return would
