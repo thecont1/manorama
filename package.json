@@ -46,7 +46,7 @@
     "c2pa-wc": "^0.14.17",
     "heic-decode": "^2.1.0",
     "hono": "^4.13.13",
-    "honox": "^0.1.61",
+    "honox": "^0.1.62",
     "jimp": "^1.6.1",
     "jose": "^6.2.10",
     "libsodium-wrappers-sumo": "^0.8.4"

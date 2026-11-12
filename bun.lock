@@ -31,7 +31,7 @@
         "c2pa-wc": "^0.14.17",
         "heic-decode": "^2.1.0",
         "hono": "^4.13.13",
-        "honox": "^0.1.61",
+        "honox": "^0.1.62",
         "jimp": "^1.6.1",
         "jose": "^6.2.10",
         "libsodium-wrappers-sumo": "^0.8.4",
@@ -871,7 +871,7 @@
 
     "hono": ["hono@4.13.13", "", {}, "sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA=="],
 
-    "honox": ["honox@0.1.61", "", { "dependencies": { "@babel/generator": "7.29.1", "@babel/parser": "7.29.3", "@babel/traverse": "7.29.0", "@babel/types": "7.29.0", "@hono/vite-dev-server": "^0.25.1", "jsonc-parser": "3.3.1", "precinct": "12.2.0" }, "optionalDependencies": { "@rollup/rollup-linux-x64-gnu": "^4.9.6" }, "peerDependencies": { "hono": ">=4.*" } }, ""],
+    "honox": ["honox@0.1.62", "", { "dependencies": { "@babel/generator": "7.29.1", "@babel/parser": "7.29.3", "@babel/traverse": "7.29.0", "@babel/types": "7.29.0", "@hono/vite-dev-server": "^0.25.1", "jsonc-parser": "3.3.1", "precinct": "12.2.0" }, "optionalDependencies": { "@rollup/rollup-linux-x64-gnu": "^4.9.6" }, "peerDependencies": { "hono": ">=4.* || ^5.0.0-0" } }, "sha512-fPvoP9MhjMA38gM+NhfOZTFOcxMeI764l+k5o79gETOcpobzkSLrPZnx2JlVLAbaj0LuUrMjcN5Lh3acAEgCUg=="],
 
     "ieee754": ["ieee754@1.2.1", "", {}, "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA=="],
 
