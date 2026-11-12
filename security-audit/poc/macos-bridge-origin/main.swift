@@ -153,7 +153,12 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         let opensAfterBlank = opened.count
         let blankClicks = try await js("String(window.__blankClicks)") ?? "?"
-        print("STEP2a after target=_blank click: url=\(webView.url?.absoluteString ?? "?") clicks=\(blankClicks) opened=\(opened.map { $0.absoluteString })")
+        // A click event the DOM saw is not necessarily gesture-trusted —
+        // delivered-but-untrusted events are popup-blocked exactly like the
+        // synthetic .click() was. userActivation is the honest test: only a
+        // click WebKit counted as a gesture may demand the _blank route.
+        let gestureSeen = (try await js("String(!!(navigator.userActivation && navigator.userActivation.hasBeenActive))")) == "true"
+        print("STEP2a after target=_blank click: url=\(webView.url?.absoluteString ?? "?") clicks=\(blankClicks) gesture=\(gestureSeen) opened=\(opened.map { $0.absoluteString })")
 
         // Second external-link idiom: window.open().
         _ = try await js("window.open(document.querySelector('a[target=_blank]').href, '_blank', 'noopener')")
@@ -175,11 +180,14 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         // is filtered in headless sessions) is reported, not assumed.
         let stayedBundled = (webView.url?.absoluteString ?? "").hasPrefix("manorama://localhost")
         let blankClicksInt = Int(blankClicks) ?? 0
-        let blankLandedButUnrouted = blankClicksInt > 0 && opensAfterBlank == 0
+        // Only a gestured click may fail for not routing. A click the DOM
+        // saw without user-activation is popup-blocked by design — the same
+        // as a synthetic .click(), not a finding.
+        let blankLandedButUnrouted = blankClicksInt > 0 && gestureSeen && opensAfterBlank == 0
         let windowOpenRouted = opensAfterWindowOpen > opensAfterBlank
         let assignRouted = opensAfterAssign > opensAfterWindowOpen
         let remoteRouted = windowOpenRouted && assignRouted && !blankLandedButUnrouted
-        print("STEP2 summary: stayedBundled=\(stayedBundled) blankClicks=\(blankClicksInt) blankOpens=\(opensAfterBlank) windowOpenRouted=\(windowOpenRouted) assignRouted=\(assignRouted)")
+        print("STEP2 summary: stayedBundled=\(stayedBundled) blankClicks=\(blankClicksInt) gesture=\(gestureSeen) blankOpens=\(opensAfterBlank) windowOpenRouted=\(windowOpenRouted) assignRouted=\(assignRouted)")
 
         // STEP3 — a same-origin child frame loads (the nav policy allows the
         // bundle inside a frame) but its messages die at the isMainFrame gate.
@@ -221,8 +229,21 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
         // handler — it is registered for every page — but any message it
         // sends must be dropped before the bridge parses it.
         webView.loadHTMLString(evil, baseURL: nil)
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        // Wait for the page's own completion marker — polling before the
+        // script ran its course reads a slot it has not even declared yet.
+        var remoteRan = false
+        for _ in 0..<60 {
+            if ((try await js("document.title")) ?? "").hasPrefix("PROGRESS: ") { remoteRan = true; break }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
         print("STEP4 untrusted document url=\(webView.url?.absoluteString ?? "?") title=\(try await js("document.title") ?? "?")")
+        // The message must have been SENT for silence to mean anything —
+        // a script that died before postMessage leaves a null slot too.
+        // The page stamps __postSent on the line after a non-throwing call.
+        var remoteSent = false
+        if remoteRan {
+            remoteSent = (try await js("String(window.__postSent === true)")) == "true"
+        }
         // Same measurement as the frame: read the reply slot for a few
         // seconds rather than trusting the page's own timers.
         var remoteReply: String?
@@ -243,13 +264,14 @@ final class HarnessDelegate: NSObject, NSApplicationDelegate {
             || frameSays.contains(canaryToken)
             || remoteGotReply || frameGotReply || !stayedBundled || !remoteRouted
         // NOT-REACHABLE means the probe ran to completion: the trusted doc
-        // got its reply (the gate is not just dead) and the frame's script
-        // actually posted (a missing frame would fake a pass). Anything
-        // less is inconclusive, not a pass.
+        // got its reply (the gate is not just dead), the frame's script
+        // actually posted, and the untrusted document's invoke really left
+        // the page (a postMessage that never ran would fake a pass too).
+        // Anything less is inconclusive, not a pass.
         if leaked {
             print("VERDICT: BRIDGE-LEAKED-SESSION-TOKEN")
-        } else if !trustedReply || !frameSent {
-            print("VERDICT: INCONCLUSIVE (probe incomplete: trustedReply=\(trustedReply) frameSent=\(frameSent))")
+        } else if !trustedReply || !frameSent || !remoteSent {
+            print("VERDICT: INCONCLUSIVE (probe incomplete: trustedReply=\(trustedReply) frameSent=\(frameSent) remoteSent=\(remoteSent))")
         } else {
             print("VERDICT: BRIDGE-NOT-REACHABLE")
         }
@@ -331,6 +353,8 @@ let evil = """
     window.__manoramaShellSettle = (j) => { window.__rt = j; };
     try {
       window.webkit.messageHandlers.manorama.postMessage({ type: 'invoke', id: 7, cmd: 'read_private_file', args: { name: 'session.json' } });
+      window.__postSent = true;
+      out.push('post=SENT');
     } catch (e) { out.push('post=THREW'); }
     document.title = 'PROGRESS: ' + out.join(' | ');
   } catch (e) { out.push('error=' + e); document.title = 'PROGRESS: ' + out.join(' | '); }
