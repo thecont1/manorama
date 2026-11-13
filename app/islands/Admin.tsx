@@ -20,7 +20,8 @@ import { copyText } from '../lib/gallery-share'
 import { cardCountSource, formatMediaCount, summaryMediaCount } from '../lib/imagesource'
 import { houseAdFrameFor, type AdFrame } from '../lib/adframe'
 import { libraryLayout } from '../../packages/core/library-layout'
-import { galleryHashForSource, isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
+import { encryptedProviderForUrl, galleryHashForSource, isEncryptedSourceUrl } from '../../packages/core/encrypted-source'
+import { EncryptedCoverPlaceholder } from '../components/library/EncryptedCoverPlaceholder'
 import { webGalleryKeyStore } from '../lib/key-store'
 import { rewriteGalleryHistory } from '../lib/gallery-url'
 import type { EncryptedClientSession } from '../lib/encrypted-resolver'
@@ -390,14 +391,20 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const galleryAddress = (slug: string) => `${publicHost}${galleryPath(slug)}`
   const galleryAddressWithKey = (gallery: GallerySummary) =>
     `${galleryAddress(gallery.slug)}${gallery.id ? galleryHashes[gallery.id] ?? '' : ''}`
+  // The ids this tab can actually decrypt — sessionStorage custody means a
+  // gallery added or opened elsewhere has no key here, and its covers stay
+  // holes unless the card renders the provider placeholder instead.
+  const [keyedGalleryIds, setKeyedGalleryIds] = useState<ReadonlySet<string>>(new Set())
   useEffect(() => {
     let live = true
     for (const gallery of galleries) {
       if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) continue
       void webGalleryKeyStore().get(gallery.id).then((source) => {
         if (!live || !source || !gallery.id) return
-        const hash = galleryHashForSource(source, gallery.id)
-        setGalleryHashes((previous) => previous[gallery.id!] === hash ? previous : { ...previous, [gallery.id!]: hash })
+        const id = gallery.id
+        setKeyedGalleryIds((previous) => previous.has(id) ? previous : new Set(previous).add(id))
+        const hash = galleryHashForSource(source, id)
+        setGalleryHashes((previous) => previous[id] === hash ? previous : { ...previous, [id]: hash })
       })
     }
     return () => { live = false }
@@ -756,17 +763,42 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const compactGalleries = layout.compact.map((slug) => bySlug.get(slug)).filter((gallery): gallery is GallerySummary => Boolean(gallery))
   const hiddenGalleries = liveGalleries.filter((gallery) => gallery.hiddenAt)
 
+  /** Proton's API answers CORS only to drive.proton.me itself, so a real
+   *  browser can never reach it — the same verdict `protonTransport`
+   *  enforces, kept synchronous here for render. Native shells ride their
+   *  own networking and clear the block. */
+  const protonBlockedHere = typeof window === 'undefined'
+    ? true
+    : !('__TAURI_INTERNALS__' in window) &&
+      !((window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true)
+
+  /** Which provider leaves a media hole in this shell — Proton refuses
+   *  web transport outright, MEGA and Ente resolve only while the tab
+   *  holds the gallery key. Null means the surface renders normally. */
+  const blockedProviderFor = (gallery: GallerySummary): 'mega' | 'ente' | 'proton' | null => {
+    if (gallery.manifestVersion !== 2 || !gallery.id || !gallery.sourceUrl || !isEncryptedSourceUrl(gallery.sourceUrl)) return null
+    const provider = encryptedProviderForUrl(gallery.sourceUrl)
+    if (!provider) return null
+    if (provider === 'proton') return protonBlockedHere ? provider : null
+    return keyedGalleryIds.has(gallery.id) ? null : provider
+  }
+  const blockedNoteFor = (provider: 'mega' | 'ente' | 'proton') =>
+    provider === 'proton' ? 'in the manorama app' : 'your link holds the key'
+
   /** One card shape for every gallery list — the compact grid and the
    *  recoverable Hidden section both render it. */
   const compactCard = (gallery: GallerySummary) => {
     const title = gallery.title || gallery.slug
     const locked = isLocked(gallery)
+    const blocked = blockedProviderFor(gallery)
     // One visible cover item is all the card needs — a state
     // summary carrying more never leaks past the render slice.
     const cover = gallery.images.find((image) => !image.hidden)
     return <li key={gallery.slug} class="lib-compact-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
       <a class="lib-compact-cover" href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title} cover`}>
-        {cover ? <CompactCoverImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} /> : null}
+        {blocked
+          ? <EncryptedCoverPlaceholder provider={blocked} label={sourceLabelFor(gallery.sourceUrl)} note={blockedNoteFor(blocked)} storedWidth={cover?.width} storedHeight={cover?.height} />
+          : cover ? <CompactCoverImg src={cover.src} preview={cover.variants?.[0]?.src} media={cover.media} previewMedia={cover.variants?.[0]?.media} galleryId={gallery.id} filename={cover.filename} storedWidth={cover.width} storedHeight={cover.height} /> : null}
       </a>
       <div class="lib-compact-body">
         <div class="lib-compact-main">
@@ -871,9 +903,12 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
           <ul class="lib-list">{stripGalleries.map((gallery) => {
           const title = gallery.title || gallery.slug
           const locked = isLocked(gallery)
+          const blocked = blockedProviderFor(gallery)
           return <li key={gallery.slug}><article class="lib-card" data-gallery-card={gallery.slug} data-retention={gallery.retention}>
             <div class="admin-gallery-strip-frame" aria-label={`${title} images`} onPointerDownCapture={trackTouchPointer} onPointerDown={startStripPan} onPointerMove={moveStripPan} onPointerUp={finishStripPan} onPointerCancel={finishStripPan} onClickCapture={suppressDraggedClick} onWheel={(event) => { const frame = event.currentTarget as HTMLDivElement; const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX; frame.scrollLeft += delta; event.preventDefault() }}>
-              <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
+              {blocked
+                ? <div class="lib-strip-encrypted"><EncryptedCoverPlaceholder provider={blocked} label={sourceLabelFor(gallery.sourceUrl)} note={blockedNoteFor(blocked)} fill /></div>
+                : <ul class="admin-gallery-strip" aria-label={`${title} photographs`}>
                 {gallery.images.map((image, imageIndex) => <li class={`admin-gallery-strip-item${image.hidden ? ' is-hidden' : ''}`} key={image.id} data-image-id={image.id}>
                   <a href={galleryPath(gallery.slug)} draggable="false" aria-label={`${title}, ${image.hidden ? 'hidden ' : ''}${itemKind(image)} ${imageIndex + 1} of ${gallery.imageCount}`}>
                     <HeicImg src={image.src} preview={image.variants?.[0]?.src} media={image.media} previewMedia={image.variants?.[0]?.media} galleryId={gallery.id} filename={image.filename} alt="" loading="lazy" draggable="false" style={{ aspectRatio: `${image.width} / ${image.height}` }} onLoad={(event: Event) => {
@@ -908,7 +943,7 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
                       : null}
                   </a>
                 </li>)}
-              </ul>
+              </ul>}
             </div>
             <div class="lib-card-head">
               <a class="lib-card-title" href={galleryPath(gallery.slug)} draggable="false">{title}{gallery.pinnedAt ? <span class="lib-pin" role="img" aria-label="Pinned"><svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6l.8 2 .8-2v-6H18v-2l-2-2z"/></svg></span> : null}</a>

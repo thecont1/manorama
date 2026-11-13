@@ -414,3 +414,65 @@ describe('the lean library layout', () => {
     expect(card).toContain('admin-gallery-strip')
   })
 })
+
+describe('encrypted-source covers', () => {
+  test('a MEGA gallery renders the provider placeholder instead of a cover hole', async () => {
+    const html = await renderDashboard(async () => {
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'mega-panos', title: 'Panos', caption: '', date: '',
+        sourceUrl: 'https://mega.nz/folder/AbCdEfGh', manifestVersion: 2,
+        images: [image('m1')],
+      })
+    })
+    // No tab can hold this key in a fresh render, so the cover stands in
+    // with the MEGA mark rather than an empty slot.
+    const card = cardSection(html, 'mega-panos')
+    expect(card).toContain('lib-cover-encrypted')
+    expect(card).toContain('MEGA')
+    expect(card).toContain('your link holds the key')
+    expect(card).not.toContain('<img')
+  })
+
+  test('a Proton gallery renders the app-only placeholder — web transport never works', async () => {
+    const html = await renderDashboard(async () => {
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'proton-guinea', title: 'Guinea', caption: '', date: '',
+        sourceUrl: 'https://drive.proton.me/urls/AbCdEfGh', manifestVersion: 2,
+        images: [image('p1')],
+      })
+    })
+    const card = cardSection(html, 'proton-guinea')
+    expect(card).toContain('lib-cover-encrypted')
+    expect(card).toContain('Proton Drive')
+    expect(card).toContain('in the manorama app')
+    expect(card).not.toContain('<img')
+  })
+
+  test('a pinned encrypted gallery fills its strip frame with the placeholder', async () => {
+    const html = await renderDashboard(async () => {
+      await setUserTier(TEST_OWNER.accountId, 'pro')
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'mega-strip', title: 'Strip', caption: '', date: '',
+        sourceUrl: 'https://mega.nz/folder/AbCdEfGh', manifestVersion: 2,
+        images: [image('s1'), image('s2'), image('s3')],
+      })
+      await setGalleryPinned(TEST_OWNER.accountId, 'mega-strip', true)
+    })
+    const card = cardSection(html, 'mega-strip')
+    expect(card).toContain('lib-strip-encrypted')
+    expect(card).not.toContain('admin-gallery-strip-item')
+  })
+
+  test('an unencrypted gallery still renders its cover image', async () => {
+    const html = await renderDashboard(async () => {
+      await createGallery(TEST_OWNER.accountId, {
+        slug: 'dropbox-set', title: 'Set', caption: '', date: '',
+        sourceUrl: 'https://www.dropbox.com/scl/fo/album',
+        images: [image('d1')],
+      })
+    })
+    const card = cardSection(html, 'dropbox-set')
+    expect(card).not.toContain('lib-cover-encrypted')
+    expect(card).toContain('<img')
+  })
+})
