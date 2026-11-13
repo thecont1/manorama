@@ -68,6 +68,42 @@ describe('proxy response types', () => {
   })
 })
 
+describe('the Dropbox thumbnail size', () => {
+  /** Reads the size the proxy actually sends upstream — the ThumbnailSize
+   *  union is closed, so an invented tag fails the call, not just the size. */
+  const requestedSize = async (size: string, filename = 'IMG_0001.jpg') => {
+    const realFetch = globalThis.fetch
+    let arg = ''
+    globalThis.fetch = (async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      arg = (init?.headers as Record<string, string> | undefined)?.['Dropbox-API-Arg'] ?? ''
+      return new Response(JPEG_PREFIX, { status: 200, headers: { 'Content-Type': 'image/jpeg' } })
+    }) as typeof fetch
+    try {
+      const url = `/api/dropbox/thumbnail?sourceUrl=https%3A%2F%2Fwww.dropbox.com%2Fscl%2Ffo%2Fabc&filename=${filename}&size=${size}`
+      expect((await api.request(url, {}, { DROPBOX_APP_KEY: 'k', DROPBOX_APP_SECRET: 's' })).status).toBe(200)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    return (JSON.parse(arg) as { size: string }).size
+  }
+
+  test('w2048h2048 — never a Dropbox size — maps onto the real largest box', async () => {
+    // Manifests stored while the proxy emitted it still carry these URLs.
+    expect(await requestedSize('w2048h2048')).toBe('w2048h1536')
+  })
+
+  test('the documented sizes pass through and anything else defaults to w256h256', async () => {
+    expect(await requestedSize('w2048h1536')).toBe('w2048h1536')
+    expect(await requestedSize('w1024h768')).toBe('w1024h768')
+    expect(await requestedSize('w480h320')).toBe('w256h256')
+  })
+
+  test('HEIC still clamps the largest box to w1024h768, legacy spelling included', async () => {
+    expect(await requestedSize('w2048h1536', 'IMG_0001.HEIC')).toBe('w1024h768')
+    expect(await requestedSize('w2048h2048', 'IMG_0001.HEIC')).toBe('w1024h768')
+  })
+})
+
 describe('proxy coalescing', () => {
   /**
    * Shared caching was considered and declined: invariant 1 keeps provider

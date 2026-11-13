@@ -51,7 +51,7 @@ describe('scanDropboxFolder dimensions', () => {
     expect(scan.images[0]?.height).toBe(1707)
     // The preview is still the placeholder rendition — it is only barred from
     // answering how big the photograph is.
-    expect(scan.images[0]?.variants?.[0]?.width).toBe(256)
+    expect(scan.images[0]?.variants?.[0]?.width).toBe(2048)
     expect(scan.images[0]?.placeholder).toContain('viewBox=\'0 0 2560 1707\'')
   })
 

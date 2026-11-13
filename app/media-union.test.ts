@@ -157,7 +157,7 @@ describe('OG card source selection', () => {
 
   test('dropbox and drive thumbnails are bumped to their largest rendition', () => {
     const dropbox = { ...photoItem('d-1', 'guid-d'), src: '/api/dropbox/thumbnail?sourceUrl=x&filename=y&size=w256h256' }
-    expect(ogBaseImageUrl(dropbox)).toContain('size=w2048h2048')
+    expect(ogBaseImageUrl(dropbox)).toContain('size=w2048h1536')
     const drive = { ...photoItem('g-1', 'guid-g'), src: '/api/drive/thumbnail?id=x&size=w256' }
     expect(ogBaseImageUrl(drive)).toContain('size=w2048')
   })

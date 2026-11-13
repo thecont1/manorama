@@ -1139,10 +1139,13 @@ export const createManoramaApi = () => {
     const sourceUrl = c.req.query('sourceUrl')
     const filename = c.req.query('filename')
     const sizeParam = c.req.query('size')
-    const size = sizeParam === 'w2048h2048' || sizeParam === 'w1024h768' ? sizeParam : 'w256h256' as const
+    // Manifests stored while the proxy emitted w2048h2048 — a size Dropbox
+    // never offered — still arrive; map them onto the real largest box.
+    const requested = sizeParam === 'w2048h2048' ? 'w2048h1536' : sizeParam
+    const size = requested === 'w2048h1536' || requested === 'w1024h768' ? requested : 'w256h256' as const
     // Dropbox offers HEIC renditions only up to w1024h768; clamp so stored
-    // galleries with w2048h2048 preview URLs keep working.
-    const effectiveSize = filename && /\.hei[cf]$/i.test(filename) && size === 'w2048h2048' ? 'w1024h768' as const : size
+    // galleries with larger preview URLs keep working.
+    const effectiveSize = filename && /\.hei[cf]$/i.test(filename) && size === 'w2048h1536' ? 'w1024h768' as const : size
     if (!sourceUrl || !filename) return c.json({ error: 'Missing Dropbox image reference' }, 400)
     try {
       return await coalesce(c.req.url, async () => streamMediaResponse(await fetchDropboxThumbnail(sourceUrl, filename, envOf(c), effectiveSize), 'private, max-age=300'))

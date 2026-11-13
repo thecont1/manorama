@@ -36,11 +36,13 @@ const dropboxPath = (filename: string) =>
 
 const filenameLabel = (filename: string) => filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Photograph'
 const originalProxy = (sourceUrl: string, filename: string) => `/api/dropbox/file?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`
-// The stored rendition asks for Dropbox's largest thumbnail box: a compact
-// cover or rail cell can show it at several hundred CSS pixels, and the
-// 256px default was visibly upscaled (mode 'strict' never upscales the
-// other way — small sources still return their honest size).
-const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w2048h2048`
+// The stored rendition asks for Dropbox's largest thumbnail box — the
+// ThumbnailSize union tops out at w2048h1536, and the w2048h2048 this used
+// to request was never a member, so every call came back a 400. A compact
+// cover or rail cell can show the rendition at several hundred CSS pixels,
+// and the 256px default was visibly upscaled (mode 'strict' never upscales
+// the other way — small sources still return their honest size).
+const thumbnailProxy = (sourceUrl: string, filename: string) => `/api/dropbox/thumbnail?sourceUrl=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}&size=w2048h1536`
 // HEIC can't render in browsers. Dropbox caps its JPEG renditions at
 // w1024h768, which reads soft at full bleed — so the display src is the
 // raw original and the viewer decodes it client-side (libheif WASM).
@@ -202,7 +204,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
           fidelity: 'original',
           thumbnailFidelity: 'display-derivative',
           placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
-          variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
+          variants: [{ width: 2048, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
         }
         return item
       }
@@ -218,7 +220,7 @@ export const scanDropboxFolder = async (input: string, env: DropboxEnv, fetchImp
         fidelity: 'original',
         thumbnailFidelity: 'display-derivative',
         placeholder: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${dimensions.width} ${dimensions.height}'%3E%3Crect width='100%25' height='100%25' fill='%23111212'/%3E%3C/svg%3E`,
-        variants: [{ width: 256, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
+        variants: [{ width: 2048, src: thumbnailProxy(sourceUrl, entry.name), format: 'jpeg' }],
       }
     } catch (error) {
       // Budget exhaustion drops the un-probed tail — an invented 4:3
@@ -243,7 +245,7 @@ export const fetchDropboxFile = async (sourceUrlInput: string, filename: string,
   return contentRequest('sharing/get_shared_link_file', { url: sourceUrl, path: dropboxPath(filename) }, env, fetch, range ? { Range: range } : undefined)
 }
 
-export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w1024h768' | 'w2048h2048' = 'w256h256') => {
+export const fetchDropboxThumbnail = async (sourceUrlInput: string, filename: string, env: DropboxEnv, size: 'w256h256' | 'w1024h768' | 'w2048h1536' = 'w256h256') => {
   const sourceUrl = validateFolderUrl(sourceUrlInput)
   return contentRequest('files/get_thumbnail_v2', {
     resource: { '.tag': 'link', url: sourceUrl, path: dropboxPath(filename) },

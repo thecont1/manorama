@@ -63,7 +63,7 @@ export const ogBaseImageUrl = (item: GalleryMediaItem | undefined): string | nul
   const isHeic = /\.hei[cf]$/i.test(item.filename)
   const source = isHeic ? item.variants?.[0]?.src ?? item.src : item.src
   if (!source) return null
-  if (source.startsWith('/api/dropbox/thumbnail')) return source.replace(/([?&])size=[^&]*/, '$1size=w2048h2048')
+  if (source.startsWith('/api/dropbox/thumbnail')) return source.replace(/([?&])size=[^&]*/, '$1size=w2048h1536')
   if (source.startsWith('/api/drive/thumbnail')) return source.replace(/([?&])size=[^&]*/, '$1size=w2048')
   return source
 }
