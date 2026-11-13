@@ -51,7 +51,6 @@ export default function Hero({
               <a class="home-btn home-btn-quiet" href={samplePath}>
                 View a sample gallery
               </a>
-              <span class="home-hero-cta-note">No account needed to view.</span>
             </p>
           ) : null}
 

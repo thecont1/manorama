@@ -593,13 +593,6 @@ html.light .home .home-logo-light {
   color: var(--home-ink-muted);
 }
 
-.home-hero-cta-note {
-  display: block;
-  margin-top: 10px;
-  font-size: 15px;
-  color: var(--home-ink-muted);
-}
-
 /* The panel is a printed sticker, not a frosted card: sharp corners, an
    ink border and a hard offset shadow in the signature pink. It follows
    the page's own surface and ink tokens, so the dark theme gets a dark
