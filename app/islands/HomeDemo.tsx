@@ -446,7 +446,7 @@ export default function HomeDemo({ samplePath }: { samplePath?: string | null })
           </button>
         </div>
         {samplePath ? (
-          <a class="home-demo-sample" href={samplePath}>
+          <a class="home-demo-sample" href={samplePath} target="_blank" rel="noopener">
             View a sample gallery
           </a>
         ) : null}

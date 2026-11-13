@@ -35,7 +35,7 @@ export default function Hero({
             under the device it invites you to leave. */}
         {!live && samplePath ? (
           <p class="home-hero-cta home-rise home-rise-3">
-            <a class="home-btn home-btn-quiet" href={samplePath}>
+            <a class="home-btn home-btn-quiet" href={samplePath} target="_blank" rel="noopener">
               View a sample gallery
             </a>
           </p>

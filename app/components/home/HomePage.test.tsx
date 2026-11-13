@@ -275,6 +275,8 @@ describe('the surfaces and the sample gallery', () => {
   test('the sample gallery is linked when the manifest holds one', () => {
     expect(page()).toContain('href="/thecontrarian/italy"')
     expect(page()).toContain('View a sample gallery')
+    // The gallery opens in its own tab so the landing page stays put.
+    expect(page()).toContain('href="/thecontrarian/italy" target="_blank" rel="noopener"')
   })
 
   test('the sample gallery link disappears when the manifest path is unset', () => {
@@ -393,7 +395,7 @@ describe('the index route renders the homepage', () => {
     const html = await (await app.request('/', {}, env)).text()
     const bar = html.indexOf('home-demo-bar')
     const controls = html.indexOf('data-demo-controls')
-    const sample = html.indexOf('class="home-demo-sample" href="/thecontrarian/italy"')
+    const sample = html.indexOf('class="home-demo-sample" href="/thecontrarian/italy" target="_blank" rel="noopener"')
     expect(bar).toBeGreaterThan(-1)
     expect(controls).toBeGreaterThan(bar)
     expect(sample).toBeGreaterThan(controls)
