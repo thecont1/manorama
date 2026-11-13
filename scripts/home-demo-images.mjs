@@ -13,10 +13,10 @@
 // pixel ratio times max(aspect, 1). `lg` covers dpr 2, `sm` covers dpr 1.
 // withoutEnlargement keeps a pixel-short source at its own size.
 //
-// Metadata: GPS and device/personal fields are removed; orientation and the
-// source ICC profile are kept; a credit/copyright line is added. Renditions
-// carry no Content Credentials (C2PA) — expected for downscaled homepage
-// files.
+// Metadata: GPS, IPTC and device/personal fields (including the body and lens
+// serial numbers) are removed; orientation and the source ICC profile are
+// kept; a credit/copyright line is added. Renditions carry no Content
+// Credentials (C2PA) — expected for downscaled homepage files.
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync, readdirSync } from 'node:fs'
@@ -67,9 +67,14 @@ for (const num of SEQUENCE) {
     await pipeline.clone().webp({ quality: 74 }).toFile(`${base}.webp`)
     await pipeline.clone().jpeg({ quality: 78, mozjpeg: true }).toFile(`${base}.jpg`)
     // Strip location/device/personal fields, keep orientation + ICC, add credit.
+    // IPTC goes too: it survives sharp and repeats the capture dates. The
+    // serial numbers identify the owner's own copy of the camera and lens.
     execFileSync('exiftool', [
       '-overwrite_original', '-quiet',
-      '-gps:all=', '-exif:SerialNumber=', '-exif:Software=', '-exif:OwnerName=',
+      '-gps:all=', '-iptc:all=', '-IPTCDigest=',
+      '-exif:SerialNumber=', '-exif:LensSerialNumber=',
+      '-exif:ImageUniqueID=', '-exif:RawDataUniqueID=',
+      '-exif:OwnerName=', '-exif:UserComment=', '-exif:XPComment=', '-exif:Software=',
       '-xmp:all=',
       '-IFD0:Artist=Mahesh Shantaram',
       '-IFD0:Copyright=Copyright 2026 Mahesh Shantaram. All rights reserved.',
