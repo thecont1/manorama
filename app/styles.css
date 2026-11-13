@@ -1746,7 +1746,11 @@ body:has(.ops-page) { overflow: auto; overflow-x: clip; background: #111312; }
    so "under the logo" means inside the image box: the build tag is
    anchored into that dead zone, proportional at every rail width. */
 .admin-brand { position: relative; margin-bottom: 18px; }
-.admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin-left: -28px; }
+/* The mark hangs left of the rail column for a hang-indent — capped at
+   -16px so the M's leading stem clears the page's minimum 20px padding
+   even at the narrowest viewport (the PNG's own ~5px inset at this size
+   is what -28px was spending and occasionally clipping). */
+.admin-brand-mark { display: block; width: min(306px, calc(100% + 28px)); height: auto; margin-left: -16px; }
 .admin-version { position: absolute; left: 0; top: calc(71% + 2px); margin: 0; font-family: 'DM Mono', ui-monospace, monospace; font-size: 11px; line-height: 1; color: rgba(var(--ink), .38); }
 /* The copyright is the rail's last line — it sits directly under the
    sponsored slot, and when the day switch has suppressed the slot it
