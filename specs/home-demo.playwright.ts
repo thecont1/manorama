@@ -134,6 +134,35 @@ test.describe('the mounted homepage photo demo', () => {
     })
   }
 
+  test('the sample gallery link shares the control bar instead of hanging below it', async ({ page }) => {
+    await open(page)
+    await expect(page.locator('.home-demo-bar > .home-demo-sample')).toHaveAttribute('href', '/thecontrarian/italy')
+    await expect(page.locator('.home-demo-bar > [data-demo-controls]')).toHaveCount(1)
+    await expect(page.locator('.home-hero-cta, .home-hero-cta-note')).toHaveCount(0)
+    expect(await page.locator('body').innerText()).not.toContain('No account needed')
+
+    const bar = await page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document.querySelector(selector)!.getBoundingClientRect()
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+      }
+      const stage = box('[data-demo-viewport]')
+      const controls = box('[data-demo-controls]')
+      const sample = box('.home-demo-sample')
+      return { stage, controls, sample, centre: (stage.left + stage.right) / 2 }
+    })
+    expect(bar.sample.left).toBeGreaterThan(bar.controls.right)
+    expect(Math.abs((bar.sample.top + bar.sample.bottom) / 2 - (bar.controls.top + bar.controls.bottom) / 2)).toBeLessThanOrEqual(1)
+    expect((bar.controls.left + bar.sample.right) / 2).toBeCloseTo(bar.centre, 0)
+
+    const link = page.locator('.home-demo-sample')
+    await link.scrollIntoViewIfNeeded()
+    expect(await link.evaluate((el) => {
+      const box = el.getBoundingClientRect()
+      return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === el
+    })).toBe(true)
+  })
+
   test('every non-fold shape contains the same flush, honest Manorama strip', async ({ page }) => {
     await open(page)
     await pause(page)
@@ -621,7 +650,7 @@ test.describe('the mounted homepage photo demo', () => {
     const controls = screen.locator('a, button, input, select, textarea, [tabindex]')
     expect(await controls.count()).toBeGreaterThan(0)
     expect(await controls.evaluateAll((elements) => elements.filter((element) => !element.closest('[inert]')).length)).toBe(0)
-    await expect(page.locator('.home-demo > .home-demo-controls button')).toHaveCount(5)
+    await expect(page.locator('.home-demo-controls button')).toHaveCount(5)
     expect(await stage.evaluate((el) => getComputedStyle(el).cursor)).toBe('default')
     const box = await stage.boundingBox()
     expect(box).not.toBeNull()
@@ -710,6 +739,7 @@ test.describe('the demo static and failure states', () => {
       await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'false')
       await expect(page.locator('[data-demo-controls]')).toBeHidden()
+      await expect(page.locator('.home-demo-sample')).toBeVisible()
       await expect(page.locator('.home-demo-static')).toBeVisible()
       const first = page.locator('.home-demo-static img')
       await expect(first).toBeVisible()
@@ -729,11 +759,24 @@ test.describe('the demo static and failure states', () => {
   })
 
   test('blocking island enhancement leaves the static photograph and native disclosures', async ({ page }) => {
-    await page.route('**/app/client.ts*', (route) => route.abort())
+    // Every assertion below also holds on a page that hydrated normally, so
+    // the block itself has to be proven: the route must abort the very client
+    // module this page emits, dev entry or built asset alike.
+    const blocked: string[] = []
+    await page.route(/\/(?:app\/client\.ts|static\/client-[\w-]+\.js)(?:[?#]|$)/, (route) => {
+      blocked.push(route.request().url())
+      return route.abort()
+    })
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
+    await expect.poll(() => blocked.length).toBeGreaterThan(0)
+    const emitted = await page.locator('script[type="module"][src]')
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('src') || ''))
+    expect(blocked.some((url) => emitted.some((src) =>
+      src && new URL(url).pathname === new URL(src, BASE).pathname))).toBe(true)
     await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'false')
     await expect(page.locator('[data-demo-controls]')).toBeHidden()
+    await expect(page.locator('.home-demo-sample')).toBeVisible()
     await expect(page.locator('.home-demo-static img')).toBeVisible()
     await page.locator('.home-signin-trigger').click()
     await expect(page.locator('.home-signin-list a').first()).toBeVisible()
@@ -770,6 +813,7 @@ test.describe('the demo static and failure states', () => {
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'true')
     await expect(page.locator('[data-demo-controls]')).toBeHidden({ timeout: 30_000 })
+    await expect(page.locator('.home-demo-sample')).toBeVisible()
     await expect(page.locator('[data-photo-id]:visible')).toHaveCount(0)
     await expect(page.locator('h1')).toBeVisible()
     await expect(page.locator('a[href="/thecontrarian/italy"]')).toBeVisible()

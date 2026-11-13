@@ -10,6 +10,7 @@ export default function Hero({
   demo?: boolean
 }) {
   const hero = ASSETS.find((asset) => asset.id === 'H1')
+  const live = demo && Boolean(hero)
 
   return (
     <section class="home-band home-hero" id="start">
@@ -25,21 +26,20 @@ export default function Hero({
         </p>
 
         {hero ? (
-          <div class={`home-hero-stage home-rise home-rise-2${demo ? ' home-hero-stage-demo' : ''}`}>
-            {demo ? <HomeDemo /> : <Figure asset={hero} eager sizes="100vw" />}
+          <div class={`home-hero-stage home-rise home-rise-2${live ? ' home-hero-stage-demo' : ''}`}>
+            {live ? <HomeDemo samplePath={samplePath} /> : <Figure asset={hero} eager sizes="100vw" />}
           </div>
         ) : null}
 
-        <div class="home-hero-after">
-          {samplePath ? (
-            <p class="home-hero-cta home-rise home-rise-3">
-              <a class="home-btn home-btn-quiet" href={samplePath}>
-                View a sample gallery
-              </a>
-              <span class="home-hero-cta-note">No account needed to look.</span>
-            </p>
-          ) : null}
-        </div>
+        {/* The live demo carries this link in its own control bar, directly
+            under the device it invites you to leave. */}
+        {!live && samplePath ? (
+          <p class="home-hero-cta home-rise home-rise-3">
+            <a class="home-btn home-btn-quiet" href={samplePath}>
+              View a sample gallery
+            </a>
+          </p>
+        ) : null}
       </div>
     </section>
   )

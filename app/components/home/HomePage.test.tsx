@@ -282,6 +282,14 @@ describe('the surfaces and the sample gallery', () => {
     expect(html).not.toContain('View a sample gallery')
     expect(html).not.toContain('/thecontrarian/italy')
   })
+
+  test('the static hero centres its sample link and carries no reassurance note', () => {
+    const html = page()
+    expect(html).toContain('<p class="home-hero-cta home-rise home-rise-3">')
+    expect(html).not.toContain('No account needed to look.')
+    expect(html).not.toContain('home-hero-cta-note')
+    expect(html).not.toContain('home-hero-after')
+  })
 })
 
 describe('the copy makes no promise the product does not keep', () => {
@@ -380,6 +388,19 @@ describe('the index route renders the homepage', () => {
     expect(html).toContain('/home-demo/')
   })
 
+  test('the demo carries the sample link in its control bar, not below the hero', async () => {
+    const app = mountIndexRoute()
+    const html = await (await app.request('/', {}, env)).text()
+    const bar = html.indexOf('home-demo-bar')
+    const controls = html.indexOf('data-demo-controls')
+    const sample = html.indexOf('class="home-demo-sample" href="/thecontrarian/italy"')
+    expect(bar).toBeGreaterThan(-1)
+    expect(controls).toBeGreaterThan(bar)
+    expect(sample).toBeGreaterThan(controls)
+    expect(html).not.toContain('home-hero-cta')
+    expect(html).not.toContain('No account needed to look.')
+  })
+
   test('the Worker off switch restores the static hero without the island', async () => {
     const app = mountIndexRoute()
     const html = await (await app.request('/', {}, { ...env, MANORAMA_HOME_DEMO: 'off' })).text()
@@ -387,6 +408,8 @@ describe('the index route renders the homepage', () => {
     expect(html).not.toContain('has-island')
     expect(html).not.toContain('data-demo-stage')
     expect(html).not.toContain('/home-demo/')
+    expect(html).toContain('home-hero-cta')
+    expect(html).toContain('href="/thecontrarian/italy"')
   })
 
   test('a failed sign-in shows the quiet retry note', async () => {

@@ -25,7 +25,7 @@ type DemoPhase = 'curtain' | 'travel' | 'end' | 'rewind'
 
 const DUO_SPREAD_HOLD_MS = 1400
 
-export default function HomeDemo() {
+export default function HomeDemo({ samplePath }: { samplePath?: string | null }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
@@ -407,42 +407,49 @@ export default function HomeDemo() {
         )}
       </div>
 
-      <div class="home-demo-controls" data-demo-controls hidden={!ready || allFailed}>
-        <div class="home-demo-shapes" role="group" aria-label="Screen shape">
-          {DEMO_PRESETS.map((shape) => (
-            <button
-              key={shape.id}
-              type="button"
-              class="home-demo-shape"
-              data-shape={shape.id}
-              aria-pressed={shape.id === presetId ? 'true' : 'false'}
-              onClick={() => {
-                const nextPhotos = (shape.id === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
-                  .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
-                const nextIndex = nextPhotos.findIndex((photo) => photo.id === positionImageIdRef.current)
-                positionRef.current = Math.max(0, nextIndex)
-                setPresetId(shape.id)
-              }}
-            >
-              {shape.label}
-            </button>
-          ))}
+      <div class="home-demo-bar">
+        <div class="home-demo-controls" data-demo-controls hidden={!ready || allFailed}>
+          <div class="home-demo-shapes" role="group" aria-label="Screen shape">
+            {DEMO_PRESETS.map((shape) => (
+              <button
+                key={shape.id}
+                type="button"
+                class="home-demo-shape"
+                data-shape={shape.id}
+                aria-pressed={shape.id === presetId ? 'true' : 'false'}
+                onClick={() => {
+                  const nextPhotos = (shape.id === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
+                    .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
+                  const nextIndex = nextPhotos.findIndex((photo) => photo.id === positionImageIdRef.current)
+                  positionRef.current = Math.max(0, nextIndex)
+                  setPresetId(shape.id)
+                }}
+              >
+                {shape.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            class="home-demo-pause"
+            data-demo-pause
+            aria-pressed={userPaused || reducedMotion ? 'true' : 'false'}
+            disabled={reducedMotion}
+            onClick={() => {
+              const paused = !pausedRef.current
+              pausedRef.current = paused
+              demoRef.current?.setPaused(!playbackActive())
+              setUserPaused(paused)
+            }}
+          >
+            {reducedMotion ? 'Paused' : userPaused ? 'Resume' : 'Pause'}
+          </button>
         </div>
-        <button
-          type="button"
-          class="home-demo-pause"
-          data-demo-pause
-          aria-pressed={userPaused || reducedMotion ? 'true' : 'false'}
-          disabled={reducedMotion}
-          onClick={() => {
-            const paused = !pausedRef.current
-            pausedRef.current = paused
-            demoRef.current?.setPaused(!playbackActive())
-            setUserPaused(paused)
-          }}
-        >
-          {reducedMotion ? 'Paused' : userPaused ? 'Resume' : 'Pause'}
-        </button>
+        {samplePath ? (
+          <a class="home-demo-sample" href={samplePath}>
+            View a sample gallery
+          </a>
+        ) : null}
       </div>
     </div>
   )
