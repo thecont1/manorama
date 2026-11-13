@@ -55,6 +55,28 @@ const pause = async (page: Page) => {
   await expect(button).toHaveText('Resume')
 }
 
+const currentDuoSpread = (page: Page) =>
+  page.locator('[data-demo-duo-spread][data-current="true"]')
+
+const duoContentQuads = async (page: Page) => {
+  const cdp = await page.context().newCDPSession(page)
+  try {
+    const { root } = await cdp.send('DOM.getDocument', { depth: 1 })
+    const { nodeIds } = await cdp.send('DOM.querySelectorAll', {
+      nodeId: root.nodeId,
+      selector: '[data-demo-duo-spread][data-current="true"] [data-diptych-frame] img',
+    })
+    const quads: number[][] = []
+    for (const nodeId of nodeIds) {
+      const result = await cdp.send('DOM.getContentQuads', { nodeId })
+      if (result.quads[0]) quads.push(result.quads[0])
+    }
+    return quads
+  } finally {
+    await cdp.detach()
+  }
+}
+
 test.describe('the mounted homepage photo demo', () => {
   for (const viewport of MATRIX) {
     test(`every device and control fits at ${viewport.width}px`, async ({ page }) => {
@@ -74,11 +96,17 @@ test.describe('the mounted homepage photo demo', () => {
         await page.waitForTimeout(500)
         const boxes = await page.evaluate(() => {
           const stage = document.querySelector('[data-demo-viewport]')!.getBoundingClientRect()
-          const device = document.querySelector('[data-demo-device]')!.getBoundingClientRect()
+          const rect = document.querySelector('[data-demo-device]')!.getBoundingClientRect()
+          const device = {
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          }
           const controls = document.querySelector('[data-demo-controls]')!.getBoundingClientRect()
           return {
             stage: { left: stage.left, right: stage.right, top: stage.top, bottom: stage.bottom },
-            device: { left: device.left, right: device.right, top: device.top, bottom: device.bottom },
+            device,
             controlsTop: controls.top,
           }
         })
@@ -213,7 +241,7 @@ test.describe('the mounted homepage photo demo', () => {
       desktop: { model: 'MacBook Pro 14-inch', screen: [1512, 982], viewer: [1512, 946], inset: [36, 0] },
       phone: { model: 'iPhone 17 Pro', screen: [402, 874], viewer: [402, 874], inset: [0, 0] },
       tablet: { model: 'iPad Pro 11-inch (M5)', screen: [834, 1210], viewer: [834, 1210], inset: [0, 0] },
-      duo: { model: 'iPhone Duo', screen: [890, 626], viewer: [890, 626], inset: [0, 0] },
+      duo: { model: 'iPhone Duo', screen: [951, 669], viewer: [951, 669], inset: [0, 0] },
     } as const
 
     for (const shape of SHAPES) {
@@ -269,7 +297,7 @@ test.describe('the mounted homepage photo demo', () => {
   test('the selector and touch hardware match the modern device drawings', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await open(page)
-    await expect(page.locator('.home-demo-shape')).toHaveText(['Desktop', 'iPhone', 'iPad', 'iPhone Duo'])
+    await expect(page.locator('.home-demo-shape')).toHaveText(['Desktop', 'Mobile', 'Tablet', 'Foldable'])
 
     await page.locator('[data-shape="phone"]').click()
     const phone = page.locator('[data-demo-device]')
@@ -287,86 +315,188 @@ test.describe('the mounted homepage photo demo', () => {
     await expect(tablet.locator('.home-demo-island, .home-demo-notch, .home-demo-home-indicator')).toHaveCount(0)
   })
 
-  test('Duo hangs an honest two-photo spread on a continuous hinged screen', async ({ page }) => {
-    test.setTimeout(100_000)
+  test('Foldable keeps straight honest photographs and right-safe controls clear of the gutter', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Image edge heights are measured with Chromium content quads.')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await open(page)
-    await pause(page)
     await page.locator('[data-shape="duo"]').click()
-    const root = page.locator('[data-demo-stage]')
-    const stage = page.locator('[data-diptych-stage]')
+    const spread = currentDuoSpread(page)
+    const stage = spread.locator('[data-diptych-stage]')
     await expect(stage).toBeVisible()
     await expect(stage.locator('[data-diptych-frame]')).toHaveCount(2)
+    await expect.poll(() => stage.locator('img').evaluateAll(
+      (images) => images.every((image) => (image as HTMLImageElement).naturalWidth > 0),
+    )).toBe(true)
     await expect(page.locator('[data-demo-hinge]')).toHaveCount(1)
     await expect(page.locator('[data-demo-island], [data-demo-notch], [data-demo-camera]')).toHaveCount(0)
     await expect(page.locator('[data-demo-strip]')).toHaveCount(0)
+    await expect(page.locator('[data-mode], .home-demo-mode, .home-demo-modes')).toHaveCount(0)
+    await expect(page.locator('[data-demo-screen] [data-stage]')).toHaveClass(/mode-strip/)
+    await expect(page.locator('[data-demo-chrome-top]')).toHaveClass(/is-visible/)
+    await expect(page.locator('[data-demo-chrome-bottom]')).toHaveClass(/is-visible/)
 
-    const geometry = await stage.evaluate((element) => {
-      const frames = [...element.querySelectorAll<HTMLElement>('[data-diptych-frame]')]
+    const geometry = await spread.evaluate((element) => {
+      const box = (node: Element) => {
+        const rect = node.getBoundingClientRect()
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+      }
+      const viewer = document.querySelector<HTMLElement>('[data-demo-screen]')!
+      const hinge = document.querySelector<HTMLElement>('[data-demo-hinge]')!
+      const controls = [...document.querySelectorAll<HTMLElement>(
+        '[data-demo-chrome-top] .m-chrome-pill, [data-demo-chrome-bottom] .m-chrome-pill',
+      )]
       const scale = Number(document.querySelector('[data-demo-stage]')!.getAttribute('data-demo-scale'))
+      const track = document.querySelector<HTMLElement>('[data-demo-duo-track]')!
       return {
-        frames: frames.map((frame) => {
+        viewer: box(viewer),
+        gutter: box(hinge),
+        hingeWidth: hinge.offsetWidth,
+        frames: [...element.querySelectorAll<HTMLElement>('[data-diptych-frame]')].map((frame) => {
           const image = frame.querySelector<HTMLImageElement>('img')!
           return {
             id: frame.dataset.imageId,
-            x: frame.offsetLeft,
-            width: frame.offsetWidth,
-            height: frame.offsetHeight,
+            x: parseFloat(getComputedStyle(frame).left),
+            frameWidth: parseFloat(getComputedStyle(frame).width),
+            frameHeight: parseFloat(getComputedStyle(frame).height),
+            frameBox: box(frame),
+            imageBox: box(image),
             imageWidth: image.offsetWidth,
             imageHeight: image.offsetHeight,
             naturalWidth: image.naturalWidth,
             naturalHeight: image.naturalHeight,
             objectFit: getComputedStyle(image).objectFit,
-            transform: getComputedStyle(frame).transform,
-            yaw: new DOMMatrixReadOnly(getComputedStyle(frame).transform).m13,
           }
         }),
+        controls: controls.map((control) => ({ text: control.textContent?.trim().replace(/^‹\s*/, ''), ...box(control) })),
         scale,
         dpr: window.devicePixelRatio || 1,
-        hingeWidth: document.querySelector<HTMLElement>('[data-demo-hinge]')!.offsetWidth,
-        topWidth: document.querySelector<HTMLElement>('[data-demo-chrome-top]')!.offsetWidth,
+        trackTransition: getComputedStyle(track).transitionDuration,
+        trackTransform: track.style.transform,
+        perspective: [...document.querySelectorAll<HTMLElement>('[data-demo-device], [data-demo-device] *')].map((node) => ({
+          perspective: getComputedStyle(node).perspective,
+          is2D: new DOMMatrixReadOnly(getComputedStyle(node).transform).is2D,
+          transformStyle: getComputedStyle(node).transformStyle,
+        })),
       }
     })
-    expect(geometry.frames[0]).toMatchObject({ x: 0, width: 445, height: 626 })
-    expect(geometry.frames[1]).toMatchObject({ x: 445, width: 445, height: 626 })
-    expect(geometry.hingeWidth).toBeCloseTo(13, 0)
-    expect(geometry.topWidth).toBe(890)
-    expect(geometry.frames[0]!.yaw).toBeLessThan(0)
-    expect(geometry.frames[1]!.yaw).toBeGreaterThan(0)
+
+    expect(geometry.hingeWidth).toBe(40)
+    expect(geometry.frames[0]).toMatchObject({ x: 0, frameWidth: 455.5, frameHeight: 669 })
+    expect(geometry.frames[1]).toMatchObject({ x: 495.5, frameWidth: 455.5, frameHeight: 669 })
+    expect(parseFloat(geometry.trackTransition)).toBeLessThanOrEqual(0.000001)
+    expect(geometry.trackTransform).toMatch(/^translateX\(-?[\d.]+px\)$/)
+    expect(geometry.controls.map((control) => control.text)).toEqual(['Library', '3-4 of 15', 'Settings', 'Info'])
+    for (let index = 1; index < geometry.controls.length; index += 1) {
+      expect(geometry.controls[index]!.top).toBeGreaterThan(geometry.controls[index - 1]!.top)
+      expect(geometry.controls[index]!.right).toBeCloseTo(geometry.controls[0]!.right, 0)
+    }
+    for (const control of geometry.controls) {
+      expect(control.left).toBeGreaterThanOrEqual(geometry.gutter.right - 1)
+    }
     for (const frame of geometry.frames) {
-      expect(frame.transform).not.toBe('none')
+      if (frame.x === 0) {
+        expect(frame.frameBox.right).toBeLessThanOrEqual(geometry.gutter.left + 1)
+        expect(frame.imageBox.right).toBeLessThanOrEqual(geometry.gutter.left + 1)
+      } else {
+        expect(frame.frameBox.left).toBeGreaterThanOrEqual(geometry.gutter.right - 1)
+        expect(frame.imageBox.left).toBeGreaterThanOrEqual(geometry.gutter.right - 1)
+      }
       expect(frame.naturalWidth).toBeGreaterThan(0)
       expect(frame.objectFit).not.toBe('cover')
       expect(Math.abs(frame.imageWidth / frame.imageHeight - frame.naturalWidth / frame.naturalHeight)).toBeLessThan(0.002)
       expect(frame.imageWidth * geometry.scale * geometry.dpr).toBeLessThanOrEqual(frame.naturalWidth + 1)
       expect(frame.imageHeight * geometry.scale * geometry.dpr).toBeLessThanOrEqual(frame.naturalHeight + 1)
     }
+    const centres = geometry.frames.map((frame) => (frame.imageBox.top + frame.imageBox.bottom) / 2)
+    expect(Math.abs(centres[0]! - centres[1]!)).toBeLessThanOrEqual(1)
+    expect(centres[0]!).toBeCloseTo((geometry.viewer.top + geometry.viewer.bottom) / 2, 0)
+    for (const style of geometry.perspective) {
+      expect(style.perspective).toBe('none')
+      expect(style.is2D).toBe(true)
+      expect(style.transformStyle).not.toBe('preserve-3d')
+    }
 
-    const firstPair = geometry.frames.map((frame) => frame.id)
+    const quads = await duoContentQuads(page)
+    expect(quads).toHaveLength(2)
+    for (const quad of quads) {
+      expect(quad).toHaveLength(8)
+      const leftHeight = Math.abs(quad[7]! - quad[1]!)
+      const rightHeight = Math.abs(quad[5]! - quad[3]!)
+      expect(Math.abs(leftHeight - rightHeight)).toBeLessThanOrEqual(1)
+      expect(Math.abs(quad[1]! - quad[3]!)).toBeLessThanOrEqual(1)
+      expect(Math.abs(quad[7]! - quad[5]!)).toBeLessThanOrEqual(1)
+    }
+
+    const frozen = await page.locator('[data-demo-duo-track]').evaluate((track) => ({
+      spread: track.getAttribute('data-demo-spread'),
+      transform: getComputedStyle(track).transform,
+    }))
+    await page.waitForTimeout(1800)
+    expect(await page.locator('[data-demo-duo-track]').evaluate((track) => ({
+      spread: track.getAttribute('data-demo-spread'),
+      transform: getComputedStyle(track).transform,
+    }))).toEqual(frozen)
+  })
+
+  test('Foldable glides horizontally, pauses, holds, and rewinds behind the curtain', async ({ page }) => {
+    test.setTimeout(100_000)
+    await open(page)
+    await page.locator('[data-shape="duo"]').click()
+    const root = page.locator('[data-demo-stage]')
+    const track = page.locator('[data-demo-duo-track]')
+    await expect(root).toHaveAttribute('data-demo-phase', 'travel')
+    await expect(currentDuoSpread(page).locator('[data-diptych-frame]')).toHaveCount(2)
+    await expect(page.locator('[data-demo-chrome-bottom]')).not.toHaveClass(/is-visible/, { timeout: 8_000 })
+    await page.locator('[data-demo-viewport]').hover()
+    await expect(page.locator('[data-demo-chrome-top]')).toHaveClass(/is-visible/)
+    await expect(page.locator('[data-demo-chrome-bottom]')).toHaveClass(/is-visible/)
+
+    const initialSpread = await track.getAttribute('data-demo-spread')
+    await expect.poll(() => track.getAttribute('data-demo-spread'), { timeout: 20_000 }).not.toBe(initialSpread)
+    await pause(page)
+    await page.waitForTimeout(100)
+    const frozen = await track.evaluate((element) => getComputedStyle(element).transform)
+    await page.waitForTimeout(400)
+    expect(await track.evaluate((element) => getComputedStyle(element).transform)).toBe(frozen)
     await page.locator('[data-demo-pause]').click()
-    await expect.poll(() => page.locator('[data-diptych-frame]').evaluateAll(
-      (frames) => frames.map((frame) => frame.getAttribute('data-image-id')),
-    ), { timeout: 20_000 }).not.toEqual(firstPair)
+
+    const movement = await track.evaluate((element) => {
+      const style = getComputedStyle(element)
+      const matrix = new DOMMatrixReadOnly(style.transform)
+      return {
+        inline: (element as HTMLElement).style.transform,
+        duration: style.transitionDuration,
+        property: style.transitionProperty,
+        horizontal: matrix.m41,
+        vertical: matrix.m42,
+        shear: matrix.m12,
+        is2D: matrix.is2D,
+      }
+    })
+    expect(movement.inline).toMatch(/^translateX\(-?[\d.]+px\)$/)
+    expect(movement.duration).toBe('1.6s')
+    expect(movement.property).toBe('transform')
+    expect(movement.horizontal).toBeLessThan(0)
+    expect(movement.vertical).toBe(0)
+    expect(movement.shear).toBe(0)
+    expect(movement.is2D).toBe(true)
+
+    const arrivedSpread = await track.getAttribute('data-demo-spread')
+    await page.waitForTimeout(1800)
+    const settled = await track.evaluate((element) => getComputedStyle(element).transform)
+    await page.waitForTimeout(800)
+    expect(await track.getAttribute('data-demo-spread')).toBe(arrivedSpread)
+    expect(await track.evaluate((element) => getComputedStyle(element).transform)).toBe(settled)
+
     await expect(root).toHaveAttribute('data-demo-phase', 'end', { timeout: 55_000 })
-    await expect(page.locator('[data-demo-position]')).toHaveText('15 of 15')
+    await expect(page.locator('[data-demo-position]')).toHaveText('14-15 of 15')
     await expect(root).toHaveAttribute('data-demo-phase', 'rewind', { timeout: 5_000 })
     await expect(page.locator('[data-curtain]')).toBeVisible()
     await expect(root).toHaveAttribute('data-demo-phase', 'curtain', { timeout: 5_000 })
-    await expect.poll(() => page.locator('[data-diptych-frame]').evaluateAll(
+    await expect.poll(() => currentDuoSpread(page).locator('[data-diptych-frame]').evaluateAll(
       (frames) => frames.map((frame) => frame.getAttribute('data-image-id')),
-    )).toEqual(firstPair)
-  })
-
-  test('reduced motion opens Duo flat without transforming either plane', async ({ page }) => {
-    await page.emulateMedia({ reducedMotion: 'reduce' })
-    await open(page)
-    await page.locator('[data-shape="duo"]').click()
-    await expect(page.locator('[data-diptych-stage]')).toBeVisible()
-    await expect(page.locator('[data-diptych-frame]')).toHaveCount(2)
-    for (const locator of await page.locator('.home-demo-duo-plane, [data-diptych-frame]').all()) {
-      await expect(locator).toHaveCSS('transform', 'none')
-    }
-    await expect(page.locator('.home-demo-screen')).toHaveCSS('clip-path', /inset/)
-    await expect(page.locator('.home-demo-screen')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
+    )).toEqual(['italy-0302', 'italy-0503'])
+    await expect(page.locator('[data-demo-position]')).toHaveText('1-2 of 15')
   })
 
   test('the device frame contrasts with the page theme', async ({ page }) => {
@@ -405,21 +535,22 @@ test.describe('the mounted homepage photo demo', () => {
     await expect(page.locator('[data-demo-strip]')).toHaveCount(1)
   })
 
-  test('mode changes preserve the current photograph and page position while paused', async ({ page }) => {
+  test('the demo has no layout selector and every shape stays in strip mode', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await open(page)
-    await pause(page)
-    await page.locator('.home-demo-controls').scrollIntoViewIfNeeded()
-    const pageY = await page.evaluate(() => window.scrollY)
-    const deviceTop = await page.locator('.home-demo-device').evaluate((el) => el.getBoundingClientRect().top)
-
-    for (const mode of ['vertical', 'single', 'strip'] as const) {
-      const anchor = await centredPhotoId(page)
-      await page.locator(`[data-mode="${mode}"]`).click()
-      await expect(page.locator('[data-demo-screen] [data-stage]')).toHaveClass(new RegExp(`mode-${mode}`))
-      await expect.poll(() => visiblePhotoIds(page)).toContain(anchor)
-      await expect(page.locator(`[data-photo-id="${anchor}"] img.frame-img`)).toHaveCSS('opacity', '1')
-      expect(await page.evaluate(() => window.scrollY)).toBe(pageY)
-      expect(await page.locator('.home-demo-device').evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(deviceTop, 1)
+    await expect(page.locator('[data-mode], .home-demo-mode, .home-demo-modes')).toHaveCount(0)
+    for (const shape of SHAPES) {
+      await page.locator(`[data-shape="${shape}"]`).click()
+      const stage = page.locator('[data-demo-screen] [data-stage]')
+      await expect(stage).toHaveClass(/mode-strip/)
+      expect(await stage.evaluate((element) => element.scrollTop)).toBe(0)
+      if (shape === 'duo') {
+        await expect(page.locator('[data-demo-duo-track]')).toHaveCount(1)
+        await expect(page.locator('[data-demo-strip]')).toHaveCount(0)
+      } else {
+        await expect(page.locator('[data-demo-strip]')).toHaveCount(1)
+        await expect(page.locator('[data-demo-duo-track]')).toHaveCount(0)
+      }
     }
   })
 
@@ -449,26 +580,6 @@ test.describe('the mounted homepage photo demo', () => {
     await expect(page.locator('[data-curtain]')).toBeVisible()
     expect(await offset(page)).toBe(0)
     await expect(root).toHaveAttribute('data-demo-phase', 'travel', { timeout: 5_000 })
-  })
-
-  test('Scroll and One by one are real Viewer modes and complete the same curtain-covered loop', async ({ page }) => {
-    test.setTimeout(120_000)
-    await open(page)
-    for (const mode of ['vertical', 'single'] as const) {
-      await page.locator(`[data-mode="${mode}"]`).click()
-      await expect(page.locator(`[data-mode="${mode}"]`)).toHaveAttribute('aria-pressed', 'true')
-      await expect(page.locator('[data-demo-screen] [data-stage]')).toHaveClass(new RegExp(`mode-${mode}`))
-      await expect(page.locator('[data-demo-position]')).not.toHaveText('1 of 15', { timeout: 20_000 })
-      await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-phase', 'end', { timeout: 45_000 })
-      if (mode === 'single') await expect(page.locator('[data-endcard]')).toHaveClass(/is-open/)
-      else expect(await page.locator('[data-demo-screen] [data-stage]').evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
-      if (mode === 'vertical') {
-        await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-phase', 'rewind', { timeout: 5_000 })
-      }
-      await expect(page.locator('[data-curtain]')).toBeVisible()
-      await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-phase', 'curtain', { timeout: 5_000 })
-      await expect(page.locator('[data-curtain]')).toBeVisible()
-    }
   })
 
   test('pause survives scrolling, and automatic playback stops off screen', async ({ page }) => {
@@ -510,7 +621,7 @@ test.describe('the mounted homepage photo demo', () => {
     const controls = screen.locator('a, button, input, select, textarea, [tabindex]')
     expect(await controls.count()).toBeGreaterThan(0)
     expect(await controls.evaluateAll((elements) => elements.filter((element) => !element.closest('[inert]')).length)).toBe(0)
-    await expect(page.locator('.home-demo > .home-demo-controls button')).toHaveCount(8)
+    await expect(page.locator('.home-demo > .home-demo-controls button')).toHaveCount(5)
     expect(await stage.evaluate((el) => getComputedStyle(el).cursor)).toBe('default')
     const box = await stage.boundingBox()
     expect(box).not.toBeNull()

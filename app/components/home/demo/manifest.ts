@@ -60,6 +60,13 @@ export const DEMO_PHOTOS: DemoPhoto[] = [
   photo('italy-0544', 'A red high-speed train at a station platform seen from under a canopy, beside a teal train', 'landscape', { width: 2276, height: 1707 }, { width: 2276, height: 1707 }, { width: 1370, height: 1028 }),
 ]
 
+/** Book order: the two portraits open the show, then landscapes keep their
+ *  gallery order. Every adjacent spread is same-orientation. */
+export const DEMO_DUO_PHOTOS: DemoPhoto[] = [
+  ...DEMO_PHOTOS.filter((photo) => photo.orientation === 'portrait'),
+  ...DEMO_PHOTOS.filter((photo) => photo.orientation === 'landscape'),
+]
+
 export type DemoRenditionSize = 'lg' | 'sm'
 export type DemoFormat = 'avif' | 'webp' | 'jpg'
 

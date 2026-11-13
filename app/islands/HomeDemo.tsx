@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import Viewer, { type ViewerDemoHandle } from './Viewer'
-import Diptych from '../../native/islands/Diptych'
 import { GalleryCurtain } from '../components/GalleryShell'
-import { defaultGallerySettings, type ViewerMode } from '../lib/gallery-settings'
+import { defaultGallerySettings } from '../lib/gallery-settings'
 import type { GalleryImage } from '../lib/imagesource'
-import type { FoldLayout } from '../../packages/core/fold'
+import { resolveFoldLayout, type FoldLayout } from '../../packages/core/fold'
 import DeviceFrame from '../components/home/demo/DeviceFrame'
-import { DEMO_PHOTOS, demoRenditionPath, type DemoFormat } from '../components/home/demo/manifest'
+import DemoDuoTrack from '../components/home/demo/DemoDuoTrack'
+import { DEMO_DUO_PHOTOS, DEMO_PHOTOS, demoRenditionPath, type DemoFormat } from '../components/home/demo/manifest'
 import {
   DEMO_PRESETS,
   demoPresetById,
   deviceViewerSize,
+  DUO_HINGE_WIDTH,
   fitDeviceFrame,
   type DemoPresetId,
 } from '../components/home/demo/presets'
@@ -19,14 +20,10 @@ import { DEFAULT_SETTINGS } from '../components/home/demo/playback'
 const GALLERY_TITLE = 'italia, amore mio'
 const GALLERY_CAPTION = 'family trip to Italy in October 2018'
 const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
-const DEMO_MODES: { id: ViewerMode; label: string }[] = [
-  { id: 'strip', label: 'Strip' },
-  { id: 'vertical', label: 'Scroll' },
-  { id: 'single', label: 'One by one' },
-]
-
 type LoadState = 'loaded' | 'failed'
 type DemoPhase = 'curtain' | 'travel' | 'end' | 'rewind'
+
+const DUO_SPREAD_HOLD_MS = 1400
 
 export default function HomeDemo() {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -38,7 +35,6 @@ export default function HomeDemo() {
   const demoDisplayScaleRef = useRef(1)
 
   const [presetId, setPresetId] = useState<DemoPresetId>('desktop')
-  const [mode, setMode] = useState<ViewerMode>('strip')
   const [ready, setReady] = useState(false)
   const [userPaused, setUserPaused] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
@@ -50,6 +46,7 @@ export default function HomeDemo() {
   const loadStateRef = useRef<Map<string, LoadState>>(new Map())
   const formatRef = useRef<DemoFormat>('avif')
   const positionRef = useRef(0)
+  const positionImageIdRef = useRef(DEMO_PHOTOS[0]!.id)
   const onScreenRef = useRef(true)
   const visibleRef = useRef(true)
   const readyRef = useRef(false)
@@ -84,7 +81,11 @@ export default function HomeDemo() {
     // The Viewer's density budget caps at 2. Keep displayScale × device DPR
     // inside that budget so the outer transform can never upscale a source.
     const maxScale = Math.min(2, 2 / Math.max(1, window.devicePixelRatio || 1))
-    const fit = fitDeviceFrame(preset, { width: stage.clientWidth, height: stage.clientHeight }, maxScale)
+    const padding = preset.id === 'duo' ? 16 : 0
+    const fit = fitDeviceFrame(preset, {
+      width: stage.clientWidth - padding * 2,
+      height: stage.clientHeight - padding * 2,
+    }, maxScale)
     if (!(fit.scale > 0)) return
     measure.style.width = `${fit.width}px`
     measure.style.height = `${fit.height}px`
@@ -97,7 +98,7 @@ export default function HomeDemo() {
     demoRef.current?.measure()
   }
 
-  const images = useMemo<GalleryImage[]>(() => DEMO_PHOTOS
+  const images = useMemo<GalleryImage[]>(() => (presetId === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
     .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
     .map((photo) => ({
       id: photo.id,
@@ -108,7 +109,7 @@ export default function HomeDemo() {
       alt: photo.alt,
       c2pa: false,
       placeholder: PLACEHOLDER,
-    })), [ready, failedIds])
+    })), [ready, failedIds, presetId])
   const settings = useMemo(() => ({
     ...defaultGallerySettings({
       slug: 'home-demo',
@@ -117,22 +118,24 @@ export default function HomeDemo() {
       date: '',
       images,
     }),
-    defaultMode: mode,
-  }), [images, mode])
+    defaultMode: 'strip' as const,
+  }), [images])
   const foldLayout = useMemo<FoldLayout | null>(() => {
     if (presetId !== 'duo') return null
     const viewport = deviceViewerSize(demoPresetById('duo'))
-    const half = viewport.width / 2
-    return {
-      mode: 'diptych',
-      source: 'fallback',
+    return resolveFoldLayout({
       viewport,
-      segments: [
-        { x: 0, y: 0, width: half, height: viewport.height },
-        { x: half, y: 0, width: half, height: viewport.height },
-      ],
-      controlRegions: [{ x: 0, y: 0, ...viewport }],
-    }
+      ios: {
+        horizontalSizeClass: 'regular',
+        verticalSizeClass: 'regular',
+        safeAreaInsets: { top: 24, right: 28, bottom: 24, left: 24 },
+        hinge: {
+          axis: 'vertical',
+          start: (viewport.width - DUO_HINGE_WIDTH) / 2,
+          size: DUO_HINGE_WIDTH,
+        },
+      },
+    })
   }, [presetId])
 
   useEffect(() => {
@@ -221,7 +224,7 @@ export default function HomeDemo() {
     if (readyRef.current) relayout()
     syncActivity()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, presetId, mode, cycle, userPaused, reducedMotion])
+  }, [ready, presetId, cycle, userPaused, reducedMotion])
 
   useEffect(() => {
     if (!ready || allFailed) return
@@ -262,8 +265,11 @@ export default function HomeDemo() {
         return
       }
 
-      setPhase('curtain')
-      if (!await wait(DEFAULT_SETTINGS.curtainHoldMs)) return
+      // An already-entered Viewer remounts with its curtain hidden — skip the veil and hold.
+      if (!entered) {
+        setPhase('curtain')
+        if (!await wait(DEFAULT_SETTINGS.curtainHoldMs)) return
+      }
       await handle.enter()
       if (cancelled) return
       setEntered(true)
@@ -282,16 +288,17 @@ export default function HomeDemo() {
           await handle.rewind()
           if (cancelled) return
           positionRef.current = 0
+          positionImageIdRef.current = (presetId === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)[0]!.id
           setCycle((value) => value + 1)
           return
         }
-        if (!await wait(DEFAULT_SETTINGS.restMs)) return
+        if (!await wait(presetId === 'duo' ? DUO_SPREAD_HOLD_MS : DEFAULT_SETTINGS.restMs)) return
       }
     })()
 
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, allFailed, presetId, mode, reducedMotion, cycle])
+  }, [ready, allFailed, presetId, reducedMotion, cycle])
 
   const first = DEMO_PHOTOS[0]!
   const preset = demoPresetById(presetId)
@@ -351,7 +358,7 @@ export default function HomeDemo() {
                   hidden={entered || reducedMotion}
                 />
                 <Viewer
-                  key={`${presetId}-${mode}-${cycle}-${reducedMotion ? 'reduced' : 'motion'}`}
+                  key={`${presetId}-${cycle}-${reducedMotion ? 'reduced' : 'motion'}`}
                   slug="home-demo"
                   galleryTitle={GALLERY_TITLE}
                   images={images}
@@ -366,8 +373,16 @@ export default function HomeDemo() {
                   demoDisplayScaleRef={demoDisplayScaleRef}
                   foldLayout={foldLayout}
                   foldRenderer={foldLayout ? ({ frames, activeIndex, segments, dpr }) => (
-                    <Diptych
+                    <DemoDuoTrack
                       frames={frames.map((image) => ({
+                        id: image.id,
+                        src: image.src,
+                        width: image.width,
+                        height: image.height,
+                        alt: image.alt,
+                        placeholder: image.placeholder,
+                      }))}
+                      allFrames={images.map((image) => ({
                         id: image.id,
                         src: image.src,
                         width: image.width,
@@ -381,7 +396,10 @@ export default function HomeDemo() {
                     />
                   ) : undefined}
                   onReturnToGalleries={() => {}}
-                  onPositionChange={(position) => { positionRef.current = position.index }}
+                  onPositionChange={(position) => {
+                    positionRef.current = position.index
+                    positionImageIdRef.current = position.imageId
+                  }}
                 />
               </div>
             </DeviceFrame>
@@ -398,23 +416,15 @@ export default function HomeDemo() {
               class="home-demo-shape"
               data-shape={shape.id}
               aria-pressed={shape.id === presetId ? 'true' : 'false'}
-              onClick={() => setPresetId(shape.id)}
+              onClick={() => {
+                const nextPhotos = (shape.id === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
+                  .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
+                const nextIndex = nextPhotos.findIndex((photo) => photo.id === positionImageIdRef.current)
+                positionRef.current = Math.max(0, nextIndex)
+                setPresetId(shape.id)
+              }}
             >
               {shape.label}
-            </button>
-          ))}
-        </div>
-        <div class="home-demo-modes" role="group" aria-label="Display mode">
-          {DEMO_MODES.map((displayMode) => (
-            <button
-              key={displayMode.id}
-              type="button"
-              class="home-demo-mode"
-              data-mode={displayMode.id}
-              aria-pressed={displayMode.id === mode ? 'true' : 'false'}
-              onClick={() => setMode(displayMode.id)}
-            >
-              {displayMode.label}
             </button>
           ))}
         </div>

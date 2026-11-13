@@ -38,6 +38,8 @@ const reportedDpr = () => deviceReportedDpr
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
 
+const EMBEDDED_FOLD_GLIDE_MS = 1600
+
 export type ViewerDemoHandle = {
   enter(): Promise<void>
   advance(): Promise<'photo' | 'end'>
@@ -743,6 +745,19 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     left: `${foldControlRegion.x}px`,
     width: `${foldControlRegion.width}px`,
   } : undefined
+  const demoFoldTopStyle = embedded && foldControlRegion ? {
+    ...foldChromeStyle,
+    top: `${foldControlRegion.y}px`,
+    right: 'auto',
+    padding: '0',
+  } : foldChromeStyle
+  const demoFoldBottomStyle = embedded && foldControlRegion ? {
+    ...foldChromeStyle,
+    top: `${foldControlRegion.y + 56}px`,
+    bottom: 'auto',
+    right: 'auto',
+    padding: '0',
+  } : foldChromeStyle
   const foldPanelStyle = foldControlRegion ? {
     position: 'absolute',
     left: `${foldControlRegion.x}px`,
@@ -1247,8 +1262,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
   }
 
+  const glideCompleteRef = useRef<(() => void) | null>(null)
+  const completionPollRef = useRef<number | null>(null)
+  const cancelCompletionPoll = () => {
+    if (completionPollRef.current !== null) {
+      cancelAnimationFrame(completionPollRef.current)
+      completionPollRef.current = null
+    }
+  }
+
   const settleTo = (target: number, instant = false, reportOnComplete = false, onComplete?: () => void) => {
+    // A superseded glide still owes its completion — flush it so a commanded advance resolves.
+    const superseded = glideCompleteRef.current
+    glideCompleteRef.current = null
     stopMomentum()
+    superseded?.()
     const from = currentXRef.current
     const bounds = getBounds()
     const destination = clamp(target, -bounds.max, 0)
@@ -1263,6 +1291,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       onComplete?.()
       return
     }
+    glideCompleteRef.current = onComplete ?? null
     let started = performance.now()
     let previousNow = started
     // Ease-out, not ease-in-out: a symmetric curve's motionless first
@@ -1302,6 +1331,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
         momentumRef.current = null
+        glideCompleteRef.current = null
         queuePlateActionability()
         if (reportOnComplete) reportStripPosition()
         onComplete?.()
@@ -1442,7 +1472,18 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         // The homepage rests on spreads, while native fold input can still
         // move the active position between the two photographs in a pair.
         goTo(Math.min(from + 2, images.length - 1))
-        onComplete('photo')
+        cancelCompletionPoll()
+        let elapsed = 0
+        let previous: number | null = null
+        const settled = (now: number) => {
+          completionPollRef.current = null
+          if (unmountedRef.current) return
+          if (previous !== null && !demoPausedRef.current) elapsed += now - previous
+          previous = now
+          if (elapsed >= EMBEDDED_FOLD_GLIDE_MS) { onComplete('photo'); return }
+          completionPollRef.current = requestAnimationFrame(settled)
+        }
+        completionPollRef.current = requestAnimationFrame(settled)
         return
       }
       step(direction)
@@ -1461,34 +1502,48 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           goTo(from + 1)
         }
         const settled = () => {
+          completionPollRef.current = null
+          if (unmountedRef.current) return
           if (singleEndcapRef.current) { onComplete('end'); return }
           if (!singleFadeBusyRef.current && indexRef.current !== from) { onComplete('photo'); return }
-          requestAnimationFrame(settled)
+          completionPollRef.current = requestAnimationFrame(settled)
         }
-        requestAnimationFrame(settled)
+        cancelCompletionPoll()
+        completionPollRef.current = requestAnimationFrame(settled)
         return
       }
-      const stageTop = stageRef.current?.getBoundingClientRect().top ?? 0
+      const stage = stageRef.current
+      const stageTop = stage?.getBoundingClientRect().top ?? 0
       const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-endcard]') ?? [])]
-      const target = frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8)
+      const atScrollLimit = stage !== null && stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1
+      // At the limit the first frame below the top edge may be one that can
+      // never dock (the feed is shorter than the stage below it) — targeting
+      // it again would loop forever, so finish on the last frame instead.
+      const target = atScrollLimit
+        ? frames[frames.length - 1]
+        : frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8)
       if (!target) { onComplete('end'); return }
       step(direction)
       const docked = () => {
-        if (demoPausedRef.current) { requestAnimationFrame(docked); return }
-        const stage = stageRef.current
+        completionPollRef.current = null
+        if (unmountedRef.current) return
+        if (demoPausedRef.current) { completionPollRef.current = requestAnimationFrame(docked); return }
         const top = target.getBoundingClientRect().top
         const currentStageTop = stage?.getBoundingClientRect().top ?? stageTop
-        // A short end card reaches the scroll limit below the stage top.
-        const endAtScrollLimit = target.dataset.endcard !== undefined && stage !== null &&
+        // The feed can run out of scroll before a frame reaches the stage
+        // top — a short end card, or a last photograph with too little feed
+        // below it. At the limit, a frame in view is docked as deep as it goes.
+        const limitDock = stage !== null &&
           stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1 &&
           top < currentStageTop + stage.clientHeight
-        if (Math.abs(top - currentStageTop) <= 8 || endAtScrollLimit) {
+        if (Math.abs(top - currentStageTop) <= 8 || limitDock) {
           onComplete(target.dataset.endcard !== undefined ? 'end' : 'photo')
           return
         }
-        requestAnimationFrame(docked)
+        completionPollRef.current = requestAnimationFrame(docked)
       }
-      requestAnimationFrame(docked)
+      cancelCompletionPoll()
+      completionPollRef.current = requestAnimationFrame(docked)
       return
     }
     // Viewport paging is gesture-like: no single frame was requested,
@@ -1744,7 +1799,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       : Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
     stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
     const displayScale = embedded ? Math.max(0.01, demoDisplayScaleRef?.current ?? 1) : 1
-    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: reportedDpr() * displayScale }
+    // Embedded: real backing scale × displayScale (HomeDemo caps at 2); the web cap would double-cap and upscale.
+    const dprBasis = embedded ? deviceImageDpr(window.devicePixelRatio) : reportedDpr()
+    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: dprBasis * displayScale }
     // Observers may repeat the same box after a decoded image commits. That
     // is not an orientation change and must not cancel an active glide.
     const previous = stageMeasurementsRef.current
@@ -2767,6 +2824,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   useEffect(() => () => {
     unmountedRef.current = true
+    cancelCompletionPoll()
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
@@ -3290,6 +3348,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         visible={chromeVisible && !suspended}
         demo={embedded}
         position={{ index, total: images.length }}
+        positionLabel={embedded && foldActive
+          ? `${foldStartIndex + 1}-${Math.min(foldStartIndex + 2, images.length)} of ${images.length}`
+          : undefined}
         onReturnToGalleries={onReturnToGalleries}
         libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
         onOpenSettings={openSettings}
@@ -3301,8 +3362,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         onIdle={scheduleChromeHide}
         settingsRef={(el) => { displayButtonRef.current = el }}
         positionRef={(el) => { positionPillRef.current = el }}
-        topStyle={foldChromeStyle}
-        bottomStyle={foldChromeStyle}
+        topStyle={demoFoldTopStyle}
+        bottomStyle={demoFoldBottomStyle}
       />
 
       {gridOpen ? <>

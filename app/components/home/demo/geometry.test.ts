@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { DEMO_PHOTOS } from './manifest'
+import { DEMO_DUO_PHOTOS, DEMO_PHOTOS } from './manifest'
 import {
   DEMO_PRESETS,
   demoPresetById,
   deviceFrameSize,
   deviceViewerSize,
+  DUO_HINGE_WIDTH,
   fitDeviceFrame,
 } from './presets'
+import { duoSpreadStartIndexes } from './DemoDuoTrack'
+import { resolveFoldLayout } from '../../../../packages/core/fold'
 import {
   captureAnchor,
   contentWidth,
@@ -32,7 +35,7 @@ const VIEWPORT = { width: 900, height: 450 }
 describe('device frames', () => {
   test('each category names one real device and its logical screen', () => {
     expect(DEMO_PRESETS.map((preset) => preset.id)).toEqual(['desktop', 'phone', 'tablet', 'duo'])
-    expect(DEMO_PRESETS.map((preset) => preset.label)).toEqual(['Desktop', 'iPhone', 'iPad', 'iPhone Duo'])
+    expect(DEMO_PRESETS.map((preset) => preset.label)).toEqual(['Desktop', 'Mobile', 'Tablet', 'Foldable'])
     expect(demoPresetById('desktop').model).toBe('MacBook Pro 14-inch')
     expect(demoPresetById('desktop').screen).toEqual({ width: 1512, height: 982 })
     expect(demoPresetById('phone').model).toBe('iPhone 17 Pro')
@@ -40,7 +43,7 @@ describe('device frames', () => {
     expect(demoPresetById('tablet').model).toBe('iPad Pro 11-inch (M5)')
     expect(demoPresetById('tablet').screen).toEqual({ width: 834, height: 1210 })
     expect(demoPresetById('duo').model).toBe('iPhone Duo')
-    expect(demoPresetById('duo').screen).toEqual({ width: 890, height: 626 })
+    expect(demoPresetById('duo').screen).toEqual({ width: 951, height: 669 })
   })
 
   test('the touch-device bodies follow Apple’s published physical proportions', () => {
@@ -75,6 +78,37 @@ describe('device frames', () => {
     near(fit.height, frame.height * 1.25)
   })
 
+  test('the Foldable derives a vertical 40pt gutter from regular inner-display size classes', () => {
+    const duo = demoPresetById('duo')
+    const viewport = deviceViewerSize(duo)
+    const layout = resolveFoldLayout({
+      viewport,
+      ios: {
+        horizontalSizeClass: 'regular',
+        verticalSizeClass: 'regular',
+        safeAreaInsets: { top: 24, right: 28, bottom: 24, left: 24 },
+        hinge: {
+          axis: 'vertical',
+          start: (viewport.width - DUO_HINGE_WIDTH) / 2,
+          size: DUO_HINGE_WIDTH,
+        },
+      },
+    })
+    expect(DUO_HINGE_WIDTH).toBe(40)
+    expect(layout.mode).toBe('diptych')
+    expect(layout.source).toBe('ios')
+    expect(layout.segments).toEqual([
+      { x: 0, y: 0, width: 455.5, height: 669 },
+      { x: 495.5, y: 0, width: 455.5, height: 669 },
+    ])
+    expect(layout.controlRegions).toEqual([
+      { x: 24, y: 24, width: 403.5, height: 621 },
+      { x: 519.5, y: 24, width: 403.5, height: 621 },
+    ])
+    near(duo.bezel / deviceFrameSize(duo).width, 0.04)
+    near(duo.screenRadius / duo.screen.height, 0.09, 0.01)
+  })
+
   test('hardware intrusions leave full screens while their chrome stays clear', () => {
     const desktop = demoPresetById('desktop')
     expect(desktop.baseHeight).toBeGreaterThan(0)
@@ -94,8 +128,28 @@ describe('device frames', () => {
     const duo = demoPresetById('duo')
     expect(duo.island).toBeUndefined()
     expect(duo.notch).toBeUndefined()
-    expect(duo.screenRadius).toBe(75)
-    expect(deviceViewerSize(duo)).toEqual({ width: 890, height: 626 })
+    expect(duo.screenRadius).toBe(60)
+    expect(deviceViewerSize(duo)).toEqual({ width: 951, height: 669 })
+  })
+})
+
+describe('Foldable spreads', () => {
+  test('opens with portraits and keeps every fixed spread in one orientation', () => {
+    expect(DEMO_DUO_PHOTOS.slice(0, 2).map((photo) => photo.id)).toEqual(['italy-0302', 'italy-0503'])
+    expect(new Set(DEMO_DUO_PHOTOS.map((photo) => photo.id))).toEqual(new Set(DEMO_PHOTOS.map((photo) => photo.id)))
+    for (const start of duoSpreadStartIndexes(DEMO_DUO_PHOTOS.length)) {
+      const spread = DEMO_DUO_PHOTOS.slice(start, start + 2)
+      expect(spread).toHaveLength(2)
+      expect(spread[1]!.orientation).toBe(spread[0]!.orientation)
+    }
+  })
+
+  test('advances by two and overlaps only the final odd-count spread', () => {
+    expect(duoSpreadStartIndexes(15)).toEqual([0, 2, 4, 6, 8, 10, 12, 13])
+    expect(duoSpreadStartIndexes(3)).toEqual([0, 1])
+    expect(duoSpreadStartIndexes(2)).toEqual([0])
+    expect(duoSpreadStartIndexes(1)).toEqual([0])
+    expect(duoSpreadStartIndexes(0)).toEqual([])
   })
 })
 
@@ -153,7 +207,7 @@ describe('restStops', () => {
     expect(endCardWidth(deviceViewerSize(demoPresetById('phone')))).toBe(230)
     expect(endCardWidth(deviceViewerSize(demoPresetById('tablet')))).toBe(266.88)
     expect(endCardWidth(deviceViewerSize(demoPresetById('desktop')))).toBe(360)
-    expect(endCardWidth(deviceViewerSize(demoPresetById('duo')))).toBe(284.8)
+    expect(endCardWidth(deviceViewerSize(demoPresetById('duo')))).toBe(304.32)
   })
 
   test('a strip with no overflow stays at zero', () => {
