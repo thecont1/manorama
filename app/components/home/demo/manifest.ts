@@ -43,21 +43,21 @@ const photo = (
 
 /** Travel order. Opens on the red vintage car; closes on the red train. */
 export const DEMO_PHOTOS: DemoPhoto[] = [
-  photo('italy-0005', 'A red vintage coupe parked on a city street beside older cars, with people standing nearby', 'landscape', { width: 2560, height: 1707 }, { width: 1350, height: 900 }, { width: 680, height: 453 }),
-  photo('italy-0100', 'Two women posing in front of the Leaning Tower of Pisa on a busy lawn', 'landscape', { width: 1974, height: 1580 }, { width: 1130, height: 904 }, { width: 570, height: 456 }),
-  photo('italy-0060', 'A calm river beside a stone embankment, with a small Gothic church and a lamp post under a pale sky', 'landscape', { width: 2560, height: 1440 }, { width: 1600, height: 900 }, { width: 800, height: 450 }),
-  photo('italy-0141', 'Laundry hanging on a line against a pink house built into a rock cliff above the sea', 'landscape', { width: 2560, height: 1707 }, { width: 1350, height: 900 }, { width: 680, height: 453 }),
-  photo('italy-0142', 'A harbour village of stacked coloured houses on rocks beside a small bay', 'landscape', { width: 2506, height: 1671 }, { width: 1350, height: 900 }, { width: 680, height: 453 }),
-  photo('italy-0145', 'A footpath along a green coastal cliff with the sea below and a headland ahead', 'landscape', { width: 2491, height: 1661 }, { width: 1350, height: 900 }, { width: 680, height: 453 }),
-  photo('italy-0227', 'A hillside village of coloured houses above the sea at sunset', 'landscape', { width: 2342, height: 1635 }, { width: 1290, height: 901 }, { width: 650, height: 454 }),
-  photo('italy-0302', 'The marble facade of a cathedral rising above outdoor cafe tables and a seated crowd', 'portrait', { width: 1707, height: 2560 }, { width: 600, height: 900 }, { width: 300, height: 450 }),
-  photo('italy-0299', 'A striped marble baptistery and bell tower against a blue sky with large white clouds', 'landscape', { width: 2405, height: 1707 }, { width: 1270, height: 901 }, { width: 640, height: 454 }),
-  photo('italy-0285', 'A city panorama at dusk with a river, bridges and a tall tower among rooftops', 'landscape', { width: 2502, height: 1668 }, { width: 1350, height: 900 }, { width: 680, height: 453 }),
-  photo('italy-0232', 'A child seated at a table with a patterned cloth in a plainly furnished room, beside a shuttered window', 'landscape', { width: 2133, height: 1707 }, { width: 1130, height: 904 }, { width: 570, height: 456 }),
-  photo('italy-0503', 'A tall golden lattice pavilion standing on a lawn, with a person at its base', 'portrait', { width: 1707, height: 2560 }, { width: 600, height: 900 }, { width: 300, height: 450 }),
-  photo('italy-0470', 'Gondolas moored at wooden posts on a wide lagoon, with an island church across the water', 'landscape', { width: 2560, height: 1707 }, { width: 1350, height: 900 }, { width: 680, height: 453 }),
-  photo('italy-0351', 'Lit windows of waterside buildings reflected in dark water at night', 'landscape', { width: 2240, height: 1680 }, { width: 1200, height: 900 }, { width: 600, height: 450 }),
-  photo('italy-0544', 'A red high-speed train at a station platform seen from under a canopy, beside a teal train', 'landscape', { width: 2276, height: 1707 }, { width: 1200, height: 900 }, { width: 600, height: 450 }),
+  photo('italy-0005', 'A red vintage coupe parked on a city street beside older cars, with people standing nearby', 'landscape', { width: 2560, height: 1707 }, { width: 2560, height: 1707 }, { width: 1540, height: 1027 }),
+  photo('italy-0100', 'Two women posing in front of the Leaning Tower of Pisa on a busy lawn', 'landscape', { width: 1974, height: 1580 }, { width: 1974, height: 1580 }, { width: 1280, height: 1025 }),
+  photo('italy-0060', 'A calm river beside a stone embankment, with a small Gothic church and a lamp post under a pale sky', 'landscape', { width: 2560, height: 1440 }, { width: 2560, height: 1440 }, { width: 1830, height: 1029 }),
+  photo('italy-0141', 'Laundry hanging on a line against a pink house built into a rock cliff above the sea', 'landscape', { width: 2560, height: 1707 }, { width: 2560, height: 1707 }, { width: 1540, height: 1027 }),
+  photo('italy-0142', 'A harbour village of stacked coloured houses on rocks beside a small bay', 'landscape', { width: 2506, height: 1671 }, { width: 2506, height: 1671 }, { width: 1540, height: 1027 }),
+  photo('italy-0145', 'A footpath along a green coastal cliff with the sea below and a headland ahead', 'landscape', { width: 2491, height: 1661 }, { width: 2491, height: 1661 }, { width: 1540, height: 1027 }),
+  photo('italy-0227', 'A hillside village of coloured houses above the sea at sunset', 'landscape', { width: 2342, height: 1635 }, { width: 2342, height: 1635 }, { width: 1470, height: 1026 }),
+  photo('italy-0302', 'The marble facade of a cathedral rising above outdoor cafe tables and a seated crowd', 'portrait', { width: 1707, height: 2560 }, { width: 1367, height: 2050 }, { width: 687, height: 1030 }),
+  photo('italy-0299', 'A striped marble baptistery and bell tower against a blue sky with large white clouds', 'landscape', { width: 2405, height: 1707 }, { width: 2405, height: 1707 }, { width: 1450, height: 1029 }),
+  photo('italy-0285', 'A city panorama at dusk with a river, bridges and a tall tower among rooftops', 'landscape', { width: 2502, height: 1668 }, { width: 2502, height: 1668 }, { width: 1540, height: 1027 }),
+  photo('italy-0232', 'A child seated at a table with a patterned cloth in a plainly furnished room, beside a shuttered window', 'landscape', { width: 2133, height: 1707 }, { width: 2133, height: 1707 }, { width: 1280, height: 1024 }),
+  photo('italy-0503', 'A tall golden lattice pavilion standing on a lawn, with a person at its base', 'portrait', { width: 1707, height: 2560 }, { width: 1367, height: 2050 }, { width: 687, height: 1030 }),
+  photo('italy-0470', 'Gondolas moored at wooden posts on a wide lagoon, with an island church across the water', 'landscape', { width: 2560, height: 1707 }, { width: 2560, height: 1707 }, { width: 1540, height: 1027 }),
+  photo('italy-0351', 'Lit windows of waterside buildings reflected in dark water at night', 'landscape', { width: 2240, height: 1680 }, { width: 2240, height: 1680 }, { width: 1370, height: 1028 }),
+  photo('italy-0544', 'A red high-speed train at a station platform seen from under a canopy, beside a teal train', 'landscape', { width: 2276, height: 1707 }, { width: 2276, height: 1707 }, { width: 1370, height: 1028 }),
 ]
 
 export type DemoRenditionSize = 'lg' | 'sm'

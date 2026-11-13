@@ -36,7 +36,7 @@ if (!srcDir) {
 }
 
 // The demo's tallest staged frame, in CSS pixels (see demo/presets.ts).
-const MAX_STRIP_CSS_HEIGHT = 450
+const MAX_STRIP_CSS_HEIGHT = 1024
 const DPR_CAP = 2
 
 // The chosen sequence, in travel order. Opener: the red vintage car.
