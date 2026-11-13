@@ -2,6 +2,7 @@ import { createRoute } from 'honox/factory'
 import { getCookie } from 'hono/cookie'
 import { accessEnvOf, resolveManoramaSession, RETURNING_COOKIE } from '../lib/session'
 import HomePage from '../components/home/HomePage'
+import { HOME_DEMO_ENABLED } from '../components/home/home-manifest'
 
 export default createRoute(async (c) => {
   // The landing page doubles as the sign-in door: editors arriving with a
@@ -19,8 +20,11 @@ export default createRoute(async (c) => {
   // door should not carry absolute URLs around at all.
   const rawNext = c.req.query('next') ?? ''
   const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : undefined
+  // The demo is on by default (owner-cleared photographs); a Worker var turns
+  // it off and leaves the static hero, with no demo code or assets loaded.
+  const demo = HOME_DEMO_ENABLED && (c.env as Record<string, unknown>).MANORAMA_HOME_DEMO !== 'off'
   return c.render(
-    <HomePage returning={returning} failed={failed} next={next} />,
+    <HomePage returning={returning} failed={failed} next={next} demo={demo} />,
     {
       title: 'Manorama: your photographs, together in one beautiful view',
       description:
