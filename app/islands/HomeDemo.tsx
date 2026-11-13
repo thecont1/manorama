@@ -1,0 +1,456 @@
+import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
+import Viewer, { type ViewerDemoHandle } from './Viewer'
+import { GalleryCurtain } from '../components/GalleryShell'
+import { defaultGallerySettings } from '../lib/gallery-settings'
+import type { GalleryImage } from '../lib/imagesource'
+import { resolveFoldLayout, type FoldLayout } from '../../packages/core/fold'
+import DeviceFrame from '../components/home/demo/DeviceFrame'
+import DemoDuoTrack from '../components/home/demo/DemoDuoTrack'
+import { DEMO_DUO_PHOTOS, DEMO_PHOTOS, demoRenditionPath, type DemoFormat } from '../components/home/demo/manifest'
+import {
+  DEMO_PRESETS,
+  demoPresetById,
+  deviceViewerSize,
+  DUO_HINGE_WIDTH,
+  fitDeviceFrame,
+  type DemoPresetId,
+} from '../components/home/demo/presets'
+import { DEFAULT_SETTINGS } from '../components/home/demo/playback'
+
+const GALLERY_TITLE = 'italia, amore mio'
+const GALLERY_CAPTION = 'family trip to Italy in October 2018'
+const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+type LoadState = 'loaded' | 'failed'
+type DemoPhase = 'curtain' | 'travel' | 'end' | 'rewind'
+
+const DUO_SPREAD_HOLD_MS = 1400
+
+export default function HomeDemo({ samplePath }: { samplePath?: string | null }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const measureRef = useRef<HTMLDivElement>(null)
+  const deviceRef = useRef<HTMLDivElement>(null)
+  const staticFirstRef = useRef<HTMLImageElement>(null)
+  const demoRef = useRef<ViewerDemoHandle | null>(null)
+  const demoDisplayScaleRef = useRef(1)
+
+  const [presetId, setPresetId] = useState<DemoPresetId>('desktop')
+  const [ready, setReady] = useState(false)
+  const [userPaused, setUserPaused] = useState(false)
+  const [reducedMotion, setReducedMotion] = useState(false)
+  const [failedIds, setFailedIds] = useState<string[]>([])
+  const [entered, setEntered] = useState(false)
+  const [phase, setPhase] = useState<DemoPhase>('curtain')
+  const [cycle, setCycle] = useState(0)
+
+  const loadStateRef = useRef<Map<string, LoadState>>(new Map())
+  const formatRef = useRef<DemoFormat>('avif')
+  const positionRef = useRef(0)
+  const positionImageIdRef = useRef(DEMO_PHOTOS[0]!.id)
+  const onScreenRef = useRef(true)
+  const visibleRef = useRef(true)
+  const readyRef = useRef(false)
+  const pausedRef = useRef(false)
+  const reducedRef = useRef(false)
+  const presetRef = useRef<DemoPresetId>('desktop')
+
+  pausedRef.current = userPaused
+  reducedRef.current = reducedMotion
+  presetRef.current = presetId
+  readyRef.current = ready
+
+  const allFailed = failedIds.length >= DEMO_PHOTOS.length
+  const playbackActive = () =>
+    readyRef.current &&
+    visibleRef.current &&
+    onScreenRef.current &&
+    !pausedRef.current &&
+    !reducedRef.current
+
+  const syncActivity = () => {
+    demoRef.current?.setPaused(!playbackActive())
+  }
+
+  const relayout = () => {
+    const stage = stageRef.current
+    const measure = measureRef.current
+    const device = deviceRef.current
+    if (!stage || !measure || !device) return
+
+    const preset = demoPresetById(presetRef.current)
+    // The Viewer's density budget caps at 2. Keep displayScale × device DPR
+    // inside that budget so the outer transform can never upscale a source.
+    const maxScale = Math.min(2, 2 / Math.max(1, window.devicePixelRatio || 1))
+    const padding = preset.id === 'duo' ? 16 : 0
+    const fit = fitDeviceFrame(preset, {
+      width: stage.clientWidth - padding * 2,
+      height: stage.clientHeight - padding * 2,
+    }, maxScale)
+    if (!(fit.scale > 0)) return
+    measure.style.width = `${fit.width}px`
+    measure.style.height = `${fit.height}px`
+    device.style.transform = `scale(${fit.scale})`
+    demoDisplayScaleRef.current = fit.scale
+    if (rootRef.current) {
+      rootRef.current.dataset.demoFitted = 'true'
+      rootRef.current.dataset.demoScale = String(fit.scale)
+    }
+    demoRef.current?.measure()
+  }
+
+  const images = useMemo<GalleryImage[]>(() => (presetId === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
+    .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
+    .map((photo) => ({
+      id: photo.id,
+      filename: `${photo.id}.jpg`,
+      src: demoRenditionPath(photo.id, 'lg', formatRef.current),
+      width: photo.lg.width,
+      height: photo.lg.height,
+      alt: photo.alt,
+      c2pa: false,
+      placeholder: PLACEHOLDER,
+    })), [ready, failedIds, presetId])
+  const settings = useMemo(() => ({
+    ...defaultGallerySettings({
+      slug: 'home-demo',
+      title: GALLERY_TITLE,
+      caption: GALLERY_CAPTION,
+      date: '',
+      images,
+    }),
+    defaultMode: 'strip' as const,
+  }), [images])
+  const foldLayout = useMemo<FoldLayout | null>(() => {
+    if (presetId !== 'duo') return null
+    const viewport = deviceViewerSize(demoPresetById('duo'))
+    return resolveFoldLayout({
+      viewport,
+      ios: {
+        horizontalSizeClass: 'regular',
+        verticalSizeClass: 'regular',
+        safeAreaInsets: { top: 24, right: 28, bottom: 24, left: 24 },
+        hinge: {
+          axis: 'vertical',
+          start: (viewport.width - DUO_HINGE_WIDTH) / 2,
+          size: DUO_HINGE_WIDTH,
+        },
+      },
+    })
+  }, [presetId])
+
+  useEffect(() => {
+    const root = rootRef.current
+    const stage = stageRef.current
+    if (!root || !stage) return
+
+    const initial: DemoPresetId = window.innerWidth < 640
+      ? 'phone'
+      : window.innerWidth < 1024
+        ? 'tablet'
+        : 'desktop'
+    presetRef.current = initial
+    setPresetId(initial)
+
+    let cancelled = false
+    const first = staticFirstRef.current
+    const settleFirst = () => {
+      const src = first?.currentSrc || first?.src || ''
+      const match = /\.(avif|webp|jpg)(?:$|\?)/.exec(src)
+      if (match) formatRef.current = match[1] as DemoFormat
+      void Promise.all(DEMO_PHOTOS.map((photo) => new Promise<LoadState>((resolve) => {
+        const image = new Image()
+        image.onload = () => resolve('loaded')
+        image.onerror = () => resolve('failed')
+        image.src = demoRenditionPath(photo.id, 'lg', formatRef.current)
+      }))).then((states) => {
+        if (cancelled) return
+        const failed: string[] = []
+        states.forEach((state, index) => {
+          const id = DEMO_PHOTOS[index]!.id
+          loadStateRef.current.set(id, state)
+          if (state === 'failed') failed.push(id)
+        })
+        setFailedIds(failed)
+        readyRef.current = true
+        setReady(true)
+      })
+    }
+    if (first) {
+      if (first.complete) settleFirst()
+      else {
+        first.addEventListener('load', settleFirst, { once: true })
+        first.addEventListener('error', settleFirst, { once: true })
+      }
+    }
+
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onMotion = () => {
+      reducedRef.current = mq.matches
+      setReducedMotion(mq.matches)
+      syncActivity()
+    }
+    onMotion()
+    mq.addEventListener('change', onMotion)
+
+    const onVisibility = () => {
+      visibleRef.current = document.visibilityState === 'visible'
+      syncActivity()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    onVisibility()
+
+    const io = new IntersectionObserver((entries) => {
+      onScreenRef.current = entries.some((entry) => entry.isIntersecting)
+      syncActivity()
+    }, { threshold: 0.1 })
+    io.observe(root)
+
+    const ro = new ResizeObserver(() => {
+      if (readyRef.current) relayout()
+    })
+    ro.observe(stage)
+
+    return () => {
+      cancelled = true
+      mq.removeEventListener('change', onMotion)
+      document.removeEventListener('visibilitychange', onVisibility)
+      io.disconnect()
+      ro.disconnect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (readyRef.current) relayout()
+    syncActivity()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, presetId, cycle, userPaused, reducedMotion])
+
+  useEffect(() => {
+    if (!ready || allFailed) return
+    let cancelled = false
+
+    const nextFrame = () => new Promise<boolean>((resolve) => {
+      requestAnimationFrame(() => resolve(!cancelled))
+    })
+    const wait = (durationMs: number) => new Promise<boolean>((resolve) => {
+      let elapsed = 0
+      let previous: number | null = null
+      const tick = (now: number) => {
+        if (cancelled) { resolve(false); return }
+        if (previous !== null && playbackActive()) elapsed += now - previous
+        previous = now
+        if (elapsed >= durationMs) { resolve(true); return }
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    const waitForHandle = async () => {
+      while (!cancelled) {
+        if (demoRef.current) return demoRef.current
+        if (!await nextFrame()) return null
+      }
+      return null
+    }
+
+    void (async () => {
+      const handle = await waitForHandle()
+      if (!handle || cancelled) return
+      relayout()
+      handle.setPaused(!playbackActive())
+
+      if (reducedMotion) {
+        setPhase('travel')
+        handle.showChrome()
+        return
+      }
+
+      // An already-entered Viewer remounts with its curtain hidden — skip the veil and hold.
+      if (!entered) {
+        setPhase('curtain')
+        if (!await wait(DEFAULT_SETTINGS.curtainHoldMs)) return
+      }
+      await handle.enter()
+      if (cancelled) return
+      setEntered(true)
+      setPhase('travel')
+      if (!await wait(DEFAULT_SETTINGS.holdStartMs)) return
+
+      while (!cancelled) {
+        const result = await handle.advance()
+        if (cancelled) return
+        if (result === 'end') {
+          setPhase('end')
+          handle.showChrome()
+          if (!await wait(DEFAULT_SETTINGS.holdEndMs)) return
+          setPhase('rewind')
+          setEntered(false)
+          await handle.rewind()
+          if (cancelled) return
+          positionRef.current = 0
+          positionImageIdRef.current = (presetId === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)[0]!.id
+          setCycle((value) => value + 1)
+          return
+        }
+        if (!await wait(presetId === 'duo' ? DUO_SPREAD_HOLD_MS : DEFAULT_SETTINGS.restMs)) return
+      }
+    })()
+
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, allFailed, presetId, reducedMotion, cycle])
+
+  const first = DEMO_PHOTOS[0]!
+  const preset = demoPresetById(presetId)
+
+  return (
+    <div
+      class="home-demo"
+      data-demo-stage
+      data-demo-ready={ready ? 'true' : 'false'}
+      data-demo-fitted="false"
+      data-demo-preset={presetId}
+      data-demo-phase={phase}
+      ref={(el: HTMLDivElement | null) => { rootRef.current = el }}
+    >
+      <div
+        class="home-demo-stage"
+        data-demo-viewport
+        ref={(el: HTMLDivElement | null) => { stageRef.current = el }}
+        role="img"
+        aria-label="A self-running Manorama gallery of Italy photographs inside a device frame, with an opening curtain, temporary controls, and an end card."
+        onMouseMove={() => demoRef.current?.showChrome()}
+      >
+        {!ready ? (
+          <div class="home-demo-static">
+            <picture>
+              <source type="image/avif" srcSet={demoRenditionPath(first.id, 'lg', 'avif')} />
+              <source type="image/webp" srcSet={demoRenditionPath(first.id, 'lg', 'webp')} />
+              <img
+                ref={(el: HTMLImageElement | null) => { staticFirstRef.current = el }}
+                src={demoRenditionPath(first.id, 'lg', 'jpg')}
+                alt=""
+                width={first.lg.width}
+                height={first.lg.height}
+                loading="eager"
+                decoding="sync"
+                fetchpriority="high"
+              />
+            </picture>
+          </div>
+        ) : allFailed ? (
+          <div class="home-demo-static" aria-hidden="true" />
+        ) : (
+          <div
+            class="home-demo-device-measure"
+            ref={(el: HTMLDivElement | null) => { measureRef.current = el }}
+          >
+            <DeviceFrame
+              key={presetId}
+              preset={preset}
+              deviceRef={(el) => { deviceRef.current = el }}
+              viewerRef={() => {}}
+            >
+              <div class="home-demo-viewer-stage">
+                <GalleryCurtain
+                  settings={settings}
+                  mediaCount={{ stills: images.length, videos: 0 }}
+                  hidden={entered || reducedMotion}
+                />
+                <Viewer
+                  key={`${presetId}-${cycle}-${reducedMotion ? 'reduced' : 'motion'}`}
+                  slug="home-demo"
+                  galleryTitle={GALLERY_TITLE}
+                  images={images}
+                  settings={settings}
+                  plate={null}
+                  encryptedResolver={null}
+                  initialEdit={false}
+                  allowFullscreen={false}
+                  initialIndex={positionRef.current}
+                  embedded
+                  demoRef={demoRef}
+                  demoDisplayScaleRef={demoDisplayScaleRef}
+                  foldLayout={foldLayout}
+                  foldRenderer={foldLayout ? ({ frames, activeIndex, segments, dpr }) => (
+                    <DemoDuoTrack
+                      frames={frames.map((image) => ({
+                        id: image.id,
+                        src: image.src,
+                        width: image.width,
+                        height: image.height,
+                        alt: image.alt,
+                        placeholder: image.placeholder,
+                      }))}
+                      allFrames={images.map((image) => ({
+                        id: image.id,
+                        src: image.src,
+                        width: image.width,
+                        height: image.height,
+                        alt: image.alt,
+                        placeholder: image.placeholder,
+                      }))}
+                      activeIndex={activeIndex}
+                      segments={segments}
+                      dpr={dpr}
+                    />
+                  ) : undefined}
+                  onReturnToGalleries={() => {}}
+                  onPositionChange={(position) => {
+                    positionRef.current = position.index
+                    positionImageIdRef.current = position.imageId
+                  }}
+                />
+              </div>
+            </DeviceFrame>
+          </div>
+        )}
+      </div>
+
+      <div class="home-demo-bar">
+        <div class="home-demo-controls" data-demo-controls hidden={!ready || allFailed}>
+          <div class="home-demo-shapes" role="group" aria-label="Screen shape">
+            {DEMO_PRESETS.map((shape) => (
+              <button
+                key={shape.id}
+                type="button"
+                class="home-demo-shape"
+                data-shape={shape.id}
+                aria-pressed={shape.id === presetId ? 'true' : 'false'}
+                onClick={() => {
+                  const nextPhotos = (shape.id === 'duo' ? DEMO_DUO_PHOTOS : DEMO_PHOTOS)
+                    .filter((photo) => loadStateRef.current.get(photo.id) !== 'failed')
+                  const nextIndex = nextPhotos.findIndex((photo) => photo.id === positionImageIdRef.current)
+                  positionRef.current = Math.max(0, nextIndex)
+                  setPresetId(shape.id)
+                }}
+              >
+                {shape.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            class="home-demo-pause"
+            data-demo-pause
+            aria-pressed={userPaused || reducedMotion ? 'true' : 'false'}
+            disabled={reducedMotion}
+            onClick={() => {
+              const paused = !pausedRef.current
+              pausedRef.current = paused
+              demoRef.current?.setPaused(!playbackActive())
+              setUserPaused(paused)
+            }}
+          >
+            {reducedMotion ? 'Paused' : userPaused ? 'Resume' : 'Pause'}
+          </button>
+        </div>
+        {samplePath ? (
+          <a class="home-demo-sample" href={samplePath}>
+            View a sample gallery
+          </a>
+        ) : null}
+      </div>
+    </div>
+  )
+}

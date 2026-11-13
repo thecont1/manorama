@@ -1,19 +1,28 @@
-/**
- * The page header: the wordmark, the way in, and the one action.
- *
- * The navigation follows the page: Features, Pricing, FAQ, and then the
- * two ways in. Under 720px it collapses into a
- * disclosure, and the disclosure carries the same list in the same order,
- * so a phone is not left without the price.
- */
-import DownloadMenu from '../DownloadMenu'
-import { SURFACES } from '../home-manifest'
+import SignInMenu from '../SignInMenu'
 
-export default function Header() {
-  // The section links mirror the page's own order — a table of contents
-  // for the deep parts of the page. Download, Sign in and Start free are
-  // actions, not sections: Download opens its own list, and the two links
-  // take you home to the sign-in, where a utility belongs.
+function ThemeToggle() {
+  return (
+    <button type="button" class="home-theme-toggle" data-theme-toggle aria-label="Switch colour theme" hidden>
+      <svg class="home-theme-sun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.5" />
+        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" />
+      </svg>
+      <svg class="home-theme-moon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z" />
+      </svg>
+    </button>
+  )
+}
+
+export default function Header({
+  returning,
+  next,
+  failed,
+}: {
+  returning?: boolean
+  next?: string
+  failed?: boolean
+}) {
   const sections = [
     { href: '#unify', label: 'Features' },
     { href: '#pricing', label: 'Pricing' },
@@ -28,13 +37,6 @@ export default function Header() {
           <img class="home-logo-dark" src="/manorama-merged-logo.png" alt="manorama" width={2027} height={688} />
           <img class="home-logo-light" src="/manorama-merged-logo-light.png" alt="" aria-hidden="true" width={2027} height={688} />
         </a>
-        <nav class="home-nav" aria-label="Sections">
-          {sections.map((link) => (
-            <a key={link.href} href={link.href}>
-              {link.label}
-            </a>
-          ))}
-        </nav>
         <details class="home-nav-menu">
           <summary>Menu</summary>
           <div class="home-nav-menu-list">
@@ -43,26 +45,21 @@ export default function Header() {
                 {link.label}
               </a>
             ))}
-            <p class="home-nav-menu-label">Download</p>
-            {SURFACES.filter((surface) => surface.url).map((surface) => (
-              <a key={surface.id} href={surface.href ?? surface.url ?? '#start'}>
-                {surface.label}
-              </a>
-            ))}
+            <button type="button" class="home-nav-signin" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
             <p class="home-nav-menu-label">View</p>
-            <button type="button" class="home-theme-toggle" data-theme-toggle hidden>
-              Light mode
-            </button>
-            <p class="home-nav-menu-label">Account</p>
-            <a href="#start">Sign in</a>
+            <ThemeToggle />
           </div>
         </details>
-        <DownloadMenu class="home-download-header" />
-        <button type="button" class="home-theme-toggle" data-theme-toggle hidden>
-          Light mode
-        </button>
-        <a class="home-nav-signin" href="#start">Sign in</a>
-        <a class="home-btn" href="#start">Start free</a>
+        <nav class="home-nav" aria-label="Sections">
+          {sections.map((link) => (
+            <a key={link.href} href={link.href}>
+              {link.label}
+            </a>
+          ))}
+        </nav>
+        <ThemeToggle />
+        <SignInMenu class="home-signin-header" returning={returning} next={next} failed={failed} />
+        <button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">Start free</button>
       </div>
     </header>
   )

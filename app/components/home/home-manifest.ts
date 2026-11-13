@@ -21,6 +21,14 @@ import {
 /** The one gallery the owner has cleared for public linking (plan D6). */
 export const SAMPLE_GALLERY_PATH = '/thecontrarian/italy'
 
+/**
+ * The interactive homepage photo demo. On by default: the owner cleared the
+ * photographs for the public page on 13 November 2026 (see
+ * `demo/manifest.ts`). Set the Worker var `MANORAMA_HOME_DEMO=off` to fall
+ * back to the static hero; when off, no demo code or assets load at all.
+ */
+export const HOME_DEMO_ENABLED = true
+
 /** A temporary gallery's life, in whole days, derived from the policy. */
 export const TEMPORARY_GALLERY_DAYS = Math.round(PIPELINE_LIFETIME_MS / 86_400_000)
 
@@ -157,7 +165,7 @@ export const ASSETS: Asset[] = [
     src: 'h2-matrix',
     small: true,
     status: 'interim',
-    caption: 'Every photograph, hanging together.',
+    caption: 'Every gallery, hanging together.',
   },
   {
     id: 'H3',

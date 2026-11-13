@@ -18,12 +18,12 @@ export default function Unify() {
               Scattered photographs. A Library that brings them together.
             </h2>
             <p class="home-body home-rise home-rise-2">
-              Meaningful galleries live across services and devices: a shared album, a friend’s
-              folder, a trip’s photographs still sitting on your own disk. Bring the galleries
-              you care about into one Library.
+              A friend's shared Google Drive album. A trip still on your laptop. A folder in
+              someone's Dropbox.
             </p>
-            <p class="home-note home-note-spaced home-rise home-rise-3">
-              Add a shared gallery link or choose a local folder — not your entire cloud account.
+            <p class="home-body home-rise home-rise-2">
+              The photographs you love are all over the place. View them all in one place, your
+              manorama Library.
             </p>
 
             {/* Where a link may come from: one recognisable mark per
@@ -31,7 +31,7 @@ export default function Unify() {
                 register. The nuance — which link, which app — lives in
                 the FAQ, not beside the brand name. */}
             <div class="home-sources-box home-rise home-rise-3">
-              <p class="home-sources-title">Supported cloud sources</p>
+              <p class="home-sources-title">Supported cloud drives</p>
               <ul class="home-sources-grid">
                 {SOURCES.map((source) => (
                   <li key={source.id} class="home-source-item">

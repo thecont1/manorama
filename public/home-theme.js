@@ -17,8 +17,8 @@ try {
     var label = light ? 'Dark mode' : 'Light mode'
     toggles.forEach(function (el) {
       el.hidden = false
-      el.textContent = label
       el.setAttribute('aria-label', label)
+      el.setAttribute('title', label)
       el.setAttribute('aria-pressed', light ? 'true' : 'false')
     })
     var meta = document.querySelector('meta[name="theme-color"]')

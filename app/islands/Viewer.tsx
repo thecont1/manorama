@@ -37,6 +37,18 @@ const reportedDpr = () => deviceReportedDpr
 
 type Mode = 'strip' | 'vertical' | 'single'
 type DragSample = { x: number; time: number }
+
+const EMBEDDED_FOLD_GLIDE_MS = 1600
+
+export type ViewerDemoHandle = {
+  enter(): Promise<void>
+  advance(): Promise<'photo' | 'end'>
+  rewind(): Promise<void>
+  setPaused(paused: boolean): void
+  measure(): void
+  showChrome(): void
+}
+
 type Props = {
   slug: string
   galleryTitle?: string
@@ -73,6 +85,13 @@ type Props = {
    *  Viewer to move, so the strip keeps its measurements and the
    *  commanded photograph sticks. */
   navigationRef?: { current: { goTo(index: number): void } | null }
+  /** An inert, self-running showcase uses the real stage without owning the
+   *  host page's history, storage, keyboard, or global pointer listeners. */
+  embedded?: boolean
+  demoRef?: { current: ViewerDemoHandle | null }
+  /** The outer device scale belongs to the showcase, not the source image:
+   *  it corrects the open-web density budget inside the scaled screen. */
+  demoDisplayScaleRef?: { current: number }
   /** Native shells keep the bottom navigation row visible; the web remains
    *  photo-first and follows the gallery preference. */
   /** Reports the committed photograph (never an ad plate or the end card):
@@ -281,9 +300,9 @@ const writeViewPrefs = (slug: string, patch: Partial<ViewPrefs>) => {
 /** Renders a gallery in strip, vertical, or single-image mode. Still images
  *  preserve their aspect ratio, fit height-first in strip mode, width-first in
  *  vertical mode, and within both axes in single mode without upscaling. */
-export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
+export default function Viewer({ slug, galleryTitle, images: sourceImages, encryptedResolver = null, galleryId, settings: initialSettings, plate = null, onOpenGlobalView, onReturnToGalleries, allowFullscreen = true, initialIndex = 0, navigationRef, embedded = false, demoRef, demoDisplayScaleRef, suspended = false, onPositionChange, onOpenDetails, viewerRole, galleryOwner, onAddToLibrary, addToLibraryBusy, addToLibraryLabel, signInHref, libraryHref, apiBase = '', authToken, ownerGallery, initialEdit = false, editStore, foldLayout = null, foldRenderer, keyStore, shareHref, onEditSaved, onGalleryRenamed, onGalleryRefreshed, onGalleryRemoved }: Props) {
   const [settings, setSettings] = useState<GallerySettings>(initialSettings)
-  const viewPrefs = useMemo(() => (typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug])
+  const viewPrefs = useMemo(() => (embedded || typeof localStorage === 'undefined' ? {} : readViewPrefs(slug)), [slug, embedded])
   const [mode, setMode] = useState<Mode>(viewPrefs.mode ?? initialSettings.defaultMode)
   const [index, setIndex] = useState(() => clamp(initialIndex, 0, Math.max(0, sourceImages.length - 1)))
   const [resolvedMedia, setResolvedMedia] = useState<Record<string, { src?: string; previews: Record<number, string> }>>({})
@@ -438,7 +457,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // video-first gallery would remain mounted and autoplay behind the
   // curtain (or never start after entry, depending on mount timing).
   const [galleryEntered, setGalleryEntered] = useState(() =>
-    typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
+    !embedded && typeof document !== 'undefined' && document.body.classList.contains('gallery-entered'))
   const suspendedRef = useRef(suspended)
   suspendedRef.current = suspended
   const magnifierRef = useRef<MagnifierHandle | null>(null)
@@ -448,6 +467,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const unmountedRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
+  const demoPausedRef = useRef(false)
+  const dismissCurtainRef = useRef<((onComplete?: () => void) => void) | null>(null)
+  const curtainElement = () => embedded
+    ? stageRef.current?.parentElement?.parentElement?.querySelector<HTMLElement>('[data-curtain]') ?? null
+    : document.querySelector<HTMLElement>('[data-curtain]')
   const modalRef = useRef<HTMLDivElement | null>(null)
   const infoModalRef = useRef<HTMLDivElement | null>(null)
   const gridModalRef = useRef<HTMLDivElement | null>(null)
@@ -625,10 +649,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }, 3000)
   }
   const showChrome = () => {
-    if (suspendedRef.current || !document.body.classList.contains('gallery-entered')) return
+    if (suspendedRef.current || (!embedded && !document.body.classList.contains('gallery-entered')) || (embedded && !galleryEntered)) return
     chromeVisibleRef.current = true
     setChromeVisible(true)
-    scheduleChromeHide()
+    if (embedded && reducedMotion) clearChromeTimer()
+    else scheduleChromeHide()
   }
   const hideChrome = () => {
     clearChromeTimer()
@@ -650,6 +675,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const dragTargetXRef = useRef(0)
   const dragFrameRef = useRef<number | null>(null)
   const momentumRef = useRef<number | null>(null)
+  const verticalRewindRef = useRef<number | null>(null)
   const c2paRef = useRef<any>(null)
   const currentXRef = useRef(0)
   // The strip X an in-flight button navigation is heading for. Rapid taps
@@ -720,6 +746,19 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     left: `${foldControlRegion.x}px`,
     width: `${foldControlRegion.width}px`,
   } : undefined
+  const demoFoldTopStyle = embedded && foldControlRegion ? {
+    ...foldChromeStyle,
+    top: `${foldControlRegion.y}px`,
+    right: 'auto',
+    padding: '0',
+  } : foldChromeStyle
+  const demoFoldBottomStyle = embedded && foldControlRegion ? {
+    ...foldChromeStyle,
+    top: `${foldControlRegion.y + 56}px`,
+    bottom: 'auto',
+    right: 'auto',
+    padding: '0',
+  } : foldChromeStyle
   const foldPanelStyle = foldControlRegion ? {
     position: 'absolute',
     left: `${foldControlRegion.x}px`,
@@ -820,15 +859,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // Library theme never picks one: a canvas the viewer did not choose
   // reads as seams between photos, not as a mount.
   useEffect(() => {
-    setBackground(readViewPrefs(slug).background ?? 'none')
-  }, [slug, viewPrefs])
+    setBackground(embedded ? 'none' : readViewPrefs(slug).background ?? 'none')
+  }, [slug, viewPrefs, embedded])
 
   useEffect(() => {
-    const loaded = loadStoredGallerySettings(slug, initialSettings)
+    const loaded = embedded ? initialSettings : loadStoredGallerySettings(slug, initialSettings)
     setSettings(loaded)
     // viewPrefs is memoized per slug and can lag a just-written pref —
     // read it fresh so this refire honors the mode the user picked.
-    const saved = readViewPrefs(slug)
+    const saved = embedded ? {} : readViewPrefs(slug)
     const resolved = saved.mode ?? loaded.defaultMode
     // A gallery default applied because nothing was saved is not a saved
     // selection — persisting it would freeze the owner's later default
@@ -837,7 +876,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     setMode(resolved)
     setShowArrows(loaded.defaultShowArrows && !coarsePointer())
     setShowCaptions(loaded.defaultShowCaptions)
-    const curtain = document.querySelector<HTMLElement>('[data-curtain]')
+    const curtain = curtainElement()
     const updateText = (selector: string, value: string) => {
       const element = curtain?.querySelector<HTMLElement>(selector)
       if (element) element.textContent = value
@@ -846,15 +885,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // only the title and caption remain gallery-owned.
     updateText('[data-curtain-title]', loaded.title)
     updateText('[data-curtain-caption]', loaded.caption)
-  }, [slug, initialSettings, viewPrefs])
+  }, [slug, initialSettings, viewPrefs, embedded])
 
   useEffect(() => {
-    if (galleryDefaultModeRef.current === mode) return
+    if (embedded || galleryDefaultModeRef.current === mode) return
     galleryDefaultModeRef.current = null
     writeViewPrefs(slug, { mode })
-  }, [slug, mode])
+  }, [slug, mode, embedded])
 
   useEffect(() => {
+    if (embedded) return
     const clearPositionHash = () => {
       const sourceHash = encryptedSourceFromGalleryHash(window.location.hash) ? window.location.hash : ''
       if (window.location.hash !== sourceHash || window.location.search) {
@@ -866,9 +906,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     clearPositionHash()
     window.addEventListener('hashchange', clearPositionHash)
     return () => window.removeEventListener('hashchange', clearPositionHash)
-  }, [])
+  }, [embedded])
 
   useEffect(() => {
+    if (embedded) return
     const updateFullscreenState = () => {
       setFullscreenAvailable(allowFullscreen && Boolean(document.fullscreenEnabled && stageRef.current?.requestFullscreen))
       setFullscreenActive(Boolean(document.fullscreenElement))
@@ -879,15 +920,16 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     updateFullscreenState()
     document.addEventListener('fullscreenchange', updateFullscreenState)
     return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
-  }, [allowFullscreen])
+  }, [allowFullscreen, embedded])
 
   useEffect(() => {
+    if (embedded) return
     const preventButtonFocus = (event: MouseEvent) => {
       if ((event.target as HTMLElement).closest('button')) event.preventDefault()
     }
     document.addEventListener('mousedown', preventButtonFocus)
     return () => document.removeEventListener('mousedown', preventButtonFocus)
-  }, [])
+  }, [embedded])
 
   const hasMultiple = images.length > 1
   const arrowsOn = mode === 'vertical' ? showArrowsVertical : showArrows
@@ -1061,7 +1103,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // a deliberate return, not a jump; reduced motion jumps. The endcard
   // stays in the pan range for the ride so the strip travels back through
   // it smoothly; it disarms on landing, not at the click.
-  const rewind = () => {
+  const rewind = (onComplete?: () => void) => {
     pendingEntryRef.current = null
     const disarmEndcap = () => {
       endcapRevealedRef.current = false
@@ -1071,22 +1113,34 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     singleEndcapRef.current = false
     setSingleEndcap(false)
     const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (mode === 'single') { disarmEndcap(); goTo(0); return }
+    if (mode === 'single') { disarmEndcap(); goTo(0); onComplete?.(); return }
     if (mode === 'vertical') {
       const stage = stageRef.current
       reportedIndexRef.current = 0
       explicitIndexRef.current = 0
       setIndex(0)
       disarmEndcap()
-      if (!stage || reduced) { if (stage) stage.scrollTop = 0; return }
+      if (!stage || reduced) { if (stage) stage.scrollTop = 0; onComplete?.(); return }
       const from = stage.scrollTop
-      const started = performance.now()
+      let started = performance.now()
+      let previousNow = started
       const tick = (now: number) => {
+        verticalRewindRef.current = null
+        if (unmountedRef.current) return
+        if (demoPausedRef.current) {
+          started += now - previousNow
+          previousNow = now
+          verticalRewindRef.current = requestAnimationFrame(tick)
+          return
+        }
+        previousNow = now
         const k = Math.min(1, (now - started) / 750)
         stage.scrollTop = from * (1 - easeInOutCubic(k))
-        if (k < 1) requestAnimationFrame(tick)
+        if (k < 1) verticalRewindRef.current = requestAnimationFrame(tick)
+        else onComplete?.()
       }
-      requestAnimationFrame(tick)
+      cancelVerticalRewind()
+      verticalRewindRef.current = requestAnimationFrame(tick)
       return
     }
     stopMomentum()
@@ -1094,11 +1148,19 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     reportedIndexRef.current = 0
     explicitIndexRef.current = 0
     setIndex(0)
-    if (reduced) { disarmEndcap(); navDestXRef.current = null; renderX(0, false); return }
+    if (reduced) { disarmEndcap(); navDestXRef.current = null; renderX(0, false); onComplete?.(); return }
     navDestXRef.current = 0
     const from = currentXRef.current
-    const started = performance.now()
+    let started = performance.now()
+    let previousNow = started
     const tick = (now: number) => {
+      if (demoPausedRef.current) {
+        started += now - previousNow
+        previousNow = now
+        momentumRef.current = requestAnimationFrame(tick)
+        return
+      }
+      previousNow = now
       const k = Math.min(1, (now - started) / 750)
       renderX(from * (1 - easeInOutCubic(k)), false)
       if (k < 1) momentumRef.current = requestAnimationFrame(tick)
@@ -1108,6 +1170,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         disarmEndcap()
         queuePlateActionability()
         reportStripPosition()
+        onComplete?.()
       }
     }
     momentumRef.current = requestAnimationFrame(tick)
@@ -1145,6 +1208,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (positionFrameRef.current !== null) {
       cancelAnimationFrame(positionFrameRef.current)
       positionFrameRef.current = null
+    }
+  }
+
+  const cancelVerticalRewind = () => {
+    if (verticalRewindRef.current !== null) {
+      cancelAnimationFrame(verticalRewindRef.current)
+      verticalRewindRef.current = null
     }
   }
 
@@ -1203,8 +1273,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
   }
 
-  const settleTo = (target: number, instant = false, reportOnComplete = false) => {
+  const glideCompleteRef = useRef<(() => void) | null>(null)
+  const completionPollRef = useRef<number | null>(null)
+  const cancelCompletionPoll = () => {
+    if (completionPollRef.current !== null) {
+      cancelAnimationFrame(completionPollRef.current)
+      completionPollRef.current = null
+    }
+  }
+
+  const settleTo = (target: number, instant = false, reportOnComplete = false, onComplete?: () => void) => {
+    // A superseded glide still owes its completion — flush it so a commanded advance resolves.
+    const superseded = glideCompleteRef.current
+    glideCompleteRef.current = null
     stopMomentum()
+    superseded?.()
     const from = currentXRef.current
     const bounds = getBounds()
     const destination = clamp(target, -bounds.max, 0)
@@ -1216,9 +1299,12 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       // of the target the re-dock just abandoned.
       if (navDestXRef.current !== null) navDestXRef.current = destination
       if (reportOnComplete) reportStripPosition()
+      onComplete?.()
       return
     }
-    const started = performance.now()
+    glideCompleteRef.current = onComplete ?? null
+    let started = performance.now()
+    let previousNow = started
     // Ease-out, not ease-in-out: a symmetric curve's motionless first
     // third reads as the tap being ignored — the "isn't smooth" complaint.
     // cubic-bezier(0.22, 1, 0.36, 1) is the app's signature ease (curtain,
@@ -1226,9 +1312,17 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // settles with a long, gentle deceleration. Duration scales with
     // travel distance — a full-gallery rewind still glides back
     // deliberately instead of covering tens of thousands of px in a blur.
-    const duration = clamp(Math.abs(destination - from) / 10, 650, 2800)
+    const baseDuration = Math.abs(destination - from) / 10
+    const duration = embedded ? clamp(baseDuration * 1.25, 650, 3500) : clamp(baseDuration, 650, 2800)
     let previousEase = 0
     const tick = (now: number) => {
+      if (demoPausedRef.current) {
+        started += now - previousNow
+        previousNow = now
+        momentumRef.current = requestAnimationFrame(tick)
+        return
+      }
+      previousNow = now
       const progress = Math.min(1, (now - started) / duration)
       const eased = glideEase(progress)
       // Chase navDestX live: a mid-flight retarget (queued taps, or a
@@ -1248,8 +1342,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       if (progress < 1) momentumRef.current = requestAnimationFrame(tick)
       else {
         momentumRef.current = null
+        glideCompleteRef.current = null
         queuePlateActionability()
         if (reportOnComplete) reportStripPosition()
+        onComplete?.()
       }
     }
     momentumRef.current = requestAnimationFrame(tick)
@@ -1258,6 +1354,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const imageStart = (imageIndex: number) => {
     if (imageIndex <= 0) return 0
     return trackRef.current?.querySelector<HTMLElement>(`[data-index="${imageIndex + 1}"]`)?.offsetLeft ?? 0
+  }
+
+  const dockVerticalFrame = (target: HTMLElement, behavior: ScrollBehavior) => {
+    if (embedded) {
+      // scrollIntoView also moves the homepage document; only the device stage may scroll.
+      stageRef.current?.scrollTo({ top: target.offsetTop, behavior })
+      return
+    }
+    target.scrollIntoView({ block: 'start', behavior })
   }
 
   const goTo = (nextIndex: number, instant = false) => {
@@ -1313,7 +1418,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       settleTo(navDestXRef.current, instant)
     }
     if (mode === 'vertical') {
-      requestAnimationFrame(() => stageRef.current?.querySelector(`[data-image-id="${images[next]?.id}"]`)?.scrollIntoView({ block: 'start', behavior: instant ? 'auto' : 'smooth' }))
+      requestAnimationFrame(() => {
+        const target = stageRef.current?.querySelector<HTMLElement>(`[data-image-id="${images[next]?.id}"]`)
+        if (target) dockVerticalFrame(target, instant ? 'auto' : 'smooth')
+      })
     }
   }
 
@@ -1329,7 +1437,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (direction === 1) {
       const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
       if (!next) return
-      if (next.dataset.endcard !== undefined) { next.scrollIntoView({ block: 'start', behavior: 'smooth' }); return }
+      if (next.dataset.endcard !== undefined) { dockVerticalFrame(next, 'smooth'); return }
       goTo(Number(next.dataset.index) - 1)
       return
     }
@@ -1366,10 +1474,89 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
   }
 
-  const advanceStripByViewport = (direction: -1 | 1) => {
+  const advanceStripByViewport = (direction: -1 | 1, onComplete?: (result: 'photo' | 'end') => void) => {
     pendingEntryRef.current = null
-    if (foldActiveRef.current) { step(direction); return }
-    if (mode !== 'strip') { step(direction); return }
+    if (foldActiveRef.current) {
+      if (embedded && onComplete && direction === 1) {
+        const from = indexRef.current
+        if (from >= images.length - 1) { onComplete('end'); return }
+        // The homepage rests on spreads, while native fold input can still
+        // move the active position between the two photographs in a pair.
+        goTo(Math.min(from + 2, images.length - 1))
+        cancelCompletionPoll()
+        let elapsed = 0
+        let previous: number | null = null
+        const settled = (now: number) => {
+          completionPollRef.current = null
+          if (unmountedRef.current) return
+          if (previous !== null && !demoPausedRef.current) elapsed += now - previous
+          previous = now
+          if (elapsed >= EMBEDDED_FOLD_GLIDE_MS) { onComplete('photo'); return }
+          completionPollRef.current = requestAnimationFrame(settled)
+        }
+        completionPollRef.current = requestAnimationFrame(settled)
+        return
+      }
+      step(direction)
+      onComplete?.('photo')
+      return
+    }
+    if (mode !== 'strip') {
+      if (!embedded || !onComplete || direction === -1) { step(direction); onComplete?.('photo'); return }
+      if (mode === 'single') {
+        const from = indexRef.current
+        if (singleEndcapRef.current) { onComplete('end'); return }
+        if (from === images.length - 1) {
+          singleEndcapRef.current = true
+          setSingleEndcap(true)
+        } else {
+          goTo(from + 1)
+        }
+        const settled = () => {
+          completionPollRef.current = null
+          if (unmountedRef.current) return
+          if (singleEndcapRef.current) { onComplete('end'); return }
+          if (!singleFadeBusyRef.current && indexRef.current !== from) { onComplete('photo'); return }
+          completionPollRef.current = requestAnimationFrame(settled)
+        }
+        cancelCompletionPoll()
+        completionPollRef.current = requestAnimationFrame(settled)
+        return
+      }
+      const stage = stageRef.current
+      const stageTop = stage?.getBoundingClientRect().top ?? 0
+      const frames = [...(trackRef.current?.querySelectorAll<HTMLElement>('[data-index], [data-endcard]') ?? [])]
+      const atScrollLimit = stage !== null && stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1
+      // At the limit the first frame below the top edge may be one that can
+      // never dock (the feed is shorter than the stage below it) — targeting
+      // it again would loop forever, so finish on the last frame instead.
+      const target = atScrollLimit
+        ? frames[frames.length - 1]
+        : frames.find((frame) => frame.getBoundingClientRect().top > stageTop + 8)
+      if (!target) { onComplete('end'); return }
+      step(direction)
+      const docked = () => {
+        completionPollRef.current = null
+        if (unmountedRef.current) return
+        if (demoPausedRef.current) { completionPollRef.current = requestAnimationFrame(docked); return }
+        const top = target.getBoundingClientRect().top
+        const currentStageTop = stage?.getBoundingClientRect().top ?? stageTop
+        // The feed can run out of scroll before a frame reaches the stage
+        // top — a short end card, or a last photograph with too little feed
+        // below it. At the limit, a frame in view is docked as deep as it goes.
+        const limitDock = stage !== null &&
+          stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1 &&
+          top < currentStageTop + stage.clientHeight
+        if (Math.abs(top - currentStageTop) <= 8 || limitDock) {
+          onComplete(target.dataset.endcard !== undefined ? 'end' : 'photo')
+          return
+        }
+        completionPollRef.current = requestAnimationFrame(docked)
+      }
+      cancelCompletionPoll()
+      completionPollRef.current = requestAnimationFrame(docked)
+      return
+    }
     // Viewport paging is gesture-like: no single frame was requested,
     // so any explicit destination stops counting here.
     explicitIndexRef.current = null
@@ -1384,13 +1571,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (direction === 1 && base >= bounds.max - 1) {
       // At the last photograph a forward step reveals the endcard — the
       // strip glides it in flush right rather than wrapping to the start.
-      if (endcapRevealedRef.current) return
+      if (endcapRevealedRef.current) { onComplete?.('end'); return }
       revealEndcap()
       navDestXRef.current = -getBounds().max
-      settleTo(navDestXRef.current, false, true)
+      settleTo(navDestXRef.current, false, true, () => onComplete?.('end'))
       return
     }
-    if (direction === -1 && base <= 1) { goTo(images.length - 1); return }
+    if (direction === -1 && base <= 1) { goTo(images.length - 1); onComplete?.('photo'); return }
     const viewportWidth = stageRef.current?.clientWidth ?? window.innerWidth
     // Ads have no photo index, but occupy real strip space. Looking up the
     // preceding photograph when parked on a plate returns that SAME plate as
@@ -1426,7 +1613,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       advance = Math.min(viewportWidth, Math.max(0, remaining))
     }
     navDestXRef.current = clamp(-(base + direction * advance), -bounds.max, 0)
-    settleTo(navDestXRef.current, false, true)
+    settleTo(navDestXRef.current, false, true, () => onComplete?.('photo'))
   }
 
   useEffect(() => {
@@ -1439,9 +1626,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }, [currentImage?.id, currentImage?.c2pa])
 
   useEffect(() => {
-    const curtain = document.querySelector<HTMLElement>('[data-curtain]')
+    const curtain = curtainElement()
     const entered = () => {
-      document.body.classList.add('gallery-entered')
+      if (!embedded) document.body.classList.add('gallery-entered')
       setGalleryEntered(true)
     }
     // No curtain — or one already dissolved — means the gallery is entered:
@@ -1463,13 +1650,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // than one gallery — the desktop shell's Library does — a second gallery
     // would inherit the first one's flag and count as entered before its
     // veil had lifted. The flag comes off until this gallery says otherwise.
-    document.body.classList.remove('gallery-entered')
+    if (!embedded) document.body.classList.remove('gallery-entered')
     setGalleryEntered(false)
     let finishTimer: number | undefined
     let pointerStart: { x: number; y: number; id: number } | null = null
     let ignoreClick = false
-    const dismiss = () => {
-      if (curtain.hidden || curtain.classList.contains('fading')) return
+    const dismiss = (onComplete?: () => void) => {
+      if (curtain.hidden || curtain.classList.contains('fading')) { onComplete?.(); return }
       // Drop focus before aria-hidden so a focused node never sits inside
       // a hidden subtree; the stage receives it below, at the tap — the
       // one thing that changes while the veil dissolves.
@@ -1480,16 +1667,21 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       // landing mid-dissolve still reaches the viewer. The React twin
       // waits for finish() — it is what reveals the chrome and mounts
       // ambient media, and those belong to the photograph being clear.
-      document.body.classList.add('gallery-entered')
+      if (!embedded) document.body.classList.add('gallery-entered')
       const focusTarget = nextArrowRef.current && !nextArrowRef.current.disabled ? nextArrowRef.current : displayButtonRef.current
-      focusTarget?.focus({ preventScroll: true })
+      if (!embedded) focusTarget?.focus({ preventScroll: true })
       const finish = () => {
+        if (embedded && demoPausedRef.current) {
+          finishTimer = window.setTimeout(finish, 100)
+          return
+        }
         curtain.removeEventListener('transitionend', onFadeEnd)
         if (finishTimer) window.clearTimeout(finishTimer)
         curtain.classList.remove('fading')
         curtain.hidden = true
         // The viewer controls appear once the photograph is clear.
         setGalleryEntered(true)
+        onComplete?.()
       }
       const onFadeEnd = (event: TransitionEvent) => {
         if (event.target === curtain && event.propertyName === 'opacity') finish()
@@ -1499,6 +1691,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       // that drop transitionend on an interrupted backdrop-filter.
       finishTimer = window.setTimeout(finish, 1400)
     }
+    dismissCurtainRef.current = dismiss
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault()
@@ -1544,8 +1737,9 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       curtain.removeEventListener('pointercancel', onPointerCancel)
       curtain.removeEventListener('touchmove', onTouchMove)
       if (finishTimer) window.clearTimeout(finishTimer)
+      if (dismissCurtainRef.current === dismiss) dismissCurtainRef.current = null
     }
-  }, [])
+  }, [embedded])
 
   // While the curtain is down the raised chrome's Library exit must still
   // exist — otherwise the veil is a dead end for anyone who followed a
@@ -1554,7 +1748,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // the same 3s idle clock the chrome uses; galleryEntered unmounts it so
   // the real chrome takes over without a seam.
   const curtainLibraryHref = viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined
-  const hasCurtainLibrary = Boolean(onReturnToGalleries || curtainLibraryHref)
+  const hasCurtainLibrary = !embedded && Boolean(onReturnToGalleries || curtainLibraryHref)
   const [curtainLibraryShown, setCurtainLibraryShown] = useState(false)
   useEffect(() => {
     if (galleryEntered || !hasCurtainLibrary) return
@@ -1602,15 +1796,23 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     boundsDirtyRef.current = true
     const target = mode === 'strip' ? -imageStart(index) : 0
     renderX(target, false)
-    if (mode === 'vertical') requestAnimationFrame(() => stageRef.current?.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
+    if (mode === 'vertical') requestAnimationFrame(() => {
+      const target = stageRef.current?.querySelector<HTMLElement>(`[data-image-id="${currentImage?.id}"]`)
+      if (target) dockVerticalFrame(target, 'auto')
+    })
   }, [mode, foldActive])
 
   const applyStageMetrics = () => {
     const stage = stageRef.current
     if (!stage) return
-    const visibleHeight = Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
+    const visibleHeight = embedded
+      ? Math.max(1, stage.clientHeight)
+      : Math.max(1, Math.round(window.visualViewport?.height ?? window.innerHeight))
     stage.style.setProperty('--viewer-stage-height', `${visibleHeight}px`)
-    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: reportedDpr() }
+    const displayScale = embedded ? Math.max(0.01, demoDisplayScaleRef?.current ?? 1) : 1
+    // Embedded: real backing scale × displayScale (HomeDemo caps at 2); the web cap would double-cap and upscale.
+    const dprBasis = embedded ? deviceImageDpr(window.devicePixelRatio) : reportedDpr()
+    const measured = { width: stage.clientWidth, height: stage.clientHeight, dpr: dprBasis * displayScale }
     // Observers may repeat the same box after a decoded image commits. That
     // is not an orientation change and must not cancel an active glide.
     const previous = stageMeasurementsRef.current
@@ -1646,6 +1848,37 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (navigationRef) navigationRef.current = null
   }, [])
 
+  useEffect(() => {
+    if (!embedded || !demoRef) return
+    demoRef.current = {
+      enter: () => new Promise<void>((resolve) => {
+        const curtain = curtainElement()
+        if (!curtain || curtain.hidden) { resolve(); return }
+        const dismiss = dismissCurtainRef.current
+        if (dismiss) dismiss(resolve)
+        else resolve()
+      }),
+      advance: () => new Promise<'photo' | 'end'>((resolve) => advanceStripByViewport(1, resolve)),
+      rewind: () => new Promise<void>((resolve) => rewind(resolve)),
+      setPaused: (paused) => {
+        demoPausedRef.current = paused
+        const gallery = stageRef.current?.parentElement
+        for (const animation of gallery?.getAnimations({ subtree: true }) ?? []) {
+          const target = (animation.effect as KeyframeEffect | null)?.target
+          // A paused remount must not freeze a newly decoded photograph at opacity 0.
+          if (paused && target instanceof HTMLImageElement && target.classList.contains('frame-img')) animation.finish()
+          else if (paused) animation.pause()
+          else animation.play()
+        }
+      },
+      measure: applyStageMetrics,
+      showChrome: () => chromeActionsRef.current.show(),
+    }
+  })
+  useEffect(() => () => {
+    if (demoRef) demoRef.current = null
+  }, [])
+
   // Enter-at-frame: instant and pre-paint, so the curtain dissolves onto the
   // tapped photograph rather than the strip travelling to it in view.
   const entryFrameRef = useRef<number | null>(initialIndex > 0 ? clamp(initialIndex, 0, images.length - 1) : null)
@@ -1679,19 +1912,23 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     const stageObserver = stageElement && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null
     if (stageElement) stageObserver?.observe(stageElement)
     onResize()
-    window.addEventListener('resize', onResize)
-    window.addEventListener('orientationchange', onResize)
-    visualViewport?.addEventListener('resize', onResize)
-    visualViewport?.addEventListener('scroll', onResize)
+    if (!embedded) {
+      window.addEventListener('resize', onResize)
+      window.addEventListener('orientationchange', onResize)
+      visualViewport?.addEventListener('resize', onResize)
+      visualViewport?.addEventListener('scroll', onResize)
+    }
     return () => {
       stageObserver?.disconnect()
-      window.removeEventListener('resize', onResize)
-      window.removeEventListener('orientationchange', onResize)
-      visualViewport?.removeEventListener('resize', onResize)
-      visualViewport?.removeEventListener('scroll', onResize)
+      if (!embedded) {
+        window.removeEventListener('resize', onResize)
+        window.removeEventListener('orientationchange', onResize)
+        visualViewport?.removeEventListener('resize', onResize)
+        visualViewport?.removeEventListener('scroll', onResize)
+      }
       if (viewportFrameRef.current !== null) cancelAnimationFrame(viewportFrameRef.current)
     }
-  }, [])
+  }, [embedded])
 
   useEffect(() => {
     boundsDirtyRef.current = true
@@ -1708,6 +1945,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   }, [])
 
   useLayoutEffect(() => {
+    if (embedded) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && anyModalOpenRef.current) {
         // A consumed Escape (overlay stack, dialog, or the editor putting
@@ -1752,9 +1990,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     // listener at commit and re-arms it in a later async flush, so every
     // modal transition would unplug the handler for a few frames. The
     // gate reads anyModalOpenRef (written at event time) instead.
-  }, [index, mode, images.length])
+  }, [index, mode, images.length, embedded])
 
   useEffect(() => {
+    if (embedded) return
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       if (event.defaultPrevented) return
@@ -1776,7 +2015,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [embedded])
 
   // `?edit=1` is an opening intent, not an address — the owner lands
   // inside the picker's Edit mode and the param goes away so a reload
@@ -1924,14 +2163,14 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // client only: the server cannot know the pointer type, so the shortcut
   // row and the key binding appear after mount.
   useEffect(() => {
-    setMagnifierAvailable(magnifierSupported())
+    setMagnifierAvailable(!embedded && magnifierSupported())
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
     const query = window.matchMedia('(prefers-reduced-motion: reduce)')
     const sync = () => setReducedMotion(query.matches)
     sync()
     query.addEventListener?.('change', sync)
     return () => query.removeEventListener?.('change', sync)
-  }, [])
+  }, [embedded])
 
   // Desktop/mobile, tracked live: resizing across the breakpoint (or
   // dragging the window to another display) must re-apply or release the
@@ -2052,6 +2291,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   // Same gates as the nav keys — no repeat spam (each press is a new tab),
   // never stolen from a text field, inert behind the curtain or a modal.
   useEffect(() => {
+    if (embedded) return
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
@@ -2067,7 +2307,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [embedded])
 
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -2595,6 +2835,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   useEffect(() => () => {
     unmountedRef.current = true
+    cancelCompletionPoll()
+    cancelVerticalRewind()
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
@@ -2723,7 +2965,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             the stage's isolated stacking context at z-index 0, it shows
             through only the transparent gaps between tiles and the
             exposed canvas — never over photographs or UI. */}
-        <SeededDoodleBackground enabled={background !== 'none'} />
+        {embedded ? null : <SeededDoodleBackground enabled={background !== 'none'} />}
         {foldActive && foldLayout && foldRenderer ? foldRenderer({
           frames: foldFrames,
           activeIndex: foldActiveIndex,
@@ -2733,6 +2975,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           ref={trackRef}
           class={`viewer-track ${mode === 'vertical' ? 'viewer-track--vertical' : ''} ${mode === 'single' ? 'viewer-track--single' : ''}`}
           data-track
+          data-demo-strip={embedded ? '' : undefined}
         >
           {images.map((image, imageIndex) => {
             const isActive = isFrameActive(imageIndex)
@@ -2807,6 +3050,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               <figure
                 class={`viewer-frame ${isPortrait ? 'viewer-frame--portrait' : 'viewer-frame--landscape'} ${mode === 'single' ? (singleFade?.phase === 'out' && imageIndex === singleFade.from ? 'viewer-frame--leaving' : singleFade?.phase === 'in' && imageIndex === singleFade.to ? 'viewer-frame--entering' : imageIndex === index ? '' : 'viewer-frame--hidden') : ''} ${video ? 'viewer-frame--video' : ''} ${cappedVideo ? 'viewer-frame--video-capped' : ''} ${plateShort ? 'viewer-frame--short' : ''}`}
                 data-image-id={image.id}
+                data-photo-id={embedded ? image.id : undefined}
                 data-index={imageIndex + 1}
                 data-orientation={isPortrait ? 'portrait' : 'landscape'}
                 data-media-type={video ? 'video' : 'image'}
@@ -3048,10 +3292,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
               start. `inert` until revealed — it sits past the pan bound
               before then, so its links must not take focus or announce. */}
           {mode === 'strip' ? (
-            <div class="viewer-endcap" data-endcard inert={!endcapRevealed}>
+            <div class="viewer-endcap" data-endcard data-demo-endcard={embedded ? '' : undefined} inert={!endcapRevealed}>
               <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
-                <button class="endcap-reset" onClick={rewind}>Rewind</button>
+                <button class="endcap-reset" onClick={() => rewind()}>Rewind</button>
               </div>
             </div>
           ) : null}
@@ -3062,7 +3306,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
             <div class="viewer-endcap viewer-endcap--feed" data-endcard>
               <span class="endcap-line">The End.</span>
               <div class="endcap-actions">
-                <button class="endcap-reset" onClick={rewind}>Rewind</button>
+                <button class="endcap-reset" onClick={() => rewind()}>Rewind</button>
               </div>
             </div>
           ) : null}
@@ -3073,7 +3317,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
           <div class={`viewer-endcap viewer-endcap--single${singleEndcap ? ' is-open' : ''}`} data-endcard inert={!singleEndcap}>
             <span class="endcap-line">The End.</span>
             <div class="endcap-actions">
-              <button class="endcap-reset" onClick={rewind}>Rewind</button>
+              <button class="endcap-reset" onClick={() => rewind()}>Rewind</button>
             </div>
           </div>
         ) : null}
@@ -3114,7 +3358,11 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
       <ViewerChrome
         visible={chromeVisible && !suspended}
+        demo={embedded}
         position={{ index, total: images.length }}
+        positionLabel={embedded && foldActive
+          ? `${foldStartIndex + 1}-${Math.min(foldStartIndex + 2, images.length)} of ${images.length}`
+          : undefined}
         onReturnToGalleries={onReturnToGalleries}
         libraryHref={viewerRole && viewerRole !== 'visitor' ? libraryHref : undefined}
         onOpenSettings={openSettings}
@@ -3126,8 +3374,8 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
         onIdle={scheduleChromeHide}
         settingsRef={(el) => { displayButtonRef.current = el }}
         positionRef={(el) => { positionPillRef.current = el }}
-        topStyle={foldChromeStyle}
-        bottomStyle={foldChromeStyle}
+        topStyle={demoFoldTopStyle}
+        bottomStyle={demoFoldBottomStyle}
       />
 
       {gridOpen ? <>

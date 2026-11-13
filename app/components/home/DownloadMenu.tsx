@@ -6,7 +6,7 @@ import { SURFACES } from './home-manifest'
  * link — an honest "not yet", never a link that goes nowhere.
  */
 export default function DownloadMenu({
-  summary = 'Download',
+  summary = 'Downloads',
   class: cls,
 }: {
   summary?: string

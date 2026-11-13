@@ -20,6 +20,7 @@ export default function HomePage({
   failed,
   next,
   samplePath,
+  demo = false,
 }: {
   /** True when the browser has the returning-visitor hint cookie. */
   returning?: boolean
@@ -29,12 +30,14 @@ export default function HomePage({
   next?: string
   /** The owner-cleared sample gallery. `null` renders no sample CTA. */
   samplePath?: string | null
+  /** True to enhance the hero with the live photo demo. */
+  demo?: boolean
 }) {
   return (
     <div class="home">
-      <Header />
+      <Header returning={returning} failed={failed} next={next} />
       <main id="content">
-        <Hero returning={returning} failed={failed} next={next} samplePath={samplePath} />
+        <Hero samplePath={samplePath} demo={demo} />
         <Unify />
         <HowItWorks />
         <Features />

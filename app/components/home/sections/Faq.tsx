@@ -10,7 +10,7 @@ const QUESTIONS = [
     q: 'Which cloud links can I add?',
     a: [
       'Dropbox shared folders, Google Drive folders shared with anyone, iCloud Photos Shared Album links, MEGA folders and collections, Ente albums, and Proton Drive share links in the apps. Local folders work in the Mac and Windows apps.',
-      'The full list is under Supported cloud sources. Ente opens in the browser too.',
+      'The full list is under Supported cloud drives. Ente opens in the browser too.',
     ],
   },
   {
@@ -22,13 +22,13 @@ const QUESTIONS = [
   {
     q: 'Can I use local folders, and do they sync?',
     a: [
-      'With Visionary, in the Mac and Windows apps. Folders open in place, where they already sit on the disk.',
+      'Visionary includes unlimited local galleries in the Mac and Windows apps. Folders open in place, where they already sit on the disk.',
       'Only titles and counts sync to your account, never the photographs, and a local gallery opens only on the computer that has the folder.',
     ],
   },
   {
     q: 'What does “permanent gallery” mean?',
-    a: ['It does not expire while your plan is active. It still depends on its source link staying available.'],
+    a: ['It has no 30-day expiry and stays in your Library as long as its source link works. Manorama is not a backup service.'],
   },
   {
     q: 'What happens when a temporary gallery expires?',
@@ -40,13 +40,15 @@ const QUESTIONS = [
   {
     q: 'Can I use Manorama offline?',
     a: [
-      'On iPhone and iPad, the galleries you have kept a copy of open without a connection. The web needs a connection.',
+      'On iPhone and iPad, the galleries you have kept a copy of open without a connection. Free includes up to 256 MB; Visionary lets you choose a larger allowance.',
+      'Free keeps browsing within this gallery. Visionary can browse all saved galleries. The web needs a connection.',
     ],
   },
   {
     q: 'How do billing and cancellation work?',
     a: [
-      'Visionary is a yearly subscription. On iPhone and iPad it is billed and managed through your Apple account.',
+      'Visionary costs $12 for your first year, then $20 a year. It renews yearly; subscribe on the web or in the iPhone and iPad app.',
+      'On iPhone and iPad it is billed and managed through your Apple account.',
     ],
   },
   {

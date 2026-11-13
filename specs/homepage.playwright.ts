@@ -3,11 +3,9 @@
 // a phone (375×812), a tablet (768×1024), a laptop (1440×900) and a wide
 // desktop (2560×1440).
 //
-// The page is server-rendered with no client script of its own, so every
-// assertion here is about what a visitor can see and do: the sign-in group
-// in the first fold, the navigation, the disclosures, the comparison table
-// stacking on a phone, and the horizontal overflow that a wide image or a
-// long word can cause.
+// These assertions cover the shared marketing surface: the header sign-in
+// disclosure, navigation, comparison table, reduced-motion CSS and overflow.
+// The mounted photographic demo has its own spec beside this one.
 
 import { expect, test } from '@playwright/test'
 
@@ -29,16 +27,20 @@ const open = async (page: import('@playwright/test').Page) => {
 
 test.describe('the marketing homepage', () => {
   for (const viewport of MATRIX) {
-    test(`the sign-in group is in the first fold at ${viewport.width}px`, async ({ page }) => {
+    test(`the account panel opens from the header at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await open(page)
-      const signIn = page.locator('.home-signin')
-      await expect(signIn).toBeVisible()
-      const box = await signIn.boundingBox()
+      const trigger = viewport.width < 1024
+        ? page.locator('.home-nav-signin')
+        : page.locator('.home-signin-trigger')
+      if (viewport.width < 1024) await page.locator('.home-nav-menu summary').click()
+      await expect(trigger).toBeVisible()
+      const box = await trigger.boundingBox()
       expect(box).not.toBeNull()
       expect(box!.y).toBeLessThan(viewport.height)
-      // The provider chooser itself, not just its heading.
-      await expect(page.locator('.signin-pill').first()).toBeVisible()
+      await trigger.click()
+      await expect(page.locator('#home-account-panel')).toBeVisible()
+      await expect(page.locator('#home-account-panel .home-signin-list a').first()).toBeVisible()
     })
 
     test(`nothing scrolls sideways at ${viewport.width}px`, async ({ page }) => {
@@ -50,6 +52,192 @@ test.describe('the marketing homepage', () => {
       expect(overflow).toBeLessThanOrEqual(1)
     })
   }
+
+  test('the desktop header keeps sections and account utilities together on the right', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const items = page.locator('.home-header-inner > .home-nav a, .home-header-inner > [data-theme-toggle], .home-header-inner > .home-signin-trigger')
+    await expect(items).toHaveText(['Features', 'Pricing', 'FAQ', '', 'Sign in'])
+    const wordmark = await page.locator('.home-wordmark').boundingBox()
+    const first = await items.first().boundingBox()
+    const last = await items.last().boundingBox()
+    const start = await page.locator('.home-header-inner > .home-btn').boundingBox()
+    expect(first!.x).toBeGreaterThanOrEqual(wordmark!.x + wordmark!.width)
+    expect(last!.x + last!.width).toBeLessThanOrEqual(start!.x)
+  })
+
+  test('the account panel groups sign-in and published apps, closes on Escape, and restores focus', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const trigger = page.locator('.home-signin-trigger')
+    await trigger.click()
+    const panel = page.locator('#home-account-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel).toContainText('Continue with')
+    await expect(panel).toContainText('Get the app')
+    await expect(panel.locator('.home-signin-list a')).toHaveText(['Apple', 'Dropbox', 'Google'])
+    await expect(panel.locator('a[href="https://downloads.manorama.xyz/mac"]')).toContainText('Mac')
+    await expect(panel.locator('a[href="https://downloads.manorama.xyz/mac"] small')).toHaveText('Apple silicon')
+    await expect(panel.locator('a[href="https://downloads.manorama.xyz/windows"]')).toHaveText('Windows')
+    await expect(panel).not.toContainText('iPhone & iPad')
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await expect(trigger).toBeFocused()
+
+    await trigger.click()
+    await page.locator('h1').click()
+    await expect(panel).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+
+  test('a failed sign-in comes back with the retry note already on screen', async ({ page }) => {
+    const panel = page.locator('#home-account-panel')
+    const retry = panel.locator('.home-signin-retry')
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(`${BASE}/?error=1`, { waitUntil: 'domcontentloaded' })
+      await expect(panel).toBeVisible()
+      await expect(retry).toBeVisible()
+      await expect(retry).toHaveText('Sign-in didn’t complete. Please try again.')
+      // The note lives in the panel: the header bar itself is unchanged.
+      await expect(page.locator('.home-header-inner > .home-signin-retry')).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await expect(panel).toBeHidden()
+    }
+    await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
+    await expect(panel).toBeHidden()
+  })
+
+  test('the phone menu hands keyboard focus back to its summary when a choice closes it', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await open(page)
+    const menu = page.locator('.home-nav-menu')
+    const summary = menu.locator('summary')
+
+    await summary.focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveJSProperty('open', true)
+    await menu.locator('[data-theme-toggle]').focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveJSProperty('open', false)
+    await expect(summary).toBeFocused()
+
+    // An outside click still closes it, and still leaves focus where it went.
+    // The open dropdown covers the middle of the hero at this width, so the
+    // click lands on the headline's left edge — outside the panel.
+    await summary.click()
+    await expect(menu).toHaveJSProperty('open', true)
+    await page.locator('h1').click({ position: { x: 8, y: 8 } })
+    await expect(menu).toHaveJSProperty('open', false)
+    await expect(summary).not.toBeFocused()
+
+    // An anchor keeps the browser's own answer: the focus start point moves
+    // to the section it names, so Tab carries on down there, not back here.
+    await summary.click()
+    await menu.locator('a[href="#pricing"]').focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveJSProperty('open', false)
+    await expect(page.locator('#pricing')).toBeInViewport()
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() =>
+      document.activeElement?.closest('#pricing') !== null)).toBe(true)
+  })
+
+  test('hover opens Sign in and Start free, and moving away closes the same panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const panel = page.locator('#home-account-panel')
+    const triggers = page.locator('.home-signin-trigger, .home-header-inner > .home-btn')
+    for (let index = 0; index < 2; index += 1) {
+      const trigger = triggers.nth(index)
+      await trigger.hover()
+      await expect(panel).toBeVisible()
+      await panel.hover()
+      await page.locator('h1').hover()
+      await expect(panel).toBeHidden()
+      await trigger.hover()
+      await expect(panel).toBeVisible()
+      await page.locator('h1').hover()
+      await expect(panel).toBeHidden()
+    }
+  })
+
+  test('every Start free opens the same panel and returns focus to its own trigger', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const triggers = page.getByRole('button', { name: 'Start free' })
+    await expect(triggers).toHaveCount(3)
+    for (let index = 0; index < 3; index += 1) {
+      const trigger = triggers.nth(index)
+      await trigger.scrollIntoViewIfNeeded()
+      await trigger.click()
+      await expect(page.locator('#home-account-panel')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
+  })
+
+  test('provider links and the native panel work without JavaScript', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 1440, height: 900 } })
+    const page = await context.newPage()
+    await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
+    await page.locator('.home-signin-trigger').click()
+    await expect(page.locator('#home-account-panel')).toBeVisible()
+    expect(await page.locator('#home-account-panel .home-signin-list a').evaluateAll((links) =>
+      links.map((link) => link.getAttribute('href')),
+    )).toEqual(['/auth/apple', '/auth/dropbox', '/auth/google'])
+    await context.close()
+  })
+
+  test('the theme control is a labelled icon button', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const toggle = page.locator('.home-header-inner > [data-theme-toggle]')
+    await expect(toggle).toHaveAttribute('aria-label', 'Light mode')
+    await expect(toggle.locator('svg')).toHaveCount(2)
+    expect(await toggle.evaluate((el) => el.getBoundingClientRect().width)).toBe(44)
+    expect(await toggle.evaluate((el) => el.getBoundingClientRect().height)).toBe(44)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-label', 'Dark mode')
+    await expect(page.locator('html')).toHaveClass(/light/)
+  })
+
+  test('the footer logo bottoms out with the copyright and the ownership notice has its own line', async ({ page }) => {
+    await open(page)
+    await page.locator('.home-footer').scrollIntoViewIfNeeded()
+    const boxes = await page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document.querySelector(selector)!.getBoundingClientRect()
+        return { top: rect.top, bottom: rect.bottom }
+      }
+      return {
+        logo: box('.home-footer-brand'),
+        copyright: box('.home-footer-copy-line > span:last-child'),
+        line: box('.home-footer-copy-line'),
+        ownership: box('.home-footer-ownership'),
+      }
+    })
+    expect(boxes.logo.bottom).toBeCloseTo(boxes.copyright.bottom, 0)
+    expect(boxes.ownership.top).toBeGreaterThanOrEqual(boxes.line.bottom)
+    await expect(page.locator('.home-footer-ownership')).toHaveText('Photographs in galleries belong to their respective owners.')
+  })
+
+  test('the hero and closing highlights use their surrounding font family', async ({ page }) => {
+    await open(page)
+    const families = await page.evaluate(() => {
+      const family = (selector: string) => getComputedStyle(document.querySelector(selector)!).fontFamily
+      return {
+        hero: family('.home-hero .home-h1 em'),
+        heroHeading: family('.home-hero .home-h1'),
+        final: family('.home-final .home-h2 em'),
+        finalHeading: family('.home-final .home-h2'),
+      }
+    })
+    expect(families.hero).toBe(families.heroHeading)
+    expect(families.final).toBe(families.finalHeading)
+    expect(families.hero).not.toContain('Playfair')
+    expect(families.final).not.toContain('Playfair')
+  })
 
   test('the page scrolls with the wheel', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -63,27 +251,47 @@ test.describe('the marketing homepage', () => {
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
   })
 
-  test('the surface links are in the first fold on a wide screen', async ({ page }) => {
+  test('the centred device frame leads the first fold on a wide screen', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900 },
       { width: 2560, height: 1440 },
     ]) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await open(page)
-      const menu = page.locator('.home-hero-links')
-      await expect(menu).toBeVisible()
-      const box = await menu.boundingBox()
-      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+      await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'true')
+      const stage = page.locator('[data-demo-viewport]')
+      const device = page.locator('[data-demo-device]')
+      await expect(stage).toBeVisible()
+      await expect(device).toBeVisible()
+      const box = await stage.boundingBox()
+      const frame = await device.boundingBox()
+      const root = await page.locator('[data-demo-stage]').boundingBox()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(root!.width).toBeCloseTo(viewport.width * 0.95, 0)
+      expect(root!.height).toBeCloseTo(viewport.height * 0.95 - 64, 0)
+      expect(frame!.width).toBeLessThanOrEqual(box!.width + 1)
+      expect(box!.y).toBeLessThan(viewport.height * 0.6)
+      expect(box!.height).toBeGreaterThan(0)
     }
   })
 
-  test('the surface links are within a viewport and a quarter on a phone', async ({ page }) => {
+  test('the framed photographic stage is the dominant first-fold element on a phone', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 })
     await open(page)
-    const menu = page.locator('.home-hero-links')
-    await expect(menu).toBeVisible()
-    const box = await menu.boundingBox()
-    expect(box!.y + box!.height).toBeLessThanOrEqual(812 * 1.25)
+    await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'true')
+    const stage = page.locator('[data-demo-viewport]')
+    const device = page.locator('[data-demo-device]')
+    await expect(stage).toBeVisible()
+    await expect(device).toBeVisible()
+    const box = await stage.boundingBox()
+    const frame = await device.boundingBox()
+    const root = await page.locator('[data-demo-stage]').boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(root!.width).toBeCloseTo(375 * 0.95, 0)
+    expect(root!.height).toBeCloseTo(812 * 0.95 - 64, 0)
+    expect(frame!.width).toBeLessThanOrEqual(box!.width + 1)
+    expect(box!.y).toBeLessThan(812 * 0.65)
+    expect(box!.height).toBeGreaterThan(0)
   })
 
   test('the pricing link scrolls to a heading that is not hidden under the header', async ({ page }) => {
@@ -92,36 +300,34 @@ test.describe('the marketing homepage', () => {
     await page.locator('.home-nav a[href="#pricing"]').click()
     const heading = page.locator('#pricing h2')
     await expect(heading).toBeVisible()
+    await expect.poll(async () => (await heading.boundingBox())!.y).toBeLessThan(900)
     const box = await heading.boundingBox()
     const header = await page.locator('.home-header').boundingBox()
     expect(box!.y).toBeGreaterThanOrEqual(header!.height - 1)
-    expect(box!.y).toBeLessThan(900)
   })
 
   test('every menu link scrolls to the section it names', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
     const links = await page.locator('.home-nav a').all()
-    expect(links.length).toBeGreaterThanOrEqual(4)
+    expect(links.length).toBe(3)
     for (const link of links) {
       const href = (await link.getAttribute('href')) ?? ''
       const label = (await link.innerText()).trim()
       // Start from the top every time, so a link is judged on where it
       // takes the visitor, not on where the previous one left them.
       await page.evaluate(() => window.scrollTo(0, 0))
-      await page.waitForTimeout(150)
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
       await link.click()
-      await expect
-        .poll(async () => {
-          const box = await page.locator(href).boundingBox()
-          return box ? Math.round(box.y) : -1
-        })
-        .toBeGreaterThanOrEqual(0)
-      const section = await page.locator(href).boundingBox()
       const header = await page.locator('.home-header').boundingBox()
-      // The section lands under the header, not behind it.
-      expect(section!.y, `${label} → ${href}`).toBeGreaterThanOrEqual(header!.height - 1)
-      expect(section!.y, `${label} → ${href}`).toBeLessThan(header!.height + 120)
+      await expect.poll(async () => {
+        const box = await page.locator(href).boundingBox()
+        return box ? Math.round(box.y) : -1
+      }).toBeLessThan(header!.height + 120)
+      const section = await page.locator(href).boundingBox()
+      // The section lands at the document's configured sticky-header offset.
+      const offset = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop))
+      expect(section!.y, `${label} → ${href}`).toBeGreaterThanOrEqual(offset - 1)
     }
   })
 
@@ -131,22 +337,24 @@ test.describe('the marketing homepage', () => {
     const desktop = await page.locator('.home-nav a').allTextContents()
     await page.locator('.home-nav-menu summary').click()
     const phone = await page.locator('.home-nav-menu-list a').allTextContents()
-    expect(phone).toEqual(desktop)
+    expect(phone.slice(0, desktop.length)).toEqual(desktop)
   })
 
-  test('the keyboard reaches the skip link, the navigation and the sign-in group', async ({ page }) => {
+  test('the keyboard reaches the skip link, the navigation and the sign-in disclosure', async ({ page, browserName }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
-    await page.keyboard.press('Tab')
+    // Safari's default full keyboard navigation uses Option+Tab for links.
+    const tab = () => page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
+    await tab()
     const skip = page.locator('.home-skip')
     await expect(skip).toBeFocused()
     const seen: string[] = []
     for (let step = 0; step < 12; step += 1) {
-      await page.keyboard.press('Tab')
+      await tab()
       const id = await page.evaluate(() => {
         const active = document.activeElement
         if (!active) return ''
-        return active.closest('.home-nav') ? 'nav' : active.closest('.home-signin') ? 'signin' : active.className || active.tagName
+        return active.closest('.home-nav') ? 'nav' : active.closest('.home-signin-header') ? 'signin' : active.className || active.tagName
       })
       seen.push(id)
       if (id === 'signin') break
@@ -203,18 +411,26 @@ test.describe('the marketing homepage', () => {
     expect(animated).toBe(0)
   })
 
-  test('the page carries no client script of its own', async ({ page }) => {
+  test('the page loads only the chrome and shared island enhancement scripts', async ({ page }) => {
     await open(page)
-    // Vite's dev client is injected by the dev server — as an inline
-    // `import("/@vite/client")`, so it has no src to filter on — and it is
-    // absent from the production build. The homepage itself ships no
-    // JavaScript at all.
+    // Vite's dev client is inline and absent from production. The remaining
+    // scripts are the four homepage utilities plus HonoX's shared hydration.
     const scripts = await page.evaluate(() =>
       [...document.querySelectorAll('script')]
         .filter((s) => !(s.textContent || '').includes('/@vite/client'))
         .map((s) => s.getAttribute('src') ?? 'inline'),
     )
-    expect(scripts).toHaveLength(0)
+    expect(scripts.slice(0, 5)).toEqual([
+      '/theme-init.js',
+      '/home-theme.js',
+      '/home-menu.js',
+      '/home-hero.js',
+      '/hydrate-guard.js',
+    ])
+    // Dev serves the entry from source; a built Worker serves the manifest's
+    // hashed asset. Either way it is one client module and nothing else.
+    expect(scripts).toHaveLength(6)
+    expect(scripts[5]).toMatch(/^\/(?:app\/client\.ts|static\/client-[\w-]+\.js)(?:[?#].*)?$/)
   })
 
   test('the visible marketing copy stays inside the budget', async ({ page }) => {

@@ -15,9 +15,14 @@ export default function Footer() {
         </nav>
 
         <p class="home-footer-copy">
-          © 2026 Mahesh Shantaram / <a href="https://thecontrarian.in">thecontrarian.in</a>.
-          <br />
-          All platform rights reserved.
+          <span class="home-footer-copy-line">
+            <span class="home-footer-brand">
+              <img class="home-logo-dark" src="/manorama-merged-logo.png" alt="manorama" width={2027} height={688} />
+              <img class="home-logo-light" src="/manorama-merged-logo-light.png" alt="" aria-hidden="true" width={2027} height={688} />
+            </span>
+            <span>© 2026 Mahesh Shantaram.</span>
+          </span>
+          <span class="home-footer-ownership">Photographs in galleries belong to their respective owners.</span>
         </p>
       </div>
     </footer>

@@ -8,7 +8,9 @@
 
 export type ViewerChromeProps = {
   visible: boolean
+  demo?: boolean
   position: { index: number; total: number }
+  positionLabel?: string
   /** Native/desktop go back to the library; web links to libraryHref for
    *  owner/member. Neither renders → no Library pill (visitors). */
   onReturnToGalleries?: () => void
@@ -34,7 +36,9 @@ export type ViewerChromeProps = {
 
 export default function ViewerChrome({
   visible,
+  demo = false,
   position,
+  positionLabel,
   onReturnToGalleries,
   libraryHref,
   onOpenSettings,
@@ -62,6 +66,7 @@ export default function ViewerChrome({
         aria-hidden={visible ? undefined : 'true'}
         style={topStyle}
         data-chrome-top
+        data-demo-chrome-top={demo ? '' : undefined}
         {...activity}
       >
         {showLibrary ? (
@@ -82,11 +87,12 @@ export default function ViewerChrome({
         aria-hidden={visible ? undefined : 'true'}
         style={bottomStyle}
         data-chrome-bottom
+        data-demo-chrome-bottom={demo ? '' : undefined}
         aria-label="Viewer controls"
         {...activity}
       >
-        <button ref={positionRef} type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position>
-          {position.index + 1} of {position.total}
+        <button ref={positionRef} type="button" class="m-chrome-pill" onClick={onOpenPicker} aria-label={pickerAriaLabel} data-chrome-position data-demo-position={demo ? '' : undefined}>
+          {positionLabel ?? `${position.index + 1} of ${position.total}`}
         </button>
         <button ref={settingsRef} type="button" class="m-chrome-pill" onClick={onOpenSettings}>Settings</button>
         <button type="button" class="m-chrome-pill" onClick={onOpenInfo}>Info</button>

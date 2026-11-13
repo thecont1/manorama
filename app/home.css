@@ -201,6 +201,11 @@ html.home-page body {
   color: var(--home-accent);
 }
 
+.home-hero .home-h1 em,
+.home-final .home-h2 em {
+  font-family: inherit;
+}
+
 .home-h2 {
   font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(22px, 3.3vw, 42px);
@@ -301,15 +306,12 @@ html.light .home .home-logo-light {
   display: block;
 }
 
-/* Two flexible auto margins — after the wordmark and after the nav —
-   split the header into three zones: mark, the page's table of contents,
-   and the actions. The contents list mirrors document order; the actions
-   sit at the right edge where utilities belong. */
+/* The wordmark's auto margin pushes one unified menu set to the right:
+   section links, theme, Downloads and sign-in, followed by the filled action. */
 .home-nav {
   display: flex;
   align-items: center;
   gap: 22px;
-  margin-right: auto;
 }
 
 .home .home-nav a {
@@ -327,43 +329,61 @@ html.light .home .home-logo-light {
   color: var(--home-accent);
 }
 
-/* The theme toggle rides with the utilities — quiet until needed. It
-   renders hidden: the theme script reveals it once it can actually do
-   the job, so a scriptless page never shows a dead control. */
+/* The theme script reveals the icon only once it can work. */
 .home .home-theme-toggle {
-  background: none;
-  border: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
   padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--home-ink-muted);
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.home .home-theme-toggle[hidden] {
+  display: none;
+}
+
+.home .home-theme-toggle:hover {
+  background: var(--home-surface);
+  color: var(--home-ink);
+}
+
+.home-theme-moon,
+html.light .home-theme-sun {
+  display: none;
+}
+
+html.light .home-theme-moon {
+  display: block;
+}
+
+.home-signin-trigger,
+.home-nav-signin {
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--home-ink-muted);
   font: inherit;
   font-size: 15px;
-  color: var(--home-ink-muted);
   cursor: pointer;
   transition: color 120ms ease-out;
 }
 
-.home .home-theme-toggle:hover {
+.home-signin-trigger:hover,
+.home-nav-signin:hover {
   color: var(--home-ink);
 }
 
-.home-nav-menu-list .home-theme-toggle {
-  font-size: 15px;
+.home-nav-signin {
+  padding: 10px 8px;
   text-align: left;
   color: var(--home-ink-soft);
-  padding: 10px 8px;
-}
-
-/* The sign-in utility: quieter than the contents links, sitting with the
-   one filled action rather than among the sections. */
-.home .home-nav-signin {
-  font-size: 15px;
-  text-decoration: none;
-  color: var(--home-ink-muted);
-  margin-left: 6px;
-  transition: color 120ms ease-out;
-}
-
-.home .home-nav-signin:hover {
-  color: var(--home-ink);
 }
 
 .home-nav-menu {
@@ -484,132 +504,49 @@ html.light .home .home-logo-light {
 /* ── the hero ──────────────────────────────────────────────────────── */
 
 .home-hero {
-  /* The first band's breath stays small: the sticky header is its frame. */
   --home-band-before: clamp(24px, 2.6vw, 40px);
 }
 
-.home-hero-grid {
-  display: grid;
-  gap: clamp(28px, 4vw, 56px);
-  align-items: start;
-}
-
-.home-hero-copy {
-  min-width: 0;
-}
-
-.home-hero-media {
-  min-width: 0;
-}
-
-/* ── the sign-in group ─────────────────────────────────────────────── */
-
-.home-signin {
-  margin: 0 0 16px;
-  max-width: 480px;
-}
-
-.home-signin-title {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  line-height: 1.25;
-  margin: 0 0 14px;
-}
-
-.home .signin {
-  margin-top: 0;
-  text-align: left;
-}
-
-.home .signin-icons {
-  max-width: none;
+.home-hero .home-lede {
   margin-inline: 0;
-  gap: 10px;
 }
 
-/* The provider chooser. Outlined rather than filled: the one filled
-   action in the first fold is the header's Start free, so the photograph
-   and the headline stay the loudest things on the screen. */
-.home .signin-pill {
-  min-height: 56px;
-  justify-content: flex-start;
-  padding: 14px 22px;
-  border: 2px solid var(--home-line);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--home-ink);
-  font-size: 18px;
-  font-weight: 600;
-  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+.home-hero-stage {
+  max-width: 720px;
+  margin: 0 auto clamp(24px, 3vw, 36px);
 }
 
-.home .signin-pill:hover {
-  filter: none;
-  background: var(--home-surface-raised);
-  border-color: var(--home-ink);
+.home-hero-stage-demo {
+  width: 95vw;
+  max-width: none;
+  margin-inline: calc((100% - 95vw) / 2);
 }
 
-.home .signin-pill:focus-visible {
-  outline: 2px solid var(--home-accent);
-  outline-offset: 3px;
+.home-hero-stage .home-figure-caption {
+  margin-inline: auto;
 }
 
-.home .signin-pill svg {
-  width: 22px;
-  height: 22px;
+.home-hero-cta {
+  margin: 0;
+  text-align: center;
 }
 
-.home p.home-signin-note {
-  margin-top: 12px;
+.home-hero-tail {
+  margin-top: var(--home-gap-block);
 }
 
-.home p.home-hero-cta {
-  margin-bottom: 12px;
+.home-hero .home-note,
+.home-hero .home-sources,
+.home-hero .home-sources-foot {
+  margin-inline: auto;
 }
 
-/* ── the download menu ─────────────────────────────────────────────── */
-
-/* One disclosure, two costumes: a quiet utility in the header, a quiet
-   pill in the hero fold. The panel floats in the menu layer (40). */
-.home-download {
-  position: relative;
-}
-
-.home-download > summary {
-  list-style: none;
-  cursor: pointer;
-  user-select: none;
-}
-
-.home-download > summary::-webkit-details-marker {
-  display: none;
-}
-
-.home-download > summary::before {
-  content: '▾';
-  margin-right: 8px;
-  font-size: 15px;
-}
-
-.home-download-header > summary {
-  font-size: 15px;
-  color: var(--home-ink-muted);
-  transition: color 120ms ease-out;
-}
-
-.home-download-header > summary:hover,
-.home-download-header[open] > summary {
-  color: var(--home-ink);
-}
-
-/* The tail of the fold is a quiet details list: the platform line and the
-   account note are one cluster, the sources and their caveat another —
-   16px / 8px inside, 18px between clusters, and the caveat hugs its line.
-   `.home p.<class>` because the bare `p` reset beats a plain class. */
+/* The reassurance cluster: where manorama runs and who can view, set close
+   together (8px) and held apart from the invitation by the button's own
+   breath above. `.home p.<class>` because the bare `p` reset beats a plain
+   class. */
 .home p.home-hero-links {
-  margin-top: 16px;
+  margin-top: 0;
   font-size: 16px;
   color: var(--home-ink-muted);
 }
@@ -634,81 +571,102 @@ html.light .home .home-logo-light {
   color: var(--home-ink-muted);
 }
 
-.home .home-hero-media .home-hero-cta {
-  margin: 20px 0 0;
-}
-
-.home-hero-cta-note {
-  display: block;
-  margin-top: 10px;
-  font-size: 15px;
-  color: var(--home-ink-muted);
-}
-
-/* The panel is a printed sticker, not a frosted card: sharp corners, an
-   ink border and a hard offset shadow in the signature pink. It follows
-   the page's own surface and ink tokens, so the dark theme gets a dark
-   shade and the milky theme its counterpart — no fixed colours here. */
-.home-download-panel {
-  --dl-ink: var(--home-ink);
-  --dl-ink-soft: var(--home-ink-muted);
-  position: absolute;
-  top: calc(100% + 10px);
-  min-width: 250px;
-  background: var(--home-surface-raised);
+/* Native top-layer placement keeps the account panel above the sticky
+   header and the demo, including when a lower-page Start free opens it. */
+.home-account-panel {
+  position: fixed;
+  inset: calc(var(--home-header-h) + 8px) clamp(20px, 4.5vw, 64px) auto auto;
+  width: min(320px, calc(100vw - 40px));
+  max-height: calc(100svh - var(--home-header-h) - 24px);
+  margin: 0;
+  padding: 14px;
+  overflow-y: auto;
   border: 2px solid var(--home-ink);
   border-radius: 0;
+  background: var(--home-surface-raised);
+  color: var(--home-ink);
   box-shadow: 4px 4px 0 var(--home-accent);
-  padding: 8px;
-  z-index: 40;
 }
 
-.home-download-header .home-download-panel {
-  right: 0;
+.home-account-panel:not(:popover-open) {
+  display: none;
 }
 
-/* The two posters read as paper on the milky ground: pure white sheets
-   with the same ink border and pink offset. */
-html.light .home-download-panel,
+html.light .home-account-panel,
 html.light .home-sources-box {
   background: #fff;
 }
 
-.home-download-list {
+.home-account-heading {
+  margin: 2px 8px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--home-ink-muted);
+}
+
+.home-account-panel section + section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--home-line);
+}
+
+.home-account-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.home-download-list a,
-.home-download-soon {
+.home-account-list a {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 10px 12px;
-  border-radius: 0;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 10px;
+  color: var(--home-ink);
   text-decoration: none;
 }
 
-/* The pink does one job inside the poster: the row fills with it on
-   hover — the same accent that marks the picked photograph. */
-.home .home-download-list a:hover {
+.home .home-account-list a:hover {
   background: var(--home-accent);
 }
 
-.home-download-name {
+.home-account-list a:has(small) {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.home-account-list small {
+  flex-basis: 100%;
+  color: var(--home-ink-muted);
+  font-size: 12px;
+}
+
+.home-account-name {
   font-size: 16px;
   font-weight: 600;
-  color: var(--dl-ink);
 }
 
-.home-download-soon .home-download-name {
-  color: var(--dl-ink-soft);
+.home-signin-list svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
+.home p.home-signin-retry {
+  margin: 10px 8px 2px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--home-ink-muted);
+}
+
+/* The compatibility footnote: the same facts the donor register below carries,
+   kept here as fine print. A step down to 14px and a full cluster's breath
+   above subordinates it to the reassurance, so the eye reads action →
+   reassurance → small print rather than five lines of equal weight. */
 .home p.home-sources {
-  margin-top: 18px;
-  font-size: 16px;
+  margin-top: var(--home-gap-block);
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--home-ink-muted);
   max-width: 520px;
   text-wrap: pretty;
@@ -716,7 +674,8 @@ html.light .home-sources-box {
 
 .home p.home-sources-foot {
   margin-top: 6px;
-  font-size: 16px;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--home-ink-muted);
   max-width: 520px;
 }
@@ -766,6 +725,401 @@ html.light .home-sources-box {
   }
 }
 
+/* ── the photo demo ────────────────────────────────────────────────── */
+
+.home-demo {
+  --home-device-body: #1b1d20;
+  --home-device-base: #111315;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: calc(95svh - var(--home-header-h));
+}
+
+html.light .home-demo {
+  --home-device-body: #0b0c0d;
+  --home-device-base: #070808;
+}
+
+.home-demo-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: default;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.home-demo-static {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: #0a0a0a;
+}
+
+.home-demo-static picture {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.home-demo-static img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.home-demo-device-measure {
+  position: relative;
+  flex: none;
+  width: 0;
+  height: 0;
+}
+
+.home-demo-device {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: top left;
+  visibility: hidden;
+}
+
+.home-demo[data-demo-fitted='true'] .home-demo-device {
+  visibility: visible;
+}
+
+.home-demo-device-body,
+.home-demo-laptop-base {
+  position: absolute;
+  background: var(--home-device-body);
+}
+
+.home-demo-device-body {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.16);
+}
+
+.home-demo-device-glass {
+  position: absolute;
+  background: #050606;
+}
+
+.home-demo-laptop-base {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0 0 20px 20px;
+  background: var(--home-device-base);
+}
+
+.home-demo-screen {
+  --ink: 243 240 232;
+  --m-ink: #f3f0e8;
+  --gallery-canvas: #0a0a0a;
+  position: absolute;
+  overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+  clip-path: inset(0 round var(--home-screen-radius));
+  background: #000;
+  pointer-events: none;
+}
+
+.home-demo-viewer {
+  position: absolute;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+.home-demo-viewer-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.home-demo-notch-strip {
+  position: absolute;
+  z-index: 40;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #000;
+}
+
+.home-demo-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 0 0 16px 16px;
+  background: #000;
+}
+
+.home-demo-island {
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #000;
+}
+
+.home-demo-side-button {
+  position: absolute;
+  background: var(--home-device-body);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+.home-demo-camera {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+}
+
+.home-demo-device--duo .home-demo-device-body {
+  background: #d8d5cc;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.72), 0 12px 32px rgb(0 0 0 / 0.24);
+}
+
+html.light .home-demo-device--duo .home-demo-device-body {
+  background: #24292e;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2), 0 12px 32px rgb(0 0 0 / 0.28);
+}
+
+.home-demo-duo-hinge {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  background: #060707;
+  pointer-events: none;
+}
+
+.home-demo-duo-hinge-cover {
+  position: absolute;
+  left: 50%;
+  width: calc(100% + 16px);
+  height: 20px;
+  transform: translateX(-50%);
+  background: #17191a;
+}
+
+.home-demo-duo-hinge-cover--top { top: 0; }
+.home-demo-duo-hinge-cover--bottom { bottom: 0; }
+
+.home-demo-duo-spread-track {
+  display: flex;
+  height: 100%;
+  transition: transform 1600ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.home-demo-duo-spread {
+  height: 100%;
+  overflow: hidden;
+}
+
+.home-demo-viewer-stage .viewer-stage {
+  height: 100%;
+  cursor: default;
+  touch-action: none;
+}
+
+.home-demo-viewer-stage .curtain,
+.home-demo-viewer-stage .m-chrome,
+.home-demo-viewer-stage .m-chrome-skip {
+  position: absolute;
+}
+
+.home-demo-viewer-stage .curtain {
+  inset: 0;
+  pointer-events: none;
+  cursor: default;
+}
+
+.home-demo-viewer-stage .m-chrome {
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.home-demo-viewer-stage .m-chrome--top {
+  top: var(--home-demo-safe-top, 8px);
+}
+
+.home-demo-device--duo .m-chrome {
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+.home-demo-device--duo .m-chrome--bottom {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-demo-device--duo .stage-arrows {
+  display: none;
+}
+
+.home-demo-viewer-stage .m-chrome-skip {
+  display: none;
+}
+
+.home-demo-screen .m-chrome-pill,
+.home-demo-screen .endcap-reset {
+  pointer-events: none;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.home-demo-viewer-stage .viewer-endcap {
+  background: #0a0a0a;
+}
+
+/* One bar under the device: the simulation's own controls, then the way
+   out of the simulation. The link stays put when the controls are hidden,
+   so the static and failed states still offer the real gallery. */
+.home-demo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 56px;
+  padding: 12px var(--home-wrap-pad) 0;
+}
+
+.home-demo-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.home-demo-controls[hidden] {
+  display: none;
+}
+
+.home-demo-sample {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--home-line);
+  color: var(--home-ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.home-demo-sample:hover {
+  background: var(--home-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--home-ink-muted);
+}
+
+.home-demo-shapes {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--home-surface);
+}
+
+.home-demo-shape,
+.home-demo-pause {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--home-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+
+.home-demo-pause {
+  background: var(--home-surface);
+}
+
+.home-demo-shape[aria-pressed='true'] {
+  background: var(--home-ink);
+  color: var(--home-bg);
+}
+
+.home-demo-pause[aria-pressed='true'] {
+  background: var(--home-surface-raised);
+}
+
+.home-demo-shape:hover,
+.home-demo-pause:hover {
+  background: var(--home-surface-raised);
+}
+
+.home-demo-shape[aria-pressed='true']:hover {
+  background: var(--home-ink);
+}
+
+.home-demo-pause:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.home-demo-shape:focus-visible,
+.home-demo-pause:focus-visible {
+  outline: 2px solid var(--home-accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 719px) {
+  .home-demo-bar {
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  .home-demo-controls {
+    gap: 8px;
+  }
+
+  .home-demo-shape,
+  .home-demo-pause {
+    padding-inline: 6px;
+    font-size: 13px;
+  }
+
+  .home-demo-sample {
+    padding-inline: 14px;
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-demo-shape,
+  .home-demo-pause,
+  .home-demo-sample,
+  .home-demo-duo-spread-track,
+  .home-demo-screen .home-demo-chrome {
+    transition: none;
+  }
+}
+
 /* ── the steps ─────────────────────────────────────────────────────── */
 
 .home-steps {
@@ -789,15 +1143,17 @@ html.light .home-sources-box {
   margin: 0 0 6px;
 }
 
+.home-step-number {
+  display: inline-block;
+  min-width: 38px;
+  color: var(--home-ink-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
 .home-step-body {
   font-size: 18px;
   color: var(--home-ink-soft);
-}
-
-.home p.home-step-note {
-  margin-top: 8px;
-  font-size: 16px;
-  color: var(--home-ink-muted);
 }
 
 /* ── disclosures ───────────────────────────────────────────────────── */
@@ -1069,8 +1425,12 @@ table.home-table td {
   margin-top: 4px;
 }
 
-.home-table-notes {
+.home-good-to-know {
   margin-top: var(--home-gap-items);
+}
+
+.home-table-notes {
+  margin-top: 8px;
   display: grid;
   gap: 10px;
 }
@@ -1246,6 +1606,30 @@ table.home-table td {
 
 .home-footer-copy {
   margin: 0;
+  max-width: 76ch;
+}
+
+.home-footer-copy-line {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.home-footer-brand {
+  flex: none;
+  width: 108px;
+  line-height: 0;
+}
+
+.home-footer-brand img {
+  width: 100%;
+  transform: translateY(3px);
+}
+
+.home-footer-ownership {
+  display: block;
+  margin-top: 4px;
 }
 
 /* The privacy notice reads as a notice, not as another link row: the
@@ -1321,10 +1705,6 @@ table.home-table td {
 }
 
 @media (min-width: 1024px) {
-  .home-hero-grid {
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  }
-
   .home-split {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
@@ -1370,12 +1750,6 @@ table.home-table td {
     gap: 28px;
     align-items: start;
   }
-
-  /* The hero photograph escapes the column's right padding and runs to
-     the viewport edge — the one full-bleed moment the fold gets. */
-  .home-hero-media {
-    margin-right: calc(-1 * var(--home-wrap-pad));
-  }
 }
 
 @media (max-width: 1023px) {
@@ -1386,18 +1760,19 @@ table.home-table td {
   }
 }
 
-@media (max-width: 719px) {
+@media (max-width: 1023px) {
   .home-nav,
-  .home-nav-signin,
   .home-header-inner > .home-theme-toggle,
-  .home-download-header {
+  .home-header-inner > .home-signin-trigger {
     display: none;
   }
 
   .home-nav-menu {
     display: block;
   }
+}
 
+@media (max-width: 719px) {
   .home-header-inner {
     gap: 12px;
   }

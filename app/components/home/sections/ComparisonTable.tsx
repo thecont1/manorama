@@ -43,7 +43,7 @@ export default function ComparisonTable() {
       </div>
 
       <div class="home-shared">
-        <h3 class="home-shared-title">Included with both plans</h3>
+        <h3 class="home-shared-title">Included with both</h3>
         <ul class="home-shared-list">
           {SHARED_FEATURES.map((feature) => (
             <li key={feature.label}>

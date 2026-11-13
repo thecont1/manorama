@@ -180,7 +180,7 @@ describe('the homepage is the marketing page', () => {
     const html = await response.text()
     expect(html).toContain('Continue with')
     expect(html).toContain('aria-label="Continue with Dropbox"')
-    expect(html).toContain('aria-label="Continue with Google Drive"')
+    expect(html).toContain('aria-label="Continue with Google"')
     expect(html).toContain('aria-label="Continue with Apple"')
     expect(html).toContain('href="/auth/dropbox"')
     expect(html).toContain('href="/auth/google"')
@@ -202,9 +202,9 @@ describe('the homepage is the marketing page', () => {
     const html = await response.text()
     expect(html).toContain('Sign in with')
     expect(html).toContain('aria-label="Sign in with Dropbox"')
-    expect(html).toContain('aria-label="Sign in with Google Drive"')
+    expect(html).toContain('aria-label="Sign in with Google"')
     expect(html).toContain('aria-label="Sign in with Apple"')
-    expect(html).not.toContain('Continue with')
+    expect(html).not.toContain('aria-label="Continue with')
   })
 
   test('a failed sign-in shows the quiet retry note', async () => {
