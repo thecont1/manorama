@@ -500,7 +500,7 @@ html.light .home .home-logo-light {
    demo's own max width; the caption centres beneath it. */
 .home-hero-stage {
   max-width: 720px;
-  margin: 0 auto clamp(28px, 4vw, 48px);
+  margin: 0 auto clamp(24px, 3vw, 36px);
 }
 
 .home-hero-stage .home-figure-caption {
@@ -508,24 +508,24 @@ html.light .home .home-logo-light {
 }
 
 /* Everything a visitor needs to start follows the demo, in one centred column
-   narrower than the stage so the buttons and notes stay comfortable. */
+   narrower than the stage. It reads as three clusters, not five equal lines:
+   the invitation (the sample button), the reassurance (where it runs, who can
+   view), and a quieter compatibility footnote. Each cluster owns the breath
+   that precedes it — generous between clusters, tight inside — so the fold
+   has a beat instead of a monotone stack. */
 .home-hero-after {
   max-width: 640px;
   margin-inline: auto;
 }
 
 .home-hero-after .home-hero-cta {
-  margin: 0 0 24px;
+  margin: 0 0 var(--home-gap-block);
 }
 
 .home-hero .home-note,
 .home-hero .home-sources,
 .home-hero .home-sources-foot {
   margin-inline: auto;
-}
-
-.home p.home-hero-cta {
-  margin-bottom: 12px;
 }
 
 /* ── the download menu ─────────────────────────────────────────────── */
@@ -563,12 +563,12 @@ html.light .home .home-logo-light {
   color: var(--home-ink);
 }
 
-/* The tail of the fold is a quiet details list: the platform line and the
-   account note are one cluster, the sources and their caveat another —
-   16px / 8px inside, 18px between clusters, and the caveat hugs its line.
-   `.home p.<class>` because the bare `p` reset beats a plain class. */
+/* The reassurance cluster: where manorama runs and who can view, set close
+   together (8px) and held apart from the invitation by the button's own
+   breath above. `.home p.<class>` because the bare `p` reset beats a plain
+   class. */
 .home p.home-hero-links {
-  margin-top: 16px;
+  margin-top: 0;
   font-size: 16px;
   color: var(--home-ink-muted);
 }
@@ -700,9 +700,14 @@ html.light .home-sources-box {
   color: var(--home-ink-muted);
 }
 
+/* The compatibility footnote: the same facts the donor register below carries,
+   kept here as fine print. A step down to 14px and a full cluster's breath
+   above subordinates it to the reassurance, so the eye reads action →
+   reassurance → small print rather than five lines of equal weight. */
 .home p.home-sources {
-  margin-top: 18px;
-  font-size: 16px;
+  margin-top: var(--home-gap-block);
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--home-ink-muted);
   max-width: 520px;
   text-wrap: pretty;
@@ -710,7 +715,8 @@ html.light .home-sources-box {
 
 .home p.home-sources-foot {
   margin-top: 6px;
-  font-size: 16px;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--home-ink-muted);
   max-width: 520px;
 }
