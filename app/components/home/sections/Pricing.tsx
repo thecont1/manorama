@@ -37,9 +37,9 @@ export default function Pricing() {
               Sign in with Apple, Dropbox or Google to create an account.
             </p>
             <p class="home-plan-cta">
-              <a class="home-btn home-btn-quiet" href="#start" data-signin-open>
+              <button type="button" class="home-btn home-btn-quiet" popovertarget="home-account-panel" popovertargetaction="show">
                 Start free
-              </a>
+              </button>
             </p>
           </div>
 

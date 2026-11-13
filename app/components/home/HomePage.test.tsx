@@ -65,7 +65,7 @@ describe('the sign-in group', () => {
     expect(providerHrefs(html)).toEqual(['/auth/apple', '/auth/dropbox', '/auth/google'])
     expect(html).toContain('aria-label="Continue with Apple"')
     expect(html).toContain('aria-label="Continue with Dropbox"')
-    expect(html).toContain('aria-label="Continue with Google Drive"')
+    expect(html).toContain('aria-label="Continue with Google"')
   })
 
   test('keeps the return path through the sign-in links', () => {
@@ -79,7 +79,7 @@ describe('the sign-in group', () => {
     const html = page({ returning: true })
     expect(html).toContain('Sign in with')
     expect(html).toContain('aria-label="Sign in with Apple"')
-    expect(html).not.toContain('Continue with')
+    expect(html).not.toContain('aria-label="Continue with')
   })
 
   test('shows the retry note only after a failed sign-in', () => {
@@ -87,32 +87,39 @@ describe('the sign-in group', () => {
     expect(page()).not.toContain('Sign-in didn')
   })
 
-  test('the menu is just the three providers — no title, no pitch', () => {
+  test('groups providers and published apps without a pitch', () => {
     const html = page()
-    const start = html.indexOf('home-signin-panel')
-    const panel = html.slice(start, html.indexOf('</details>', start))
+    const start = html.indexOf('home-account-panel')
+    const panel = html.slice(start, html.indexOf('</header>', start))
+    expect(panel).toContain('Continue with')
+    expect(panel).toContain('Get the app')
     expect(panel).toContain('home-signin-list')
     expect(panel).not.toContain('The same button creates your account')
     expect(panel).not.toContain('Free includes')
-    expect(panel).not.toContain('home-signin-menu-title')
   })
 })
 
-describe('the sign-in disclosure', () => {
-  test('the provider buttons live in a header disclosure, like Download', () => {
+describe('the account popover', () => {
+  test('one native panel holds the provider links', () => {
     const html = page()
-    expect(html).toContain('home-signin-menu')
-    expect(html).toContain('<summary>Sign in</summary>')
-    const panel = html.slice(html.indexOf('home-signin-panel'))
-    expect(panel).toContain('href="/auth/apple"')
-    expect(panel).toContain('href="/auth/dropbox"')
-    expect(panel).toContain('href="/auth/google"')
+    expect(html.match(/id="home-account-panel"/g)?.length).toBe(1)
+    expect(html).toContain('class="home-account-panel" popover')
+    expect(html).toContain('popovertarget="home-account-panel"')
+    expect(html).not.toContain('<summary>Downloads</summary>')
     expect(html).not.toContain('Start free or sign in')
-    expect(html).not.toContain('<h2 class="home-signin-title">')
   })
 
-  test('every Start free button opens the sign-in disclosure', () => {
-    expect(page().match(/data-signin-open/g)?.length).toBe(3)
+  test('every Start free button opens the same panel', () => {
+    expect(page().match(/>Start free<\/button>/g)?.length).toBe(3)
+    expect(page().match(/popovertarget="home-account-panel"/g)?.length).toBe(5)
+  })
+
+  test('the theme control keeps its icon and gains an accessible label from script', () => {
+    const html = page()
+    expect(html).toContain('data-theme-toggle')
+    expect(html).toContain('home-theme-sun')
+    expect(html).toContain('home-theme-moon')
+    expect(html).not.toContain('>Light mode</button>')
   })
 })
 
@@ -125,12 +132,13 @@ describe('the navigation', () => {
     for (const target of targets) expect(ids.has(target)).toBe(true)
   })
 
-  test('offers the sections a visitor looks for, plus the download action', () => {
+  test('offers the sections without a separate Downloads menu', () => {
     const html = page()
     expect(html).toContain('href="#unify"')
     expect(html).toContain('href="#pricing"')
     expect(html).toContain('href="#faq"')
-    expect(html).toContain('home-download')
+    expect(html).not.toContain('home-download')
+    expect(html).not.toContain('<summary>Downloads</summary>')
   })
 
   test('has a skip link and one h1', () => {
@@ -181,26 +189,22 @@ describe('the pricing section', () => {
 })
 
 describe('the footer', () => {
-  test('carries the copyright and the privacy link', () => {
+  test('carries the logo-led copyright, ownership notice and privacy link', () => {
     const html = page()
-    expect(html).toContain('© 2026 Mahesh Shantaram /')
-    expect(html).toContain('All platform rights reserved.')
-    expect(html).toContain('href="https://thecontrarian.in"')
+    expect(html).toContain('© 2026 Mahesh Shantaram.')
+    expect(html).toContain('home-footer-ownership">Photographs in galleries belong to their respective owners.</span>')
+    expect(html).toContain('home-footer-brand')
+    expect(html).toContain('alt="manorama"')
     expect(html).toContain('href="/privacy"')
-    // Downloads live in the first fold and the header, not the footer.
     expect(html.match(/home-footer[\s\S]*downloads\.manorama\.xyz/)).toBeNull()
   })
 
-  test('carries nothing else at the bottom of the page', () => {
+  test('carries no separate credit line', () => {
     const html = page()
     const footer = html.slice(html.indexOf('<footer'))
-    // No credit line of its own.
     expect(footer).not.toContain('Created by documentary photographer')
-    // The site is linked once, from the copyright line, and not from the
-    // link row beside the privacy policy.
-    expect(footer.match(/href="https:\/\/thecontrarian\.in"/g)?.length).toBe(1)
-    const nav = footer.slice(footer.indexOf('<nav'), footer.indexOf('</nav>'))
-    expect(nav).not.toContain('thecontrarian.in')
+    expect(footer).not.toContain('thecontrarian.in')
+    expect(footer).not.toContain('All platform rights reserved')
   })
 })
 
@@ -214,13 +218,16 @@ describe('the surfaces and the sample gallery', () => {
     expect(html).not.toContain('URL missing')
   })
 
-  test('the published app surfaces link to the downloads host', () => {
+  test('the account panel lists only published apps with their download links', () => {
     const html = page()
-    expect(html).toContain('href="https://downloads.manorama.xyz/mac"')
-    expect(html).toContain('href="https://downloads.manorama.xyz/windows"')
-    expect(html).toContain('Apple Silicon')
-    // iPhone & iPad have no store URL yet, so the page carries no link for them.
-    expect(html).not.toContain('downloads.manorama.xyz/ios')
+    const start = html.indexOf('home-account-panel')
+    const panel = html.slice(start, html.indexOf('</header>', start))
+    expect(panel).toContain('href="https://downloads.manorama.xyz/mac"')
+    expect(panel).toContain('href="https://downloads.manorama.xyz/windows"')
+    expect(panel).toContain('>Mac</span>')
+    expect(panel).toContain('<small>Apple silicon</small>')
+    expect(panel).not.toContain('iPhone &amp; iPad')
+    expect(panel).not.toContain('home-download-soon')
   })
 
   test('the sample gallery is linked when the manifest holds one', () => {

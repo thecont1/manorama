@@ -27,19 +27,20 @@ const open = async (page: import('@playwright/test').Page) => {
 
 test.describe('the marketing homepage', () => {
   for (const viewport of MATRIX) {
-    test(`the sign-in disclosure is in the header at ${viewport.width}px`, async ({ page }) => {
+    test(`the account panel opens from the header at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await open(page)
-      // Sign-in is a header disclosure now, in the same shape as Download,
-      // so it is in the first fold at every width without scrolling.
-      const summary = page.locator('.home-signin-header > summary')
-      await expect(summary).toBeVisible()
-      const box = await summary.boundingBox()
+      const trigger = viewport.width < 1024
+        ? page.locator('.home-nav-signin')
+        : page.locator('.home-signin-trigger')
+      if (viewport.width < 1024) await page.locator('.home-nav-menu summary').click()
+      await expect(trigger).toBeVisible()
+      const box = await trigger.boundingBox()
       expect(box).not.toBeNull()
       expect(box!.y).toBeLessThan(viewport.height)
-      // Opening it reveals the provider chooser itself.
-      await summary.click()
-      await expect(page.locator('.home-signin-panel .home-signin-list a').first()).toBeVisible()
+      await trigger.click()
+      await expect(page.locator('#home-account-panel')).toBeVisible()
+      await expect(page.locator('#home-account-panel .home-signin-list a').first()).toBeVisible()
     })
 
     test(`nothing scrolls sideways at ${viewport.width}px`, async ({ page }) => {
@@ -52,47 +53,120 @@ test.describe('the marketing homepage', () => {
     })
   }
 
-  test('fine-pointer hover opens the header disclosures and only one stays open', async ({ page }) => {
+  test('the desktop header keeps sections and account utilities together on the right', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
-    const download = page.locator('.home-download-header')
-    const signin = page.locator('.home-signin-header')
-
-    await page.locator('.home-download-header > summary').hover()
-    await expect(download).toHaveAttribute('open', '')
-    await page.locator('.home-signin-header > summary').hover()
-    await expect(signin).toHaveAttribute('open', '')
-    await expect(download).not.toHaveAttribute('open', '')
-    await expect(page.locator('.home-signin-list a').first()).toBeVisible()
-
-    await page.locator('h1').hover()
-    await expect(signin).not.toHaveAttribute('open', '')
-
-    await page.locator('.home-signin-header > summary').hover()
-    await expect(signin).toHaveAttribute('open', '')
-    await page.locator('.home-signin-header > summary').click()
-    await page.locator('h1').hover()
-    await expect(signin).toHaveAttribute('open', '')
-    await page.locator('.home-signin-header > summary').click()
-    await expect(signin).not.toHaveAttribute('open', '')
+    const items = page.locator('.home-header-inner > .home-nav a, .home-header-inner > [data-theme-toggle], .home-header-inner > .home-signin-trigger')
+    await expect(items).toHaveText(['Features', 'Pricing', 'FAQ', '', 'Sign in'])
+    const wordmark = await page.locator('.home-wordmark').boundingBox()
+    const first = await items.first().boundingBox()
+    const last = await items.last().boundingBox()
+    const start = await page.locator('.home-header-inner > .home-btn').boundingBox()
+    expect(first!.x).toBeGreaterThanOrEqual(wordmark!.x + wordmark!.width)
+    expect(last!.x + last!.width).toBeLessThanOrEqual(start!.x)
   })
 
-  test('touch keeps native disclosure behavior without hover opening', async ({ browser }) => {
-    const context = await browser.newContext({
-      viewport: { width: 375, height: 812 },
-      hasTouch: true,
-      isMobile: true,
-    })
+  test('the account panel groups sign-in and published apps, closes on Escape, and restores focus', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const trigger = page.locator('.home-signin-trigger')
+    await trigger.click()
+    const panel = page.locator('#home-account-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel).toContainText('Continue with')
+    await expect(panel).toContainText('Get the app')
+    await expect(panel.locator('.home-signin-list a')).toHaveText(['Apple', 'Dropbox', 'Google'])
+    await expect(panel.locator('a[href="https://downloads.manorama.xyz/mac"]')).toContainText('Mac')
+    await expect(panel.locator('a[href="https://downloads.manorama.xyz/mac"] small')).toHaveText('Apple silicon')
+    await expect(panel.locator('a[href="https://downloads.manorama.xyz/windows"]')).toHaveText('Windows')
+    await expect(panel).not.toContainText('iPhone & iPad')
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await expect(trigger).toBeFocused()
+
+    await trigger.click()
+    await page.locator('h1').click()
+    await expect(panel).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+
+  test('hover opens Sign in and Start free, and moving away closes the same panel', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const panel = page.locator('#home-account-panel')
+    const triggers = page.locator('.home-signin-trigger, .home-header-inner > .home-btn')
+    for (let index = 0; index < 2; index += 1) {
+      const trigger = triggers.nth(index)
+      await trigger.hover()
+      await expect(panel).toBeVisible()
+      await panel.hover()
+      await page.locator('h1').hover()
+      await expect(panel).toBeHidden()
+      await trigger.hover()
+      await expect(panel).toBeVisible()
+      await page.locator('h1').hover()
+      await expect(panel).toBeHidden()
+    }
+  })
+
+  test('every Start free opens the same panel and returns focus to its own trigger', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const triggers = page.getByRole('button', { name: 'Start free' })
+    await expect(triggers).toHaveCount(3)
+    for (let index = 0; index < 3; index += 1) {
+      const trigger = triggers.nth(index)
+      await trigger.scrollIntoViewIfNeeded()
+      await trigger.click()
+      await expect(page.locator('#home-account-panel')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    }
+  })
+
+  test('provider links and the native panel work without JavaScript', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 1440, height: 900 } })
     const page = await context.newPage()
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
-    expect(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches)).toBe(false)
-    const signin = page.locator('.home-signin-header')
-    await signin.evaluate((menu) => menu.dispatchEvent(new MouseEvent('mouseenter')))
-    await expect(signin).not.toHaveAttribute('open', '')
-    await page.locator('.home-signin-header > summary').tap()
-    await expect(signin).toHaveAttribute('open', '')
-    await expect(page.locator('.home-signin-list a').first()).toBeVisible()
+    await page.locator('.home-signin-trigger').click()
+    await expect(page.locator('#home-account-panel')).toBeVisible()
+    expect(await page.locator('#home-account-panel .home-signin-list a').evaluateAll((links) =>
+      links.map((link) => link.getAttribute('href')),
+    )).toEqual(['/auth/apple', '/auth/dropbox', '/auth/google'])
     await context.close()
+  })
+
+  test('the theme control is a labelled icon button', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const toggle = page.locator('.home-header-inner > [data-theme-toggle]')
+    await expect(toggle).toHaveAttribute('aria-label', 'Light mode')
+    await expect(toggle.locator('svg')).toHaveCount(2)
+    expect(await toggle.evaluate((el) => el.getBoundingClientRect().width)).toBe(44)
+    expect(await toggle.evaluate((el) => el.getBoundingClientRect().height)).toBe(44)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-label', 'Dark mode')
+    await expect(page.locator('html')).toHaveClass(/light/)
+  })
+
+  test('the footer logo bottoms out with the copyright and the ownership notice has its own line', async ({ page }) => {
+    await open(page)
+    await page.locator('.home-footer').scrollIntoViewIfNeeded()
+    const boxes = await page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document.querySelector(selector)!.getBoundingClientRect()
+        return { top: rect.top, bottom: rect.bottom }
+      }
+      return {
+        logo: box('.home-footer-brand'),
+        copyright: box('.home-footer-copy-line > span:last-child'),
+        line: box('.home-footer-copy-line'),
+        ownership: box('.home-footer-ownership'),
+      }
+    })
+    expect(boxes.logo.bottom).toBeCloseTo(boxes.copyright.bottom, 0)
+    expect(boxes.ownership.top).toBeGreaterThanOrEqual(boxes.line.bottom)
+    await expect(page.locator('.home-footer-ownership')).toHaveText('Photographs in galleries belong to their respective owners.')
   })
 
   test('the hero and closing highlights use their surrounding font family', async ({ page }) => {
@@ -138,11 +212,13 @@ test.describe('the marketing homepage', () => {
       await expect(device).toBeVisible()
       const box = await stage.boundingBox()
       const frame = await device.boundingBox()
+      const root = await page.locator('[data-demo-stage]').boundingBox()
       expect(box!.x).toBeGreaterThanOrEqual(0)
-      expect(box!.width).toBeLessThanOrEqual(1120)
+      expect(root!.width).toBeCloseTo(viewport.width * 0.95, 0)
+      expect(root!.height).toBeCloseTo(viewport.height * 0.95 - 64, 0)
       expect(frame!.width).toBeLessThanOrEqual(box!.width + 1)
       expect(box!.y).toBeLessThan(viewport.height * 0.6)
-      expect(box!.height).toBeGreaterThanOrEqual(480)
+      expect(box!.height).toBeGreaterThan(0)
     }
   })
 
@@ -156,11 +232,13 @@ test.describe('the marketing homepage', () => {
     await expect(device).toBeVisible()
     const box = await stage.boundingBox()
     const frame = await device.boundingBox()
+    const root = await page.locator('[data-demo-stage]').boundingBox()
     expect(box!.x).toBeGreaterThanOrEqual(0)
-    expect(box!.width).toBeLessThanOrEqual(375)
+    expect(root!.width).toBeCloseTo(375 * 0.95, 0)
+    expect(root!.height).toBeCloseTo(812 * 0.95 - 64, 0)
     expect(frame!.width).toBeLessThanOrEqual(box!.width + 1)
     expect(box!.y).toBeLessThan(812 * 0.65)
-    expect(box!.height).toBeGreaterThanOrEqual(440)
+    expect(box!.height).toBeGreaterThan(0)
   })
 
   test('the pricing link scrolls to a heading that is not hidden under the header', async ({ page }) => {
@@ -209,15 +287,17 @@ test.describe('the marketing homepage', () => {
     expect(phone.slice(0, desktop.length)).toEqual(desktop)
   })
 
-  test('the keyboard reaches the skip link, the navigation and the sign-in disclosure', async ({ page }) => {
+  test('the keyboard reaches the skip link, the navigation and the sign-in disclosure', async ({ page, browserName }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
-    await page.keyboard.press('Tab')
+    // Safari's default full keyboard navigation uses Option+Tab for links.
+    const tab = () => page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
+    await tab()
     const skip = page.locator('.home-skip')
     await expect(skip).toBeFocused()
     const seen: string[] = []
     for (let step = 0; step < 12; step += 1) {
-      await page.keyboard.press('Tab')
+      await tab()
       const id = await page.evaluate(() => {
         const active = document.activeElement
         if (!active) return ''

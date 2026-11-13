@@ -9,9 +9,9 @@ export default function FinalCta() {
           Keep your <em>photographs</em> where they are. Enjoy them <em>together</em>.
         </h2>
         <p class="home-rise home-rise-2">
-          <a class="home-btn" href="#start" data-signin-open>
+          <button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">
             Start free
-          </a>
+          </button>
         </p>
       </div>
     </section>
