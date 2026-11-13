@@ -52,11 +52,26 @@ try {
     })
   }
 
+  // A failed OAuth round-trip lands on /?error=1 with its retry note inside
+  // the panel. Open it on arrival: a message nobody clicks to see is not a
+  // message. hoverOpen stays false, so only a dismissal closes it.
+  if (account && /[?&]error=1(?:&|$)/.test(window.location.search)) account.showPopover()
+
   document.addEventListener('click', function (event) {
     var target = event.target
     menus.forEach(function (menu) {
       if (!menu.open) return
-      if (!menu.contains(target) || (target.closest && target.closest('a, button'))) menu.open = false
+      var inside = menu.contains(target)
+      var control = inside && target.closest && target.closest('a, button')
+      if (inside && !control) return
+      menu.open = false
+      // Closing hides the button the keyboard was standing on, and focus
+      // falls to the body with it. Hand it back to the summary. Anchors are
+      // left alone: the browser moves the focus start point to their target,
+      // so Tab already continues from the section the visitor jumped to.
+      if (!control || control.tagName !== 'BUTTON' || event.detail !== 0) return
+      var trigger = menu.querySelector('summary')
+      if (trigger) trigger.focus()
     })
   })
 

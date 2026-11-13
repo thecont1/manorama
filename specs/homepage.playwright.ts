@@ -90,6 +90,59 @@ test.describe('the marketing homepage', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('a failed sign-in comes back with the retry note already on screen', async ({ page }) => {
+    const panel = page.locator('#home-account-panel')
+    const retry = panel.locator('.home-signin-retry')
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(`${BASE}/?error=1`, { waitUntil: 'domcontentloaded' })
+      await expect(panel).toBeVisible()
+      await expect(retry).toBeVisible()
+      await expect(retry).toHaveText('Sign-in didn’t complete. Please try again.')
+      // The note lives in the panel: the header bar itself is unchanged.
+      await expect(page.locator('.home-header-inner > .home-signin-retry')).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await expect(panel).toBeHidden()
+    }
+    await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
+    await expect(panel).toBeHidden()
+  })
+
+  test('the phone menu hands keyboard focus back to its summary when a choice closes it', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await open(page)
+    const menu = page.locator('.home-nav-menu')
+    const summary = menu.locator('summary')
+
+    await summary.focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveJSProperty('open', true)
+    await menu.locator('[data-theme-toggle]').focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveJSProperty('open', false)
+    await expect(summary).toBeFocused()
+
+    // An outside click still closes it, and still leaves focus where it went.
+    // The open dropdown covers the middle of the hero at this width, so the
+    // click lands on the headline's left edge — outside the panel.
+    await summary.click()
+    await expect(menu).toHaveJSProperty('open', true)
+    await page.locator('h1').click({ position: { x: 8, y: 8 } })
+    await expect(menu).toHaveJSProperty('open', false)
+    await expect(summary).not.toBeFocused()
+
+    // An anchor keeps the browser's own answer: the focus start point moves
+    // to the section it names, so Tab carries on down there, not back here.
+    await summary.click()
+    await menu.locator('a[href="#pricing"]').focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toHaveJSProperty('open', false)
+    await expect(page.locator('#pricing')).toBeInViewport()
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() =>
+      document.activeElement?.closest('#pricing') !== null)).toBe(true)
+  })
+
   test('hover opens Sign in and Start free, and moving away closes the same panel', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
@@ -367,14 +420,17 @@ test.describe('the marketing homepage', () => {
         .filter((s) => !(s.textContent || '').includes('/@vite/client'))
         .map((s) => s.getAttribute('src') ?? 'inline'),
     )
-    expect(scripts).toEqual([
+    expect(scripts.slice(0, 5)).toEqual([
       '/theme-init.js',
       '/home-theme.js',
       '/home-menu.js',
       '/home-hero.js',
       '/hydrate-guard.js',
-      '/app/client.ts',
     ])
+    // Dev serves the entry from source; a built Worker serves the manifest's
+    // hashed asset. Either way it is one client module and nothing else.
+    expect(scripts).toHaveLength(6)
+    expect(scripts[5]).toMatch(/^\/(?:app\/client\.ts|static\/client-[\w-]+\.js)(?:[?#].*)?$/)
   })
 
   test('the visible marketing copy stays inside the budget', async ({ page }) => {
