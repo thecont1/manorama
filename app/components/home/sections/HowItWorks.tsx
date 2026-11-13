@@ -15,25 +15,21 @@ export default function HowItWorks() {
           <h2 class="home-h2 home-rise home-rise-1">How it works</h2>
           <ol class="home-steps home-rise home-rise-2">
             <li>
-              <p class="home-step-title">Bring a gallery.</p>
+              <p class="home-step-title"><span class="home-step-number" aria-hidden="true">01</span> Bring a gallery.</p>
               <p class="home-step-body">
-                Add a supported cloud share link, or open a local folder with Visionary.
+                Paste a share link, or choose a folder on your computer.
               </p>
             </li>
             <li>
-              <p class="home-step-title">Make it yours.</p>
+              <p class="home-step-title"><span class="home-step-number" aria-hidden="true">02</span> Make it yours.</p>
               <p class="home-step-body">
-                Keep it in your Library and arrange your own galleries.
+                Name it, arrange it, keep it in your Library.
               </p>
             </li>
             <li>
-              <p class="home-step-title">Look, and share.</p>
+              <p class="home-step-title"><span class="home-step-number" aria-hidden="true">03</span> Look, and share.</p>
               <p class="home-step-body">
-                Enjoy the photographs, and share your galleries through a clean link.
-              </p>
-              <p class="home-step-note">
-                Saving someone else’s gallery keeps a gallery saved to your Library; it doesn’t
-                make you its publisher.
+                Send anyone a clean link. They can look without signing in.
               </p>
             </li>
           </ol>

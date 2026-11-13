@@ -17,9 +17,7 @@ export default function Pricing() {
             <h3 class="home-plan-name">Free</h3>
             <p class="home-plan-price">
               {PRICING.free}
-              <span class="home-plan-price-sub">
-                Free forever. No payment card required.
-              </span>
+              <span class="home-plan-price-sub">free forever.</span>
             </p>
             <p class="home-plan-line">Keep a few favourites. Share something new.</p>
             <ul class="home-plan-list">
@@ -30,12 +28,8 @@ export default function Pricing() {
                 Up to {LIMITS.freeTemporary} temporary cloud galleries, each lasting{' '}
                 {LIMITS.temporaryDays} days
               </li>
-              <li>Temporary galleries cannot be edited</li>
-              <li>The same core viewing experience</li>
+              <li>The same beautiful viewing</li>
             </ul>
-            <p class="home-plan-note">
-              Sign in with Apple, Dropbox or Google to create an account.
-            </p>
             <p class="home-plan-cta">
               <button type="button" class="home-btn home-btn-quiet" popovertarget="home-account-panel" popovertargetaction="show">
                 Start free
@@ -48,7 +42,7 @@ export default function Pricing() {
             <p class="home-plan-price">
               {PRICING.firstYear}
               <span class="home-plan-price-sub">
-                for your first year, then {PRICING.yearly}/year
+                for your first year, then {PRICING.yearly} a year.
               </span>
             </p>
             <p class="home-plan-line">
@@ -56,13 +50,9 @@ export default function Pricing() {
             </p>
             <ul class="home-plan-list">
               <li>{LIMITS.visionaryPermanent} permanent cloud galleries</li>
-              <li>Unlimited local galleries on supported desktop apps</li>
-              <li>Upgrade your unexpired temporary galleries to permanent</li>
-              <li>Annual subscription</li>
+              <li>Unlimited local galleries on Mac and Windows</li>
+              <li>Your temporary galleries become permanent when you upgrade</li>
             </ul>
-            <p class="home-plan-note">
-              Subscribe from your Library on the web, or in the iPhone and iPad app.
-            </p>
             <p class="home-plan-cta">
               <a class="home-btn" href="/?next=/">
                 Go Visionary
@@ -73,18 +63,15 @@ export default function Pricing() {
 
         <ComparisonTable />
 
-        <ul class="home-table-notes">
-          <li>
-            When you upgrade, your unexpired temporary galleries become permanent within your
-            Visionary allowance.
-          </li>
-          <li>Saving a gallery does not give you control of its original.</li>
-          <li>Deleting a Manorama gallery never deletes the photographs at the source.</li>
-          <li>
-            Visionary renews yearly. On iPhone and iPad it is billed and managed through your
-            Apple account.
-          </li>
-        </ul>
+        <div class="home-good-to-know">
+          <h3 class="home-shared-title">Good to know</h3>
+          <ul class="home-table-notes">
+            <li>Permanent galleries stay as long as their source link works.</li>
+            <li>Manorama is not a backup service.</li>
+            <li>Deleting a gallery from Manorama never deletes the photographs at the source.</li>
+            <li>Visionary renews yearly. Subscribe on the web or in the iPhone and iPad app.</li>
+          </ul>
+        </div>
       </div>
     </section>
   )

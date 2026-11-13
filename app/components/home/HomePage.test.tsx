@@ -148,13 +148,28 @@ describe('the navigation', () => {
   })
 })
 
+describe('the homepage story', () => {
+  test('uses the approved Library, steps and feature copy', () => {
+    const html = page()
+    expect(html).toContain('A friend&#39;s shared Google Drive album.')
+    expect(html).toContain('Supported cloud drives')
+    expect(html).toContain('Every gallery, hanging together.')
+    expect(html).toContain('Paste a share link, or choose a folder on your computer.')
+    expect(html).toContain('Name it, arrange it, keep it in your Library.')
+    expect(html).toContain('Send anyone a clean link. They can look without signing in.')
+    expect(html).toContain('Made for looking.')
+    expect(html).toContain('The originals stay where they are.')
+    expect(html).toContain('Take it with you.')
+  })
+})
+
 describe('the pricing section', () => {
   test('states the approved prices', () => {
     const html = page()
     expect(html).toContain('$12')
     expect(html).toContain('$20')
     expect(html).toContain('for your first year')
-    expect(html).toContain('Free forever')
+    expect(html).toContain('free forever.')
     expect(html).toContain('home-plan-name">Free<')
   })
 
@@ -171,6 +186,27 @@ describe('the pricing section', () => {
     expect(html).toContain('<table class="home-table">')
     expect(html).toContain('scope="col"')
     expect(html).toContain('scope="row"')
+  })
+
+  test('states the approved comparison and shared features', () => {
+    const html = page()
+    expect(html).toContain('Offline copies on iPhone and iPad')
+    expect(html).toContain('Choose a larger allowance')
+    expect(html).toContain('Browse everything you&#39;ve saved on iPhone and iPad')
+    expect(html).toContain('This gallery')
+    expect(html).toContain('All saved galleries')
+    expect(html).toContain('Included with both')
+    expect(html).toContain('The same viewing')
+    expect(html).toContain('Editing your permanent galleries')
+  })
+
+  test('carries the approved qualification and renewal notes', () => {
+    const html = page()
+    expect(html).toContain('Good to know')
+    expect(html).toContain('Permanent galleries stay as long as their source link works.')
+    expect(html).toContain('Manorama is not a backup service.')
+    expect(html).toContain('Deleting a gallery from Manorama never deletes the photographs at the source.')
+    expect(html).toContain('Visionary renews yearly. Subscribe on the web or in the iPhone and iPad app.')
   })
 
   test('every comparison cell says something', () => {
@@ -245,7 +281,7 @@ describe('the surfaces and the sample gallery', () => {
 describe('the copy makes no promise the product does not keep', () => {
   // The one approved sentence that names a forbidden word: it says manorama
   // is not a backup, which is the opposite of a backup claim.
-  const APPROVED = 'Manorama is not photo backup or cloud storage.'
+  const APPROVED = 'Manorama is not a backup service.'
 
   const FORBIDDEN: [RegExp, string][] = [
     [/AI-powered/i, 'AI-powered'],

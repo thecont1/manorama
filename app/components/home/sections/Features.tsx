@@ -3,20 +3,20 @@ import { ASSETS } from '../home-manifest'
 
 const FEATURES = [
   {
-    title: 'A viewing experience built for photographs.',
-    body: 'Whole images, never cropped or enlarged past their real resolution. Strip, scroll or one at a time. Controls that get out of the way.',
+    title: 'Made for looking.',
+    body: "Every photograph is shown whole. Choose a strip, a scroll, or one at a time. Controls appear when you reach for them and fade when you don't.",
   },
   {
-    title: 'A Library across sources.',
-    body: 'Your cloud galleries, galleries you have saved from others, and your local galleries with Visionary, together.',
+    title: 'One Library.',
+    body: 'Your cloud galleries, galleries friends have shared, and folders from your own computer, side by side.',
   },
   {
-    title: 'Your originals stay yours.',
-    body: 'No migration to another storage service. Removing a gallery from Manorama never touches the source.',
+    title: 'The originals stay where they are.',
+    body: 'Nothing is moved or changed. Remove a gallery from your Library–the photographs stay exactly where they were.',
   },
   {
-    title: 'Beyond the browser.',
-    body: 'iPhone and iPad keep an encrypted offline copy of the galleries you choose. Mac and Windows open local folders in place.',
+    title: 'Take it with you.',
+    body: 'Save galleries for offline viewing on mobile devices. Open folders in place on Mac and Windows.',
   },
 ]
 

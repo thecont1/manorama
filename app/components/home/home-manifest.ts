@@ -165,7 +165,7 @@ export const ASSETS: Asset[] = [
     src: 'h2-matrix',
     small: true,
     status: 'interim',
-    caption: 'Every photograph, hanging together.',
+    caption: 'Every gallery, hanging together.',
   },
   {
     id: 'H3',

@@ -1135,15 +1135,17 @@ html.light .home-demo {
   margin: 0 0 6px;
 }
 
+.home-step-number {
+  display: inline-block;
+  min-width: 38px;
+  color: var(--home-ink-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
 .home-step-body {
   font-size: 18px;
   color: var(--home-ink-soft);
-}
-
-.home p.home-step-note {
-  margin-top: 8px;
-  font-size: 16px;
-  color: var(--home-ink-muted);
 }
 
 /* ── disclosures ───────────────────────────────────────────────────── */
@@ -1415,8 +1417,12 @@ table.home-table td {
   margin-top: 4px;
 }
 
-.home-table-notes {
+.home-good-to-know {
   margin-top: var(--home-gap-items);
+}
+
+.home-table-notes {
+  margin-top: 8px;
   display: grid;
   gap: 10px;
 }
