@@ -15,6 +15,7 @@ try {
     if (!account || !hoverOpen) return
     cancelClose()
     closeTimer = window.setTimeout(function () {
+      if (account.contains(document.activeElement)) return
       account.hidePopover()
       hoverOpen = false
     }, 150)
@@ -39,11 +40,14 @@ try {
 
   if (account) {
     account.addEventListener('mouseenter', cancelClose)
+    account.addEventListener('focusin', cancelClose)
     account.addEventListener('mouseleave', scheduleClose)
     account.addEventListener('toggle', function () {
       if (account.matches(':popover-open')) return
       hoverOpen = false
-      if (accountInvoker) accountInvoker.focus()
+      var active = document.activeElement
+      var focusLost = !active || active === document.body || account.contains(active)
+      if (accountInvoker && focusLost) accountInvoker.focus()
       accountInvoker = null
     })
   }

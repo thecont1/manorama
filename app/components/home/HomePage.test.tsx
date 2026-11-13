@@ -111,7 +111,13 @@ describe('the account popover', () => {
 
   test('every Start free button opens the same panel', () => {
     expect(page().match(/>Start free<\/button>/g)?.length).toBe(3)
-    expect(page().match(/popovertarget="home-account-panel"/g)?.length).toBe(5)
+    expect(page().match(/popovertarget="home-account-panel"/g)?.length).toBe(6)
+  })
+
+  test('Go Visionary opens the panel instead of reloading the homepage', () => {
+    const html = page()
+    expect(html).toContain('popovertargetaction="show">Go Visionary</button>')
+    expect(html).not.toContain('href="/?next=/"')
   })
 
   test('the theme control keeps its icon and gains an accessible label from script', () => {

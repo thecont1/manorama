@@ -54,9 +54,9 @@ export default function Pricing() {
               <li>Your temporary galleries become permanent when you upgrade</li>
             </ul>
             <p class="home-plan-cta">
-              <a class="home-btn" href="/?next=/">
+              <button type="button" class="home-btn" popovertarget="home-account-panel" popovertargetaction="show">
                 Go Visionary
-              </a>
+              </button>
             </p>
           </div>
         </div>
