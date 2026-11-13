@@ -29,16 +29,19 @@ const open = async (page: import('@playwright/test').Page) => {
 
 test.describe('the marketing homepage', () => {
   for (const viewport of MATRIX) {
-    test(`the sign-in group is in the first fold at ${viewport.width}px`, async ({ page }) => {
+    test(`the sign-in disclosure is in the header at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await open(page)
-      const signIn = page.locator('.home-signin')
-      await expect(signIn).toBeVisible()
-      const box = await signIn.boundingBox()
+      // Sign-in is a header disclosure now, in the same shape as Download,
+      // so it is in the first fold at every width without scrolling.
+      const summary = page.locator('.home-signin-header > summary')
+      await expect(summary).toBeVisible()
+      const box = await summary.boundingBox()
       expect(box).not.toBeNull()
       expect(box!.y).toBeLessThan(viewport.height)
-      // The provider chooser itself, not just its heading.
-      await expect(page.locator('.signin-pill').first()).toBeVisible()
+      // Opening it reveals the provider chooser itself.
+      await summary.click()
+      await expect(page.locator('.home-signin-panel .signin-pill').first()).toBeVisible()
     })
 
     test(`nothing scrolls sideways at ${viewport.width}px`, async ({ page }) => {
@@ -134,7 +137,7 @@ test.describe('the marketing homepage', () => {
     expect(phone).toEqual(desktop)
   })
 
-  test('the keyboard reaches the skip link, the navigation and the sign-in group', async ({ page }) => {
+  test('the keyboard reaches the skip link, the navigation and the sign-in disclosure', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
     await page.keyboard.press('Tab')
@@ -146,7 +149,7 @@ test.describe('the marketing homepage', () => {
       const id = await page.evaluate(() => {
         const active = document.activeElement
         if (!active) return ''
-        return active.closest('.home-nav') ? 'nav' : active.closest('.home-signin') ? 'signin' : active.className || active.tagName
+        return active.closest('.home-nav') ? 'nav' : active.closest('.home-signin-header') ? 'signin' : active.className || active.tagName
       })
       seen.push(id)
       if (id === 'signin') break

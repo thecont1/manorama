@@ -7,13 +7,25 @@
  * so a phone is not left without the price.
  */
 import DownloadMenu from '../DownloadMenu'
+import SignInMenu from '../SignInMenu'
 import { SURFACES } from '../home-manifest'
 
-export default function Header() {
+export default function Header({
+  returning,
+  next,
+  failed,
+}: {
+  /** True when the browser has the returning-visitor hint cookie. */
+  returning?: boolean
+  /** Same-origin path the OAuth callback lands on instead of the dashboard. */
+  next?: string
+  /** True when an OAuth round-trip ended in `?error=1`. */
+  failed?: boolean
+}) {
   // The section links mirror the page's own order — a table of contents
-  // for the deep parts of the page. Download, Sign in and Start free are
-  // actions, not sections: Download opens its own list, and the two links
-  // take you home to the sign-in, where a utility belongs.
+  // for the deep parts of the page. Download and Sign in are actions, not
+  // sections: each opens its own list. Start free opens the sign-in list
+  // too — the same buttons create an account the first time.
   const sections = [
     { href: '#unify', label: 'Features' },
     { href: '#pricing', label: 'Pricing' },
@@ -53,16 +65,14 @@ export default function Header() {
             <button type="button" class="home-theme-toggle" data-theme-toggle hidden>
               Light mode
             </button>
-            <p class="home-nav-menu-label">Account</p>
-            <a href="#start">Sign in</a>
           </div>
         </details>
         <DownloadMenu class="home-download-header" />
         <button type="button" class="home-theme-toggle" data-theme-toggle hidden>
           Light mode
         </button>
-        <a class="home-nav-signin" href="#start">Sign in</a>
-        <a class="home-btn" href="#start">Start free</a>
+        <SignInMenu class="home-signin-header" returning={returning} next={next} failed={failed} />
+        <a class="home-btn" href="#start" data-signin-open>Start free</a>
       </div>
     </header>
   )

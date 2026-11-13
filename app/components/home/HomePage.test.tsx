@@ -92,6 +92,25 @@ describe('the sign-in group', () => {
   })
 })
 
+describe('the sign-in disclosure', () => {
+  test('the provider buttons live in a header disclosure, like Download', () => {
+    const html = page()
+    expect(html).toContain('home-signin-menu')
+    expect(html).toContain('<summary>Sign in</summary>')
+    // The three buttons sit inside the sign-in panel...
+    const panel = html.slice(html.indexOf('home-signin-panel'))
+    expect(panel).toContain('href="/auth/apple"')
+    expect(panel).toContain('href="/auth/dropbox"')
+    expect(panel).toContain('href="/auth/google"')
+    // ...and the hero fold no longer carries its own sign-in group.
+    expect(html).not.toContain('<h2 class="home-signin-title">')
+  })
+
+  test('every Start free button opens the sign-in disclosure', () => {
+    expect(page().match(/data-signin-open/g)?.length).toBe(3)
+  })
+})
+
 describe('the navigation', () => {
   test('every anchor points at an id that exists on the page', () => {
     const html = page()

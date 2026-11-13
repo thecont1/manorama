@@ -352,17 +352,17 @@ html.light .home .home-logo-light {
   padding: 10px 8px;
 }
 
-/* The sign-in utility: quieter than the contents links, sitting with the
-   one filled action rather than among the sections. */
-.home .home-nav-signin {
+/* The sign-in utility: a disclosure in the same quiet voice as Download,
+   sitting with the one filled action rather than among the sections. */
+.home-signin-header > summary {
   font-size: 15px;
-  text-decoration: none;
   color: var(--home-ink-muted);
   margin-left: 6px;
   transition: color 120ms ease-out;
 }
 
-.home .home-nav-signin:hover {
+.home-signin-header > summary:hover,
+.home-signin-header[open] > summary {
   color: var(--home-ink);
 }
 
@@ -486,37 +486,45 @@ html.light .home .home-logo-light {
 .home-hero {
   /* The first band's breath stays small: the sticky header is its frame. */
   --home-band-before: clamp(24px, 2.6vw, 40px);
+  /* The demo is the centrepiece: headline, lede, stage and the start cluster
+     share one centred column, so the photograph demo reads as the focal point
+     directly under the words and everything else follows beneath it. */
+  text-align: center;
 }
 
-.home-hero-grid {
-  display: grid;
-  gap: clamp(28px, 4vw, 56px);
-  align-items: start;
+.home-hero .home-lede {
+  margin-inline: auto;
 }
 
-.home-hero-copy {
-  min-width: 0;
+/* The reserved stage sits right under the hero text. Its width matches the
+   demo's own max width; the caption centres beneath it. */
+.home-hero-stage {
+  max-width: 720px;
+  margin: 0 auto clamp(28px, 4vw, 48px);
 }
 
-.home-hero-media {
-  min-width: 0;
+.home-hero-stage .home-figure-caption {
+  margin-inline: auto;
+}
+
+/* Everything a visitor needs to start follows the demo, in one centred column
+   narrower than the stage so the buttons and notes stay comfortable. */
+.home-hero-after {
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.home-hero-after .home-hero-cta {
+  margin: 0 0 24px;
+}
+
+.home-hero .home-note,
+.home-hero .home-sources,
+.home-hero .home-sources-foot {
+  margin-inline: auto;
 }
 
 /* ── the sign-in group ─────────────────────────────────────────────── */
-
-.home-signin {
-  margin: 0 0 16px;
-  max-width: 480px;
-}
-
-.home-signin-title {
-  font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  line-height: 1.25;
-  margin: 0 0 14px;
-}
 
 .home .signin {
   margin-top: 0;
@@ -634,10 +642,6 @@ html.light .home .home-logo-light {
   color: var(--home-ink-muted);
 }
 
-.home .home-hero-media .home-hero-cta {
-  margin: 20px 0 0;
-}
-
 .home-hero-cta-note {
   display: block;
   margin-top: 10px;
@@ -706,6 +710,41 @@ html.light .home-sources-box {
   color: var(--dl-ink-soft);
 }
 
+/* ── the sign-in menu ──────────────────────────────────────────────── */
+
+/* The same printed sticker as Download, wide enough for the longest
+   provider label, with the three buttons stacked one to a row. */
+.home-signin-panel {
+  min-width: 320px;
+  padding: 14px;
+}
+
+.home-signin-header .home-signin-panel {
+  right: 0;
+}
+
+.home-signin-menu-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--home-ink);
+  margin: 0 0 12px;
+}
+
+.home-signin-panel .signin-icons {
+  max-width: none;
+  gap: 8px;
+}
+
+.home-signin-panel .signin-pill {
+  min-height: 48px;
+  padding: 12px 16px;
+  font-size: 16px;
+}
+
+.home-signin-panel .home-signin-note {
+  font-size: 14px;
+}
+
 .home p.home-sources {
   margin-top: 18px;
   font-size: 16px;
@@ -763,6 +802,126 @@ html.light .home-sources-box {
 @media (min-width: 1024px) {
   .home-phone-figure {
     max-width: 240px;
+  }
+}
+
+/* ── the photo demo ────────────────────────────────────────────────── */
+
+/* The reserved outer stage. Its aspect and max width never change, so the
+   page does not shift when the demo enhances or the shape changes; only the
+   frame inside changes shape. */
+.home-demo {
+  position: relative;
+  width: 100%;
+  margin-inline: auto;
+}
+
+/* The frame suggests a screen without faking a device: a plain bezel, no
+   logos, notches, status bars or glow. The canvas behind the photographs is
+   the photographic black in both themes, as in the viewer; the bezel and the
+   controls follow the page theme. */
+.home-demo-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  border: 10px solid var(--home-surface-raised);
+  background: #0a0a0a;
+  overflow: hidden;
+}
+
+.home-demo-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+.home-demo-strip {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  will-change: transform;
+}
+
+.home-demo-strip picture {
+  display: contents;
+}
+
+/* Photographs abut edge-to-edge at the strip's height, whole and unstretched.
+   max-width is released so a wide frame can run past the stage edge, exactly
+   as the production photostrip does. */
+.home-demo-strip img {
+  flex: none;
+  max-width: none;
+  height: 100%;
+  width: auto;
+  display: block;
+}
+
+.home-demo-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.home-demo-controls[hidden] {
+  display: none;
+}
+
+.home-demo-shapes {
+  display: flex;
+  gap: 8px;
+}
+
+.home-demo-shape,
+.home-demo-pause {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 10px 18px;
+  border: 2px solid var(--home-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--home-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+/* Selected is a neutral inversion (filled), not colour alone; aria-pressed
+   carries the same state to assistive technology. */
+.home-demo-shape[aria-pressed='true'] {
+  background: var(--home-ink);
+  border-color: var(--home-ink);
+  color: var(--home-bg);
+}
+
+.home-demo-pause[aria-pressed='true'] {
+  background: var(--home-surface-raised);
+  border-color: var(--home-ink);
+}
+
+.home-demo-shape:hover,
+.home-demo-pause:hover {
+  border-color: var(--home-ink);
+}
+
+.home-demo-shape:focus-visible,
+.home-demo-pause:focus-visible {
+  outline: 2px solid var(--home-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-demo-shape,
+  .home-demo-pause {
+    transition: none;
   }
 }
 
@@ -1321,10 +1480,6 @@ table.home-table td {
 }
 
 @media (min-width: 1024px) {
-  .home-hero-grid {
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  }
-
   .home-split {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
@@ -1370,12 +1525,6 @@ table.home-table td {
     gap: 28px;
     align-items: start;
   }
-
-  /* The hero photograph escapes the column's right padding and runs to
-     the viewport edge — the one full-bleed moment the fold gets. */
-  .home-hero-media {
-    margin-right: calc(-1 * var(--home-wrap-pad));
-  }
 }
 
 @media (max-width: 1023px) {
@@ -1388,14 +1537,28 @@ table.home-table td {
 
 @media (max-width: 719px) {
   .home-nav,
-  .home-nav-signin,
   .home-header-inner > .home-theme-toggle,
+  .home-header-inner > .home-btn,
   .home-download-header {
     display: none;
   }
 
   .home-nav-menu {
     display: block;
+  }
+
+  /* The sign-in disclosure stays in the header on a phone — it is the only
+     sign-in now. Its panel spans the header's own width so the three buttons
+     never push the page sideways. */
+  .home-signin-header {
+    position: static;
+  }
+
+  .home-signin-header .home-signin-panel {
+    top: var(--home-header-h);
+    left: clamp(20px, 4.5vw, 64px);
+    right: clamp(20px, 4.5vw, 64px);
+    min-width: 0;
   }
 
   .home-header-inner {

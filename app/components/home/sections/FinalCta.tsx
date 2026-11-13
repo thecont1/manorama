@@ -9,7 +9,7 @@ export default function FinalCta() {
           Keep your <em>photographs</em> where they are. Enjoy them <em>together</em>.
         </h2>
         <p class="home-rise home-rise-2">
-          <a class="home-btn" href="#start">
+          <a class="home-btn" href="#start" data-signin-open>
             Start free
           </a>
         </p>
