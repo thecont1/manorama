@@ -675,6 +675,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   const dragTargetXRef = useRef(0)
   const dragFrameRef = useRef<number | null>(null)
   const momentumRef = useRef<number | null>(null)
+  const verticalRewindRef = useRef<number | null>(null)
   const c2paRef = useRef<any>(null)
   const currentXRef = useRef(0)
   // The strip X an in-flight button navigation is heading for. Rapid taps
@@ -1124,19 +1125,22 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       let started = performance.now()
       let previousNow = started
       const tick = (now: number) => {
+        verticalRewindRef.current = null
+        if (unmountedRef.current) return
         if (demoPausedRef.current) {
           started += now - previousNow
           previousNow = now
-          requestAnimationFrame(tick)
+          verticalRewindRef.current = requestAnimationFrame(tick)
           return
         }
         previousNow = now
         const k = Math.min(1, (now - started) / 750)
         stage.scrollTop = from * (1 - easeInOutCubic(k))
-        if (k < 1) requestAnimationFrame(tick)
+        if (k < 1) verticalRewindRef.current = requestAnimationFrame(tick)
         else onComplete?.()
       }
-      requestAnimationFrame(tick)
+      cancelVerticalRewind()
+      verticalRewindRef.current = requestAnimationFrame(tick)
       return
     }
     stopMomentum()
@@ -1204,6 +1208,13 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (positionFrameRef.current !== null) {
       cancelAnimationFrame(positionFrameRef.current)
       positionFrameRef.current = null
+    }
+  }
+
+  const cancelVerticalRewind = () => {
+    if (verticalRewindRef.current !== null) {
+      cancelAnimationFrame(verticalRewindRef.current)
+      verticalRewindRef.current = null
     }
   }
 
@@ -2825,6 +2836,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
   useEffect(() => () => {
     unmountedRef.current = true
     cancelCompletionPoll()
+    cancelVerticalRewind()
     for (const url of heicUrlsRef.current.values()) URL.revokeObjectURL(url)
     heicUrlsRef.current.clear()
   }, [])
