@@ -3,11 +3,9 @@
 // a phone (375×812), a tablet (768×1024), a laptop (1440×900) and a wide
 // desktop (2560×1440).
 //
-// The page is server-rendered with no client script of its own, so every
-// assertion here is about what a visitor can see and do: the sign-in group
-// in the first fold, the navigation, the disclosures, the comparison table
-// stacking on a phone, and the horizontal overflow that a wide image or a
-// long word can cause.
+// These assertions cover the shared marketing surface: the header sign-in
+// disclosure, navigation, comparison table, reduced-motion CSS and overflow.
+// The mounted photographic demo has its own spec beside this one.
 
 import { expect, test } from '@playwright/test'
 
@@ -126,27 +124,43 @@ test.describe('the marketing homepage', () => {
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
   })
 
-  test('the surface links are in the first fold on a wide screen', async ({ page }) => {
+  test('the centred device frame leads the first fold on a wide screen', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900 },
       { width: 2560, height: 1440 },
     ]) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await open(page)
-      const menu = page.locator('.home-hero-links')
-      await expect(menu).toBeVisible()
-      const box = await menu.boundingBox()
-      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+      await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'true')
+      const stage = page.locator('[data-demo-viewport]')
+      const device = page.locator('[data-demo-device]')
+      await expect(stage).toBeVisible()
+      await expect(device).toBeVisible()
+      const box = await stage.boundingBox()
+      const frame = await device.boundingBox()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.width).toBeLessThanOrEqual(1120)
+      expect(frame!.width).toBeLessThanOrEqual(box!.width + 1)
+      expect(box!.y).toBeLessThan(viewport.height * 0.6)
+      expect(box!.height).toBeGreaterThanOrEqual(480)
     }
   })
 
-  test('the surface links are within a viewport and a quarter on a phone', async ({ page }) => {
+  test('the framed photographic stage is the dominant first-fold element on a phone', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 })
     await open(page)
-    const menu = page.locator('.home-hero-links')
-    await expect(menu).toBeVisible()
-    const box = await menu.boundingBox()
-    expect(box!.y + box!.height).toBeLessThanOrEqual(812 * 1.25)
+    await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-ready', 'true')
+    const stage = page.locator('[data-demo-viewport]')
+    const device = page.locator('[data-demo-device]')
+    await expect(stage).toBeVisible()
+    await expect(device).toBeVisible()
+    const box = await stage.boundingBox()
+    const frame = await device.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.width).toBeLessThanOrEqual(375)
+    expect(frame!.width).toBeLessThanOrEqual(box!.width + 1)
+    expect(box!.y).toBeLessThan(812 * 0.65)
+    expect(box!.height).toBeGreaterThanOrEqual(440)
   })
 
   test('the pricing link scrolls to a heading that is not hidden under the header', async ({ page }) => {
@@ -155,36 +169,34 @@ test.describe('the marketing homepage', () => {
     await page.locator('.home-nav a[href="#pricing"]').click()
     const heading = page.locator('#pricing h2')
     await expect(heading).toBeVisible()
+    await expect.poll(async () => (await heading.boundingBox())!.y).toBeLessThan(900)
     const box = await heading.boundingBox()
     const header = await page.locator('.home-header').boundingBox()
     expect(box!.y).toBeGreaterThanOrEqual(header!.height - 1)
-    expect(box!.y).toBeLessThan(900)
   })
 
   test('every menu link scrolls to the section it names', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)
     const links = await page.locator('.home-nav a').all()
-    expect(links.length).toBeGreaterThanOrEqual(4)
+    expect(links.length).toBe(3)
     for (const link of links) {
       const href = (await link.getAttribute('href')) ?? ''
       const label = (await link.innerText()).trim()
       // Start from the top every time, so a link is judged on where it
       // takes the visitor, not on where the previous one left them.
       await page.evaluate(() => window.scrollTo(0, 0))
-      await page.waitForTimeout(150)
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
       await link.click()
-      await expect
-        .poll(async () => {
-          const box = await page.locator(href).boundingBox()
-          return box ? Math.round(box.y) : -1
-        })
-        .toBeGreaterThanOrEqual(0)
-      const section = await page.locator(href).boundingBox()
       const header = await page.locator('.home-header').boundingBox()
-      // The section lands under the header, not behind it.
-      expect(section!.y, `${label} → ${href}`).toBeGreaterThanOrEqual(header!.height - 1)
-      expect(section!.y, `${label} → ${href}`).toBeLessThan(header!.height + 120)
+      await expect.poll(async () => {
+        const box = await page.locator(href).boundingBox()
+        return box ? Math.round(box.y) : -1
+      }).toBeLessThan(header!.height + 120)
+      const section = await page.locator(href).boundingBox()
+      // The section lands at the document's configured sticky-header offset.
+      const offset = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop))
+      expect(section!.y, `${label} → ${href}`).toBeGreaterThanOrEqual(offset - 1)
     }
   })
 
@@ -194,7 +206,7 @@ test.describe('the marketing homepage', () => {
     const desktop = await page.locator('.home-nav a').allTextContents()
     await page.locator('.home-nav-menu summary').click()
     const phone = await page.locator('.home-nav-menu-list a').allTextContents()
-    expect(phone).toEqual(desktop)
+    expect(phone.slice(0, desktop.length)).toEqual(desktop)
   })
 
   test('the keyboard reaches the skip link, the navigation and the sign-in disclosure', async ({ page }) => {
@@ -266,18 +278,23 @@ test.describe('the marketing homepage', () => {
     expect(animated).toBe(0)
   })
 
-  test('the page carries no client script of its own', async ({ page }) => {
+  test('the page loads only the chrome and shared island enhancement scripts', async ({ page }) => {
     await open(page)
-    // Vite's dev client is injected by the dev server — as an inline
-    // `import("/@vite/client")`, so it has no src to filter on — and it is
-    // absent from the production build. The homepage itself ships no
-    // JavaScript at all.
+    // Vite's dev client is inline and absent from production. The remaining
+    // scripts are the four homepage utilities plus HonoX's shared hydration.
     const scripts = await page.evaluate(() =>
       [...document.querySelectorAll('script')]
         .filter((s) => !(s.textContent || '').includes('/@vite/client'))
         .map((s) => s.getAttribute('src') ?? 'inline'),
     )
-    expect(scripts).toHaveLength(0)
+    expect(scripts).toEqual([
+      '/theme-init.js',
+      '/home-theme.js',
+      '/home-menu.js',
+      '/home-hero.js',
+      '/hydrate-guard.js',
+      '/app/client.ts',
+    ])
   })
 
   test('the visible marketing copy stays inside the budget', async ({ page }) => {

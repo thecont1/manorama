@@ -1,86 +1,191 @@
-/**
- * Demo playback: a small state machine driven by elapsed time, not frames.
- *
- * One out-and-back cycle is: forward leg, hold at end, backward leg, hold at
- * start. Each leg eases into its endpoints (a trapezoid velocity profile) so
- * there is no jump at the turnaround. The DOM order never reverses; only the
- * direction of travel does.
- *
- * `advanceElapsed` accumulates time only while running and clamps each step,
- * so a hidden tab or a long gap resumes where it was without catching up.
- * The visitor's pause is kept outside this module (eligibility), so scrolling
- * away and back never undoes a deliberate pause.
- */
-
 export type PlaybackSettings = {
-  /** Cruise speed in CSS px per second. */
-  speed: number
-  /** Ease-in / ease-out window at each leg endpoint, in ms. */
-  easeMs: number
+  curtainHoldMs: number
+  curtainWordsMs: number
+  curtainVeilMs: number
+  chromeVisibleMs: number
+  strokeMs: number
+  restMs: number
   holdEndMs: number
   holdStartMs: number
 }
 
 export const DEFAULT_SETTINGS: PlaybackSettings = {
-  speed: 64,
-  easeMs: 900,
-  holdEndMs: 1200,
-  holdStartMs: 900,
+  curtainHoldMs: 1200,
+  curtainWordsMs: 350,
+  curtainVeilMs: 1100,
+  chromeVisibleMs: 3000,
+  strokeMs: 1600,
+  restMs: 700,
+  holdEndMs: 2400,
+  holdStartMs: 1000,
 }
 
-/** A hidden tab or a stalled frame must not fast-forward the strip. */
 export const MAX_STEP_MS = 100
+export const curtainDuration = (settings: PlaybackSettings = DEFAULT_SETTINGS) =>
+  settings.curtainHoldMs + settings.curtainWordsMs + settings.curtainVeilMs
 
-export type TravelPhase = 'forward' | 'holdEnd' | 'backward' | 'holdStart'
-
-export type CycleState = {
-  phase: TravelPhase
+export type PlaybackState = {
+  phase: 'curtain' | 'travel' | 'end'
+  phaseElapsedMs: number
+  mode: 'stroke' | 'rest'
   offset: number
+  from: number
+  target: number
   direction: 1 | -1
+  elapsedMs: number
 }
 
-export const legDuration = (bounds: number, s: PlaybackSettings) =>
-  bounds / s.speed + s.easeMs / 1000
+export const initialPlayback = (): PlaybackState => ({
+  phase: 'curtain',
+  phaseElapsedMs: 0,
+  mode: 'rest',
+  offset: 0,
+  from: 0,
+  target: 0,
+  direction: 1,
+  elapsedMs: 0,
+})
 
-/** Position along a leg at elapsed `t` (seconds), 0 -> bounds, eased at both
- *  ends. Short strips that cannot reach cruise speed use a smooth cosine
- *  ease over the same duration instead of a negative cruise window. */
-export const legOffset = (t: number, bounds: number, s: PlaybackSettings) => {
-  if (bounds <= 0) return 0
-  const T = legDuration(bounds, s)
-  const v = s.speed
-  const e = s.easeMs / 1000
-  if (t <= 0) return 0
-  if (t >= T) return bounds
-  if (bounds < v * e) return bounds * (1 - Math.cos(Math.PI * (t / T))) / 2
-  const half = (v * e) / 2
-  if (t < e) return (v * t * t) / (2 * e)
-  if (t < T - e) return half + v * (t - e)
-  const u = T - t
-  return bounds - (v * u * u) / (2 * e)
+const nextTarget = (offset: number, direction: 1 | -1, stops: number[]) => {
+  const epsilon = 0.5
+  return direction === 1
+    ? stops.find((stop) => stop > offset + epsilon) ?? null
+    : [...stops].reverse().find((stop) => stop < offset - epsilon) ?? null
 }
 
-export const cyclePeriod = (bounds: number, s: PlaybackSettings) =>
-  2 * legDuration(bounds, s) + (s.holdEndMs + s.holdStartMs) / 1000
+const easeOutQuart = (t: number) => 1 - (1 - t) ** 4
+const progress = (elapsed: number, duration: number) =>
+  duration <= 0 ? 1 : Math.min(1, Math.max(0, elapsed / duration))
 
-/** Where the strip is at `elapsed` seconds of *active* time. */
-export const cycleState = (elapsed: number, bounds: number, s: PlaybackSettings): CycleState => {
-  if (bounds <= 0) return { phase: 'holdStart', offset: 0, direction: 1 }
-  const T = legDuration(bounds, s)
-  const holdEnd = s.holdEndMs / 1000
-  const period = cyclePeriod(bounds, s)
-  const t = ((elapsed % period) + period) % period
-  if (t < T) return { phase: 'forward', offset: legOffset(t, bounds, s), direction: 1 }
-  if (t < T + holdEnd) return { phase: 'holdEnd', offset: bounds, direction: 1 }
-  if (t < 2 * T + holdEnd)
-    return { phase: 'backward', offset: bounds - legOffset(t - T - holdEnd, bounds, s), direction: -1 }
-  return { phase: 'holdStart', offset: 0, direction: -1 }
+export const curtainPresentation = (
+  state: PlaybackState,
+  settings: PlaybackSettings = DEFAULT_SETTINGS,
+) => {
+  if (state.phase !== 'curtain') return { wordsOpacity: 0, veilOpacity: 0 }
+  const wordsElapsed = state.phaseElapsedMs - settings.curtainHoldMs
+  const veilElapsed = wordsElapsed - settings.curtainWordsMs
+  return {
+    wordsOpacity: 1 - progress(wordsElapsed, settings.curtainWordsMs),
+    veilOpacity: 1 - progress(veilElapsed, settings.curtainVeilMs),
+  }
 }
 
-/** Accumulate active time. Clamped so gaps never cause a catch-up jump. */
-export const advanceElapsed = (
-  prev: number,
+export const chromeIsVisible = (
+  state: PlaybackState,
+  reducedMotion: boolean,
+  settings: PlaybackSettings = DEFAULT_SETTINGS,
+) => reducedMotion || state.phase === 'end' ||
+  (state.phase === 'travel' && state.phaseElapsedMs < settings.chromeVisibleMs)
+
+export const rebasePlayback = (
+  state: PlaybackState,
+  offset: number,
+  stops: number[],
+): PlaybackState => {
+  if (state.phase !== 'travel' || state.mode === 'rest') {
+    return { ...state, offset, from: offset, target: offset }
+  }
+  const target = nextTarget(offset, state.direction, stops)
+  return target === null
+    ? { ...state, mode: 'rest', offset, from: offset, target: offset, elapsedMs: 0 }
+    : { ...state, offset, from: offset, target, elapsedMs: 0 }
+}
+
+export const advancePlayback = (
+  state: PlaybackState,
   dtMs: number,
-  running: boolean,
-  maxStepMs: number = MAX_STEP_MS,
-) => (running ? prev + Math.min(Math.max(0, dtMs), maxStepMs) : prev)
+  stops: number[],
+  bounds: number,
+  settings: PlaybackSettings = DEFAULT_SETTINGS,
+): PlaybackState => {
+  const dt = Math.min(Math.max(0, dtMs), MAX_STEP_MS)
+  if (bounds <= 0 || stops.length < 2) return { ...state, offset: 0, from: 0, target: 0 }
+
+  if (state.phase === 'curtain') {
+    const phaseElapsedMs = state.phaseElapsedMs + dt
+    if (phaseElapsedMs < curtainDuration(settings)) return { ...state, phaseElapsedMs }
+    return { ...state, phase: 'travel', phaseElapsedMs: 0, elapsedMs: 0 }
+  }
+
+  if (state.phase === 'end') {
+    const phaseElapsedMs = state.phaseElapsedMs + dt
+    if (phaseElapsedMs < settings.holdEndMs) return { ...state, phaseElapsedMs }
+    return {
+      ...state,
+      phase: 'travel',
+      phaseElapsedMs: 0,
+      mode: 'rest',
+      direction: -1,
+      elapsedMs: 0,
+    }
+  }
+
+  const phaseElapsedMs = state.phaseElapsedMs + dt
+  const travelling = { ...state, phaseElapsedMs }
+
+  if (state.mode === 'stroke') {
+    const elapsedMs = state.elapsedMs + dt
+    const t = Math.min(1, elapsedMs / settings.strokeMs)
+    const offset = state.from + (state.target - state.from) * easeOutQuart(t)
+    if (t < 1) return { ...travelling, elapsedMs, offset }
+    if (state.direction === 1 && state.target >= bounds) {
+      return {
+        ...travelling,
+        phase: 'end',
+        phaseElapsedMs: 0,
+        mode: 'rest',
+        offset: bounds,
+        from: bounds,
+        target: bounds,
+        elapsedMs: 0,
+      }
+    }
+    if (state.direction === -1 && state.target <= 0) {
+      return {
+        ...travelling,
+        phase: 'curtain',
+        phaseElapsedMs: 0,
+        mode: 'rest',
+        offset: 0,
+        from: 0,
+        target: 0,
+        direction: 1,
+        elapsedMs: 0,
+      }
+    }
+    return {
+      ...travelling,
+      mode: 'rest',
+      offset: state.target,
+      from: state.target,
+      elapsedMs: 0,
+    }
+  }
+
+  const atStart = state.offset <= 0
+  const holdMs = atStart && state.direction === 1 ? settings.holdStartMs : settings.restMs
+  const elapsedMs = state.elapsedMs + dt
+  if (elapsedMs < holdMs) return { ...travelling, elapsedMs }
+
+  const target = nextTarget(state.offset, state.direction, stops)
+  if (target === null) {
+    if (state.direction === 1) {
+      return { ...travelling, phase: 'end', phaseElapsedMs: 0, elapsedMs: 0 }
+    }
+    return {
+      ...travelling,
+      phase: 'curtain',
+      phaseElapsedMs: 0,
+      direction: 1,
+      elapsedMs: 0,
+    }
+  }
+  return {
+    ...travelling,
+    mode: 'stroke',
+    offset: state.offset,
+    from: state.offset,
+    target,
+    elapsedMs: 0,
+  }
+}

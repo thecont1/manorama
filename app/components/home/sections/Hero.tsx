@@ -2,19 +2,11 @@ import HomeDemo from '../../../islands/HomeDemo'
 import Figure from '../Figure'
 import { ASSETS, SAMPLE_GALLERY_PATH, SURFACES } from '../home-manifest'
 
-/**
- * The first fold, in the order a visitor meets it: the headline and lede, then
- * the live photograph demo as the centrepiece directly beneath the words, then
- * the sample gallery and the platforms. Sign-in lives in the header's own
- * disclosure now, so the fold is left to the photographs.
- */
 export default function Hero({
   samplePath = SAMPLE_GALLERY_PATH,
   demo = false,
 }: {
-  /** The owner-cleared sample gallery. `null` renders no sample CTA. */
   samplePath?: string | null
-  /** True to enhance the hero with the live photo demo under the headline. */
   demo?: boolean
 }) {
   const hero = ASSETS.find((asset) => asset.id === 'H1')
@@ -33,15 +25,8 @@ export default function Hero({
         </p>
 
         {hero ? (
-          <div class="home-hero-stage home-rise home-rise-2">
-            {demo ? (
-              <>
-                <HomeDemo />
-                <p class="home-figure-caption">{hero.caption}</p>
-              </>
-            ) : (
-              <Figure asset={hero} eager sizes="(min-width: 1024px) 720px, 92vw" />
-            )}
+          <div class={`home-hero-stage home-rise home-rise-2${demo ? ' home-hero-stage-demo' : ''}`}>
+            {demo ? <HomeDemo /> : <Figure asset={hero} eager sizes="100vw" />}
           </div>
         ) : null}
 

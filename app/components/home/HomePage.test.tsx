@@ -318,19 +318,26 @@ describe('the index route renders the homepage', () => {
     expect(html).not.toContain('data-quickadd')
   })
 
-  test('the page carries no island and only the chrome scripts', async () => {
+  test('the demo SSR renders its static first state with the chrome scripts', async () => {
     const app = mountIndexRoute()
     const html = await (await app.request('/', {}, env)).text()
-    // The script surface is four files and nothing else: theme-init applies
-    // the stored choice pre-paint, home-theme wires the toggle, home-menu
-    // dismisses the download disclosure, home-hero aligns the fold image.
-    // No islands.
     expect(html).toContain('src="/theme-init.js"')
     expect(html).toContain('src="/home-theme.js"')
     expect(html).toContain('src="/home-menu.js"')
     expect(html).toContain('src="/home-hero.js"')
     expect(html.match(/<script/g)).toHaveLength(4)
+    expect(html).toContain('data-demo-stage')
+    expect(html).toContain('data-demo-ready="false"')
+    expect(html).toContain('/home-demo/')
+  })
+
+  test('the Worker off switch restores the static hero without the island', async () => {
+    const app = mountIndexRoute()
+    const html = await (await app.request('/', {}, { ...env, MANORAMA_HOME_DEMO: 'off' })).text()
+    expect(html.match(/<script/g)).toHaveLength(4)
     expect(html).not.toContain('has-island')
+    expect(html).not.toContain('data-demo-stage')
+    expect(html).not.toContain('/home-demo/')
   })
 
   test('a failed sign-in shows the quiet retry note', async () => {

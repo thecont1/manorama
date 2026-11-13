@@ -1,132 +1,184 @@
 import { describe, expect, test } from 'bun:test'
 import { DEMO_PHOTOS } from './manifest'
-import { DEMO_PRESETS, MAX_STRIP_CSS_HEIGHT, demoPresetById } from './presets'
+import {
+  DEMO_PRESETS,
+  demoPresetById,
+  deviceFrameSize,
+  fitDeviceFrame,
+} from './presets'
 import {
   captureAnchor,
   contentWidth,
-  frameInnerBox,
+  endCardWidth,
   layoutStrip,
+  positionIndex,
+  restStops,
   restoreOffset,
   travelBounds,
 } from './geometry'
 
-const sources = (size: 'lg' | 'sm') =>
-  DEMO_PHOTOS.map((p) => ({ id: p.id, naturalWidth: p[size].width, naturalHeight: p[size].height }))
+const sources = () => DEMO_PHOTOS.map((photo) => ({
+  id: photo.id,
+  naturalWidth: photo.lg.width,
+  naturalHeight: photo.lg.height,
+}))
 
-const near = (actual: number, expected: number, tol = 1e-5) =>
-  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tol)
+const near = (actual: number, expected: number, tolerance = 1e-5) =>
+  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tolerance)
 
-const STAGE = { width: 600, height: 450 }
+const VIEWPORT = { width: 900, height: 450 }
 
-describe('frameInnerBox', () => {
-  test('every preset stages no taller than the renditions were sized for', () => {
+describe('device frames', () => {
+  test('only the three real single-screen shapes remain', () => {
+    expect(DEMO_PRESETS.map((preset) => preset.id)).toEqual(['desktop', 'phone', 'tablet'])
+  })
+
+  test('the complete device fits the reserved stage with one uniform scale', () => {
     for (const preset of DEMO_PRESETS) {
-      const inner = frameInnerBox(preset, STAGE)
-      expect(inner.height).toBeLessThanOrEqual(MAX_STRIP_CSS_HEIGHT)
-      expect(inner.width).toBeGreaterThan(0)
+      const available = { width: 620, height: 510 }
+      const frame = deviceFrameSize(preset)
+      const fit = fitDeviceFrame(preset, available)
+      expect(fit.scale).toBeGreaterThan(0)
+      expect(fit.scale).toBeLessThanOrEqual(1)
+      near(fit.width, frame.width * fit.scale)
+      near(fit.height, frame.height * fit.scale)
+      expect(fit.width).toBeLessThanOrEqual(available.width)
+      expect(fit.height).toBeLessThanOrEqual(available.height)
     }
   })
 
-  test('the three presets are clearly different compositions', () => {
-    const desktop = frameInnerBox(demoPresetById('desktop'), STAGE)
-    const phone = frameInnerBox(demoPresetById('phone'), STAGE)
-    const tablet = frameInnerBox(demoPresetById('tablet'), STAGE)
-    // Desktop is wide and short; phone narrow and tall; tablet in between.
-    expect(desktop.width / desktop.height).toBeGreaterThan(1.4)
-    expect(phone.width / phone.height).toBeLessThan(0.6)
-    expect(tablet.width / tablet.height).toBeGreaterThan(phone.width / phone.height)
-    expect(tablet.width / tablet.height).toBeLessThan(desktop.width / desktop.height)
+  test('the laptop includes a thin base; touch devices use rounded bezels', () => {
+    expect(demoPresetById('desktop').baseHeight).toBeGreaterThan(0)
+    expect(demoPresetById('desktop').baseOverhang).toBeGreaterThan(0)
+    expect(demoPresetById('phone').radius).toBeGreaterThan(demoPresetById('tablet').radius)
+    expect(demoPresetById('phone').baseHeight).toBe(0)
+    expect(demoPresetById('tablet').baseHeight).toBe(0)
   })
 })
 
 describe('layoutStrip', () => {
-  test('stages landscape and portrait frames whole, abutting, never upscaled', () => {
-    const inner = frameInnerBox(demoPresetById('phone'), STAGE)
-    const dpr = 2
-    const layout = layoutStrip(sources('lg'), inner.height, dpr)
-    expect(layout.length).toBe(DEMO_PHOTOS.length)
-    let x = 0
-    for (const [i, photo] of layout.entries()) {
-      const rendition = DEMO_PHOTOS[i]!.lg
-      // Aspect preserved exactly.
-      near(photo.width / photo.height, rendition.width / rendition.height, 1e-5)
-      // Never rendered larger than the served bitmap's own pixels.
-      expect(photo.width * dpr).toBeLessThanOrEqual(rendition.width + 0.5)
-      expect(photo.height * dpr).toBeLessThanOrEqual(rendition.height + 0.5)
-      // Fits the strip height.
-      expect(photo.height).toBeLessThanOrEqual(inner.height + 0.5)
-      // Abuts the previous frame: no gap, no overlap.
-      near(photo.x, x, 1e-5)
-      x += photo.width
+  test('every device uses the same height-first, uncropped strip geometry', () => {
+    for (const preset of DEMO_PRESETS) {
+      const viewport = preset.screen
+      const layout = layoutStrip(sources(), viewport, 2)
+      expect(layout).toHaveLength(DEMO_PHOTOS.length)
+      let x = 0
+      for (const [index, staged] of layout.entries()) {
+        const source = DEMO_PHOTOS[index]!.lg
+        near(staged.width / staged.height, source.width / source.height)
+        expect(staged.width * 2).toBeLessThanOrEqual(source.width + 0.5)
+        expect(staged.height * 2).toBeLessThanOrEqual(source.height + 0.5)
+        expect(staged.height).toBeLessThanOrEqual(viewport.height + 0.5)
+        near(staged.x, x)
+        near(staged.slotWidth, staged.width)
+        x += staged.slotWidth
+      }
+      near(contentWidth(layout), x)
+      expect(contentWidth(layout)).toBeGreaterThan(viewport.width)
     }
-    near(contentWidth(layout), x, 1e-5)
   })
 
-  test('a pixel-short source floats at its honest size rather than stretching', () => {
-    // A tiny source cannot fill the strip height at dpr 2; it must shrink.
-    const layout = layoutStrip([{ id: 'tiny', naturalWidth: 100, naturalHeight: 80 }], 430, 2)
-    expect(layout[0]!.height).toBeLessThan(430)
-    expect(layout[0]!.height * 2).toBeLessThanOrEqual(80)
+  test('a pixel-short source floats at its honest size', () => {
+    const [staged] = layoutStrip(
+      [{ id: 'tiny', naturalWidth: 100, naturalHeight: 80 }],
+      VIEWPORT,
+      2,
+    )
+    expect(staged!.width).toBe(50)
+    expect(staged!.height).toBe(40)
+    expect(staged!.slotWidth).toBe(50)
+  })
+})
+
+describe('restStops', () => {
+  test('includes the end card in the final travel bound', () => {
+    const layout = layoutStrip(sources(), VIEWPORT, 2)
+    const cardWidth = endCardWidth(VIEWPORT)
+    const bounds = travelBounds(contentWidth(layout) + cardWidth, VIEWPORT.width)
+    const stops = restStops(layout, VIEWPORT.width, cardWidth)
+    expect(stops[0]).toBe(0)
+    near(stops[stops.length - 1]!, bounds, 0.001)
+    expect(new Set(stops).size).toBe(stops.length)
+    for (const [index, stop] of stops.entries()) {
+      expect(stop).toBeGreaterThanOrEqual(0)
+      expect(stop).toBeLessThanOrEqual(bounds)
+      if (index > 0) expect(stop).toBeGreaterThan(stops[index - 1]!)
+    }
   })
 
-  test('portrait frames appear in the sequence (phone shows them tall)', () => {
-    const layout = layoutStrip(sources('lg'), 430, 2)
-    const portraits = layout.filter((p) => DEMO_PHOTOS.find((d) => d.id === p.id)!.orientation === 'portrait')
-    expect(portraits.length).toBe(2)
-    for (const p of portraits) expect(p.height).toBeGreaterThan(p.width)
+  test('the end card has a readable bounded width on every screen', () => {
+    expect(endCardWidth({ width: 390, height: 844 })).toBe(230)
+    expect(endCardWidth({ width: 768, height: 1024 })).toBe(245.76)
+    expect(endCardWidth({ width: 1440, height: 900 })).toBe(360)
+  })
+
+  test('a strip with no overflow stays at zero', () => {
+    const layout = layoutStrip(
+      [{ id: 'tiny', naturalWidth: 100, naturalHeight: 80 }],
+      VIEWPORT,
+      1,
+    )
+    expect(restStops(layout, VIEWPORT.width, endCardWidth(VIEWPORT))).toEqual([0])
   })
 })
 
 describe('travelBounds', () => {
-  test('a sequence shorter than the viewport has no travel', () => {
+  test('measures only actual overflow', () => {
     expect(travelBounds(300, 600)).toBe(0)
     expect(travelBounds(600, 600)).toBe(0)
-  })
-  test('a longer sequence travels exactly its overflow', () => {
     expect(travelBounds(2000, 600)).toBe(1400)
   })
 })
 
-describe('the continuity anchor', () => {
-  const desktop = frameInnerBox(demoPresetById('desktop'), STAGE)
-  const phone = frameInnerBox(demoPresetById('phone'), STAGE)
+describe('the continuity anchor and position count', () => {
+  test('keeps the same photograph and relative position across device changes', () => {
+    const beforeViewport = demoPresetById('desktop').screen
+    const afterViewport = demoPresetById('phone').screen
+    const before = layoutStrip(sources(), beforeViewport, 2)
+    const middle = before[Math.floor(before.length / 2)]!
+    const offset = middle.x + middle.slotWidth * 0.4 - beforeViewport.width / 2
+    const anchor = captureAnchor(before, offset, beforeViewport.width)!
+    expect(anchor.id).toBe(middle.id)
+    near(anchor.within, 0.4)
 
-  test('keeps the same photograph in view across a shape change', () => {
-    const before = layoutStrip(sources('lg'), desktop.height, 2)
-    const boundsBefore = travelBounds(contentWidth(before), desktop.width)
-    const offset = boundsBefore * 0.4
-    const anchor = captureAnchor(before, offset, desktop.width)!
-    const after = layoutStrip(sources('lg'), phone.height, 2)
-    const boundsAfter = travelBounds(contentWidth(after), phone.width)
-    const restored = restoreOffset(after, anchor, phone.width, boundsAfter)
-    expect(restored).toBeGreaterThanOrEqual(0)
-    expect(restored).toBeLessThanOrEqual(boundsAfter)
-    const centre = restored + phone.width / 2
-    const inView = after.find((p) => centre >= p.x && centre < p.x + p.width)
-    expect(inView?.id).toBe(anchor.id)
+    const after = layoutStrip(sources(), afterViewport, 2)
+    const bounds = travelBounds(contentWidth(after) + endCardWidth(afterViewport), afterViewport.width)
+    const restored = restoreOffset(after, anchor, afterViewport.width, bounds)
+    const recaptured = captureAnchor(after, restored, afterViewport.width)!
+    expect(recaptured.id).toBe(anchor.id)
+    near(recaptured.within, anchor.within)
   })
 
-  test('clamps to the new bounds at the ends', () => {
-    const before = layoutStrip(sources('lg'), desktop.height, 2)
-    const boundsBefore = travelBounds(contentWidth(before), desktop.width)
-    const anchor = captureAnchor(before, boundsBefore, desktop.width)!
-    const after = layoutStrip(sources('lg'), phone.height, 2)
-    const boundsAfter = travelBounds(contentWidth(after), phone.width)
-    const restored = restoreOffset(after, anchor, phone.width, boundsAfter)
-    expect(restored).toBeLessThanOrEqual(boundsAfter)
-    expect(restored).toBeGreaterThanOrEqual(0)
+  test('derives the visible count from the photograph under the screen centre', () => {
+    const layout = layoutStrip(sources(), VIEWPORT, 2)
+    for (const photo of layout) {
+      const offset = Math.max(0, photo.x + photo.slotWidth / 2 - VIEWPORT.width / 2)
+      expect(positionIndex(layout, offset, VIEWPORT.width)).toBe(photo.index)
+    }
+    const bounds = travelBounds(contentWidth(layout) + endCardWidth(VIEWPORT), VIEWPORT.width)
+    expect(positionIndex(layout, bounds, VIEWPORT.width)).toBe(layout.length - 1)
   })
 
-  test('a dropped photograph falls back to a clamped offset, not a crash', () => {
-    const after = layoutStrip(sources('lg').slice(1), phone.height, 2)
-    const boundsAfter = travelBounds(contentWidth(after), phone.width)
-    const restored = restoreOffset(after, { id: DEMO_PHOTOS[0]!.id, within: 0.5 }, phone.width, boundsAfter)
-    expect(restored).toBeGreaterThanOrEqual(0)
-    expect(restored).toBeLessThanOrEqual(boundsAfter)
+  test('clamps the first and last photographs to the new travel bounds', () => {
+    const viewport = demoPresetById('phone').screen
+    const layout = layoutStrip(sources(), viewport, 2)
+    const bounds = travelBounds(contentWidth(layout), viewport.width)
+    expect(restoreOffset(layout, { id: layout[0]!.id, within: 0 }, viewport.width, bounds)).toBe(0)
+    expect(restoreOffset(layout, { id: layout[layout.length - 1]!.id, within: 1 }, viewport.width, bounds)).toBe(bounds)
   })
 
-  test('an empty layout restores to zero', () => {
+  test('a dropped photograph falls back inside the bounds', () => {
+    const viewport = demoPresetById('phone').screen
+    const layout = layoutStrip(sources().slice(1), viewport, 2)
+    const bounds = travelBounds(contentWidth(layout), viewport.width)
+    const restored = restoreOffset(layout, { id: DEMO_PHOTOS[0]!.id, within: 0.5 }, viewport.width, bounds)
+    expect(restored).toBeGreaterThanOrEqual(0)
+    expect(restored).toBeLessThanOrEqual(bounds)
+  })
+
+  test('an empty layout has no anchor and restores to zero', () => {
     expect(restoreOffset([], null, 400, 0)).toBe(0)
     expect(captureAnchor([], 0, 400)).toBeNull()
+    expect(positionIndex([], 0, 400)).toBe(0)
   })
 })
