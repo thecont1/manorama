@@ -306,15 +306,12 @@ html.light .home .home-logo-light {
   display: block;
 }
 
-/* Two flexible auto margins — after the wordmark and after the nav —
-   split the header into three zones: mark, the page's table of contents,
-   and the actions. The contents list mirrors document order; the actions
-   sit at the right edge where utilities belong. */
+/* The wordmark's auto margin pushes one unified menu set to the right:
+   section links, theme, Downloads and sign-in, followed by the filled action. */
 .home-nav {
   display: flex;
   align-items: center;
   gap: 22px;
-  margin-right: auto;
 }
 
 .home .home-nav a {
@@ -332,42 +329,61 @@ html.light .home .home-logo-light {
   color: var(--home-accent);
 }
 
-/* The theme toggle rides with the utilities — quiet until needed. It
-   renders hidden: the theme script reveals it once it can actually do
-   the job, so a scriptless page never shows a dead control. */
+/* The theme script reveals the icon only once it can work. */
 .home .home-theme-toggle {
-  background: none;
-  border: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
   padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--home-ink-muted);
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.home .home-theme-toggle[hidden] {
+  display: none;
+}
+
+.home .home-theme-toggle:hover {
+  background: var(--home-surface);
+  color: var(--home-ink);
+}
+
+.home-theme-moon,
+html.light .home-theme-sun {
+  display: none;
+}
+
+html.light .home-theme-moon {
+  display: block;
+}
+
+.home-signin-trigger,
+.home-nav-signin {
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--home-ink-muted);
   font: inherit;
   font-size: 15px;
-  color: var(--home-ink-muted);
   cursor: pointer;
   transition: color 120ms ease-out;
 }
 
-.home .home-theme-toggle:hover {
+.home-signin-trigger:hover,
+.home-nav-signin:hover {
   color: var(--home-ink);
 }
 
-.home-nav-menu-list .home-theme-toggle {
-  font-size: 15px;
+.home-nav-signin {
+  padding: 10px 8px;
   text-align: left;
   color: var(--home-ink-soft);
-  padding: 10px 8px;
-}
-
-/* Sign in uses the same quiet disclosure voice as Download. */
-.home-signin-header > summary {
-  font-size: 15px;
-  color: var(--home-ink-muted);
-  margin-left: 6px;
-  transition: color 120ms ease-out;
-}
-
-.home-signin-header > summary:hover,
-.home-signin-header[open] > summary {
-  color: var(--home-ink);
 }
 
 .home-nav-menu {
@@ -501,9 +517,9 @@ html.light .home .home-logo-light {
 }
 
 .home-hero-stage-demo {
-  width: 100%;
-  max-width: 1120px;
-  margin-inline: auto;
+  width: 95vw;
+  max-width: none;
+  margin-inline: calc((100% - 95vw) / 2);
 }
 
 .home-hero-stage .home-figure-caption {
@@ -536,41 +552,6 @@ html.light .home .home-logo-light {
   margin-inline: auto;
 }
 
-/* ── the download menu ─────────────────────────────────────────────── */
-
-/* One disclosure, two costumes: a quiet utility in the header, a quiet
-   pill in the hero fold. The panel floats in the menu layer (40). */
-.home-download {
-  position: relative;
-}
-
-.home-download > summary {
-  list-style: none;
-  cursor: pointer;
-  user-select: none;
-}
-
-.home-download > summary::-webkit-details-marker {
-  display: none;
-}
-
-.home-download > summary::before {
-  content: '▾';
-  margin-right: 8px;
-  font-size: 15px;
-}
-
-.home-download-header > summary {
-  font-size: 15px;
-  color: var(--home-ink-muted);
-  transition: color 120ms ease-out;
-}
-
-.home-download-header > summary:hover,
-.home-download-header[open] > summary {
-  color: var(--home-ink);
-}
-
 /* The reassurance cluster: where manorama runs and who can view, set close
    together (8px) and held apart from the invitation by the button's own
    breath above. `.home p.<class>` because the bare `p` reset beats a plain
@@ -601,81 +582,79 @@ html.light .home .home-logo-light {
   color: var(--home-ink-muted);
 }
 
-/* The panel is a printed sticker, not a frosted card: sharp corners, an
-   ink border and a hard offset shadow in the signature pink. It follows
-   the page's own surface and ink tokens, so the dark theme gets a dark
-   shade and the milky theme its counterpart — no fixed colours here. */
-.home-download-panel {
-  --dl-ink: var(--home-ink);
-  --dl-ink-soft: var(--home-ink-muted);
-  position: absolute;
-  top: calc(100% + 10px);
-  min-width: 250px;
-  background: var(--home-surface-raised);
+/* Native top-layer placement keeps the account panel above the sticky
+   header and the demo, including when a lower-page Start free opens it. */
+.home-account-panel {
+  position: fixed;
+  inset: calc(var(--home-header-h) + 8px) clamp(20px, 4.5vw, 64px) auto auto;
+  width: min(320px, calc(100vw - 40px));
+  max-height: calc(100svh - var(--home-header-h) - 24px);
+  margin: 0;
+  padding: 14px;
+  overflow-y: auto;
   border: 2px solid var(--home-ink);
   border-radius: 0;
+  background: var(--home-surface-raised);
+  color: var(--home-ink);
   box-shadow: 4px 4px 0 var(--home-accent);
-  padding: 8px;
-  z-index: 40;
 }
 
-.home-download-header .home-download-panel {
-  right: 0;
+.home-account-panel:not(:popover-open) {
+  display: none;
 }
 
-/* The two posters read as paper on the milky ground: pure white sheets
-   with the same ink border and pink offset. */
-html.light .home-download-panel,
+html.light .home-account-panel,
 html.light .home-sources-box {
   background: #fff;
 }
 
-.home-download-list {
+.home-account-heading {
+  margin: 2px 8px 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--home-ink-muted);
+}
+
+.home-account-panel section + section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--home-line);
+}
+
+.home-account-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.home-download-list a,
-.home-download-soon {
+.home-account-list a {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 10px 12px;
-  border-radius: 0;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 10px;
+  color: var(--home-ink);
   text-decoration: none;
 }
 
-/* The pink does one job inside the poster: the row fills with it on
-   hover — the same accent that marks the picked photograph. */
-.home .home-download-list a:hover {
+.home .home-account-list a:hover {
   background: var(--home-accent);
 }
 
-.home-download-name {
+.home-account-list a:has(small) {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.home-account-list small {
+  flex-basis: 100%;
+  color: var(--home-ink-muted);
+  font-size: 12px;
+}
+
+.home-account-name {
   font-size: 16px;
   font-weight: 600;
-  color: var(--dl-ink);
-}
-
-.home-download-soon .home-download-name {
-  color: var(--dl-ink-soft);
-}
-
-.home-signin-panel {
-  min-width: 280px;
-}
-
-.home-signin-header .home-signin-panel {
-  right: 0;
-}
-
-.home-signin-list a {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  color: var(--dl-ink);
-  white-space: nowrap;
 }
 
 .home-signin-list svg {
@@ -685,7 +664,7 @@ html.light .home-sources-box {
 }
 
 .home p.home-signin-retry {
-  margin: 6px 4px 2px;
+  margin: 10px 8px 2px;
   font-size: 13px;
   line-height: 1.45;
   color: var(--home-ink-muted);
@@ -760,11 +739,22 @@ html.light .home-sources-box {
 /* ── the photo demo ────────────────────────────────────────────────── */
 
 .home-demo {
+  --home-device-body: #c6cbd2;
+  --home-device-base: #aab1bb;
+  display: flex;
+  flex-direction: column;
   width: 100%;
+  height: calc(95svh - var(--home-header-h));
+}
+
+html.light .home-demo {
+  --home-device-body: #475569;
+  --home-device-base: #334155;
 }
 
 .home-demo-stage {
-  height: clamp(480px, 64svh, 680px);
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -818,7 +808,7 @@ html.light .home-sources-box {
 .home-demo-device-body,
 .home-demo-laptop-base {
   position: absolute;
-  background: var(--home-surface-raised);
+  background: var(--home-device-body);
 }
 
 .home-demo-laptop-base {
@@ -826,7 +816,7 @@ html.light .home-sources-box {
   right: 0;
   bottom: 0;
   border-radius: 0 0 20px 20px;
-  background: var(--home-surface);
+  background: var(--home-device-base);
 }
 
 .home-demo-screen {
@@ -835,57 +825,95 @@ html.light .home-sources-box {
   --gallery-canvas: #0a0a0a;
   position: absolute;
   overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+  clip-path: inset(0 round var(--home-screen-radius));
+  background: #000;
   pointer-events: none;
 }
 
-.home-demo-strip {
-  position: relative;
-  z-index: 0;
-  display: flex;
-  align-items: center;
-  height: 100%;
-  gap: 0;
-  will-change: transform;
+.home-demo-viewer {
+  position: absolute;
+  overflow: hidden;
+  background: #0a0a0a;
 }
 
-.home-demo-item {
-  flex: none;
-  display: grid;
-  place-items: center;
-  height: 100%;
-}
-
-.home-demo-item[hidden] {
-  display: none;
-}
-
-.home-demo-item picture {
-  display: contents;
-}
-
-.home-demo-item img {
-  flex: none;
-  display: block;
-  max-width: none;
-  object-fit: contain;
-}
-
-.home-demo-screen .home-demo-curtain {
+.home-demo-viewer-stage {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  transition: none;
+  width: 100%;
+  height: 100%;
 }
 
-.home-demo-screen .home-demo-curtain > * {
-  transition: none;
-}
-
-.home-demo-screen .home-demo-chrome {
+.home-demo-notch-strip {
   position: absolute;
+  z-index: 40;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: #000;
+}
+
+.home-demo-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 0 0 16px 16px;
+  background: #000;
+}
+
+.home-demo-island {
+  position: absolute;
+  z-index: 40;
+  top: 50%;
+  left: 9px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: #000;
+}
+
+.home-demo-home-indicator {
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #f3f0e8;
+}
+
+.home-demo-side-button {
+  position: absolute;
+  background: var(--home-device-body);
+  border-radius: 3px;
+}
+
+.home-demo-viewer-stage .viewer-stage {
+  height: 100%;
+  cursor: default;
+  touch-action: none;
+}
+
+.home-demo-viewer-stage .curtain,
+.home-demo-viewer-stage .m-chrome,
+.home-demo-viewer-stage .m-chrome-skip {
+  position: absolute;
+}
+
+.home-demo-viewer-stage .curtain {
+  inset: 0;
+  pointer-events: none;
+  cursor: default;
+}
+
+.home-demo-viewer-stage .m-chrome {
   left: 0;
   right: 0;
   pointer-events: none;
+}
+
+.home-demo-viewer-stage .m-chrome-skip {
+  display: none;
 }
 
 .home-demo-screen .m-chrome-pill,
@@ -895,13 +923,7 @@ html.light .home-sources-box {
   white-space: nowrap;
 }
 
-.home-demo-screen:is(.viewer-stage):is(.bg-light, .bg-dark) .viewer-track:not(.viewer-track--vertical):not(.viewer-track--single) :is(.viewer-frame, .viewer-endcap) {
-  margin: 0;
-  height: 100%;
-}
-
-.home-demo-endcap {
-  flex: none;
+.home-demo-viewer-stage .viewer-endcap {
   background: #0a0a0a;
 }
 
@@ -919,7 +941,8 @@ html.light .home-sources-box {
   display: none;
 }
 
-.home-demo-shapes {
+.home-demo-shapes,
+.home-demo-modes {
   display: flex;
   gap: 2px;
   padding: 3px;
@@ -928,6 +951,7 @@ html.light .home-sources-box {
 }
 
 .home-demo-shape,
+.home-demo-mode,
 .home-demo-pause {
   min-height: 44px;
   min-width: 44px;
@@ -947,7 +971,8 @@ html.light .home-sources-box {
   background: var(--home-surface);
 }
 
-.home-demo-shape[aria-pressed='true'] {
+.home-demo-shape[aria-pressed='true'],
+.home-demo-mode[aria-pressed='true'] {
   background: var(--home-ink);
   color: var(--home-bg);
 }
@@ -957,11 +982,13 @@ html.light .home-sources-box {
 }
 
 .home-demo-shape:hover,
+.home-demo-mode:hover,
 .home-demo-pause:hover {
   background: var(--home-surface-raised);
 }
 
-.home-demo-shape[aria-pressed='true']:hover {
+.home-demo-shape[aria-pressed='true']:hover,
+.home-demo-mode[aria-pressed='true']:hover {
   background: var(--home-ink);
 }
 
@@ -971,22 +998,20 @@ html.light .home-sources-box {
 }
 
 .home-demo-shape:focus-visible,
+.home-demo-mode:focus-visible,
 .home-demo-pause:focus-visible {
   outline: 2px solid var(--home-accent);
   outline-offset: 3px;
 }
 
 @media (max-width: 719px) {
-  .home-demo-stage {
-    height: clamp(440px, 64svh, 600px);
-  }
-
   .home-demo-controls {
     gap: 8px;
     padding-top: 10px;
   }
 
   .home-demo-shape,
+  .home-demo-mode,
   .home-demo-pause {
     padding-inline: 10px;
     font-size: 13px;
@@ -995,6 +1020,7 @@ html.light .home-sources-box {
 
 @media (prefers-reduced-motion: reduce) {
   .home-demo-shape,
+  .home-demo-mode,
   .home-demo-pause,
   .home-demo-screen .home-demo-chrome {
     transition: none;
@@ -1481,6 +1507,29 @@ table.home-table td {
 
 .home-footer-copy {
   margin: 0;
+  max-width: 76ch;
+}
+
+.home-footer-copy-line {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.home-footer-brand {
+  flex: none;
+  width: 108px;
+  line-height: 0;
+}
+
+.home-footer-brand img {
+  width: 100%;
+}
+
+.home-footer-ownership {
+  display: block;
+  margin-top: 4px;
 }
 
 /* The privacy notice reads as a notice, not as another link row: the
@@ -1611,28 +1660,19 @@ table.home-table td {
   }
 }
 
-@media (max-width: 719px) {
+@media (max-width: 1023px) {
   .home-nav,
   .home-header-inner > .home-theme-toggle,
-  .home-download-header {
+  .home-header-inner > .home-signin-trigger {
     display: none;
   }
 
   .home-nav-menu {
     display: block;
   }
+}
 
-  .home-signin-header {
-    position: static;
-  }
-
-  .home-signin-header .home-signin-panel {
-    top: var(--home-header-h);
-    left: clamp(20px, 4.5vw, 64px);
-    right: clamp(20px, 4.5vw, 64px);
-    min-width: 0;
-  }
-
+@media (max-width: 719px) {
   .home-header-inner {
     gap: 12px;
   }

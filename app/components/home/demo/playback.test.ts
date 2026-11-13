@@ -84,7 +84,7 @@ describe('stroke-and-rest playback', () => {
     expect(state.mode).toBe('rest')
   })
 
-  test('travels out, holds on the end card, reverses slowly, and restores the curtain', () => {
+  test('travels out, holds on the end card, rewinds directly, and starts over', () => {
     let state = run(travelling(), S.holdStartMs)
     for (const target of [400, 900, BOUNDS]) {
       expect(state.target).toBe(target)
@@ -101,18 +101,16 @@ describe('stroke-and-rest playback', () => {
     expect(state.phase).toBe('end')
     expect(state.mode).toBe('rest')
     state = run(state, S.holdEndMs)
-    expect(state.phase).toBe('travel')
+    expect(state.phase).toBe('rewind')
     expect(state.direction).toBe(-1)
-    expect(state.mode).toBe('rest')
-    state = run(state, S.restMs)
     expect(state.mode).toBe('stroke')
-    for (const target of [900, 400, 0]) {
-      expect(state.target).toBe(target)
-      expect(state.direction).toBe(-1)
-      state = run(state, S.strokeMs)
-      expect(state.offset).toBe(target)
-      if (target !== 0) state = run(state, S.restMs)
-    }
+    expect(state.from).toBe(BOUNDS)
+    expect(state.target).toBe(0)
+    state = run(state, S.rewindMs / 2)
+    expect(state.phase).toBe('rewind')
+    expect(state.offset).toBeGreaterThan(0)
+    expect(state.offset).toBeLessThan(BOUNDS)
+    state = run(state, S.rewindMs / 2)
     expect(state.phase).toBe('curtain')
     expect(state.direction).toBe(1)
     expect(state.offset).toBe(0)
@@ -155,6 +153,7 @@ describe('temporary chrome', () => {
     expect(chromeIsVisible(travelling(), false)).toBe(true)
     expect(chromeIsVisible({ ...travelling(), phaseElapsedMs: S.chromeVisibleMs }, false)).toBe(false)
     expect(chromeIsVisible({ ...travelling(), phase: 'end' }, false)).toBe(true)
+    expect(chromeIsVisible({ ...travelling(), phase: 'rewind' }, false)).toBe(true)
   })
 
   test('stays visible throughout reduced motion', () => {
@@ -199,6 +198,22 @@ describe('playback rebasing', () => {
     expect(rebased.offset).toBe(0)
     expect(rebased.target).toBe(0)
     expect(rebased.elapsedMs).toBe(0)
+  })
+
+  test('a rewind keeps its destination across a relayout', () => {
+    const state: PlaybackState = {
+      ...travelling(),
+      phase: 'rewind',
+      mode: 'stroke',
+      offset: 900,
+      from: BOUNDS,
+      target: 0,
+      direction: -1,
+      elapsedMs: 300,
+    }
+    const rebased = rebasePlayback(state, 650, STOPS)
+    expect(rebased).toEqual({ ...state, offset: 650, from: 650, elapsedMs: 0 })
+    expect(run(rebased, S.rewindMs).phase).toBe('curtain')
   })
 
   test('a rest preserves its direction and elapsed hold across a relayout', () => {

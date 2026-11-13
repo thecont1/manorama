@@ -6,6 +6,7 @@ export type PlaybackSettings = {
   strokeMs: number
   restMs: number
   holdEndMs: number
+  rewindMs: number
   holdStartMs: number
 }
 
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: PlaybackSettings = {
   strokeMs: 1600,
   restMs: 700,
   holdEndMs: 2400,
+  rewindMs: 750,
   holdStartMs: 1000,
 }
 
@@ -25,7 +27,7 @@ export const curtainDuration = (settings: PlaybackSettings = DEFAULT_SETTINGS) =
   settings.curtainHoldMs + settings.curtainWordsMs + settings.curtainVeilMs
 
 export type PlaybackState = {
-  phase: 'curtain' | 'travel' | 'end'
+  phase: 'curtain' | 'travel' | 'end' | 'rewind'
   phaseElapsedMs: number
   mode: 'stroke' | 'rest'
   offset: number
@@ -54,6 +56,8 @@ const nextTarget = (offset: number, direction: 1 | -1, stops: number[]) => {
 }
 
 const easeOutQuart = (t: number) => 1 - (1 - t) ** 4
+const easeInOutCubic = (t: number) =>
+  t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
 const progress = (elapsed: number, duration: number) =>
   duration <= 0 ? 1 : Math.min(1, Math.max(0, elapsed / duration))
 
@@ -74,7 +78,7 @@ export const chromeIsVisible = (
   state: PlaybackState,
   reducedMotion: boolean,
   settings: PlaybackSettings = DEFAULT_SETTINGS,
-) => reducedMotion || state.phase === 'end' ||
+) => reducedMotion || state.phase === 'end' || state.phase === 'rewind' ||
   (state.phase === 'travel' && state.phaseElapsedMs < settings.chromeVisibleMs)
 
 export const rebasePlayback = (
@@ -82,6 +86,9 @@ export const rebasePlayback = (
   offset: number,
   stops: number[],
 ): PlaybackState => {
+  if (state.phase === 'rewind') {
+    return { ...state, offset, from: offset, target: 0, elapsedMs: 0 }
+  }
   if (state.phase !== 'travel' || state.mode === 'rest') {
     return { ...state, offset, from: offset, target: offset }
   }
@@ -112,10 +119,32 @@ export const advancePlayback = (
     if (phaseElapsedMs < settings.holdEndMs) return { ...state, phaseElapsedMs }
     return {
       ...state,
-      phase: 'travel',
+      phase: 'rewind',
+      phaseElapsedMs: 0,
+      mode: 'stroke',
+      offset: bounds,
+      from: bounds,
+      target: 0,
+      direction: -1,
+      elapsedMs: 0,
+    }
+  }
+
+  if (state.phase === 'rewind') {
+    const phaseElapsedMs = state.phaseElapsedMs + dt
+    const elapsedMs = state.elapsedMs + dt
+    const t = progress(elapsedMs, settings.rewindMs)
+    const offset = state.from * (1 - easeInOutCubic(t))
+    if (t < 1) return { ...state, phaseElapsedMs, elapsedMs, offset }
+    return {
+      ...state,
+      phase: 'curtain',
       phaseElapsedMs: 0,
       mode: 'rest',
-      direction: -1,
+      offset: 0,
+      from: 0,
+      target: 0,
+      direction: 1,
       elapsedMs: 0,
     }
   }

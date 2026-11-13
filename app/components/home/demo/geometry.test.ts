@@ -4,6 +4,7 @@ import {
   DEMO_PRESETS,
   demoPresetById,
   deviceFrameSize,
+  deviceViewerSize,
   fitDeviceFrame,
 } from './presets'
 import {
@@ -29,8 +30,21 @@ const near = (actual: number, expected: number, tolerance = 1e-5) =>
 const VIEWPORT = { width: 900, height: 450 }
 
 describe('device frames', () => {
-  test('only the three real single-screen shapes remain', () => {
+  test('each category names one real device and its logical screen', () => {
     expect(DEMO_PRESETS.map((preset) => preset.id)).toEqual(['desktop', 'phone', 'tablet'])
+    expect(demoPresetById('desktop').model).toBe('MacBook Pro 14-inch')
+    expect(demoPresetById('desktop').screen).toEqual({ width: 1512, height: 982 })
+    expect(demoPresetById('phone').model).toBe('iPhone 17 Pro')
+    expect(demoPresetById('phone').screen).toEqual({ width: 874, height: 402 })
+    expect(demoPresetById('tablet').model).toBe('iPad Pro 11-inch (M5)')
+    expect(demoPresetById('tablet').screen).toEqual({ width: 834, height: 1210 })
+  })
+
+  test('the touch-device bodies follow Apple’s published physical proportions', () => {
+    const phone = deviceFrameSize(demoPresetById('phone'))
+    const tablet = deviceFrameSize(demoPresetById('tablet'))
+    near(phone.width / phone.height, 150 / 71.9, 0.01)
+    near(tablet.width / tablet.height, 177.5 / 249.7, 0.01)
   })
 
   test('the complete device fits the reserved stage with one uniform scale', () => {
@@ -47,19 +61,32 @@ describe('device frames', () => {
     }
   })
 
-  test('the laptop includes a thin base; touch devices use rounded bezels', () => {
-    expect(demoPresetById('desktop').baseHeight).toBeGreaterThan(0)
-    expect(demoPresetById('desktop').baseOverhang).toBeGreaterThan(0)
-    expect(demoPresetById('phone').radius).toBeGreaterThan(demoPresetById('tablet').radius)
-    expect(demoPresetById('phone').baseHeight).toBe(0)
-    expect(demoPresetById('tablet').baseHeight).toBe(0)
+  test('a density-approved display can fill a larger stage without exceeding its scale budget', () => {
+    const preset = demoPresetById('desktop')
+    const frame = deviceFrameSize(preset)
+    const fit = fitDeviceFrame(preset, { width: 3000, height: 2000 }, 1.25)
+    expect(fit.scale).toBe(1.25)
+    near(fit.width, frame.width * 1.25)
+    near(fit.height, frame.height * 1.25)
+  })
+
+  test('hardware intrusions have their own reserved space outside the viewer', () => {
+    const desktop = demoPresetById('desktop')
+    expect(desktop.baseHeight).toBeGreaterThan(0)
+    expect(desktop.viewerInset.top).toBe(desktop.notch!.height)
+    const phone = demoPresetById('phone')
+    expect(phone.viewerInset.left).toBeGreaterThan(phone.island!.width)
+    expect(phone.viewerInset.bottom).toBeGreaterThan(phone.homeIndicator!.bottom + phone.homeIndicator!.height)
+    expect(phone.bodyRadius).toBeGreaterThan(demoPresetById('tablet').bodyRadius)
+    expect(deviceViewerSize(phone)).toEqual({ width: 826, height: 382 })
+    expect(deviceViewerSize(demoPresetById('tablet'))).toEqual({ width: 834, height: 1210 })
   })
 })
 
 describe('layoutStrip', () => {
   test('every device uses the same height-first, uncropped strip geometry', () => {
     for (const preset of DEMO_PRESETS) {
-      const viewport = preset.screen
+      const viewport = deviceViewerSize(preset)
       const layout = layoutStrip(sources(), viewport, 2)
       expect(layout).toHaveLength(DEMO_PHOTOS.length)
       let x = 0
@@ -107,9 +134,9 @@ describe('restStops', () => {
   })
 
   test('the end card has a readable bounded width on every screen', () => {
-    expect(endCardWidth({ width: 390, height: 844 })).toBe(230)
-    expect(endCardWidth({ width: 768, height: 1024 })).toBe(245.76)
-    expect(endCardWidth({ width: 1440, height: 900 })).toBe(360)
+    expect(endCardWidth(deviceViewerSize(demoPresetById('phone')))).toBe(264.32)
+    expect(endCardWidth(deviceViewerSize(demoPresetById('tablet')))).toBe(266.88)
+    expect(endCardWidth(deviceViewerSize(demoPresetById('desktop')))).toBe(360)
   })
 
   test('a strip with no overflow stays at zero', () => {
@@ -132,8 +159,8 @@ describe('travelBounds', () => {
 
 describe('the continuity anchor and position count', () => {
   test('keeps the same photograph and relative position across device changes', () => {
-    const beforeViewport = demoPresetById('desktop').screen
-    const afterViewport = demoPresetById('phone').screen
+    const beforeViewport = deviceViewerSize(demoPresetById('desktop'))
+    const afterViewport = deviceViewerSize(demoPresetById('phone'))
     const before = layoutStrip(sources(), beforeViewport, 2)
     const middle = before[Math.floor(before.length / 2)]!
     const offset = middle.x + middle.slotWidth * 0.4 - beforeViewport.width / 2
@@ -160,7 +187,7 @@ describe('the continuity anchor and position count', () => {
   })
 
   test('clamps the first and last photographs to the new travel bounds', () => {
-    const viewport = demoPresetById('phone').screen
+    const viewport = deviceViewerSize(demoPresetById('phone'))
     const layout = layoutStrip(sources(), viewport, 2)
     const bounds = travelBounds(contentWidth(layout), viewport.width)
     expect(restoreOffset(layout, { id: layout[0]!.id, within: 0 }, viewport.width, bounds)).toBe(0)
@@ -168,7 +195,7 @@ describe('the continuity anchor and position count', () => {
   })
 
   test('a dropped photograph falls back inside the bounds', () => {
-    const viewport = demoPresetById('phone').screen
+    const viewport = deviceViewerSize(demoPresetById('phone'))
     const layout = layoutStrip(sources().slice(1), viewport, 2)
     const bounds = travelBounds(contentWidth(layout), viewport.width)
     const restored = restoreOffset(layout, { id: DEMO_PHOTOS[0]!.id, within: 0.5 }, viewport.width, bounds)
