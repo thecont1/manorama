@@ -7,11 +7,8 @@ export default function SignInMenu({
   failed,
   class: cls,
 }: {
-  /** True when the browser has the returning-visitor hint cookie. */
   returning?: boolean
-  /** Same-origin path the OAuth callback lands on instead of the dashboard. */
   next?: string
-  /** True when an OAuth round-trip ended in `?error=1`. */
   failed?: boolean
   class?: string
 }) {
@@ -36,9 +33,7 @@ export default function SignInMenu({
               )
             })}
         </ul>
-        {failed ? (
-          <p class="home-signin-retry">Sign-in didn’t complete. Please try again.</p>
-        ) : null}
+        {failed ? <p class="home-signin-retry">Sign-in didn’t complete. Please try again.</p> : null}
       </div>
     </details>
   )

@@ -201,6 +201,11 @@ html.home-page body {
   color: var(--home-accent);
 }
 
+.home-hero .home-h1 em,
+.home-final .home-h2 em {
+  font-family: inherit;
+}
+
 .home-h2 {
   font-family: 'Bricolage Grotesque', 'Manrope', ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(22px, 3.3vw, 42px);
@@ -352,8 +357,7 @@ html.light .home .home-logo-light {
   padding: 10px 8px;
 }
 
-/* The sign-in utility: a disclosure in the same quiet voice as Download,
-   sitting with the one filled action rather than among the sections. */
+/* Sign in uses the same quiet disclosure voice as Download. */
 .home-signin-header > summary {
   font-size: 15px;
   color: var(--home-ink-muted);
@@ -522,6 +526,17 @@ html.light .home .home-logo-light {
   margin: 0 0 var(--home-gap-block);
 }
 
+.home-hero-cta-note {
+  display: block;
+  margin-top: 10px;
+  font-size: 15px;
+  color: var(--home-ink-muted);
+}
+
+.home-hero-tail {
+  margin-top: var(--home-gap-block);
+}
+
 .home-hero .home-note,
 .home-hero .home-sources,
 .home-hero .home-sources-foot {
@@ -654,12 +669,6 @@ html.light .home-sources-box {
   color: var(--dl-ink-soft);
 }
 
-/* ── the sign-in menu ──────────────────────────────────────────────── */
-
-/* The same printed sticker as Download, and the same flat rows: three
-   providers, icon and label, no title and no pitch. The rows reuse the
-   download list (pink fill on hover); only the icon-and-label direction
-   is added here. */
 .home-signin-panel {
   min-width: 280px;
 }
@@ -672,8 +681,6 @@ html.light .home-sources-box {
   flex-direction: row;
   align-items: center;
   gap: 10px;
-  /* The glyph is currentColor, so the row owns the ink — otherwise the
-     icon inherits the default link colour while the label sets its own. */
   color: var(--dl-ink);
   white-space: nowrap;
 }
@@ -684,8 +691,6 @@ html.light .home-sources-box {
   flex: none;
 }
 
-/* The only prose the panel ever carries: a quiet retry line, and only
-   after a failed round-trip. */
 .home p.home-signin-retry {
   margin: 6px 4px 2px;
   font-size: 13px;
@@ -1407,6 +1412,7 @@ table.home-table td {
   }
 
   .home a,
+  .home .signin-pill,
   .home .home-btn,
   .home-faq-item > summary::after {
     transition: none;
@@ -1491,7 +1497,6 @@ table.home-table td {
 @media (max-width: 719px) {
   .home-nav,
   .home-header-inner > .home-theme-toggle,
-  .home-header-inner > .home-btn,
   .home-download-header {
     display: none;
   }
@@ -1500,9 +1505,6 @@ table.home-table td {
     display: block;
   }
 
-  /* The sign-in disclosure stays in the header on a phone — it is the only
-     sign-in now. Its panel spans the header's own width so the three buttons
-     never push the page sideways. */
   .home-signin-header {
     position: static;
   }

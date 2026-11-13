@@ -103,12 +103,11 @@ describe('the sign-in disclosure', () => {
     const html = page()
     expect(html).toContain('home-signin-menu')
     expect(html).toContain('<summary>Sign in</summary>')
-    // The three buttons sit inside the sign-in panel...
     const panel = html.slice(html.indexOf('home-signin-panel'))
     expect(panel).toContain('href="/auth/apple"')
     expect(panel).toContain('href="/auth/dropbox"')
     expect(panel).toContain('href="/auth/google"')
-    // ...and the hero fold no longer carries its own sign-in group.
+    expect(html).not.toContain('Start free or sign in')
     expect(html).not.toContain('<h2 class="home-signin-title">')
   })
 

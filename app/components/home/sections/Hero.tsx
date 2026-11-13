@@ -51,39 +51,42 @@ export default function Hero({
               <a class="home-btn home-btn-quiet" href={samplePath}>
                 View a sample gallery
               </a>
+              <span class="home-hero-cta-note">No account needed to view.</span>
             </p>
           ) : null}
 
-          <p class="home-hero-links home-rise home-rise-4">
-            {'Manorama runs on '}
-            {SURFACES.map((surface, index) => [
-              index > 0 ? (index === SURFACES.length - 1 ? ' or ' : ', ') : null,
-              surface.url ? (
-                <a key={surface.id} href={surface.href ?? surface.url}>
-                  {surface.label}
-                </a>
-              ) : (
-                <span key={surface.id} class="home-hero-links-soon">
-                  {surface.label}
-                </span>
-              ),
-            ])}
-            .
-          </p>
+          <div class="home-hero-tail">
+            <p class="home-hero-links home-rise home-rise-4">
+              {'Manorama runs on '}
+              {SURFACES.map((surface, index) => [
+                index > 0 ? (index === SURFACES.length - 1 ? ' or ' : ', ') : null,
+                surface.url ? (
+                  <a key={surface.id} href={surface.href ?? surface.url}>
+                    {surface.label}
+                  </a>
+                ) : (
+                  <span key={surface.id} class="home-hero-links-soon">
+                    {surface.label}
+                  </span>
+                ),
+              ])}
+              .
+            </p>
 
-          <p class="home-note home-rise home-rise-4">
-            Anyone with a gallery link can view it — no account needed. An account is for your
-            own Library.
-          </p>
+            <p class="home-note home-rise home-rise-4">
+              Anyone with a gallery link can view it — no account needed. An account is for your
+              own Library.
+            </p>
 
-          <p class="home-sources home-rise home-rise-5">
-            Works with iCloud Shared Albums · Google Drive · Dropbox · MEGA · Ente · Proton
-            Drive
-          </p>
-          <p class="home-sources-foot home-rise home-rise-5">
-            Local folders need Visionary and the Apple Silicon or Windows app. Proton Drive opens
-            in the apps, not the browser.
-          </p>
+            <p class="home-sources home-rise home-rise-5">
+              Works with iCloud Shared Albums · Google Drive · Dropbox · MEGA · Ente · Proton
+              Drive
+            </p>
+            <p class="home-sources-foot home-rise home-rise-5">
+              Local folders need Visionary and the Apple Silicon or Windows app. Proton Drive opens
+              in the apps, not the browser.
+            </p>
+          </div>
         </div>
       </div>
     </section>

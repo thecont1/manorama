@@ -54,6 +54,66 @@ test.describe('the marketing homepage', () => {
     })
   }
 
+  test('fine-pointer hover opens the header disclosures and only one stays open', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page)
+    const download = page.locator('.home-download-header')
+    const signin = page.locator('.home-signin-header')
+
+    await page.locator('.home-download-header > summary').hover()
+    await expect(download).toHaveAttribute('open', '')
+    await page.locator('.home-signin-header > summary').hover()
+    await expect(signin).toHaveAttribute('open', '')
+    await expect(download).not.toHaveAttribute('open', '')
+    await expect(page.locator('.home-signin-list a').first()).toBeVisible()
+
+    await page.locator('h1').hover()
+    await expect(signin).not.toHaveAttribute('open', '')
+
+    await page.locator('.home-signin-header > summary').hover()
+    await expect(signin).toHaveAttribute('open', '')
+    await page.locator('.home-signin-header > summary').click()
+    await page.locator('h1').hover()
+    await expect(signin).toHaveAttribute('open', '')
+    await page.locator('.home-signin-header > summary').click()
+    await expect(signin).not.toHaveAttribute('open', '')
+  })
+
+  test('touch keeps native disclosure behavior without hover opening', async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 375, height: 812 },
+      hasTouch: true,
+      isMobile: true,
+    })
+    const page = await context.newPage()
+    await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' })
+    expect(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches)).toBe(false)
+    const signin = page.locator('.home-signin-header')
+    await signin.evaluate((menu) => menu.dispatchEvent(new MouseEvent('mouseenter')))
+    await expect(signin).not.toHaveAttribute('open', '')
+    await page.locator('.home-signin-header > summary').tap()
+    await expect(signin).toHaveAttribute('open', '')
+    await expect(page.locator('.home-signin-list a').first()).toBeVisible()
+    await context.close()
+  })
+
+  test('the hero and closing highlights use their surrounding font family', async ({ page }) => {
+    await open(page)
+    const families = await page.evaluate(() => {
+      const family = (selector: string) => getComputedStyle(document.querySelector(selector)!).fontFamily
+      return {
+        hero: family('.home-hero .home-h1 em'),
+        heroHeading: family('.home-hero .home-h1'),
+        final: family('.home-final .home-h2 em'),
+        finalHeading: family('.home-final .home-h2'),
+      }
+    })
+    expect(families.hero).toBe(families.heroHeading)
+    expect(families.final).toBe(families.finalHeading)
+    expect(families.hero).not.toContain('Playfair')
+    expect(families.final).not.toContain('Playfair')
+  })
+
   test('the page scrolls with the wheel', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page)

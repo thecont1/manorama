@@ -35,7 +35,7 @@ export default function HomePage({
 }) {
   return (
     <div class="home">
-      <Header returning={returning} next={next} failed={failed} />
+      <Header returning={returning} failed={failed} next={next} />
       <main id="content">
         <Hero samplePath={samplePath} demo={demo} />
         <Unify />

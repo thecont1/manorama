@@ -1,11 +1,3 @@
-/**
- * The page header: the wordmark, the way in, and the one action.
- *
- * The navigation follows the page: Features, Pricing, FAQ, and then the
- * two ways in. Under 720px it collapses into a
- * disclosure, and the disclosure carries the same list in the same order,
- * so a phone is not left without the price.
- */
 import DownloadMenu from '../DownloadMenu'
 import SignInMenu from '../SignInMenu'
 import { SURFACES } from '../home-manifest'
@@ -15,17 +7,10 @@ export default function Header({
   next,
   failed,
 }: {
-  /** True when the browser has the returning-visitor hint cookie. */
   returning?: boolean
-  /** Same-origin path the OAuth callback lands on instead of the dashboard. */
   next?: string
-  /** True when an OAuth round-trip ended in `?error=1`. */
   failed?: boolean
 }) {
-  // The section links mirror the page's own order — a table of contents
-  // for the deep parts of the page. Download and Sign in are actions, not
-  // sections: each opens its own list. Start free opens the sign-in list
-  // too — the same buttons create an account the first time.
   const sections = [
     { href: '#unify', label: 'Features' },
     { href: '#pricing', label: 'Pricing' },
