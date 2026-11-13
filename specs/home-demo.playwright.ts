@@ -2,7 +2,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const BASE = process.env.GALLERY_URL ?? 'http://localhost:8787'
-const SHAPES = ['desktop', 'phone', 'tablet'] as const
+const STRIP_SHAPES = ['desktop', 'phone', 'tablet'] as const
+const SHAPES = [...STRIP_SHAPES, 'duo'] as const
 
 const MATRIX = [
   { name: 'phone', width: 375, height: 812, initial: 'phone' },
@@ -29,13 +30,13 @@ const offset = async (page: Page) => {
 
 const visiblePhotoIds = (page: Page) => page.locator('[data-demo-screen]').evaluate((viewport) => {
   const view = viewport.getBoundingClientRect()
-  return [...viewport.querySelectorAll<HTMLElement>('[data-photo-id]')]
+  return [...viewport.querySelectorAll<HTMLElement>('[data-photo-id], [data-diptych-frame]')]
     .filter((item) => !item.hidden)
     .filter((item) => {
       const box = item.getBoundingClientRect()
       return box.right > view.left + 1 && box.left < view.right - 1
     })
-    .map((item) => item.dataset.photoId || '')
+    .map((item) => item.dataset.photoId || item.dataset.imageId || '')
 })
 
 const centredPhotoId = (page: Page) => page.locator('[data-demo-screen]').evaluate((viewport) => {
@@ -105,11 +106,11 @@ test.describe('the mounted homepage photo demo', () => {
     })
   }
 
-  test('every shape contains the same flush, honest Manorama strip', async ({ page }) => {
+  test('every non-fold shape contains the same flush, honest Manorama strip', async ({ page }) => {
     await open(page)
     await pause(page)
 
-    for (const shape of SHAPES) {
+    for (const shape of STRIP_SHAPES) {
       await page.locator(`[data-shape="${shape}"]`).click()
       await expect(page.locator('[data-demo-stage]')).toHaveAttribute('data-demo-preset', shape)
       await page.waitForTimeout(500)
@@ -206,12 +207,13 @@ test.describe('the mounted homepage photo demo', () => {
   })
 
   test('each real device has a measured, clipped, hardware-safe viewer', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await open(page)
-    await pause(page)
     const expected = {
       desktop: { model: 'MacBook Pro 14-inch', screen: [1512, 982], viewer: [1512, 946], inset: [36, 0] },
-      phone: { model: 'iPhone 17 Pro', screen: [874, 402], viewer: [826, 382], inset: [0, 48] },
+      phone: { model: 'iPhone 17 Pro', screen: [402, 874], viewer: [402, 874], inset: [0, 0] },
       tablet: { model: 'iPad Pro 11-inch (M5)', screen: [834, 1210], viewer: [834, 1210], inset: [0, 0] },
+      duo: { model: 'iPhone Duo', screen: [890, 626], viewer: [890, 626], inset: [0, 0] },
     } as const
 
     for (const shape of SHAPES) {
@@ -221,6 +223,7 @@ test.describe('the mounted homepage photo demo', () => {
       const geometry = await device.evaluate((element) => {
         const screen = element.querySelector<HTMLElement>('.home-demo-screen')!
         const viewer = element.querySelector<HTMLElement>('[data-demo-screen]')!
+        const topChrome = element.querySelector<HTMLElement>('[data-demo-chrome-top]')!
         const screenStyle = getComputedStyle(screen)
         const box = (node: Element) => {
           const rect = node.getBoundingClientRect()
@@ -234,8 +237,13 @@ test.describe('the mounted homepage photo demo', () => {
           isolation: screenStyle.isolation,
           contain: screenStyle.contain,
           clipPath: screenStyle.clipPath,
+          glass: getComputedStyle(element.querySelector<HTMLElement>('.home-demo-device-glass')!).backgroundColor,
           viewerBox: box(viewer),
-          hardware: [...element.querySelectorAll('.home-demo-notch-strip, .home-demo-island, .home-demo-home-indicator')].map(box),
+          topChromeBox: box(topChrome),
+          hardware: [...element.querySelectorAll('.home-demo-notch-strip, .home-demo-island, .home-demo-camera')].map((node) => ({
+            kind: node.classList.contains('home-demo-island') ? 'island' : 'other',
+            ...box(node),
+          })),
         }
       })
       expect(geometry.screen).toEqual([...expected[shape].screen])
@@ -245,7 +253,12 @@ test.describe('the mounted homepage photo demo', () => {
       expect(geometry.isolation).toBe('isolate')
       expect(geometry.contain).toBe('paint')
       expect(geometry.clipPath).toContain('inset')
+      expect(geometry.glass).toBe('rgb(5, 6, 6)')
       for (const hardware of geometry.hardware) {
+        if (hardware.kind === 'island') {
+          expect(hardware.bottom).toBeLessThanOrEqual(geometry.topChromeBox.top)
+          continue
+        }
         const overlaps = hardware.left < geometry.viewerBox.right && hardware.right > geometry.viewerBox.left &&
           hardware.top < geometry.viewerBox.bottom && hardware.bottom > geometry.viewerBox.top
         expect(overlaps).toBe(false)
@@ -253,16 +266,119 @@ test.describe('the mounted homepage photo demo', () => {
     }
   })
 
+  test('the selector and touch hardware match the modern device drawings', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await open(page)
+    await expect(page.locator('.home-demo-shape')).toHaveText(['Desktop', 'iPhone', 'iPad', 'iPhone Duo'])
+
+    await page.locator('[data-shape="phone"]').click()
+    const phone = page.locator('[data-demo-device]')
+    await expect(phone.locator('.home-demo-side-button')).toHaveCount(4)
+    await expect(phone.locator('[data-demo-island]')).toHaveCount(1)
+    await expect(phone.locator('.home-demo-home-indicator')).toHaveCount(0)
+    await expect(phone.locator('.home-demo-device-body')).toHaveCSS('box-shadow', /rgb/)
+
+    await page.locator('[data-shape="tablet"]').click()
+    const tablet = page.locator('[data-demo-device]')
+    await expect(tablet).toHaveAttribute('data-orientation', 'portrait')
+    await expect(tablet.locator('.home-demo-side-button')).toHaveCount(3)
+    await expect(tablet.locator('[data-demo-camera]')).toHaveCount(1)
+    await expect(tablet.locator('.home-demo-screen')).toHaveCSS('border-radius', '23px')
+    await expect(tablet.locator('.home-demo-island, .home-demo-notch, .home-demo-home-indicator')).toHaveCount(0)
+  })
+
+  test('Duo hangs an honest two-photo spread on a continuous hinged screen', async ({ page }) => {
+    test.setTimeout(100_000)
+    await open(page)
+    await pause(page)
+    await page.locator('[data-shape="duo"]').click()
+    const root = page.locator('[data-demo-stage]')
+    const stage = page.locator('[data-diptych-stage]')
+    await expect(stage).toBeVisible()
+    await expect(stage.locator('[data-diptych-frame]')).toHaveCount(2)
+    await expect(page.locator('[data-demo-hinge]')).toHaveCount(1)
+    await expect(page.locator('[data-demo-island], [data-demo-notch], [data-demo-camera]')).toHaveCount(0)
+    await expect(page.locator('[data-demo-strip]')).toHaveCount(0)
+
+    const geometry = await stage.evaluate((element) => {
+      const frames = [...element.querySelectorAll<HTMLElement>('[data-diptych-frame]')]
+      const scale = Number(document.querySelector('[data-demo-stage]')!.getAttribute('data-demo-scale'))
+      return {
+        frames: frames.map((frame) => {
+          const image = frame.querySelector<HTMLImageElement>('img')!
+          return {
+            id: frame.dataset.imageId,
+            x: frame.offsetLeft,
+            width: frame.offsetWidth,
+            height: frame.offsetHeight,
+            imageWidth: image.offsetWidth,
+            imageHeight: image.offsetHeight,
+            naturalWidth: image.naturalWidth,
+            naturalHeight: image.naturalHeight,
+            objectFit: getComputedStyle(image).objectFit,
+            transform: getComputedStyle(frame).transform,
+            yaw: new DOMMatrixReadOnly(getComputedStyle(frame).transform).m13,
+          }
+        }),
+        scale,
+        dpr: window.devicePixelRatio || 1,
+        hingeWidth: document.querySelector<HTMLElement>('[data-demo-hinge]')!.offsetWidth,
+        topWidth: document.querySelector<HTMLElement>('[data-demo-chrome-top]')!.offsetWidth,
+      }
+    })
+    expect(geometry.frames[0]).toMatchObject({ x: 0, width: 445, height: 626 })
+    expect(geometry.frames[1]).toMatchObject({ x: 445, width: 445, height: 626 })
+    expect(geometry.hingeWidth).toBeCloseTo(13, 0)
+    expect(geometry.topWidth).toBe(890)
+    expect(geometry.frames[0]!.yaw).toBeLessThan(0)
+    expect(geometry.frames[1]!.yaw).toBeGreaterThan(0)
+    for (const frame of geometry.frames) {
+      expect(frame.transform).not.toBe('none')
+      expect(frame.naturalWidth).toBeGreaterThan(0)
+      expect(frame.objectFit).not.toBe('cover')
+      expect(Math.abs(frame.imageWidth / frame.imageHeight - frame.naturalWidth / frame.naturalHeight)).toBeLessThan(0.002)
+      expect(frame.imageWidth * geometry.scale * geometry.dpr).toBeLessThanOrEqual(frame.naturalWidth + 1)
+      expect(frame.imageHeight * geometry.scale * geometry.dpr).toBeLessThanOrEqual(frame.naturalHeight + 1)
+    }
+
+    const firstPair = geometry.frames.map((frame) => frame.id)
+    await page.locator('[data-demo-pause]').click()
+    await expect.poll(() => page.locator('[data-diptych-frame]').evaluateAll(
+      (frames) => frames.map((frame) => frame.getAttribute('data-image-id')),
+    ), { timeout: 20_000 }).not.toEqual(firstPair)
+    await expect(root).toHaveAttribute('data-demo-phase', 'end', { timeout: 55_000 })
+    await expect(page.locator('[data-demo-position]')).toHaveText('15 of 15')
+    await expect(root).toHaveAttribute('data-demo-phase', 'rewind', { timeout: 5_000 })
+    await expect(page.locator('[data-curtain]')).toBeVisible()
+    await expect(root).toHaveAttribute('data-demo-phase', 'curtain', { timeout: 5_000 })
+    await expect.poll(() => page.locator('[data-diptych-frame]').evaluateAll(
+      (frames) => frames.map((frame) => frame.getAttribute('data-image-id')),
+    )).toEqual(firstPair)
+  })
+
+  test('reduced motion opens Duo flat without transforming either plane', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await open(page)
+    await page.locator('[data-shape="duo"]').click()
+    await expect(page.locator('[data-diptych-stage]')).toBeVisible()
+    await expect(page.locator('[data-diptych-frame]')).toHaveCount(2)
+    for (const locator of await page.locator('.home-demo-duo-plane, [data-diptych-frame]').all()) {
+      await expect(locator).toHaveCSS('transform', 'none')
+    }
+    await expect(page.locator('.home-demo-screen')).toHaveCSS('clip-path', /inset/)
+    await expect(page.locator('.home-demo-screen')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
+  })
+
   test('the device frame contrasts with the page theme', async ({ page }) => {
     await open(page)
     await pause(page)
     const body = page.locator('.home-demo-device-body')
-    await expect(body).toHaveCSS('background-color', 'rgb(198, 203, 210)')
+    await expect(body).toHaveCSS('background-color', 'rgb(27, 29, 32)')
     await page.locator('.home-header-inner > [data-theme-toggle]').click()
     await expect(page.locator('html')).toHaveClass(/light/)
-    await expect(body).toHaveCSS('background-color', 'rgb(71, 85, 105)')
+    await expect(body).toHaveCSS('background-color', 'rgb(11, 12, 13)')
     await page.locator('.home-header-inner > [data-theme-toggle]').click()
-    await expect(body).toHaveCSS('background-color', 'rgb(198, 203, 210)')
+    await expect(body).toHaveCSS('background-color', 'rgb(27, 29, 32)')
   })
 
   test('shape changes preserve the photograph while paused and during travel', async ({ page }) => {
@@ -289,9 +405,12 @@ test.describe('the mounted homepage photo demo', () => {
     await expect(page.locator('[data-demo-strip]')).toHaveCount(1)
   })
 
-  test('mode changes preserve the current photograph while paused', async ({ page }) => {
+  test('mode changes preserve the current photograph and page position while paused', async ({ page }) => {
     await open(page)
     await pause(page)
+    await page.locator('.home-demo-controls').scrollIntoViewIfNeeded()
+    const pageY = await page.evaluate(() => window.scrollY)
+    const deviceTop = await page.locator('.home-demo-device').evaluate((el) => el.getBoundingClientRect().top)
 
     for (const mode of ['vertical', 'single', 'strip'] as const) {
       const anchor = await centredPhotoId(page)
@@ -299,6 +418,8 @@ test.describe('the mounted homepage photo demo', () => {
       await expect(page.locator('[data-demo-screen] [data-stage]')).toHaveClass(new RegExp(`mode-${mode}`))
       await expect.poll(() => visiblePhotoIds(page)).toContain(anchor)
       await expect(page.locator(`[data-photo-id="${anchor}"] img.frame-img`)).toHaveCSS('opacity', '1')
+      expect(await page.evaluate(() => window.scrollY)).toBe(pageY)
+      expect(await page.locator('.home-demo-device').evaluate((el) => el.getBoundingClientRect().top)).toBeCloseTo(deviceTop, 1)
     }
   })
 
@@ -389,7 +510,7 @@ test.describe('the mounted homepage photo demo', () => {
     const controls = screen.locator('a, button, input, select, textarea, [tabindex]')
     expect(await controls.count()).toBeGreaterThan(0)
     expect(await controls.evaluateAll((elements) => elements.filter((element) => !element.closest('[inert]')).length)).toBe(0)
-    await expect(page.locator('.home-demo > .home-demo-controls button')).toHaveCount(7)
+    await expect(page.locator('.home-demo > .home-demo-controls button')).toHaveCount(8)
     expect(await stage.evaluate((el) => getComputedStyle(el).cursor)).toBe('default')
     const box = await stage.boundingBox()
     expect(box).not.toBeNull()

@@ -1,4 +1,6 @@
-export type DemoPresetId = 'desktop' | 'phone' | 'tablet'
+export type DemoPresetId = 'desktop' | 'phone' | 'tablet' | 'duo'
+
+export const IPAD_ORIENTATION = 'portrait' as const
 
 export type DemoPreset = {
   id: DemoPresetId
@@ -6,12 +8,14 @@ export type DemoPreset = {
   model: string
   screen: { width: number; height: number }
   bezel: number
+  rim: number
   bodyRadius: number
   screenRadius: number
+  chromeTop: number
   viewerInset: { top: number; right: number; bottom: number; left: number }
+  orientation?: typeof IPAD_ORIENTATION
   notch?: { width: number; height: number }
-  island?: { width: number; height: number }
-  homeIndicator?: { width: number; height: number; bottom: number }
+  island?: { width: number; height: number; top: number }
   baseHeight: number
   baseOverhang: number
 }
@@ -23,8 +27,10 @@ export const DEMO_PRESETS: DemoPreset[] = [
     model: 'MacBook Pro 14-inch',
     screen: { width: 1512, height: 982 },
     bezel: 26,
+    rim: 5,
     bodyRadius: 24,
     screenRadius: 12,
+    chromeTop: 8,
     viewerInset: { top: 36, right: 0, bottom: 0, left: 0 },
     notch: { width: 180, height: 36 },
     baseHeight: 30,
@@ -32,26 +38,44 @@ export const DEMO_PRESETS: DemoPreset[] = [
   },
   {
     id: 'phone',
-    label: 'Phone',
+    label: 'iPhone',
     model: 'iPhone 17 Pro',
-    screen: { width: 874, height: 402 },
-    bezel: 15,
-    bodyRadius: 70,
-    screenRadius: 54,
-    viewerInset: { top: 0, right: 0, bottom: 20, left: 48 },
-    island: { width: 30, height: 126 },
-    homeIndicator: { width: 136, height: 5, bottom: 7 },
+    screen: { width: 402, height: 874 },
+    bezel: 16.064,
+    rim: 4,
+    bodyRadius: 65.119,
+    screenRadius: 49.056,
+    chromeTop: 60,
+    viewerInset: { top: 0, right: 0, bottom: 0, left: 0 },
+    island: { width: 121.555, height: 35.598, top: 10.853 },
     baseHeight: 0,
     baseOverhang: 0,
   },
   {
     id: 'tablet',
-    label: 'Tablet',
+    label: 'iPad',
     model: 'iPad Pro 11-inch (M5)',
     screen: { width: 834, height: 1210 },
     bezel: 44,
-    bodyRadius: 48,
-    screenRadius: 30,
+    rim: 7.38,
+    bodyRadius: 65,
+    screenRadius: 23,
+    chromeTop: 16,
+    viewerInset: { top: 0, right: 0, bottom: 0, left: 0 },
+    orientation: IPAD_ORIENTATION,
+    baseHeight: 0,
+    baseOverhang: 0,
+  },
+  {
+    id: 'duo',
+    label: 'iPhone Duo',
+    model: 'iPhone Duo',
+    screen: { width: 890, height: 626 },
+    bezel: 19.256,
+    rim: 5,
+    bodyRadius: 80,
+    screenRadius: 75,
+    chromeTop: 8,
     viewerInset: { top: 0, right: 0, bottom: 0, left: 0 },
     baseHeight: 0,
     baseOverhang: 0,

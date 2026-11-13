@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'hono/jsx'
 import Viewer, { type ViewerDemoHandle } from './Viewer'
+import Diptych from '../../native/islands/Diptych'
 import { GalleryCurtain } from '../components/GalleryShell'
 import { defaultGallerySettings, type ViewerMode } from '../lib/gallery-settings'
 import type { GalleryImage } from '../lib/imagesource'
+import type { FoldLayout } from '../../packages/core/fold'
 import DeviceFrame from '../components/home/demo/DeviceFrame'
 import { DEMO_PHOTOS, demoRenditionPath, type DemoFormat } from '../components/home/demo/manifest'
 import {
   DEMO_PRESETS,
   demoPresetById,
+  deviceViewerSize,
   fitDeviceFrame,
   type DemoPresetId,
 } from '../components/home/demo/presets'
@@ -116,6 +119,21 @@ export default function HomeDemo() {
     }),
     defaultMode: mode,
   }), [images, mode])
+  const foldLayout = useMemo<FoldLayout | null>(() => {
+    if (presetId !== 'duo') return null
+    const viewport = deviceViewerSize(demoPresetById('duo'))
+    const half = viewport.width / 2
+    return {
+      mode: 'diptych',
+      source: 'fallback',
+      viewport,
+      segments: [
+        { x: 0, y: 0, width: half, height: viewport.height },
+        { x: half, y: 0, width: half, height: viewport.height },
+      ],
+      controlRegions: [{ x: 0, y: 0, ...viewport }],
+    }
+  }, [presetId])
 
   useEffect(() => {
     const root = rootRef.current
@@ -321,6 +339,7 @@ export default function HomeDemo() {
             ref={(el: HTMLDivElement | null) => { measureRef.current = el }}
           >
             <DeviceFrame
+              key={presetId}
               preset={preset}
               deviceRef={(el) => { deviceRef.current = el }}
               viewerRef={() => {}}
@@ -345,6 +364,22 @@ export default function HomeDemo() {
                   embedded
                   demoRef={demoRef}
                   demoDisplayScaleRef={demoDisplayScaleRef}
+                  foldLayout={foldLayout}
+                  foldRenderer={foldLayout ? ({ frames, activeIndex, segments, dpr }) => (
+                    <Diptych
+                      frames={frames.map((image) => ({
+                        id: image.id,
+                        src: image.src,
+                        width: image.width,
+                        height: image.height,
+                        alt: image.alt,
+                        placeholder: image.placeholder,
+                      }))}
+                      activeIndex={activeIndex}
+                      segments={segments}
+                      dpr={dpr}
+                    />
+                  ) : undefined}
                   onReturnToGalleries={() => {}}
                   onPositionChange={(position) => { positionRef.current = position.index }}
                 />

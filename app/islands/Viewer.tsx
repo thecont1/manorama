@@ -1315,6 +1315,15 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     return trackRef.current?.querySelector<HTMLElement>(`[data-index="${imageIndex + 1}"]`)?.offsetLeft ?? 0
   }
 
+  const dockVerticalFrame = (target: HTMLElement, behavior: ScrollBehavior) => {
+    if (embedded) {
+      // scrollIntoView also moves the homepage document; only the device stage may scroll.
+      stageRef.current?.scrollTo({ top: target.offsetTop, behavior })
+      return
+    }
+    target.scrollIntoView({ block: 'start', behavior })
+  }
+
   const goTo = (nextIndex: number, instant = false) => {
     const next = clamp(nextIndex, 0, images.length - 1)
     // The sequential fade locks input for its whole run: a press that
@@ -1368,7 +1377,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
       settleTo(navDestXRef.current, instant)
     }
     if (mode === 'vertical') {
-      requestAnimationFrame(() => stageRef.current?.querySelector(`[data-image-id="${images[next]?.id}"]`)?.scrollIntoView({ block: 'start', behavior: instant ? 'auto' : 'smooth' }))
+      requestAnimationFrame(() => {
+        const target = stageRef.current?.querySelector<HTMLElement>(`[data-image-id="${images[next]?.id}"]`)
+        if (target) dockVerticalFrame(target, instant ? 'auto' : 'smooth')
+      })
     }
   }
 
@@ -1384,7 +1396,7 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     if (direction === 1) {
       const next = frames.find((f) => f.getBoundingClientRect().top > stageTop + 8)
       if (!next) return
-      if (next.dataset.endcard !== undefined) { next.scrollIntoView({ block: 'start', behavior: 'smooth' }); return }
+      if (next.dataset.endcard !== undefined) { dockVerticalFrame(next, 'smooth'); return }
       goTo(Number(next.dataset.index) - 1)
       return
     }
@@ -1423,7 +1435,20 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
 
   const advanceStripByViewport = (direction: -1 | 1, onComplete?: (result: 'photo' | 'end') => void) => {
     pendingEntryRef.current = null
-    if (foldActiveRef.current) { step(direction); onComplete?.('photo'); return }
+    if (foldActiveRef.current) {
+      if (embedded && onComplete && direction === 1) {
+        const from = indexRef.current
+        if (from >= images.length - 1) { onComplete('end'); return }
+        // The homepage rests on spreads, while native fold input can still
+        // move the active position between the two photographs in a pair.
+        goTo(Math.min(from + 2, images.length - 1))
+        onComplete('photo')
+        return
+      }
+      step(direction)
+      onComplete?.('photo')
+      return
+    }
     if (mode !== 'strip') {
       if (!embedded || !onComplete || direction === -1) { step(direction); onComplete?.('photo'); return }
       if (mode === 'single') {
@@ -1705,7 +1730,10 @@ export default function Viewer({ slug, galleryTitle, images: sourceImages, encry
     boundsDirtyRef.current = true
     const target = mode === 'strip' ? -imageStart(index) : 0
     renderX(target, false)
-    if (mode === 'vertical') requestAnimationFrame(() => stageRef.current?.querySelector(`[data-image-id="${currentImage?.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'auto' }))
+    if (mode === 'vertical') requestAnimationFrame(() => {
+      const target = stageRef.current?.querySelector<HTMLElement>(`[data-image-id="${currentImage?.id}"]`)
+      if (target) dockVerticalFrame(target, 'auto')
+    })
   }, [mode, foldActive])
 
   const applyStageMetrics = () => {

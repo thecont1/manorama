@@ -31,20 +31,25 @@ const VIEWPORT = { width: 900, height: 450 }
 
 describe('device frames', () => {
   test('each category names one real device and its logical screen', () => {
-    expect(DEMO_PRESETS.map((preset) => preset.id)).toEqual(['desktop', 'phone', 'tablet'])
+    expect(DEMO_PRESETS.map((preset) => preset.id)).toEqual(['desktop', 'phone', 'tablet', 'duo'])
+    expect(DEMO_PRESETS.map((preset) => preset.label)).toEqual(['Desktop', 'iPhone', 'iPad', 'iPhone Duo'])
     expect(demoPresetById('desktop').model).toBe('MacBook Pro 14-inch')
     expect(demoPresetById('desktop').screen).toEqual({ width: 1512, height: 982 })
     expect(demoPresetById('phone').model).toBe('iPhone 17 Pro')
-    expect(demoPresetById('phone').screen).toEqual({ width: 874, height: 402 })
+    expect(demoPresetById('phone').screen).toEqual({ width: 402, height: 874 })
     expect(demoPresetById('tablet').model).toBe('iPad Pro 11-inch (M5)')
     expect(demoPresetById('tablet').screen).toEqual({ width: 834, height: 1210 })
+    expect(demoPresetById('duo').model).toBe('iPhone Duo')
+    expect(demoPresetById('duo').screen).toEqual({ width: 890, height: 626 })
   })
 
   test('the touch-device bodies follow Apple’s published physical proportions', () => {
     const phone = deviceFrameSize(demoPresetById('phone'))
     const tablet = deviceFrameSize(demoPresetById('tablet'))
-    near(phone.width / phone.height, 150 / 71.9, 0.01)
+    const duo = deviceFrameSize(demoPresetById('duo'))
+    near(phone.width / phone.height, 71.9 / 150, 0.01)
     near(tablet.width / tablet.height, 177.5 / 249.7, 0.01)
+    near(duo.width / duo.height, 164.6 / 117.8, 0.01)
   })
 
   test('the complete device fits the reserved stage with one uniform scale', () => {
@@ -70,22 +75,33 @@ describe('device frames', () => {
     near(fit.height, frame.height * 1.25)
   })
 
-  test('hardware intrusions have their own reserved space outside the viewer', () => {
+  test('hardware intrusions leave full screens while their chrome stays clear', () => {
     const desktop = demoPresetById('desktop')
     expect(desktop.baseHeight).toBeGreaterThan(0)
     expect(desktop.viewerInset.top).toBe(desktop.notch!.height)
+    expect(deviceViewerSize(desktop)).toEqual({ width: 1512, height: 946 })
+
     const phone = demoPresetById('phone')
-    expect(phone.viewerInset.left).toBeGreaterThan(phone.island!.width)
-    expect(phone.viewerInset.bottom).toBeGreaterThan(phone.homeIndicator!.bottom + phone.homeIndicator!.height)
-    expect(phone.bodyRadius).toBeGreaterThan(demoPresetById('tablet').bodyRadius)
-    expect(deviceViewerSize(phone)).toEqual({ width: 826, height: 382 })
-    expect(deviceViewerSize(demoPresetById('tablet'))).toEqual({ width: 834, height: 1210 })
+    expect(phone.chromeTop).toBeGreaterThan(phone.island!.top + phone.island!.height)
+    expect(deviceViewerSize(phone)).toEqual({ width: 402, height: 874 })
+
+    const tablet = demoPresetById('tablet')
+    expect(tablet.orientation).toBe('portrait')
+    expect(tablet.chromeTop).toBeGreaterThan(8)
+    expect(tablet.rim).toBeLessThan(tablet.bezel)
+    expect(deviceViewerSize(tablet)).toEqual({ width: 834, height: 1210 })
+
+    const duo = demoPresetById('duo')
+    expect(duo.island).toBeUndefined()
+    expect(duo.notch).toBeUndefined()
+    expect(duo.screenRadius).toBe(75)
+    expect(deviceViewerSize(duo)).toEqual({ width: 890, height: 626 })
   })
 })
 
 describe('layoutStrip', () => {
-  test('every device uses the same height-first, uncropped strip geometry', () => {
-    for (const preset of DEMO_PRESETS) {
+  test('every non-fold device uses the same height-first, uncropped strip geometry', () => {
+    for (const preset of DEMO_PRESETS.filter((candidate) => candidate.id !== 'duo')) {
       const viewport = deviceViewerSize(preset)
       const layout = layoutStrip(sources(), viewport, 2)
       expect(layout).toHaveLength(DEMO_PHOTOS.length)
@@ -134,9 +150,10 @@ describe('restStops', () => {
   })
 
   test('the end card has a readable bounded width on every screen', () => {
-    expect(endCardWidth(deviceViewerSize(demoPresetById('phone')))).toBe(264.32)
+    expect(endCardWidth(deviceViewerSize(demoPresetById('phone')))).toBe(230)
     expect(endCardWidth(deviceViewerSize(demoPresetById('tablet')))).toBe(266.88)
     expect(endCardWidth(deviceViewerSize(demoPresetById('desktop')))).toBe(360)
+    expect(endCardWidth(deviceViewerSize(demoPresetById('duo')))).toBe(284.8)
   })
 
   test('a strip with no overflow stays at zero', () => {

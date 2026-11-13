@@ -739,8 +739,8 @@ html.light .home-sources-box {
 /* ── the photo demo ────────────────────────────────────────────────── */
 
 .home-demo {
-  --home-device-body: #c6cbd2;
-  --home-device-base: #aab1bb;
+  --home-device-body: #1b1d20;
+  --home-device-base: #111315;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -748,8 +748,8 @@ html.light .home-sources-box {
 }
 
 html.light .home-demo {
-  --home-device-body: #475569;
-  --home-device-base: #334155;
+  --home-device-body: #0b0c0d;
+  --home-device-base: #070808;
 }
 
 .home-demo-stage {
@@ -811,6 +811,15 @@ html.light .home-demo {
   background: var(--home-device-body);
 }
 
+.home-demo-device-body {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.16);
+}
+
+.home-demo-device-glass {
+  position: absolute;
+  background: #050606;
+}
+
 .home-demo-laptop-base {
   left: 0;
   right: 0;
@@ -866,26 +875,51 @@ html.light .home-demo {
 .home-demo-island {
   position: absolute;
   z-index: 40;
-  top: 50%;
-  left: 9px;
-  transform: translateY(-50%);
-  border-radius: 999px;
-  background: #000;
-}
-
-.home-demo-home-indicator {
-  position: absolute;
-  z-index: 40;
   left: 50%;
   transform: translateX(-50%);
   border-radius: 999px;
-  background: #f3f0e8;
+  background: #000;
 }
 
 .home-demo-side-button {
   position: absolute;
   background: var(--home-device-body);
-  border-radius: 3px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+.home-demo-camera {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+}
+
+.home-demo-duo-plane {
+  position: absolute;
+}
+
+.home-demo-duo-hinge {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgb(0 0 0 / 0.08);
+  pointer-events: none;
+}
+
+.home-demo-duo-hinge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgb(255 255 255 / 0.14);
 }
 
 .home-demo-viewer-stage .viewer-stage {
@@ -912,6 +946,10 @@ html.light .home-demo {
   pointer-events: none;
 }
 
+.home-demo-viewer-stage .m-chrome--top {
+  top: var(--home-demo-safe-top, 8px);
+}
+
 .home-demo-viewer-stage .m-chrome-skip {
   display: none;
 }
@@ -925,6 +963,53 @@ html.light .home-demo {
 
 .home-demo-viewer-stage .viewer-endcap {
   background: #0a0a0a;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .home-demo-device--duo {
+    perspective: 1800px;
+  }
+
+  .home-demo-device--duo .home-demo-duo-plane--left {
+    transform-origin: right center;
+    transform: rotateY(10deg);
+  }
+
+  .home-demo-device--duo .home-demo-duo-plane--right {
+    transform-origin: left center;
+    transform: rotateY(-10deg);
+  }
+
+  .home-demo-device--duo .home-demo-screen,
+  .home-demo-device--duo .home-demo-viewer,
+  .home-demo-device--duo .home-demo-viewer-stage .viewer-stage {
+    overflow: visible;
+    clip-path: none;
+    background: transparent;
+  }
+
+  .home-demo-device--duo .native-diptych {
+    overflow: visible !important;
+    background: transparent !important;
+    perspective: 1800px;
+  }
+
+  .home-demo-device--duo [data-diptych-frame] {
+    background: #0a0a0a;
+    backface-visibility: hidden;
+  }
+
+  .home-demo-device--duo [data-diptych-frame='1'] {
+    transform-origin: right center;
+    transform: rotateY(10deg);
+    border-radius: 75px 0 0 75px;
+  }
+
+  .home-demo-device--duo [data-diptych-frame='2'] {
+    transform-origin: left center;
+    transform: rotateY(-10deg);
+    border-radius: 0 75px 75px 0;
+  }
 }
 
 .home-demo-controls {
@@ -1525,6 +1610,7 @@ table.home-table td {
 
 .home-footer-brand img {
   width: 100%;
+  transform: translateY(3px);
 }
 
 .home-footer-ownership {
