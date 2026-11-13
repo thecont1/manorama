@@ -45,7 +45,7 @@
     "@tauri-apps/plugin-opener": "^2.6.0",
     "c2pa-wc": "^0.14.17",
     "heic-decode": "^2.1.0",
-    "hono": "^4.13.13",
+    "hono": "^4.13.18",
     "honox": "^0.1.62",
     "jimp": "^1.6.1",
     "jose": "^6.2.10",
