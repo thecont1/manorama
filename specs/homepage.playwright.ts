@@ -41,7 +41,7 @@ test.describe('the marketing homepage', () => {
       expect(box!.y).toBeLessThan(viewport.height)
       // Opening it reveals the provider chooser itself.
       await summary.click()
-      await expect(page.locator('.home-signin-panel .signin-pill').first()).toBeVisible()
+      await expect(page.locator('.home-signin-panel .home-signin-list a').first()).toBeVisible()
     })
 
     test(`nothing scrolls sideways at ${viewport.width}px`, async ({ page }) => {

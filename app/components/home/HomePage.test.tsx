@@ -53,7 +53,7 @@ describe('the homepage headline', () => {
   test('leads with what the product does and how to start', () => {
     const html = page()
     expect(html).toContain('Bring your local folders and shared cloud galleries together')
-    expect(html).toContain('Start free or sign in')
+    expect(html).toContain('Start free')
   })
 })
 
@@ -87,8 +87,14 @@ describe('the sign-in group', () => {
     expect(page()).not.toContain('Sign-in didn')
   })
 
-  test('says that the same button creates the account', () => {
-    expect(page()).toContain('The same button creates your account the first time and signs you in after.')
+  test('the menu is just the three providers — no title, no pitch', () => {
+    const html = page()
+    const start = html.indexOf('home-signin-panel')
+    const panel = html.slice(start, html.indexOf('</details>', start))
+    expect(panel).toContain('home-signin-list')
+    expect(panel).not.toContain('The same button creates your account')
+    expect(panel).not.toContain('Free includes')
+    expect(panel).not.toContain('home-signin-menu-title')
   })
 })
 

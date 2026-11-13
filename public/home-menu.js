@@ -20,11 +20,11 @@ try {
     // "Start free" reveals the sign-in list rather than scrolling to a fold
     // that no longer carries it. The anchor href stays as the no-script
     // fallback; with script we open the disclosure and move focus to the
-    // first provider button.
+    // first provider row.
     if (signin && target.closest && target.closest('[data-signin-open]')) {
       event.preventDefault()
       signin.open = true
-      var first = signin.querySelector('.signin-pill')
+      var first = signin.querySelector('.home-signin-list a')
       if (first) first.focus()
     }
   })

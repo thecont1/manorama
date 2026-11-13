@@ -1,13 +1,6 @@
-import { SignInLinks } from '../../lib/signin'
-import { LIMITS } from './home-manifest'
+import { SIGN_IN_PROVIDERS } from '../../lib/signin'
 
-/**
- * The sign-in affordance, as one disclosure in the same shape as Download.
- * The three provider buttons live here now — the hero fold is left to the
- * photographs. It reuses the `.home-download` mechanics so the menu script
- * closes it on an outside click, an item click or Escape, exactly like the
- * download list beside it.
- */
+/** The sign-in chooser: three flat provider rows like Download, no pitch. */
 export default function SignInMenu({
   returning,
   next,
@@ -26,16 +19,25 @@ export default function SignInMenu({
     <details class={`home-download home-signin-menu${cls ? ` ${cls}` : ''}`}>
       <summary>Sign in</summary>
       <div class="home-download-panel home-signin-panel">
-        <p class="home-signin-menu-title">Start free or sign in</p>
-        <SignInLinks returning={returning} next={next} />
-        <p class="home-note home-signin-note">
-          The same button creates your account the first time and signs you in after.
-        </p>
-        <p class="home-note home-signin-note">
-          Free includes {LIMITS.freePermanent} permanent cloud galleries.
-        </p>
+        <ul class="home-download-list home-signin-list">
+          {[...SIGN_IN_PROVIDERS]
+            // Apple leads: App Review 4.8 requires it no less prominence.
+            .sort((a, b) => (a.id === 'apple' ? -1 : b.id === 'apple' ? 1 : 0))
+            .map(({ id, label, Glyph }) => {
+              const text = `${returning ? 'Sign in' : 'Continue'} with ${label}`
+              const destination = next ? `/auth/${id}?next=${encodeURIComponent(next)}` : `/auth/${id}`
+              return (
+                <li key={id}>
+                  <a href={destination} aria-label={text}>
+                    <Glyph />
+                    <span class="home-download-name">{text}</span>
+                  </a>
+                </li>
+              )
+            })}
+        </ul>
         {failed ? (
-          <p class="home-note home-signin-note">Sign-in didn’t complete. Please try again.</p>
+          <p class="home-signin-retry">Sign-in didn’t complete. Please try again.</p>
         ) : null}
       </div>
     </details>
