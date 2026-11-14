@@ -1025,7 +1025,12 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
         setAddName((current) => (current.trim() ? current : title))
         return
       }
-      const result = await scanGalleryLink(base, session.token, url.split('#')[0])
+      // The fragment is URL data, not a secret to strip: iCloud shared
+      // albums carry their album token in it, so the link goes to the scan
+      // verbatim — the same body the web dashboard posts. The only
+      // fragment that must stay in device custody is an encrypted
+      // source's key, and those return above before this line.
+      const result = await scanGalleryLink(base, session.token, target)
       if (seq !== addVerifySeq.current) return
       if (result.status < 200 || result.status >= 300 || !result.scan) {
         setAddVerifiedTitle(null)
@@ -1179,11 +1184,13 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
     try {
       // The same normalization verification applied — for a manorama
       // link this is the decoded provider share; for anything else it is
-      // the link itself. The fragment stays in device custody and never
-      // enters the request body.
+      // the link itself, fragment included: iCloud album tokens live in
+      // the fragment and providers' share data is legitimate URL content.
+      // An encrypted source's key fragment still never enters the body —
+      // the manifest below replaces this object entirely for those.
       const target = galleryAddTarget(url)
       let body: Record<string, unknown> = {
-        url: target.split('#')[0],
+        url: target,
         ...(input.name ? { title: input.name } : {}),
         ...(input.caption ? { caption: input.caption } : {}),
       }

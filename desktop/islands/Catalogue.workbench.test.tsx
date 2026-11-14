@@ -1295,6 +1295,75 @@ describe('desktop catalogue workbench', () => {
     }
   })
 
+  test('an iCloud shared album link keeps its fragment token through verify and create', async () => {
+    // The album token lives in the URL fragment — stripping it is what made
+    // every iCloud link fail in the app while the web dashboard worked.
+    const cloudGallery = {
+      id: 'cloud-icloud',
+      slug: 'kashmir',
+      title: 'Kashmir',
+      sourceUrl: 'https://www.icloud.com/sharedalbum/#D2Qv34SXb0e_MTc9s7Ac4ywYBxwCAEQARog4ioTMH9D3EKdjNaFc8Hczs_oF0FGLrTusE-rI6QvJiU',
+      caption: null,
+      imageCount: 4,
+      itemCount: 4,
+      images: [],
+      retention: 'permanent',
+      expiresAt: null,
+      pinnedAt: null,
+      deviceLabel: null,
+      layout: 'compact',
+    }
+    const scanCalls: Record<string, unknown>[] = []
+    const createCalls: Record<string, unknown>[] = []
+    const defaultFetch = globals.fetch
+    globals.fetch = (async (url: string, init?: { method?: string; body?: unknown }) => {
+      const path = String(url)
+      const method = init?.method ?? 'GET'
+      if (method === 'POST' && path.endsWith('/api/galleries/scan')) {
+        scanCalls.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return new Response(JSON.stringify({ scan: { title: 'Kashmir' } }), { status: 200 })
+      }
+      if (method === 'POST' && path.endsWith('/api/galleries')) {
+        createCalls.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return new Response(JSON.stringify({ gallery: cloudGallery }), { status: 200 })
+      }
+      if (path.endsWith('/api/galleries')) {
+        return new Response(JSON.stringify({ galleries: [cloudGallery] }), { status: 200 })
+      }
+      if (path.endsWith('/api/device-galleries')) {
+        return new Response(JSON.stringify({ galleries: [] }), { status: 200 })
+      }
+      if (path.endsWith('/api/account')) {
+        return new Response(JSON.stringify({ ownerSlug: 'thecontrarian' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({}), { status: 404 })
+    }) as unknown as typeof fetch
+    try {
+      const container = await mount(true)
+      byText(container, '+ Add Gallery')!.click()
+      await settle()
+      ;(row(container, 'A shared cloud link') as HTMLButtonElement).click()
+      await settle()
+
+      const input = container.querySelector<HTMLInputElement>('.m-sheet input[type="url"]')!
+      const url = cloudGallery.sourceUrl
+      setInput(input, url)
+      input.dispatchEvent(new dom.Event('change', { bubbles: true }) as unknown as Event)
+      await settle()
+
+      expect(scanCalls).toHaveLength(1)
+      expect(scanCalls[0]?.url).toBe(url)
+      expect(String(scanCalls[0]?.url)).toContain('#D2Qv34SXb0e')
+
+      sheetButton(container, 'Create gallery')!.click()
+      await settle()
+      expect(createCalls).toHaveLength(1)
+      expect(createCalls[0]?.url).toBe(url)
+    } finally {
+      globals.fetch = defaultFetch
+    }
+  })
+
   test('an unreadable cloud link reports the provider error, keeping the sheet open', async () => {
     const defaultFetch = globals.fetch
     globals.fetch = (async (url: string, init?: { method?: string }) => {
