@@ -276,7 +276,7 @@ jobs:
           # other read failure aborts rather than publishing over the
           # desktop fields this job does not own.
           if ! bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > latest.json 2> latest.err; then
-            if grep -qiE 'does not exist|NoSuchKey|404' latest.err; then
+            if grep -qiE 'does not exist|NoSuchKey' latest.err; then
               echo '{}' > latest.json
             else
               cat latest.err >&2
@@ -284,7 +284,10 @@ jobs:
             fi
           fi
           rm -f latest.err
-          VERSION="$version" APK_URL="https://downloads.manorama.xyz/v${version}/${apk}" bun -e '
+          # Out-of-order tag runs can finish publishing backwards; an older
+          # release must never regress the slot. The versioned APK above
+          # still ships — only the latest.json pointer stays put.
+          update="$(VERSION="$version" APK_URL="https://downloads.manorama.xyz/v${version}/${apk}" bun -e '
             const raw = (await Bun.file("latest.json").text()).trim()
             let manifest = {}
             if (raw) {
@@ -293,7 +296,27 @@ jobs:
               }
             }
             if (typeof manifest !== "object" || manifest === null) manifest = {}
-            manifest.mobile = { ...(manifest.mobile ?? {}), android: { version: process.env.VERSION, url: process.env.APK_URL } }
-            await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
-          '
-          bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
+            const dotted = (v) => /^\d+(\.\d+)*$/.test(String(v)) ? String(v).split(".").map(Number) : null
+            const cmp = (a, b) => {
+              const pa = dotted(a), pb = dotted(b)
+              if (!pa || !pb) return 0
+              for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+                if (d) return d
+              }
+              return 0
+            }
+            const existing = manifest.mobile?.android?.version
+            if (existing && cmp(existing, process.env.VERSION) > 0) {
+              console.log("skip")
+            } else {
+              manifest.mobile = { ...(manifest.mobile ?? {}), android: { version: process.env.VERSION, url: process.env.APK_URL } }
+              await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
+              console.log("write")
+            }
+          ')"
+          if [ "$update" = "write" ]; then
+            bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
+          else
+            echo "mobile.android already points at a newer release — latest.json untouched"
+          fi

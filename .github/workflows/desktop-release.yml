@@ -263,7 +263,7 @@ jobs:
           # other read failure aborts rather than publishing over the mobile
           # fields this job does not own.
           if ! bunx wrangler r2 object get manorama-downloads/latest.json --pipe --remote > current-latest.json 2> current-latest.err; then
-            if grep -qiE 'does not exist|NoSuchKey|404' current-latest.err; then
+            if grep -qiE 'does not exist|NoSuchKey' current-latest.err; then
               echo '{}' > current-latest.json
             else
               cat current-latest.err >&2
@@ -271,12 +271,15 @@ jobs:
             fi
           fi
           rm -f current-latest.err
-          VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
+          # Out-of-order tag runs can finish publishing backwards; an older
+          # release must never regress the pointer. history.json still
+          # publishes — it is rebuilt from every tag, not this run's.
+          update="$(VERSION="$version" MAC="$mac" WIN="$win" LINUX="$linux" bun -e '
             if (!process.env.MAC || !process.env.WIN || !process.env.LINUX) {
               console.error("missing platform asset", { mac: process.env.MAC, win: process.env.WIN, linux: process.env.LINUX })
               process.exit(1)
             }
-            let mobile
+            let mobile, existingVersion
             const raw = (await Bun.file("current-latest.json").text()).trim()
             if (raw) {
               let current
@@ -284,15 +287,35 @@ jobs:
                 console.error("latest.json is not valid JSON:", e.message); process.exit(1)
               }
               if (current && typeof current.mobile === "object" && current.mobile !== null) mobile = current.mobile
+              if (current && typeof current.version === "string") existingVersion = current.version
             }
-            const key = (name) => `v${process.env.VERSION}/${name}`
-            const manifest = {
-              version: process.env.VERSION,
-              released: new Date().toISOString().slice(0, 10),
-              assets: { mac: key(process.env.MAC), windows: key(process.env.WIN), linux: key(process.env.LINUX), all: [key(process.env.MAC)] },
+            const dotted = (v) => /^\d+(\.\d+)*$/.test(String(v)) ? String(v).split(".").map(Number) : null
+            const cmp = (a, b) => {
+              const pa = dotted(a), pb = dotted(b)
+              if (!pa || !pb) return 0
+              for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const d = (pa[i] ?? 0) - (pb[i] ?? 0)
+                if (d) return d
+              }
+              return 0
             }
-            if (mobile) manifest.mobile = mobile
-            await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
-          '
+            if (existingVersion && cmp(existingVersion, process.env.VERSION) > 0) {
+              console.log("skip")
+            } else {
+              const key = (name) => `v${process.env.VERSION}/${name}`
+              const manifest = {
+                version: process.env.VERSION,
+                released: new Date().toISOString().slice(0, 10),
+                assets: { mac: key(process.env.MAC), windows: key(process.env.WIN), linux: key(process.env.LINUX), all: [key(process.env.MAC)] },
+              }
+              if (mobile) manifest.mobile = mobile
+              await Bun.write("latest.json", JSON.stringify(manifest, null, 2) + "\n")
+              console.log("write")
+            }
+          ')"
           bunx wrangler r2 object put manorama-downloads/history.json --file history.json --content-type application/json --remote
-          bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
+          if [ "$update" = "write" ]; then
+            bunx wrangler r2 object put manorama-downloads/latest.json --file latest.json --content-type application/json --remote
+          else
+            echo "latest.json already points at a newer release — pointer untouched"
+          fi
