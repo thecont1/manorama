@@ -215,6 +215,15 @@ describe('handleDownloads', () => {
     expect(android.headers.get('location')).toBe('https://downloads.manorama.xyz/v1.0/manorama_1.0_android.apk')
   })
 
+  test('the header carries the downloads menu and a providers-only sign-in panel', async () => {
+    const res = await handleDownloads(req('/'), envWith({}))
+    const body = await res.text()
+    expect(body).toContain('class="home-downloads-trigger" href="https://downloads.manorama.xyz/"')
+    expect(body).toContain('https://downloads.manorama.xyz/linux')
+    expect(body).toContain('home-downloads-soon')
+    expect(body).not.toContain('Get the app')
+  })
+
   test('serves versioned objects with immutable caching', async () => {
     const res = await handleDownloads(req('/v0.3.0/manorama_0.3.0_aarch64.dmg'), env)
     expect(res.status).toBe(200)

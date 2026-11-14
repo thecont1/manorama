@@ -1,3 +1,4 @@
+import DownloadMenu from '../DownloadMenu'
 import SignInMenu from '../SignInMenu'
 
 function ThemeToggle() {
@@ -45,6 +46,7 @@ export default function Header({
                 {link.label}
               </a>
             ))}
+            <a href="https://downloads.manorama.xyz/">Downloads</a>
             <button type="button" class="home-nav-signin" popovertarget="home-account-panel" popovertargetaction="show">Sign in</button>
             <p class="home-nav-menu-label">View</p>
             <ThemeToggle />
@@ -56,6 +58,7 @@ export default function Header({
               {link.label}
             </a>
           ))}
+          <DownloadMenu />
         </nav>
         <ThemeToggle />
         <SignInMenu class="home-signin-header" returning={returning} next={next} failed={failed} />

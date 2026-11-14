@@ -435,6 +435,89 @@ html.light .home-theme-moon {
   padding: 12px 8px 2px;
 }
 
+/* The Downloads nav item opens its panel on hover or keyboard focus; the
+   trigger stays a real link so touch visitors still reach the page. */
+.home-downloads {
+  position: relative;
+  display: inline-flex;
+}
+
+.home .home-downloads-trigger {
+  font-size: 15px;
+  text-decoration: none;
+  color: var(--home-ink-soft);
+  transition: color 120ms ease-out;
+}
+
+.home .home-downloads-trigger:hover {
+  color: var(--home-ink);
+}
+
+.home-downloads-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 30;
+  display: none;
+  min-width: 200px;
+  padding: 8px 0;
+  background: var(--home-surface-raised);
+  border: 2px solid var(--home-ink);
+  box-shadow: 4px 4px 0 var(--home-accent);
+}
+
+/* The panel floats 10px under its trigger; without a bridge the pointer
+   crosses dead space and the reveal closes mid-transit. */
+.home-downloads-panel::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+
+.home-downloads-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.home-downloads:hover .home-downloads-panel,
+.home-downloads:focus-within .home-downloads-panel {
+  display: block;
+}
+
+.home .home-downloads-panel a {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 15px;
+  text-decoration: none;
+  color: var(--home-ink-soft);
+}
+
+.home .home-downloads-panel a:hover {
+  color: var(--home-ink);
+  background: var(--home-surface);
+}
+
+.home-downloads-soon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 15px;
+  color: var(--home-ink-muted);
+}
+
+.home-downloads-soon small {
+  font-size: 12px;
+}
+
 /* ── buttons ───────────────────────────────────────────────────────── */
 
 .home .home-btn {

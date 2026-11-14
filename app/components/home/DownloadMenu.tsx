@@ -1,37 +1,42 @@
-import { SURFACES } from './home-manifest'
-
 /**
- * The download affordance, as one disclosure shared by the header and the
- * hero fold. Surfaces with no published URL are listed quiet and without a
- * link — an honest "not yet", never a link that goes nowhere.
+ * The downloads affordance in the header nav. Hover or keyboard focus
+ * opens the panel; the trigger itself is a real link to the downloads
+ * page, so touch and no-hover visitors still reach it. iPhone & iPad has
+ * no published URL yet, so it lists quiet without a link — never a link
+ * that goes nowhere.
  */
-export default function DownloadMenu({
-  summary = 'Downloads',
-  class: cls,
-}: {
-  summary?: string
-  class?: string
-}) {
+const ITEMS: { label: string; href: string | null; soon?: boolean }[] = [
+  { label: 'Web app', href: 'https://manorama.xyz/' },
+  { label: 'Mac', href: 'https://downloads.manorama.xyz/mac' },
+  { label: 'Windows', href: 'https://downloads.manorama.xyz/windows' },
+  { label: 'Linux', href: 'https://downloads.manorama.xyz/linux' },
+  { label: 'Android', href: 'https://downloads.manorama.xyz/android' },
+  { label: 'iPhone & iPad', href: null, soon: true },
+  { label: 'Downloads page', href: 'https://downloads.manorama.xyz/' },
+]
+
+export default function DownloadMenu({ class: cls }: { class?: string }) {
   return (
-    <details class={`home-download${cls ? ` ${cls}` : ''}`}>
-      <summary>{summary}</summary>
-      <div class="home-download-panel">
-        <ul class="home-download-list">
-          {SURFACES.map((surface) => (
-            <li key={surface.id}>
-              {surface.url ? (
-                <a href={surface.href ?? surface.url}>
-                  <span class="home-download-name">{surface.label}</span>
+    <div class={`home-downloads${cls ? ` ${cls}` : ''}`}>
+      <a class="home-downloads-trigger" href="https://downloads.manorama.xyz/">Downloads</a>
+      <div class="home-downloads-panel">
+        <ul class="home-downloads-list">
+          {ITEMS.map((item) => (
+            <li key={item.label}>
+              {item.href ? (
+                <a href={item.href}>
+                  <span class="home-downloads-name">{item.label}</span>
                 </a>
               ) : (
-                <span class="home-download-soon">
-                  <span class="home-download-name">{surface.label}</span>
+                <span class="home-downloads-soon">
+                  <span class="home-downloads-name">{item.label}</span>
+                  <small>soon</small>
                 </span>
               )}
             </li>
           ))}
         </ul>
       </div>
-    </details>
+    </div>
   )
 }

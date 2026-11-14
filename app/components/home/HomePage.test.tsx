@@ -87,13 +87,14 @@ describe('the sign-in group', () => {
     expect(page()).not.toContain('Sign-in didn')
   })
 
-  test('groups providers and published apps without a pitch', () => {
+  test('groups only the three providers without a pitch', () => {
     const html = page()
-    const start = html.indexOf('home-account-panel')
+    const start = html.indexOf('id="home-account-panel"')
     const panel = html.slice(start, html.indexOf('</header>', start))
     expect(panel).toContain('Continue with')
-    expect(panel).toContain('Get the app')
     expect(panel).toContain('home-signin-list')
+    expect(panel).not.toContain('Get the app')
+    expect(panel).not.toContain('downloads.manorama.xyz')
     expect(panel).not.toContain('The same button creates your account')
     expect(panel).not.toContain('Free includes')
   })
@@ -138,13 +139,14 @@ describe('the navigation', () => {
     for (const target of targets) expect(ids.has(target)).toBe(true)
   })
 
-  test('offers the sections without a separate Downloads menu', () => {
+  test('offers the sections and a Downloads hover menu', () => {
     const html = page()
     expect(html).toContain('href="#unify"')
     expect(html).toContain('href="#pricing"')
     expect(html).toContain('href="#faq"')
-    expect(html).not.toContain('home-download')
-    expect(html).not.toContain('<summary>Downloads</summary>')
+    expect(html).toContain('class="home-downloads"')
+    expect(html).toContain('class="home-downloads-trigger" href="https://downloads.manorama.xyz/"')
+    expect(html).toContain('>Downloads</a>')
   })
 
   test('has a skip link and one h1', () => {
@@ -260,16 +262,21 @@ describe('the surfaces and the sample gallery', () => {
     expect(html).not.toContain('URL missing')
   })
 
-  test('the account panel lists only published apps with their download links', () => {
+  test('the Downloads menu lists the web app, every shipped shortcut, and itself', () => {
     const html = page()
-    const start = html.indexOf('home-account-panel')
-    const panel = html.slice(start, html.indexOf('</header>', start))
-    expect(panel).toContain('href="https://downloads.manorama.xyz/mac"')
-    expect(panel).toContain('href="https://downloads.manorama.xyz/windows"')
-    expect(panel).toContain('>Mac</span>')
-    expect(panel).toContain('<small>Apple silicon</small>')
-    expect(panel).not.toContain('iPhone &amp; iPad')
-    expect(panel).not.toContain('home-download-soon')
+    const start = html.indexOf('home-downloads-panel')
+    const panel = html.slice(start, html.indexOf('</ul>', start))
+    expect(panel).toContain('href="https://manorama.xyz/"')
+    expect(panel).toContain('>Web app</span>')
+    for (const path of ['/mac', '/windows', '/linux', '/android']) {
+      expect(panel).toContain(`href="https://downloads.manorama.xyz${path}"`)
+    }
+    expect(panel).toContain('href="https://downloads.manorama.xyz/"')
+    expect(panel).toContain('>Downloads page</span>')
+    // iOS has no published URL — listed quiet, never a dead link.
+    expect(panel).toContain('home-downloads-soon')
+    expect(panel).toContain('iPhone &amp; iPad')
+    expect(panel).not.toContain('href="https://downloads.manorama.xyz/ios"')
   })
 
   test('the sample gallery is linked when the manifest holds one', () => {

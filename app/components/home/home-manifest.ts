@@ -47,58 +47,6 @@ export const LIMITS = {
   temporaryDays: TEMPORARY_GALLERY_DAYS,
 }
 
-export type SurfaceId = 'web' | 'ios' | 'macos' | 'windows'
-
-export type Surface = {
-  id: SurfaceId
-  /** The name the page uses. */
-  label: string
-  /** One line, no implementation names. */
-  blurb: string
-  /** Where the tile points. `null` means "not published yet". */
-  href: string | null
-  /** The store or download page, once it exists. */
-  url: string | null
-  /** Minimum version, once it is verified. */
-  minOs?: string
-}
-
-/**
- * The platforms. A surface with no `url` is hidden in production and shown
- * in development with a "URL missing" marker, so a half-built launch shows
- * its own holes instead of dead links (plan D4).
- */
-export const SURFACES: Surface[] = [
-  {
-    id: 'web',
-    label: 'Web',
-    blurb: 'Open in your browser',
-    href: '#start',
-    url: 'https://manorama.xyz/',
-  },
-  {
-    id: 'ios',
-    label: 'iPhone & iPad',
-    blurb: 'Encrypted offline copies on the device',
-    href: null,
-    url: null,
-  },
-  {
-    id: 'macos',
-    label: 'Apple Silicon',
-    blurb: 'Local folders, opened in place',
-    href: null,
-    url: 'https://downloads.manorama.xyz/mac',
-  },
-  {
-    id: 'windows',
-    label: 'Windows',
-    blurb: 'Local folders, opened in place',
-    href: null,
-    url: 'https://downloads.manorama.xyz/windows',
-  },
-]
-
 /**
  * Footer links that only exist once the owner approves them (plan D8).
  * `null` means the link is not rendered at all: never a dead link.

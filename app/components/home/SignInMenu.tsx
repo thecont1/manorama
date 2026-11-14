@@ -1,5 +1,4 @@
 import { SIGN_IN_PROVIDERS } from '../../lib/signin'
-import { SURFACES } from './home-manifest'
 
 export default function SignInMenu({
   returning,
@@ -12,8 +11,6 @@ export default function SignInMenu({
   failed?: boolean
   class?: string
 }) {
-  const apps = SURFACES.filter((surface) => surface.id !== 'web' && surface.url)
-
   return (
     <>
       <button
@@ -45,23 +42,6 @@ export default function SignInMenu({
               })}
           </ul>
         </section>
-        {apps.length ? (
-          <section aria-labelledby="home-account-apps">
-            <h2 id="home-account-apps" class="home-account-heading">Get the app</h2>
-            <ul class="home-account-list">
-              {apps.map((surface) => (
-                <li key={surface.id}>
-                  <a href={surface.url!}>
-                    <span class="home-account-name">
-                      {surface.id === 'macos' ? 'Mac' : surface.label}
-                    </span>
-                    {surface.id === 'macos' ? <small>Apple silicon</small> : null}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
         {failed ? <p class="home-signin-retry">Sign-in didn’t complete. Please try again.</p> : null}
       </div>
     </>
