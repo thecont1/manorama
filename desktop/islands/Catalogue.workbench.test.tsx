@@ -463,8 +463,10 @@ describe('desktop catalogue workbench', () => {
     try {
       const container = await mount(true)
       // Section order is Pinned → Local galleries → Cloud galleries; the
-      // account card lands in Cloud galleries after the local cards.
-      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => el.textContent ?? '')
+      // account card lands in Cloud galleries after the local cards. The
+      // collapsible headers lead with a chevron glyph — strip it before
+      // matching on the title text.
+      const headings = [...container.querySelectorAll<HTMLElement>('.lib-section-title')].map((el) => (el.textContent ?? '').replace(/^[▸▾]/, ''))
       const localHeading = headings.findIndex((text) => text.startsWith('Local galleries'))
       const cloudHeading = headings.findIndex((text) => text.startsWith('Cloud galleries'))
       expect(localHeading).toBeGreaterThanOrEqual(0)

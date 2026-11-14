@@ -376,6 +376,10 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
   // that section (off by default). Visionary-only surface.
   const [prefs, setPrefs] = useState<LibraryPrefs>({ version: 1 })
   const [hiddenOpen, setHiddenOpen] = useState(false)
+  // Cloud and Local collapse like Hidden does — plain toggles, no password:
+  // the Library opens with every section showing.
+  const [cloudOpen, setCloudOpen] = useState(true)
+  const [localOpen, setLocalOpen] = useState(true)
   const [hiddenUnlocked, setHiddenUnlocked] = useState(false)
   const [passwordPrompt, setPasswordPrompt] = useState<'unlock' | 'set' | 'disable' | null>(null)
   const [passwordDraft, setPasswordDraft] = useState('')
@@ -2563,26 +2567,50 @@ export default function Catalogue({ apiBase }: { apiBase: string }) {
           ) : null}
           {accountTier === 'pro' && (visibleDeviceGalleries.length || compactLocalGalleries.length) ? (
             <section aria-labelledby="local-galleries-title">
-              <h2 id="local-galleries-title" class="lib-section-title">Local galleries <span class="lib-section-count">({visibleDeviceGalleries.length + compactLocalGalleries.length})</span></h2>
-              <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
-              {visibleDeviceGalleries.length ? (
-                <ul class="lib-list">
-                  {visibleDeviceGalleries.map(deviceMirrorCard)}
-                </ul>
-              ) : null}
-              {compactLocalGalleries.length ? (
-                <ul class="lib-compact-grid" ref={localGridRef}>
-                  {compactLocalGalleries.map(localCompactCard)}
-                </ul>
+              <button
+                type="button"
+                id="local-galleries-title"
+                class="lib-section-title lib-hidden-toggle"
+                aria-expanded={localOpen}
+                onClick={() => setLocalOpen((open) => !open)}
+              >
+                <span class="lib-hidden-chevron" aria-hidden="true">{localOpen ? '▾' : '▸'}</span>
+                Local galleries <span class="lib-hidden-count">({visibleDeviceGalleries.length + compactLocalGalleries.length})</span>
+              </button>
+              {localOpen ? (
+                <>
+                  <p class="lib-section-sub">Folders on this Mac — the originals stay where they are, referenced in place.</p>
+                  {visibleDeviceGalleries.length ? (
+                    <ul class="lib-list">
+                      {visibleDeviceGalleries.map(deviceMirrorCard)}
+                    </ul>
+                  ) : null}
+                  {compactLocalGalleries.length ? (
+                    <ul class="lib-compact-grid" ref={localGridRef}>
+                      {compactLocalGalleries.map(localCompactCard)}
+                    </ul>
+                  ) : null}
+                </>
               ) : null}
             </section>
           ) : null}
           {compactAccountGalleries.length ? (
             <section aria-labelledby="lib-compact-title">
-              <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactAccountGalleries.length})</span></h2>
-              <ul class="lib-compact-grid" ref={accountGridRef}>
-                {compactAccountGalleries.map(accountCompactCard)}
-              </ul>
+              <button
+                type="button"
+                id="lib-compact-title"
+                class="lib-section-title lib-compact-title lib-hidden-toggle"
+                aria-expanded={cloudOpen}
+                onClick={() => setCloudOpen((open) => !open)}
+              >
+                <span class="lib-hidden-chevron" aria-hidden="true">{cloudOpen ? '▾' : '▸'}</span>
+                Cloud galleries <span class="lib-hidden-count">({compactAccountGalleries.length})</span>
+              </button>
+              {cloudOpen ? (
+                <ul class="lib-compact-grid" ref={accountGridRef}>
+                  {compactAccountGalleries.map(accountCompactCard)}
+                </ul>
+              ) : null}
             </section>
           ) : null}
           {savedOnlyGalleries.length ? (

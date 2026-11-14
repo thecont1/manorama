@@ -163,6 +163,10 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
   const [galleryHashes, setGalleryHashes] = useState<Record<string, string>>({})
   const [menuSlug, setMenuSlug] = useState<string | null>(null)
   const [hiddenOpen, setHiddenOpen] = useState(false)
+  // Cloud and Local collapse like Hidden does — user choice per session,
+  // not persisted: the Library opens with every section showing.
+  const [cloudOpen, setCloudOpen] = useState(true)
+  const [localOpen, setLocalOpen] = useState(true)
   // `?details=` opens the sheet once per page load. The marker lives on
   // documentElement rather than in state because hono/jsx can remount the
   // island when an update races a sheet's unmount — a remount replays this
@@ -995,17 +999,28 @@ export default function Admin({ galleries: initialGalleries, owner, ownerName, p
         })}</ul></section> : null}
         {compactGalleries.length ? (
           <section aria-labelledby="lib-compact-title">
-            <h2 id="lib-compact-title" class="lib-section-title lib-compact-title">Cloud galleries <span class="lib-section-count">({compactGalleries.length})</span></h2>
+            <button
+              type="button"
+              id="lib-compact-title"
+              class="lib-section-title lib-compact-title lib-hidden-toggle"
+              aria-expanded={cloudOpen}
+              onClick={() => setCloudOpen((open) => !open)}
+            >
+              <span class="lib-hidden-chevron" aria-hidden="true">{cloudOpen ? '▾' : '▸'}</span>
+              Cloud galleries <span class="lib-hidden-count">({compactGalleries.length})</span>
+            </button>
             {/* A masonry feed of cover cards — the cover keeps its own
                 ratio (nothing is ever cropped), so card heights vary the
                 way a pin feed does. */}
-            <ul class="lib-compact-grid" ref={compactGridRef}>{compactGalleries.map(compactCard)}</ul>
+            {cloudOpen ? (
+              <ul class="lib-compact-grid" ref={compactGridRef}>{compactGalleries.map(compactCard)}</ul>
+            ) : null}
           </section>
         ) : null}
         {/* The synced device feed in compact form — titles, counts and the
             device each folder lives on, no covers: the rows carry no paths
             and the web keeps them that way. */}
-        <DeviceGalleriesSection galleries={visibleDeviceRows} />
+        <DeviceGalleriesSection galleries={visibleDeviceRows} open={localOpen} onToggle={() => setLocalOpen((open) => !open)} />
         {/* Concealed galleries stay reachable — the flag is account-wide,
             so a gallery hidden on a device can be restored from the
             browser too. Collapsed by default: hidden means out of sight,

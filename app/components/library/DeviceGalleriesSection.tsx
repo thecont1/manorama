@@ -21,12 +21,33 @@ export const DeviceGalleriesRows = ({ galleries }: { galleries: readonly DeviceG
 )
 
 /** The compact thumbnail-less Local section the web Library gets. The feed
- *  itself answers empty for Free, so no tier gate lives here. */
-export const DeviceGalleriesSection = ({ galleries }: { galleries: readonly DeviceGallery[] }) =>
+ *  itself answers empty for Free, so no tier gate lives here.
+ *
+ *  `open`/`onToggle` make the section collapsible like the Cloud and Hidden
+ *  sections around it — the host owns the state because this component is
+ *  also rendered bare by the render tests, outside any hook context. */
+export const DeviceGalleriesSection = ({ galleries, open = true, onToggle }: {
+  galleries: readonly DeviceGallery[]
+  open?: boolean
+  onToggle?: () => void
+}) =>
   galleries.length ? (
     <section aria-labelledby="lib-devices-title">
-      <h2 id="lib-devices-title" class="lib-section-title lib-compact-title">Local galleries <span class="lib-section-count">({galleries.length})</span></h2>
-      <p class="lib-section-sub">Folders on your devices — the originals stay there; open them in the app.</p>
-      <DeviceGalleriesRows galleries={galleries} />
+      <button
+        type="button"
+        id="lib-devices-title"
+        class="lib-section-title lib-compact-title lib-hidden-toggle"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span class="lib-hidden-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+        Local galleries <span class="lib-hidden-count">({galleries.length})</span>
+      </button>
+      {open ? (
+        <>
+          <p class="lib-section-sub">Folders on your devices — the originals stay there; open them in the app.</p>
+          <DeviceGalleriesRows galleries={galleries} />
+        </>
+      ) : null}
     </section>
   ) : null
